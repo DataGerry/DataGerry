@@ -77,8 +77,10 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
+
+        # Cloud-only collaborators; left None on-premise where the cloud branches are skipped
+        dg_sp_manager = None
+        cached_user_manager = None
 
         params: dict[str, Any] = request.json
 
@@ -96,6 +98,9 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
 
         # CLOUD MODE → map connection title
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
+
             conn_title = map_oc_name(request_user.database, conn_title)
             conn_data["title"] = conn_title
 
@@ -175,11 +180,12 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
 
         # CLOUD MODE → Validate scheduler access (CACHE FIRST)
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
+
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
             if cached_user:
@@ -235,11 +241,11 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
 
         # CLOUD MODE → Retrieve scheduler IDs (CACHE FIRST)
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
 
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
@@ -276,6 +282,8 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
             schedulers = oc_scheduler_manager.get_all_schedulers()
 
         return DefaultResponse(schedulers).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except OcSchedulerGetError as err:
         LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve Automations!")
@@ -334,7 +342,7 @@ def get_oc_running_schedulers(request_user: CmdbUser) -> Response:
     except HTTPException as http_err:
         raise http_err
     except OcSchedulerGetError as err:
-        LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
+        LOGGER.error("[get_oc_running_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve running Automations!")
 
 
@@ -365,11 +373,12 @@ def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
 
         # Validate scheduler exists in subscription
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
+
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
             if cached_user:
@@ -396,7 +405,7 @@ def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
     except HTTPException as http_err:
         raise http_err
     except OcSchedulerGetError as err:
-        LOGGER.error("[get_all_oc_schedulers] %s: %s.", type(err).__name__, err, exc_info=True)
+        LOGGER.error("[get_oc_scheduler_logs] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve Automation logs!")
 
 
@@ -416,11 +425,11 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
 
         # CLOUD MODE → Validate scheduler access (CACHE FIRST)
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
 
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
@@ -470,11 +479,12 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
 
         # CLOUD MODE → Validate scheduler access (CACHE FIRST)
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
+
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
             if cached_user:
@@ -545,8 +555,10 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             current_app.database_manager,
             request_user.database
         )
-        dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
+
+        # Cloud-only collaborators; left None on-premise where the cloud branches are skipped
+        dg_sp_manager = None
+        cached_user_manager = None
 
         # FETCH SCHEDULER FIRST (NEEDED TO ACCESS connectionId)
         scheduler = oc_scheduler_manager.get_scheduler(scheduler_id)
@@ -557,6 +569,8 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 
         # CLOUD MODE → VALIDATE ID ACCESS (CACHE FIRST)
         if current_app.cloud_mode and not current_app.local_mode:
+            dg_sp_manager = DgServicePortalManager()
+            cached_user_manager = CachedUserManager(current_app.database_manager)
 
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
@@ -599,28 +613,31 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         # DELETE SCHEDULER
         deleted_scheduler: bool = oc_scheduler_manager.delete_scheduler(scheduler_id)
 
-        # Cleanup ServicePortal entry
-        if current_app.cloud_mode and not current_app.local_mode:
-            dg_sp_manager.delete_scheduler_id(
-                scheduler_id,
-                request_user.email,
-                request_user.database
-            )
+        # Only cascade the connection cleanup when the scheduler was actually deleted, so a failed
+        # scheduler delete cannot orphan its backing connection (or the Service Portal entries)
+        if deleted_scheduler:
+            # Cleanup ServicePortal scheduler entry
+            if current_app.cloud_mode and not current_app.local_mode:
+                dg_sp_manager.delete_scheduler_id(
+                    scheduler_id,
+                    request_user.email,
+                    request_user.database
+                )
 
-            cached_user_manager.delete_cached_user(request_user.email)
+                cached_user_manager.delete_cached_user(request_user.email)
 
-        # Delete Connection
-        oc_connection_manager.delete_connection(connection_id)
+            # Delete Connection
+            oc_connection_manager.delete_connection(connection_id)
 
-        # Cleanup ServicePortal entry
-        if current_app.cloud_mode and not current_app.local_mode:
-            dg_sp_manager.delete_connection_id(
-                connection_id,
-                request_user.email,
-                request_user.database
-            )
+            # Cleanup ServicePortal connection entry
+            if current_app.cloud_mode and not current_app.local_mode:
+                dg_sp_manager.delete_connection_id(
+                    connection_id,
+                    request_user.email,
+                    request_user.database
+                )
 
-            cached_user_manager.delete_cached_user(request_user.email)
+                cached_user_manager.delete_cached_user(request_user.email)
 
         return DefaultResponse(deleted_scheduler).make_response()
     except HTTPException as http_err:

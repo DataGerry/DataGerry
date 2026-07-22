@@ -1,5 +1,6 @@
 <div class="container" [formGroup]="vulnerabilityForm">
-    <h2 class="mb-3">{{ isEditMode ? 'Edit Vulnerability' : isViewMode ? 'View Vulnerability' :  'Add Vulnerability' }}</h2>
+    <h2 class="mb-3">{{ isEditMode ? 'Edit Vulnerability' : isViewMode ? 'View Vulnerability' : 'Add Vulnerability' }}
+    </h2>
 
     <form autocomplete="off" class="needs-validation" (ngSubmit)="onSave()" [formGroup]="vulnerabilityForm">
 
@@ -23,15 +24,20 @@
                     placeholder="Select vulnerability sources..." formControlName="source" class="flex-grow-1">
                 </ng-select>
 
-                <button *ngIf="!isViewMode" type="button" class="btn btn-outline-secondary btn-sm" style="padding: 6.5px;" (click)="openSourceManager()">
+                @if (!isViewMode) {
+                <button type="button" class="btn btn-outline-secondary btn-sm" style="padding: 6.5px;"
+                    (click)="openSourceManager()">
                     Manage Sources
                 </button>
+                }
             </div>
 
             <!-- Optional error message for Source -->
-            <div class="invalid-feedback d-block mt-1" *ngIf="hasError('source', 'required')">
+            @if (hasError('source', 'required')) {
+            <div class="invalid-feedback d-block mt-1">
                 Source is required
             </div>
+            }
         </div>
 
         <!-- Description (Required) using FormTextareaComponent -->
@@ -43,18 +49,22 @@
             <button class="btn btn-secondary me-2" type="button" (click)="onCancel()">
                 Cancel
             </button>
-            <button *ngIf="!isViewMode" class="btn btn-success" type="submit" [disabled]="vulnerabilityForm.invalid">
+            @if (!isViewMode) {
+            <button class="btn btn-success" type="submit" [disabled]="vulnerabilityForm.invalid">
                 {{ isEditMode ? 'Save Changes' : 'Create Vulnerability' }}
             </button>
+            }
         </div>
     </form>
 </div>
 
 <!-- Option Manager Modal -->
-<app-extendable-option-manager *ngIf="showSourceManager" [options]="sourceOptions" [optionType]="'THREAT_VULNERABILITY'"
-    [modalTitle]="'Manage Vulnerability Sources'" [itemLabel]="'Vulnerability Source'" [itemLabelPlural]="'Vulnerability Sources'"
-    (close)="closeSourceManager()">
+@if (showSourceManager) {
+<app-extendable-option-manager [options]="sourceOptions" [optionType]="'THREAT_VULNERABILITY'"
+    [modalTitle]="'Manage Vulnerability Sources'" [itemLabel]="'Vulnerability Source'"
+    [itemLabelPlural]="'Vulnerability Sources'" (close)="closeSourceManager()">
 </app-extendable-option-manager>
+}
 
 <!-- Loading Spinner -->
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">

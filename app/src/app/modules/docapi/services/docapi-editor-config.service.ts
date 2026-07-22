@@ -26,7 +26,10 @@ import {
 declare var tinymce;
 
 interface DocapiEditorConfigContext {
+<<<<<<< HEAD
     isCloudMode: boolean;
+=======
+>>>>>>> origin/version-3.2
     getTemplateType: () => string;
     getTemplateHelperData: () => any[];
     onPreviewRequested: () => void;
@@ -49,9 +52,16 @@ export class DocapiEditorConfigService {
 
     public createConfig(context: DocapiEditorConfigContext): Record<string, unknown> {
         const objectTemplate = this.isObjectTemplate(context);
+<<<<<<< HEAD
         const toolbar2 = this.resolveSecondaryToolbar(context.isCloudMode, objectTemplate);
 
         return {
+=======
+        const toolbar2 = this.resolveSecondaryToolbar(objectTemplate);
+
+        return {
+            license_key: 'gpl',
+>>>>>>> origin/version-3.2
             base_url: '/tinymce',
             suffix: '.min',
             height: 500,
@@ -116,6 +126,7 @@ export class DocapiEditorConfigService {
         });
         editor?.on('SetContent Change KeyUp Undo Redo', () => context.onEditorContentChanged?.(editor));
 
+<<<<<<< HEAD
         if (context.isCloudMode) {
             const [faWidth, faHeight, , , faSvgPathData] = faWandMagicSparkles.icon;
             const aiAssistantPath = Array.isArray(faSvgPathData) ? faSvgPathData[0] : faSvgPathData;
@@ -126,6 +137,16 @@ export class DocapiEditorConfigService {
                 </svg>
             `);
         }
+=======
+        const [faWidth, faHeight, , , faSvgPathData] = faWandMagicSparkles.icon;
+        const aiAssistantPath = Array.isArray(faSvgPathData) ? faSvgPathData[0] : faSvgPathData;
+
+        editor?.ui?.registry?.addIcon('aiassistant', `
+            <svg width="24" height="24" viewBox="0 0 ${faWidth} ${faHeight}" aria-hidden="true">
+                <path d="${aiAssistantPath}" fill="currentColor"></path>
+            </svg>
+        `);
+>>>>>>> origin/version-3.2
 
         editor?.ui?.registry?.addMenuButton('cmdbdata', {
             text: 'CMDB Data',
@@ -155,7 +176,11 @@ export class DocapiEditorConfigService {
             });
         }
 
+<<<<<<< HEAD
         if (context.isCloudMode && !objectTemplate) {
+=======
+        if (!objectTemplate) {
+>>>>>>> origin/version-3.2
             editor?.ui?.registry?.addButton('aiassistant', {
                 icon: 'aiassistant',
                 tooltip: 'AI Assistant (using OpenAI API)',
@@ -164,14 +189,22 @@ export class DocapiEditorConfigService {
         }
     }
 
+<<<<<<< HEAD
     private resolveSecondaryToolbar(isCloudMode: boolean, objectTemplate: boolean): string {
+=======
+    private resolveSecondaryToolbar(objectTemplate: boolean): string {
+>>>>>>> origin/version-3.2
         if (objectTemplate) {
             return 'cmdbdata | previewdoc';
         }
 
+<<<<<<< HEAD
         return isCloudMode
             ? 'cmdbdata placeholders pagemargins aiassistant | previewdoc'
             : 'cmdbdata placeholders pagemargins | previewdoc';
+=======
+        return 'cmdbdata placeholders pagemargins aiassistant | previewdoc';
+>>>>>>> origin/version-3.2
     }
 
     private isObjectTemplate(context: DocapiEditorConfigContext): boolean {

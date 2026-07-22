@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.location_model.cmdb_location_schema import get_cmdb_location_schema
+
 from cmdb.errors.models.cmdb_location import (
     CmdbLocationInitError,
     CmdbLocationInitFromDataError,
@@ -49,6 +51,7 @@ class CmdbLocation(CmdbDAO):
         {'keys': [('type_id', CmdbDAO.DAO_ASCENDING)], 'name': 'type_id', 'unique': False}
     ]
 
+<<<<<<< HEAD
     SCHEMA: dict = {
         'public_id': {
             'type': 'integer'
@@ -79,6 +82,9 @@ class CmdbLocation(CmdbDAO):
             'default': True
         },
     }
+=======
+    SCHEMA: dict = get_cmdb_location_schema()
+>>>>>>> origin/version-3.2
 
 
     #pylint: disable=R0913, R0917

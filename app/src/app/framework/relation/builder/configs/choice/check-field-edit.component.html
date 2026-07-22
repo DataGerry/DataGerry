@@ -24,18 +24,24 @@
                  'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}"
                 (ngModelChange)="onInputChange($event, 'name')"
             />
-            <div *ngIf="isDuplicate$" class="invalid-feedback">
+            @if (isDuplicate$) {
+<div class="invalid-feedback">
                 <div class="text-end">
                     Field name must be unique
                 </div>
             </div>
+}
         </div>
         <small class="form-text text-muted text-start">Use a unique field identifier</small>
-        <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
-            <div class="text-end" *ngIf="nameControl.errors?.required">
+        @if (nameControl.invalid && (nameControl.dirty || nameControl.touched)) {
+<div class="invalid-feedback">
+            @if (nameControl.errors?.required) {
+<div class="text-end">
                 Identifier is a required field
             </div>
+}
         </div>
+}
         <div class="clearfix"></div>
     </div>
     <div class=" col-md-12">
@@ -51,11 +57,15 @@
             (ngModelChange)="onInputChange($event, 'label')"
         />
         <small class="form-text text-muted text-start">A static display name</small>
-        <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)" class="invalid-feedback">
-            <div class="text-end" *ngIf="labelControl.errors?.required">
+        @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
+<div class="invalid-feedback">
+            @if (labelControl.errors?.required) {
+<div class="text-end">
                 Label is a required field
             </div>
+}
         </div>
+}
         <div class="clearfix"></div>
     </div>
     <div class="  col-md-12">

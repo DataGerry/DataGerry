@@ -15,7 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+<<<<<<< HEAD
 import { Component, Input, OnInit } from '@angular/core';
+=======
+import { Component, inject, Input, OnInit } from '@angular/core';
+>>>>>>> origin/version-3.2
 import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import type { Editor as TinyMceEditor } from 'tinymce';
@@ -28,7 +32,10 @@ import {
     DocTemplateTocBaseStyle
 } from '../../../models/cmdb-doctemplate';
 import { DocapiEditorConfigService } from '../../../services/docapi-editor-config.service';
+<<<<<<< HEAD
 import { environment } from '../../../../../../environments/environment';
+=======
+>>>>>>> origin/version-3.2
 import { ExternalObjectSelectorModalComponent } from '../../external-object-selector-modal/external-object-selector-modal.component';
 import { RelationTemplateSelectorModalComponent } from '../../relation-template-selector-modal/relation-template-selector-modal.component';
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../../utils/cover-page.util';
@@ -110,11 +117,17 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     });
     public validationError = '';
 
+<<<<<<< HEAD
     constructor(
         public readonly activeModal: NgbActiveModal,
         private editorConfigService: DocapiEditorConfigService,
         private modalService: NgbModal
     ) { }
+=======
+    public readonly activeModal = inject(NgbActiveModal);
+    private readonly editorConfigService = inject(DocapiEditorConfigService);
+    private readonly modalService = inject(NgbModal);
+>>>>>>> origin/version-3.2
 
 
     public ngOnInit(): void {
@@ -230,7 +243,10 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
 
     private initializeEditorConfig(): void {
         const baseConfig = this.editorConfigService.createConfig({
+<<<<<<< HEAD
             isCloudMode: environment.cloudMode,
+=======
+>>>>>>> origin/version-3.2
             getTemplateType: () => this.templateType,
             getTemplateHelperData: () => this.templateHelperData,
             onPreviewRequested: () => undefined,

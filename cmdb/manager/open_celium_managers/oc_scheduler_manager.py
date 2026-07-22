@@ -75,7 +75,7 @@ class OcSchedulerManager(OcBaseManager):
         raise OcSchedulerCreateError("Failed to create the Scheduler in OpenCelium!")
 
 
-    def get_schedulers_by_ids(self, scheduler_ids: list[int]) -> dict[str, Any]:
+    def get_schedulers_by_ids(self, scheduler_ids: list[int]) -> list[dict[str, Any]]:
         """
         Retrieves a list of OcSchedulers with the provided 'scheduler_ids'
 
@@ -87,7 +87,7 @@ class OcSchedulerManager(OcBaseManager):
             OcSchedulerGetError: When the OcSchedulers could not be retrieved
 
         Returns:
-            dict[str, Any]: The OcSchedulers with the given scheduler_ids
+            list[dict[str, Any]]: The OcSchedulers with the given scheduler_ids
         """
         if not scheduler_ids:
             raise OcSchedulerGetError("No schedulerIds for Schedulers provided!")
@@ -134,7 +134,7 @@ class OcSchedulerManager(OcBaseManager):
         raise OcSchedulerGetError(f"Failed to retrieve OpenCelium Scheduler with ID: {scheduler_id}")
 
 
-    def get_running_schedulers(self) -> dict[str, Any]:
+    def get_running_schedulers(self) -> list[dict[str, Any]]:
         """
         Retrieves all running schedulers
 
@@ -142,7 +142,7 @@ class OcSchedulerManager(OcBaseManager):
             OcSchedulerGetError: When the OcScheduler could not be retrieved
 
         Returns:
-            dict[str, Any]: All running schedulers
+            list[dict[str, Any]]: All running schedulers
         """
         running_schedulers_resp: Response = self.oc_connector.oc_get(f"{RUNNING_SCHEDULERS_URL}")
 
@@ -200,17 +200,18 @@ class OcSchedulerManager(OcBaseManager):
 
     def get_scheduler_logs(self, scheduler_id: int, status: str) -> list[dict[str, Any]]:
         """
-        Executes an OcScheduler in OpenCelium with the given scheduler_id
+        Retrieves the execution logs of an OcScheduler with the given scheduler_id
 
         Args:
-            scheduler_id (int): schedulerId of the OcScheduler which should be executed
+            scheduler_id (int): schedulerId of the OcScheduler whose logs are retrieved
+            status (str): log status filter ('s' for success, 'f' for failed)
 
         Raises:
-            OcSchedulerGetError: When the schedulerId was not provided to this method
-            OcSchedulerGetError: When the OcScheduler could not be executed
+            OcSchedulerGetError: When the schedulerId or status was not provided to this method
+            OcSchedulerGetError: When the OcScheduler logs could not be retrieved
 
         Returns:
-            dict[str, Any]: The result of the OcScheduler execution
+            list[dict[str, Any]]: The formatted scheduler execution logs
         """
         if not scheduler_id:
             raise OcSchedulerGetError("No schedulerId for Scheduler logs provided!")
@@ -223,7 +224,7 @@ class OcSchedulerManager(OcBaseManager):
         )
         if self.is_valid_response(scheduler_logs_resp):
             raw_scheduler_logs = json.loads(scheduler_logs_resp.text)
-            raw_scheduler_logs = raw_scheduler_logs['result']
+            raw_scheduler_logs = raw_scheduler_logs.get('result')
             formatted_logs: list[dict[str, Any]] = []
 
             if raw_scheduler_logs:
@@ -257,7 +258,7 @@ class OcSchedulerManager(OcBaseManager):
         if self.is_valid_response(updated_scheduler_response):
             return json.loads(updated_scheduler_response.text)
 
-        LOGGER.error("[get_schedulers_by_ids] OC Error: %s", updated_scheduler_response.text)
+        LOGGER.error("[update_scheduler] OC Error: %s", updated_scheduler_response.text)
         raise OcSchedulerUpdateError(f"Failed to update Scheduler with ID:{scheduler_id} in OpenCelium!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -269,8 +270,11 @@ class OcSchedulerManager(OcBaseManager):
         Args:
             scheduler_id (int): the schedulerId of the OcScheduler which should be deleted
 
+        Raises:
+            OcSchedulerDeleteError: When the deletion failed (non-2xx response from OpenCelium)
+
         Returns:
-            bool: True if deletion was a success else False
+            bool: True if deletion was a success
         """
         delete_scheduler_response: Response = self.oc_connector.oc_delete(f"{SCHEDULER_URL}/{scheduler_id}")
 

@@ -71,6 +71,11 @@ from cmdb.manager.open_celium_managers.oc_license_manager import OcLicenseManage
 from cmdb.manager.open_celium_managers.oc_connection_log_manager import OcConnectionLogManager
 
 from cmdb.manager.system_manager.dg_service_portal_manager import DgServicePortalManager
+
+# License Managers
+from cmdb.manager.license_manager.license_activation_requests_manager import LicenseActivationRequestsManager
+from cmdb.manager.license_manager.active_license_manager import ActiveLicenseManager
+from cmdb.manager.license_manager.license_service import LicenseService
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -122,4 +127,7 @@ __all__: list[str] = [
     'OcLicenseManager',
     'DgServicePortalManager',
     'OcConnectionLogManager',
+    'LicenseActivationRequestsManager',
+    'ActiveLicenseManager',
+    'LicenseService',
 ]

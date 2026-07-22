@@ -16,8 +16,14 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
-  Component, Input, OnInit, OnChanges, SimpleChanges,
-  TemplateRef, ViewChild
+  Component,
+  inject,
+  Input,
+  OnInit,
+  OnChanges,
+  SimpleChanges,
+  TemplateRef,
+  ViewChild,
 } from '@angular/core';
 import { ActivatedRoute, Router }    from '@angular/router';
 import { finalize, forkJoin }        from 'rxjs';
@@ -75,20 +81,18 @@ export class ControlMeasureAssignmentListComponent
   private stsMap = new Map<number, string>();
   private metaReady = false;
 
-  constructor(
-    private readonly route: ActivatedRoute,
-    private readonly router: Router,
-    private readonly srvAssign: ControlMeasureAssignmentService,
-    private readonly srvCM: ControlMeasureService,
-    private readonly srvRA: RiskAssessmentService,
-    private readonly srvStatus: ExtendableOptionService,
-    private readonly srvPers: PersonService,
-    private readonly srvPG: PersonGroupService,
-    private readonly loader: LoaderService,
-    private readonly toast: ToastService,
-    private readonly filterBld: FilterBuilderService,
-    private readonly modalService: NgbModal
-  ) {}
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly srvAssign = inject(ControlMeasureAssignmentService);
+  private readonly srvCM = inject(ControlMeasureService);
+  private readonly srvRA = inject(RiskAssessmentService);
+  private readonly srvStatus = inject(ExtendableOptionService);
+  private readonly srvPers = inject(PersonService);
+  private readonly srvPG = inject(PersonGroupService);
+  private readonly loader = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly filterBld = inject(FilterBuilderService);
+  private readonly modalService = inject(NgbModal);
 
   /* ────────── lifecycle ────────── */
   ngOnInit(): void {

@@ -18,7 +18,6 @@
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { DndModule } from 'ngx-drag-drop';
@@ -60,7 +59,6 @@ import { CoreModule } from 'src/app/core/core.module';
         NgbDatepickerModule,
         DndModule,
         BuilderModule,
-        MatCheckboxModule,
         ToastModule,
         AuthModule,
         CoreModule

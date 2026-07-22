@@ -7,13 +7,15 @@
     {{ message }}
   </div>
 
-  <ng-container *ngIf="warningMessage">
+  @if (warningMessage) {
+
     <app-warning-alert
       [title]="warningTitle"
       [message]="warningMessage"
       [iconClass]="warningIconClass">
     </app-warning-alert>
-  </ng-container>
+  
+}
 </div>
 <div class="modal-footer">
   <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss()">{{ cancelButtonText }}</button>

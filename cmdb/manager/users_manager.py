@@ -40,6 +40,19 @@ from cmdb.errors.manager.users_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+<<<<<<< HEAD
+=======
+
+# Minimal projection for displaying a user (e.g. as a log author) without loading the full document
+MINIMAL_USER_PROJECTION: dict[str, int] = {
+    'public_id': 1,
+    'first_name': 1,
+    'last_name': 1,
+    'image': 1,
+    'user_name': 1,
+    '_id': 0,
+}
+>>>>>>> origin/version-3.2
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 UsersManager - CLASS                                                 #
@@ -50,18 +63,39 @@ class UsersManager(BaseManager):
 
     Extends: BaseManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None):
         """
         Set the database connection for the UsersManager
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+            database (str | None): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
         """
         try:
             super().__init__(CmdbUser.COLLECTION, dbm, database)
         except Exception as err:
-            raise UsersManagerInitError(err) from err
+            raise UsersManagerInitError(str(err)) from err
+
+# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
+
+    def get_minimal_users_by_ids(self, public_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves a minimal projection of the CmdbUsers with the given public_ids
+
+        Only the fields needed to display a user (e.g. as a log author) are returned - public_id,
+        first_name, last_name, image, user_name - in a single query; no full user documents are loaded.
+        Ids without a matching user are simply absent from the result.
+
+        Args:
+            public_ids (list[int]): public_ids of the CmdbUsers to retrieve
+
+        Returns:
+            list[dict[str, Any]]: Minimal user dicts; an empty list when no ids are provided
+        """
+        if not public_ids:
+            return []
+
+        return self.find(criteria={'public_id': {'$in': list(public_ids)}}, projection=MINIMAL_USER_PROJECTION)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -85,7 +119,7 @@ class UsersManager(BaseManager):
             return self.insert(user)
         except Exception as err:
             LOGGER.error("[insert_user] Exception: %s. Type: %s", err, type(err))
-            raise UsersManagerInsertError(err) from err
+            raise UsersManagerInsertError(str(err)) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -111,7 +145,7 @@ class UsersManager(BaseManager):
             return CmdbUser.from_data(requested_user)
         except Exception as err:
             LOGGER.error("[get_user] Exception: %s. Type: %s", err, type(err))
-            raise UsersManagerGetError(err) from err
+            raise UsersManagerGetError(str(err)) from err
 
 
     def get_user_by(self, query: dict) -> CmdbUser | None:
@@ -139,15 +173,15 @@ class UsersManager(BaseManager):
             return None
         except Exception as err:
             LOGGER.error("[get_user_by] Exception: %s. Type: %s", err, type(err))
-            raise UsersManagerGetError(err) from err
+            raise UsersManagerGetError(str(err)) from err
 
 
-    def get_many_users(self, query: list = None) -> list[CmdbUser]:
+    def get_many_users(self, query: dict[str, Any] | None = None) -> list[CmdbUser]:
         """
         Get multiple CmdbUsers by a query. Passing no query means all users
 
         Args:
-            query (dict): A database query for filtering
+            query (dict[str, Any] | None): A database query for filtering
 
         Raises:
             UsersManagerGetError: Raised when CmdbUsers cant be retrieved or not transformed into CmdbUser
@@ -163,7 +197,7 @@ class UsersManager(BaseManager):
             return [CmdbUser.from_data(user) for user in results]
         except Exception as err:
             LOGGER.error("[get_many_users] Exception: %s, Type: %s", err, type(err))
-            raise UsersManagerGetError(err) from err
+            raise UsersManagerGetError(str(err)) from err
 
 
     def iterate(self, builder_params: BuilderParameters) -> IterationResult[CmdbUser]:
@@ -187,7 +221,26 @@ class UsersManager(BaseManager):
             return iteration_result
         except Exception as err:
             LOGGER.error("[iterate] Exception: %s, Type: %s", err, type(err))
-            raise UsersManagerIterationError(err) from err
+            raise UsersManagerIterationError(str(err)) from err
+
+
+    def get_user_lookup(self, user_ids: list[int]) -> dict[int, CmdbUser]:
+        """
+        Retrieves a lookup dictionary of CmdbUsers filtered by the provided user_ids
+
+        Args:
+            user_ids (list[int]): The public_ids of CmdbUsers which should be retrieved
+
+        Returns:
+            dict[int, CmdbUser]: The lookup dictionary with the CmdbUsers
+        """
+        users: list[dict[str, Any]] = self.find(criteria={"public_id": {"$in": list(user_ids)}})
+
+        user_lookup: dict[int, CmdbUser] = {
+            user['public_id']: CmdbUser.from_data(user) for user in users
+        }
+
+        return user_lookup
 
 
     def get_user_lookup(self, user_ids: list[int]) -> dict[int, CmdbUser]:
@@ -228,7 +281,7 @@ class UsersManager(BaseManager):
             self.update(criteria={'public_id': public_id}, data=user_data)
         except Exception as err:
             LOGGER.error("[update_user] Exception: %s, Type: %s", err, type(err))
-            raise UsersManagerUpdateError(err) from err
+            raise UsersManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -246,13 +299,21 @@ class UsersManager(BaseManager):
             bool: True if deletion was successful
         """
         try:
+<<<<<<< HEAD
             if public_id == 1:
+=======
+            if public_id == CmdbUser.ADMIN_PUBLIC_ID:
+>>>>>>> origin/version-3.2
                 raise UsersManagerDeleteError("It is not possible to delete the admin user!")
 
             return self.delete({'public_id': public_id})
         except Exception as err:
             LOGGER.error("[delete_user] Exception: %s, Type: %s", err, type(err))
+<<<<<<< HEAD
             raise UsersManagerDeleteError(err) from err
+=======
+            raise UsersManagerDeleteError(str(err)) from err
+>>>>>>> origin/version-3.2
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -262,7 +323,30 @@ class UsersManager(BaseManager):
         action: GroupDeleteMode,
         target_group_id: int | None
     ) -> None:
+<<<<<<< HEAD
         """TODO: document"""
+=======
+        """
+        Redistribute the members of a UserGroup that is about to be deleted
+
+        Depending on ``action``:
+          * ``MOVE`` - every user in ``group_id`` is reassigned to ``target_group_id`` in a single
+            bulk write (``target_group_id`` must be provided)
+          * ``DELETE`` - every user in ``group_id`` is deleted, but the call is refused first if the
+            bootstrap admin user is a member (the admin must never be deleted)
+        A group with no members is a no-op
+
+        Args:
+            group_id (int): public_id of the UserGroup being deleted
+            action (GroupDeleteMode): How to handle the group's members (MOVE or DELETE)
+            target_group_id (int | None): Destination group for MOVE; ignored for DELETE
+
+        Raises:
+            UsersManagerDeleteError: When the admin user is a member on DELETE, or a member delete failed
+            UsersManagerUpdateError: When the move target is missing or a member move failed
+            UsersManagerGetError: When the group's members could not be retrieved
+        """
+>>>>>>> origin/version-3.2
         try:
             users_in_group: list[CmdbUser] = self.get_many_users({'group_id': group_id})
 
@@ -286,7 +370,11 @@ class UsersManager(BaseManager):
                 # Check if the admin user is part of this UserGroup
                 admin_user: dict[str, Any] | None = self.get_one_by({
                     "group_id": group_id,
+<<<<<<< HEAD
                     "public_id": 1
+=======
+                    "public_id": CmdbUser.ADMIN_PUBLIC_ID
+>>>>>>> origin/version-3.2
                 })
 
                 if admin_user:
@@ -294,6 +382,7 @@ class UsersManager(BaseManager):
 
                 self.delete_many({"group_id": group_id})
         except UsersManagerDeleteError as err:
+<<<<<<< HEAD
             LOGGER.error("[delete_user_group]  UsersManagerDeleteError: %s", err)
             raise UsersManagerDeleteError(str(err)) from err
         except UsersManagerUpdateError as err:
@@ -301,4 +390,15 @@ class UsersManager(BaseManager):
             raise UsersManagerDeleteError(str(err)) from err
         except UsersManagerGetError as err:
             LOGGER.error("[delete_user_group] UsersManagerGetError: %s", err)
+=======
+            LOGGER.error("[handle_users_on_group_delete] UsersManagerDeleteError: %s", err)
+            raise UsersManagerDeleteError(str(err)) from err
+        except UsersManagerUpdateError as err:
+            # A failed move stays an update error - do not mask it as a delete error, so the
+            # groups delete route can map it to its own "failed to move" response
+            LOGGER.error("[handle_users_on_group_delete] UsersManagerUpdateError: %s", err)
+            raise UsersManagerUpdateError(str(err)) from err
+        except UsersManagerGetError as err:
+            LOGGER.error("[handle_users_on_group_delete] UsersManagerGetError: %s", err)
+>>>>>>> origin/version-3.2
             raise UsersManagerGetError(str(err)) from err

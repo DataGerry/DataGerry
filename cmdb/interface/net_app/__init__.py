@@ -14,30 +14,44 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Init module for static routes
+Flask app that serves the bundled Angular SPA at the dispatcher's root mount
+
+`create_app()` produces the WSGI application `WebCmdbService._run` mounts at `/` inside the
+`DispatcherMiddleware` (alongside `/docs` and `/rest`). The app's job is narrow: serve the
+compiled Angular bundle that `make webapp` copies into `cmdb/interface/net_app/datagerry-app/`,
+plus two top-level static files (`favicon.ico`, `browserconfig.xml`) read from the package's
+`_static/` directory, and fall back to `index.html` on any 404 so the browser can resolve
+client-side routes after a hard reload. CORS is enabled wide-open so the dev workflow
+(`npm start` on `:4200`) can hit the REST API on a different origin
 """
-from os import path
-from flask import send_from_directory
 from flask_cors import CORS
 
 import cmdb
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.config import app_config
 
-from cmdb.interface.net_app.app_routes import app_pages, redirect_index
+from cmdb.interface.net_app.app_routes import app_pages, serve_spa_fallback
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def create_app():
+def create_app() -> BaseCmdbApp:
     """
-    Creates and configures the Flask application instance
+    Builds and wires the Flask app for the Angular SPA mount
 
-    This function sets up the main Flask app, configures it based on the mode (DEBUG or production),
-    enables Cross-Origin Resource Sharing (CORS), registers blueprints for app pages, and defines routes
-    for static files like `favicon.ico` and `browserconfig.xml`. The configuration for the app is determined
-    by the mode specified in the `cmdb.__MODE__` variable
+    Picks the Flask config object from `app_config` based on `cmdb.__MODE__`: `'DEBUG'` selects
+    `DevelopmentConfig`, anything else falls through to `ProductionConfig`. The `testing` entry
+    in `app_config` is never selected from here. Enables `flask_cors.CORS` wide-open on the
+    whole app so the Angular dev server can call the backend cross-origin; in a production
+    deployment the same WSGI app serves UI and API on one origin and CORS is functionally a
+    no-op. Registers the `app_pages` blueprint at `/` — that blueprint owns the SPA bundle
+    under `datagerry-app/` and the two top-level static routes (`/favicon.ico`,
+    `/browserconfig.xml`) backed by the package's `_static/` directory. Finally wires
+    `serve_spa_fallback` (defined in `app_routes`) as the app-level 404 handler, so any
+    unmatched URL — inside or outside the blueprint — returns `index.html` and lets the
+    Angular router resolve deep-linked client-side routes after a hard reload
 
     Returns:
-        app: The configured Flask application instance
+        BaseCmdbApp: Fully configured Flask app instance, ready to be mounted under
+            `DispatcherMiddleware`
     """
     app = BaseCmdbApp(__name__)
     CORS(app)
@@ -49,16 +63,7 @@ def create_app():
         config = app_config['production']
         app.config.from_object(config)
 
-    # add static routes
     app.register_blueprint(app_pages, url_prefix='/')
-    app.register_error_handler(404, redirect_index)
-
-    @app.route('/favicon.ico')
-    def favicon():
-        return send_from_directory(path.join(app.root_path, '_static'), 'favicon.ico')
-
-    @app.route('/browserconfig.xml')
-    def browser_config():
-        return send_from_directory(path.join(app.root_path, '_static'), 'browserconfig.xml')
+    app.register_error_handler(404, serve_spa_fallback)
 
     return app

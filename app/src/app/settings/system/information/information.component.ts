@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { SystemService } from '../system.service';
 
 @Component({
@@ -11,8 +11,7 @@ export class InformationComponent implements OnInit {
 
   public systemInfos: any;
 
-  constructor(private systemService: SystemService) {
-  }
+  private readonly systemService = inject(SystemService);
 
   public ngOnInit(): void {
     this.systemService.getDatagerryInformation().subscribe((infos: any[]) => {

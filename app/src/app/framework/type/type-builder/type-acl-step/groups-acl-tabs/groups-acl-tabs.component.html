@@ -11,7 +11,9 @@
   <tr>
     <td>
       <ng-select [items]="groups" [(ngModel)]="selectedGroup" (ngModelChange)="valueChange.emit([selectedPermissions, $event])">
-        <ng-option *ngFor="let group of groups" [value]="group">{{group.label}}</ng-option>
+        @for (group of groups; track group) {
+<ng-option [value]="group">{{group.label}}</ng-option>
+}
       </ng-select>
       <small>Add a group to grant access operations.</small>
     </td>
@@ -26,7 +28,8 @@
       </button>
     </td>
   </tr>
-  <tr [formGroup]="form" *ngFor="let control of controls | keyvalue">
+  @for (control of controls | keyvalue; track control) {
+<tr [formGroup]="form">
     <td>
       {{getGroupLabelByID(+control.key)}}
     </td>
@@ -45,5 +48,6 @@
       </button>
     </td>
   </tr>
+}
   </tbody>
 </table>

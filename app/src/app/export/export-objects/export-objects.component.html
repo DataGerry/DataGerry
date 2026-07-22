@@ -26,13 +26,12 @@
                 </ng-select>
 
                 <!-- error block -->
-                <div
-                    *ngIf="isVisible && type.errors?.required"
-                    class="cross-validation-error-message alert alert-danger"
-                >
+                @if (isVisible && type.errors?.required) {
+                <div class="cross-validation-error-message alert alert-danger">
                     Please enter type
                 </div>
-            </div>
+                }
+                </div>
 
             <div class="mb-3">
                 <label for="formatChooser" class="mb-2">
@@ -57,12 +56,14 @@
                 </ng-select>
 
                 <!-- error block -->
-                <div
-                    *ngIf="isVisible && format.errors?.required"
+                @if (isVisible && format.errors?.required) {
+<div
+                   
                     class="cross-validation-error-message alert alert-danger"
                 >
                     Please enter format
                 </div>
+}
             </div>
 
             <button

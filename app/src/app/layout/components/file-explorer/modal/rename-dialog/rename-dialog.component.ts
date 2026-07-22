@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { FileMetadata } from '../../model/metadata';
@@ -52,7 +52,8 @@ export class RenameDialogComponent implements OnInit {
     );
   }
 
-  constructor(private fileService: FileService, public activeModal: NgbActiveModal) {}
+  private readonly fileService = inject(FileService);
+  public readonly activeModal = inject(NgbActiveModal);
 
   public ngOnInit(): void {
     const placeholder: string = this.selectedFileElement.getValue() ? this.selectedFileElement.getValue().filename : '';

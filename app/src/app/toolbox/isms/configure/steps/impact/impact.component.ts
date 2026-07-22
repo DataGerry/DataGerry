@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnInit, Output, TemplateRef, ViewChild } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -18,6 +18,11 @@ import { Sort, SortDirection } from 'src/app/layout/table/table.types';
     standalone: false
 })
 export class ImpactComponent implements OnInit {
+  private readonly impactService = inject(ImpactService);
+  private readonly toast = inject(ToastService);
+  private readonly modalService = inject(NgbModal);
+  private readonly loaderService = inject(LoaderService);
+
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
   @Input() config: IsmsConfig;
   @Output() impactCountChange = new EventEmitter<number>();
@@ -35,13 +40,6 @@ export class ImpactComponent implements OnInit {
   public isLoading$ = this.loaderService.isLoading$;
 
   
-  constructor(
-    private impactService: ImpactService,
-    private toast: ToastService,
-    private modalService: NgbModal,
-    private loaderService: LoaderService
-  ) { }
-
 
   ngOnInit(): void {
     this.columns = [

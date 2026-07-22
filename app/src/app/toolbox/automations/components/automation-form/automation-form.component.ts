@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { BehaviorSubject, combineLatest, Subscription } from 'rxjs';
@@ -35,6 +35,16 @@ import { InternalConnectorHelperService } from '../../connectors/services/intern
   standalone: false
 })
 export class AutomationFormComponent implements OnInit, OnDestroy {
+  private readonly fb = inject(FormBuilder);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly svc = inject(AutomationsService);
+  private readonly connectorsService = inject(ConnectorsService);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly authService = inject(AuthService);
+  private readonly internalConnectorHelper = inject(InternalConnectorHelperService);
+
   mode: 'create' | 'edit' = 'create';
   connectionId?: number;
 
@@ -64,19 +74,6 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
     this.loaderService.isLoading$,
     this.editorLoaded$
   ]).pipe(map(([apiLoading, editorLoaded]) => apiLoading || !editorLoaded));
-
-  constructor(
-    private fb: FormBuilder,
-    private route: ActivatedRoute,
-    private router: Router,
-    private svc: AutomationsService,
-    private connectorsService: ConnectorsService,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private authService: AuthService,
-    private internalConnectorHelper: InternalConnectorHelperService
-  ) {
-  }
 
 
   ngOnInit(): void {
@@ -334,16 +331,19 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
       const selectedConnector = this.connectors.find(c => c.connectorId === connectorId);
       if (selectedConnector && selectedConnector.title !== 'DataGerryInternal') {
         this.form.patchValue({ connector: connectorId });
-      } else {
       }
-    } else {
     }
-
   }
 
   // Dynamic connector ID methods
   getSourceConnectorId(): string {
     const direction = this.form.get('direction')?.value;
+
+    // For internal automations both sides are the DataGerry internal connector
+    if (direction === 'internal') {
+      return this.internalConnectorDetails?.connectorId?.toString() || '';
+    }
+
     const selectedConnectorId = this.form.get('connector')?.value;
 
     if (!direction || !selectedConnectorId) {
@@ -361,6 +361,12 @@ export class AutomationFormComponent implements OnInit, OnDestroy {
 
   getTargetConnectorId(): string {
     const direction = this.form.get('direction')?.value;
+
+    // For internal automations both sides are the DataGerry internal connector
+    if (direction === 'internal') {
+      return this.internalConnectorDetails?.connectorId?.toString() || '';
+    }
+
     const selectedConnectorId = this.form.get('connector')?.value;
 
     if (!direction || !selectedConnectorId) {

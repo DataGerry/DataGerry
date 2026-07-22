@@ -40,7 +40,8 @@ import { ConfigEditBaseComponent } from './config.edit';
     selector: 'cmdb-config-edit',
     templateUrl: './config-edit.component.html',
     styleUrls: ['./config-edit.component.scss'],
-    standalone: false
+    standalone: false,
+    host: { 'data-config-edit': 'type' }
 })
 export class ConfigEditComponent implements OnInit, OnDestroy {
 

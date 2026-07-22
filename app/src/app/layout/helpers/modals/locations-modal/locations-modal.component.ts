@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Component, Input } from '@angular/core';
+import {Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 /* -------------------------------------------------------------------------- */
 
@@ -34,5 +34,5 @@ export class LocationsModalComponent {
   @Input() deleteChildrenButton = 'Remove locations from sub objects';
   @Input() cancelButton = 'Cancel';
 
-  constructor(public activeModal: NgbActiveModal) {}
+  public readonly activeModal = inject(NgbActiveModal);
 }

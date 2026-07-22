@@ -22,6 +22,8 @@ from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.extendable_option_model.option_type_enum import OptionType
 
+from cmdb.class_schema.extendable_option_model.cmdb_extendable_option_schema import get_cmdb_extendable_option_schema
+
 from cmdb.errors.models.cmdb_extendable_option import (
     CmdbExtendableOptionInitError,
     CmdbExtendableOptionInitFromDataError,
@@ -46,28 +48,7 @@ class CmdbExtendableOption(CmdbDAO):
         {'keys': [('option_type', CmdbDAO.DAO_ASCENDING)], 'name': 'option_type', 'unique': False}
     ]
 
-    # pylint: disable=R0801
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'value': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'option_type': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'predefined': {
-            'type': 'boolean',
-            'required': True,
-            'empty': False
-        }
-    }
+    SCHEMA: dict = get_cmdb_extendable_option_schema()
 
 
     def __init__(self, public_id: int, value: str, option_type: OptionType, predefined: bool = False):

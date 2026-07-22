@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
@@ -16,7 +16,7 @@ export class CoreConfirmationModalComponent {
   @Input() warningMessage: string = '';
   @Input() warningIconClass: string = 'fas fa-exclamation-circle';
   
-  constructor(public activeModal: NgbActiveModal) { }
+  public readonly activeModal = inject(NgbActiveModal);
 
   confirm(): void {
     this.activeModal.close('confirmed');

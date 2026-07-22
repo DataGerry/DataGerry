@@ -25,7 +25,8 @@
       </div>
     </div>
   </div>
-  <div *ngIf="newFiles?.length">
+  @if (newFiles?.length) {
+<div>
     <div class="scrollable-container">
       <table class="table framework-table table-hover table-striped table-bordered mb-0">
         <thead>
@@ -36,15 +37,18 @@
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let item of newFiles">
+          @for (item of newFiles; track item) {
+<tr>
             <td>{{item.name}}</td>
             <td>{{item.size | fileSize}}</td>
             <td><p class="thumbnail">{{item.type}}</p></td>
           </tr>
+}
         </tbody>
       </table>
     </div>
   </div>
+}
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary me-1"
             [disabled]='inProcess'

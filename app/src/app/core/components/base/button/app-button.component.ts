@@ -51,6 +51,29 @@ export class ButtonComponent implements OnInit {
    */
   @Input() padding: string = '';
 
+  /**
+   * Optional icon class(es) rendered before the label, e.g. 'fa fa-expand'.
+   * Leave empty for a text-only button.
+   */
+  @Input() icon: string = '';
+
+  /**
+   * Accessible name, mapped to aria-label. Required for icon-only buttons
+   * (empty label) so screen readers can announce the action.
+   */
+  @Input() ariaLabel: string = '';
+
+  /**
+   * Native tooltip text, mapped to the title attribute.
+   */
+  @Input() title: string = '';
+
+  /**
+   * Toggle state for buttons that behave as a switch, mapped to aria-pressed.
+   * Leave null for regular (non-toggle) buttons.
+   */
+  @Input() ariaPressed: boolean | null = null;
+
 
   /**
    * Emitted when the button is clicked (unless disabled).

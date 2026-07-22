@@ -7,6 +7,7 @@
       </div>
 
       <div class="modal-body">
+<<<<<<< HEAD
         <div *ngIf="!rootTypeId" class="empty-state">
           <div class="empty-icon"><i class="fas fa-info-circle"></i></div>
           <h4>Select a template type first</h4>
@@ -14,6 +15,19 @@
         </div>
 
         <div class="relation-layout" *ngIf="rootTypeId">
+=======
+        @if (!rootTypeId) {
+        <div class="empty-state">
+          <div class="empty-icon"><i class="fas fa-info-circle"></i></div>
+          <h4>Select a template type first</h4>
+          <p class="text-muted">Return to step 2 and choose a template type so relation placeholders can be generated.
+          </p>
+        </div>
+        }
+
+        @if (rootTypeId) {
+        <div class="relation-layout">
+>>>>>>> origin/version-3.2
           <!-- Compact Breadcrumb Navigation -->
           <section class="relation-path-bar">
             <div class="path-content">
@@ -22,6 +36,7 @@
                 <span>Path:</span>
               </div>
               <nav class="breadcrumb-list">
+<<<<<<< HEAD
                 <span 
                   class="breadcrumb-item"
                   *ngFor="let step of steps; let i = index; let isLast = last"
@@ -35,6 +50,18 @@
                 type="button"
                 class="btn btn-outline-danger btn-sm"
                 (click)="removeLastStep()"
+=======
+                @for (step of steps; track step; let i = $index; let isLast = $last) {
+                <span class="breadcrumb-item" [class.active]="activeStepIndex === i" (click)="setActiveStep(i)">
+                  <span class="step-text">{{ step.relation?.relation_name || 'Step ' + (i + 1) }}</span>
+                  @if (!isLast) {
+                  <i class="fas fa-chevron-right separator"></i>
+                  }
+                </span>
+                }
+              </nav>
+              <button type="button" class="btn btn-outline-danger btn-sm" (click)="removeLastStep()"
+>>>>>>> origin/version-3.2
                 [disabled]="steps.length <= 1">
                 <i class="fas fa-trash-alt"></i>
                 Remove last Step
@@ -43,6 +70,7 @@
           </section>
 
           <!-- Configuration Form with Progress Steps in Header -->
+<<<<<<< HEAD
           <section class="config-form" *ngIf="activeStep">
             <div class="config-header">
               <h6 class="config-title">Step {{ activeStepIndex + 1 }} Configuration</h6>
@@ -68,11 +96,45 @@
                 <div class="step-line" [class.completed]="activeStep.direction"></div>
                 
                 <div class="progress-step" [class.completed]="activeStep.typeId" [class.active]="activeStep.direction && !activeStep.typeId">
+=======
+          @if (activeStep) {
+          <section class="config-form">
+            <div class="config-header">
+              <h6 class="config-title">Step {{ activeStepIndex + 1 }} Configuration</h6>
+
+              <!-- Progress Steps -->
+              <div class="progress-steps">
+                <div class="progress-step" [class.completed]="activeStep.relationId"
+                  [class.active]="!activeStep.relationId">
+                  <div class="step-icon">
+                    <i class="fas" [class.fa-check]="activeStep.relationId"
+                      [class.fa-link]="!activeStep.relationId"></i>
+                  </div>
+                  <span class="step-text">Relation</span>
+                </div>
+
+                <div class="step-line" [class.completed]="activeStep.relationId"></div>
+
+                <div class="progress-step" [class.completed]="activeStep.direction"
+                  [class.active]="activeStep.relationId && !activeStep.direction">
+                  <div class="step-icon">
+                    <i class="fas" [class.fa-check]="activeStep.direction"
+                      [class.fa-directions]="!activeStep.direction"></i>
+                  </div>
+                  <span class="step-text">Direction</span>
+                </div>
+
+                <div class="step-line" [class.completed]="activeStep.direction"></div>
+
+                <div class="progress-step" [class.completed]="activeStep.typeId"
+                  [class.active]="activeStep.direction && !activeStep.typeId">
+>>>>>>> origin/version-3.2
                   <div class="step-icon">
                     <i class="fas" [class.fa-check]="activeStep.typeId" [class.fa-cube]="!activeStep.typeId"></i>
                   </div>
                   <span class="step-text">Type</span>
                 </div>
+<<<<<<< HEAD
                 
                 <div class="step-line" [class.completed]="activeStep.typeId"></div>
                 
@@ -88,6 +150,27 @@
                 <div class="progress-step" [class.completed]="activeStep.fieldName || activeStep.relationFieldName" [class.active]="activeStep.outputKind && !activeStep.fieldName && !activeStep.relationFieldName">
                   <div class="step-icon">
                     <i class="fas" [class.fa-check]="activeStep.fieldName || activeStep.relationFieldName" [class.fa-tag]="!activeStep.fieldName && !activeStep.relationFieldName"></i>
+=======
+
+                <div class="step-line" [class.completed]="activeStep.typeId"></div>
+
+                <div class="progress-step" [class.completed]="activeStep.outputKind"
+                  [class.active]="activeStep.typeId && !activeStep.outputKind">
+                  <div class="step-icon">
+                    <i class="fas" [class.fa-check]="activeStep.outputKind"
+                      [class.fa-bullseye]="!activeStep.outputKind"></i>
+                  </div>
+                  <span class="step-text">Output</span>
+                </div>
+
+                <div class="step-line" [class.completed]="activeStep.fieldName || activeStep.relationFieldName"></div>
+
+                <div class="progress-step" [class.completed]="activeStep.fieldName || activeStep.relationFieldName"
+                  [class.active]="activeStep.outputKind && !activeStep.fieldName && !activeStep.relationFieldName">
+                  <div class="step-icon">
+                    <i class="fas" [class.fa-check]="activeStep.fieldName || activeStep.relationFieldName"
+                      [class.fa-tag]="!activeStep.fieldName && !activeStep.relationFieldName"></i>
+>>>>>>> origin/version-3.2
                   </div>
                   <span class="step-text">Field</span>
                 </div>
@@ -96,6 +179,7 @@
 
             <div class="form-grid">
               <div class="form-field">
+<<<<<<< HEAD
                 <app-form-select
                   label="Relation"
                   [items]="activeStep.availableRelations"
@@ -103,10 +187,15 @@
                   bindValue="public_id"
                   placeholder="Select relation..."
                   [(ngModel)]="activeStep.relationId"
+=======
+                <app-form-select label="Relation" [items]="activeStep.availableRelations" bindLabel="displayLabel"
+                  bindValue="public_id" placeholder="Select relation..." [(ngModel)]="activeStep.relationId"
+>>>>>>> origin/version-3.2
                   (ngModelChange)="onRelationSelect(activeStepIndex, $event?.toString() || '')">
                 </app-form-select>
               </div>
 
+<<<<<<< HEAD
               <div class="form-field" *ngIf="activeStep.relation">
                 <app-form-select
                   label="Direction"
@@ -176,12 +265,78 @@
 
           <!-- Preview Area -->
           <section class="preview-section" *ngIf="previewTemplate">
+=======
+              @if (activeStep.relation) {
+              <div class="form-field">
+                <app-form-select label="Direction" [items]="activeStep.directionOptions || []" bindLabel="label"
+                  bindValue="value" placeholder="Select direction..." [(ngModel)]="activeStep.direction"
+                  (ngModelChange)="onDirectionSelect(activeStepIndex, normalizeDirectionSelection($event) || '')">
+                </app-form-select>
+              </div>
+              }
+
+              @if (activeStep.direction) {
+              <div class="form-field">
+                <app-form-select label="Type" [items]="activeStep.availableTypes" bindLabel="displayLabel"
+                  bindValue="public_id" placeholder="Select type..." [(ngModel)]="activeStep.typeId"
+                  (ngModelChange)="onTypeSelect(activeStepIndex, $event?.toString() || '')">
+                </app-form-select>
+              </div>
+              }
+
+              @if (activeStep.typeId) {
+              <div class="form-field">
+                <app-form-select label="Output" [items]="outputKindOptions" bindLabel="label" bindValue="value"
+                  placeholder="Select output..." [(ngModel)]="activeStep.outputKind"
+                  (ngModelChange)="onOutputKindSelect(activeStepIndex, $event)">
+                </app-form-select>
+              </div>
+              }
+
+              @if (activeStep.outputKind === 'field') {
+              <div class="form-field">
+                <app-form-select label="Field" [items]="activeStep.typeFields" bindLabel="label" bindValue="name"
+                  placeholder="Select field..." [(ngModel)]="activeStep.fieldName"
+                  (ngModelChange)="onFieldSelect(activeStepIndex, $event || '')">
+                </app-form-select>
+              </div>
+              }
+
+              @if (activeStep.outputKind === 'relation_field') {
+              <div class="form-field">
+                <app-form-select label="Relation Field" [items]="activeStep.relationFields" bindLabel="label"
+                  bindValue="name" placeholder="Select field..." [(ngModel)]="activeStep.relationFieldName"
+                  (ngModelChange)="onRelationFieldSelect(activeStepIndex, $event || '')">
+                </app-form-select>
+              </div>
+              }
+            </div>
+
+            @if (activeStep.outputKind === 'relation') {
+            <div class="info-box">
+              <i class="fas fa-info-circle"></i>
+              <span>A new step has been added. Click on it in the breadcrumb above to configure.</span>
+            </div>
+            }
+          </section>
+          }
+
+          <!-- Preview Area -->
+          @if (previewTemplate) {
+          <section class="preview-section">
+>>>>>>> origin/version-3.2
             <h6 class="preview-title">Generated Template</h6>
             <div class="preview-code">
               <code>{{ previewTemplate }}</code>
             </div>
           </section>
+<<<<<<< HEAD
         </div>
+=======
+          }
+        </div>
+        }
+>>>>>>> origin/version-3.2
       </div>
 
       <div class="modal-footer">
@@ -196,7 +351,11 @@
   </div>
 </div>
 
+<<<<<<< HEAD
 <app-loading-popup
   [isVisible]="isLoading$ | async"
   message="We're Processing the Data..."
 ></app-loading-popup>
+=======
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
+>>>>>>> origin/version-3.2

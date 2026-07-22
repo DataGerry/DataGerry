@@ -65,6 +65,14 @@ const routes: Routes = [
             right: 'base.system.edit'
         },
         component: DateSettingsComponent
+    },
+    {
+        path: 'license',
+        canActivateChild: [PermissionGuard, cloudModeChildGuard],
+        data: {
+            breadcrumb: 'License Management'
+        },
+        loadChildren: () => import('./license-management/license-management.module').then(m => m.LicenseManagementModule)
     }
 ];
 

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
@@ -25,6 +25,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
     standalone: false
 })
 export class RiskAssessmentDrilldownModalComponent {
+  public readonly activeModal = inject(NgbActiveModal);
+
   @Input() assessmentIds: number[] = [];
-  constructor(public activeModal: NgbActiveModal) {}
 }

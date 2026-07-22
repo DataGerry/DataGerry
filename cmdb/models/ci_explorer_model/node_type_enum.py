@@ -16,10 +16,10 @@
 """
 Implementation of NodeType
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class NodeType(str, Enum):
+class NodeType(BaseStrEnum):
     """
     Available NodeTypes for the CI Explorer
 
@@ -31,17 +31,3 @@ class NodeType(str, Enum):
     CHILD = 'CHILD'
     PARENT = 'PARENT'
     BOTH = 'BOTH'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid NodeType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing NodeType, False otherwise
-        """
-        return value in NodeType.__members__

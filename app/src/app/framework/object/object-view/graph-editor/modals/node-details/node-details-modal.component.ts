@@ -17,6 +17,7 @@
 */
 import {
     Component,
+    inject,
     ChangeDetectionStrategy,
     ChangeDetectorRef,
     AfterViewInit,
@@ -50,10 +51,8 @@ export class NodeDetailsModalComponent implements AfterViewInit {
     private viewInit = false;
     private _node: GraphNode | null = null;
 
-    constructor(
-        public activeModal: NgbActiveModal,
-        private cdr: ChangeDetectorRef
-    ) { }
+    public readonly activeModal = inject(NgbActiveModal);
+    private readonly cdr = inject(ChangeDetectorRef);
 
     ngAfterViewInit(): void {
         this.viewInit = true;

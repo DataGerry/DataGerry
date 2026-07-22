@@ -49,7 +49,10 @@ import {
 } from '../docapi-document-options/docapi-document-options-modal/docapi-document-options-modal.component';
 import { DocapiAiAssistantModalComponent } from '../docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
 import { DocapiEditorConfigService } from '../../services/docapi-editor-config.service';
+<<<<<<< HEAD
 import { environment } from '../../../../../environments/environment';
+=======
+>>>>>>> origin/version-3.2
 import { DEFAULT_COVER_PAGE, normalizeCoverPage } from '../../utils/cover-page.util';
 import { DEFAULT_FOOTER, DEFAULT_HEADER, normalizeFooter, normalizeHeader } from '../../utils/page-section.util';
 import { DEFAULT_TABLE_OF_CONTENTS, normalizeTableOfContents } from '../../utils/table-of-contents.util';
@@ -359,7 +362,10 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
     private initEditorConfig(): void {
         this.editorConfig = this.editorConfigService.createConfig({
+<<<<<<< HEAD
             isCloudMode: environment.cloudMode,
+=======
+>>>>>>> origin/version-3.2
             getTemplateType: () => this.templateType,
             getTemplateHelperData: () => this.templateHelperData,
             onPreviewRequested: () => this.previewRequested.emit(),

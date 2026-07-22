@@ -1,36 +1,32 @@
 <div id="relation-basic-step" class="container-fluid px-3">
-  <form
-    [formGroup]="form"
-    id="basic-relation-information-form"
-    class="needs-validation modern-form"
-    novalidate
-    autocomplete="off"
-  >
+  <form [formGroup]="form" id="basic-relation-information-form" class="needs-validation modern-form" novalidate
+    autocomplete="off">
     <!-- Main Relation Section -->
     <div class="mb-3 mb-4">
       <label for="relationNameInput" class="form-label fw-semibold text-primary-dark">
         Relation Name <span class="text-danger">*</span>
       </label>
-      <input
-        type="text"
-        formControlName="relation_name"
-        class="form-control"
-        id="relationNameInput"
-        placeholder="e.g. Server-Connection"
-        [ngClass]="{
+      <input type="text" formControlName="relation_name" class="form-control" id="relationNameInput"
+        placeholder="e.g. Server-Connection" [ngClass]="{
           'is-valid': relation_name.valid && (relation_name.dirty || relation_name.touched),
           'is-invalid': relation_name.invalid && (relation_name.dirty || relation_name.touched)
-        }"
-      />
+        }" />
       <small class="form-text mt-1">
         <i class=" me-1"></i>Use letters, numbers, and hyphens only
       </small>
-      <div *ngIf="relation_name.invalid && (relation_name.dirty || relation_name.touched)"
-           class="invalid-feedback d-flex align-items-center gap-2 mt-2">
-        <span *ngIf="relation_name.errors?.required">Name is required</span>
-        <span *ngIf="relation_name.errors?.invalidCharacters">Contains invalid characters</span>
-        <span *ngIf="relation_name.errors?.typeExists">Type already exists</span>
+      @if (relation_name.invalid && (relation_name.dirty || relation_name.touched)) {
+      <div class="invalid-feedback d-flex align-items-center gap-2 mt-2">
+        @if (relation_name.errors?.required) {
+        <span>Name is required</span>
+        }
+        @if (relation_name.errors?.invalidCharacters) {
+        <span>Contains invalid characters</span>
+        }
+        @if (relation_name.errors?.typeExists) {
+        <span>Type already exists</span>
+        }
       </div>
+      }
     </div>
 
     <!-- Directional Configuration -->
@@ -47,40 +43,27 @@
               <label class="form-label fw-semibold">
                 Label <span class="text-danger">*</span>
               </label>
-              <input
-                type="text"
-                formControlName="relation_name_parent"
-                class="form-control border-primary-20"
-                placeholder="e.g. Contains"
-                [ngClass]="{
+              <input type="text" formControlName="relation_name_parent" class="form-control border-primary-20"
+                placeholder="e.g. Contains" [ngClass]="{
                   'is-valid': relation_name_parent.valid && (relation_name_parent.dirty || relation_name_parent.touched),
                   'is-invalid': relation_name_parent.invalid && (relation_name_parent.dirty || relation_name_parent.touched)
-                }"
-              />
-              <div *ngIf="relation_name_parent.invalid && (relation_name_parent.dirty || relation_name_parent.touched)"
-                   class="invalid-feedback d-flex align-items-center gap-2 mt-2">
+                }" />
+              @if (relation_name_parent.invalid && (relation_name_parent.dirty || relation_name_parent.touched)) {
+              <div class="invalid-feedback d-flex align-items-center gap-2 mt-2">
                 Label is required
               </div>
+              }
             </div>
 
             <div class="row g-3 mb-4">
               <div class="col-8">
-                <cmdb-icon-picker
-                  [iconFormGroup]="parentIconForm"
-                  [fallbackIcon]="relation_icon_parent.value"
-                  class="w-100"
-                  [inputDescription]="'Symbol for this relation'"
-                ></cmdb-icon-picker>
+                <cmdb-icon-picker [iconFormGroup]="parentIconForm" [fallbackIcon]="relation_icon_parent.value"
+                  class="w-100" [inputDescription]="'Symbol for this relation'"></cmdb-icon-picker>
               </div>
               <div class="col-4 ">
                 <label class="form-label fw-semibold">Color</label>
-                <input
-                  type="color"
-                  formControlName="relation_color_parent"
-                  class="form-control form-control-color"
-                  title="Choose color"
-                  style="width: 100%; padding: 5px;"
-                />
+                <input type="color" formControlName="relation_color_parent" class="form-control form-control-color"
+                  title="Choose color" style="width: 100%; padding: 5px;" />
               </div>
             </div>
 
@@ -88,16 +71,9 @@
               <label class="form-label fw-semibold">
                 Allowed Types <span class="text-danger">*</span>
               </label>
-              <ng-select
-                formControlName="parent_type_ids"
-                [items]="availableTypes"
-                bindLabel="label"
-                bindValue="public_id"
-                [multiple]="true"
-                placeholder="Select parent types..."
-                [loading]="isLoadingTypes"
-                [closeOnSelect]="false"
-              >
+              <ng-select formControlName="parent_type_ids" [items]="availableTypes" bindLabel="label"
+                bindValue="public_id" [multiple]="true" placeholder="Select parent types..." [loading]="isLoadingTypes"
+                [closeOnSelect]="false">
               </ng-select>
               <small class="form-text mt-1">
                 Allowed parent types in this relation
@@ -119,40 +95,27 @@
               <label class="form-label fw-semibold">
                 Label <span class="text-danger">*</span>
               </label>
-              <input
-                type="text"
-                formControlName="relation_name_child"
-                class="form-control border-secondary-20"
-                placeholder="e.g. Part Of"
-                [ngClass]="{
+              <input type="text" formControlName="relation_name_child" class="form-control border-secondary-20"
+                placeholder="e.g. Part Of" [ngClass]="{
                   'is-valid': relation_name_child.valid && (relation_name_child.dirty || relation_name_child.touched),
                   'is-invalid': relation_name_child.invalid && (relation_name_child.dirty || relation_name_child.touched)
-                }"
-              />
-              <div *ngIf="relation_name_child.invalid && (relation_name_child.dirty || relation_name_child.touched)"
-                   class="invalid-feedback d-flex align-items-center gap-2 mt-2">
+                }" />
+              @if (relation_name_child.invalid && (relation_name_child.dirty || relation_name_child.touched)) {
+              <div class="invalid-feedback d-flex align-items-center gap-2 mt-2">
                 Label is required
               </div>
+              }
             </div>
 
             <div class="row g-3 mb-4">
               <div class="col-8">
-                <cmdb-icon-picker
-                  [iconFormGroup]="childIconForm"
-                  [fallbackIcon]="relation_icon_child.value"
-                  class="w-100"
-                  [inputDescription]="'Symbol for this relation'"
-                ></cmdb-icon-picker>
+                <cmdb-icon-picker [iconFormGroup]="childIconForm" [fallbackIcon]="relation_icon_child.value"
+                  class="w-100" [inputDescription]="'Symbol for this relation'"></cmdb-icon-picker>
               </div>
               <div class="col-4">
                 <label class="form-label fw-semibold">Color</label>
-                <input
-                  type="color"
-                  formControlName="relation_color_child"
-                  class="form-control form-control-color"
-                  title="Choose color"
-                  style="width: 100%; padding: 5px;"
-                />
+                <input type="color" formControlName="relation_color_child" class="form-control form-control-color"
+                  title="Choose color" style="width: 100%; padding: 5px;" />
               </div>
             </div>
 
@@ -160,16 +123,9 @@
               <label class="form-label fw-semibold">
                 Allowed Types <span class="text-danger">*</span>
               </label>
-              <ng-select
-                formControlName="child_type_ids"
-                [items]="availableTypes"
-                bindLabel="label"
-                bindValue="public_id"
-                [multiple]="true"
-                placeholder="Select child types..."
-                [loading]="isLoadingTypes"
-                [closeOnSelect]="false"
-              >
+              <ng-select formControlName="child_type_ids" [items]="availableTypes" bindLabel="label"
+                bindValue="public_id" [multiple]="true" placeholder="Select child types..." [loading]="isLoadingTypes"
+                [closeOnSelect]="false">
               </ng-select>
               <small class="form-text mt-1">
                 Allowed child types in this relation
@@ -190,16 +146,11 @@
           </h3>
         </div>
         <div class="card-body">
-          <textarea
-            class="form-control border-neutral-20"
-            formControlName="description"
-            rows="3"
-            placeholder="Describe the purpose and usage of this relation..."
-            [ngClass]="{
+          <textarea class="form-control border-neutral-20" formControlName="description" rows="3"
+            placeholder="Describe the purpose and usage of this relation..." [ngClass]="{
               'is-valid': description.valid && (description.dirty || description.touched),
               'is-invalid': description.invalid && (description.dirty || description.touched)
-            }"
-          ></textarea>
+            }"></textarea>
           <small class="form-text text-muted mt-2 d-block">
             <i class=" me-1"></i>Optional description for documentation purposes
           </small>

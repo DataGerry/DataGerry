@@ -1,11 +1,18 @@
 <div class="d-flex justify-content-between align-items-center">
+<<<<<<< HEAD
   <h1>Report Categories Overview  </h1>
 </div>
 <hr/>
+=======
+  <h1>Report Categories Overview </h1>
+</div>
+<hr />
+>>>>>>> origin/version-3.2
 
 
 <div class="d-flex justify-content-between align-items-center" style="height: 50px;">
   <div class="btn-group text-start">
+<<<<<<< HEAD
       <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
           <i class="fas fa-arrow-left icon-margin"></i> Go Back
       </button>                       
@@ -43,3 +50,32 @@
   [isVisible]="isLoading$ | async"
   message="We're Processing the Data..."
 ></app-loading-popup>
+=======
+    <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
+      <i class="fas fa-arrow-left icon-margin"></i> Go Back
+    </button>
+  </div>
+
+  <div class="btn-group text-end">
+    <button type="submit" class="btn btn-success btn-sm submit-report d-flex align-items-center"
+      (click)="openAddCategoryModal()">
+      <i class="fas fa-plus me-2 icon-margin" title="Add Category"></i> Add Category
+    </button>
+  </div>
+</div>
+
+<cmdb-table [items]="categories" [columns]="columns" [totalItems]="totalCategories" [loading]="loading" [pageSize]="10"
+  (pageChange)="onPageChange($event)" (sortChange)="onSortChange($event)"
+  (searchChange)="onSearchChange($event)"></cmdb-table>
+
+<ng-template #actionsTemplate let-item="item">
+  @if (!item.predefined) {
+  <i class="far fa-edit icon-margin btn-edit" title="Edit Category" (click)="openEditCategoryModal(item)"></i>
+  }
+  @if (!item.predefined) {
+  <i class="far fa-trash-alt btn-delete" title="Delete Category" (click)="openDeleteCategoryModal(item)"></i>
+  }
+</ng-template>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
+>>>>>>> origin/version-3.2

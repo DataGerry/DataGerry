@@ -13,3 +13,20 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Project-wide, domain-unspecific Python helpers and definitions
+
+Domain helpers (CmdbObject-document helpers, IPAM CIDR helpers, etc.) live next to their
+domain. This package is the explicit home for cross-feature, language-level utilities such
+as the shared BaseStrEnum, cast helpers, logging configuration, and decorator wrappers
+"""
+from .base_str_enum import BaseStrEnum
+from .validation_error import ValidationErrorKey, build_error
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+__all__: list[str] = [
+    'BaseStrEnum',
+    'ValidationErrorKey',
+    'build_error',
+]

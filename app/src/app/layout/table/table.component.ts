@@ -16,15 +16,19 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    AfterViewInit,
     ChangeDetectionStrategy,
     Component,
     ElementRef,
     EventEmitter,
+    inject,
     Input,
     isDevMode,
+    NgZone,
     OnDestroy,
     OnInit,
     Output,
+    Renderer2,
     TemplateRef,
     ViewChild,
     ViewEncapsulation
@@ -50,11 +54,25 @@ import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
     changeDetection: ChangeDetectionStrategy.Default,
     standalone: false
 })
-export class TableComponent<T> implements OnInit, OnDestroy {
+export class TableComponent<T> implements OnInit, AfterViewInit, OnDestroy {
     // `ViewChild` for accessing the complete table container
     @ViewChild('container', { static: true }) public containerRef: ElementRef;
     // `ViewChild` for accessing the table html element
     @ViewChild('table', { static: true }) public tableRef: ElementRef;
+    // `ViewChild` for the horizontal scroll region that holds the table
+    @ViewChild('scroll') private scrollRef: ElementRef<HTMLElement>;
+    // `ViewChild` for the floating scrollbar track pinned to the bottom of the viewport
+    @ViewChild('stickyScrollbar') private stickyScrollbarRef: ElementRef<HTMLElement>;
+    // `ViewChild` for the draggable thumb inside the floating scrollbar
+    @ViewChild('stickyThumb') private stickyThumbRef: ElementRef<HTMLElement>;
+
+    private readonly renderer = inject(Renderer2);
+    private readonly zone = inject(NgZone);
+    private resizeObserver?: ResizeObserver;
+    private scrollCleanups: Array<() => void> = [];
+    private dragCleanup?: () => void;
+    // Minimum thumb width in px; must match `min-width` of `.table-sticky-scrollbar__thumb`.
+    private readonly MIN_THUMB_WIDTH = 28;
 
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
@@ -88,6 +106,7 @@ export class TableComponent<T> implements OnInit, OnDestroy {
     @Input('columns')
     public set Columns(columns: Array<Column>) {
         this.columns = columns;
+        this.buildColumnSearchForm();
     }
 
     // Column search form group
@@ -222,7 +241,11 @@ export class TableComponent<T> implements OnInit, OnDestroy {
     // Added output to emit reordered items
     @Output() public orderChange: EventEmitter<T[]> = new EventEmitter<T[]>();
 
+<<<<<<< HEAD
     public trackById = (index: number, item: any) => item.id ?? index;
+=======
+    public trackById = (_index: number, item: any) => item?.public_id ?? item?.id ?? item;
+>>>>>>> origin/version-3.2
     public trackByName = (index: number, column: any) => column.name ?? index;
 
     public get joinedRowClasses(): string {
@@ -288,9 +311,44 @@ export class TableComponent<T> implements OnInit, OnDestroy {
             });
         }
 
-        this.columnSearchForm = new UntypedFormGroup(
-            Object.fromEntries(this.columns.map(c => [c.name, new UntypedFormControl('')]))
-          );
+        this.buildColumnSearchForm();
+    }
+
+
+    public ngAfterViewInit(): void {
+        const scrollEl = this.scrollRef?.nativeElement;
+        const barEl = this.stickyScrollbarRef?.nativeElement;
+
+        if (!scrollEl || !barEl) {
+            return;
+        }
+
+        const thumbEl = this.stickyThumbRef?.nativeElement;
+
+        // Scrollbar rendering only reads layout and writes styles/classes; keep it out
+        // of change detection so scrolling and dragging stay smooth.
+        this.zone.runOutsideAngular(() => {
+            this.scrollCleanups.push(
+                this.renderer.listen(scrollEl, 'scroll', () => this.renderStickyScrollbar())
+            );
+
+            if (thumbEl) {
+                this.scrollCleanups.push(
+                    this.renderer.listen(thumbEl, 'pointerdown', (event: PointerEvent) => this.onThumbDragStart(event))
+                );
+            }
+
+            if (typeof ResizeObserver !== 'undefined') {
+                this.resizeObserver = new ResizeObserver(() => this.renderStickyScrollbar());
+                this.resizeObserver.observe(scrollEl);
+
+                if (this.tableRef?.nativeElement) {
+                    this.resizeObserver.observe(this.tableRef.nativeElement);
+                }
+            }
+
+            this.renderStickyScrollbar();
+        });
     }
 
 
@@ -298,6 +356,9 @@ export class TableComponent<T> implements OnInit, OnDestroy {
         this.subscriber?.next();
         this.subscriber?.complete();
         this.routerSubscription?.unsubscribe();
+        this.scrollCleanups.forEach((cleanup) => cleanup());
+        this.dragCleanup?.();
+        this.resizeObserver?.disconnect();
     }
 
 
@@ -324,6 +385,94 @@ export class TableComponent<T> implements OnInit, OnDestroy {
             this.columnVisibilityChange.asObservable(),
             this.sortChange.asObservable(),
             this.pageSizeChange.asObservable()
+        );
+    }
+
+
+    /**
+     * Position and size the custom scrollbar thumb to reflect the table's horizontal
+     * scroll, and hide the whole scrollbar when the table has no horizontal overflow.
+     */
+    private renderStickyScrollbar(): void {
+        const scrollEl = this.scrollRef?.nativeElement;
+        const barEl = this.stickyScrollbarRef?.nativeElement;
+        const thumbEl = this.stickyThumbRef?.nativeElement;
+
+        if (!scrollEl || !barEl || !thumbEl) {
+            return;
+        }
+
+        const { scrollWidth, clientWidth, scrollLeft } = scrollEl;
+        const isOverflowing = scrollWidth > clientWidth + 1;
+
+        this.renderer[isOverflowing ? 'removeClass' : 'addClass'](barEl, 'is-hidden');
+
+        if (!isOverflowing) {
+            return;
+        }
+
+        const trackWidth = barEl.clientWidth;
+        const thumbWidth = Math.max(this.MIN_THUMB_WIDTH, (clientWidth / scrollWidth) * trackWidth);
+        const contentRange = scrollWidth - clientWidth;
+        const trackRange = trackWidth - thumbWidth;
+        const thumbLeft = contentRange > 0 ? (scrollLeft / contentRange) * trackRange : 0;
+
+        this.renderer.setStyle(thumbEl, 'width', `${thumbWidth}px`);
+        this.renderer.setStyle(thumbEl, 'transform', `translateX(${thumbLeft}px)`);
+    }
+
+
+    /**
+     * Start dragging the custom scrollbar thumb. Document-level listeners map horizontal
+     * pointer movement onto the table's scroll position until the pointer is released.
+     */
+    private onThumbDragStart(event: PointerEvent): void {
+        const scrollEl = this.scrollRef?.nativeElement;
+        const barEl = this.stickyScrollbarRef?.nativeElement;
+        const thumbEl = this.stickyThumbRef?.nativeElement;
+
+        if (!scrollEl || !barEl || !thumbEl) {
+            return;
+        }
+
+        event.preventDefault();
+
+        const startX = event.clientX;
+        const startScrollLeft = scrollEl.scrollLeft;
+        const contentRange = scrollEl.scrollWidth - scrollEl.clientWidth;
+        const trackRange = barEl.clientWidth - thumbEl.offsetWidth;
+
+        this.renderer.addClass(thumbEl, 'is-dragging');
+
+        const onMove = (moveEvent: PointerEvent) => {
+            if (trackRange <= 0) {
+                return;
+            }
+
+            const delta = moveEvent.clientX - startX;
+            scrollEl.scrollLeft = startScrollLeft + (delta / trackRange) * contentRange;
+            this.renderStickyScrollbar();
+        };
+
+        const onUp = () => {
+            this.renderer.removeClass(thumbEl, 'is-dragging');
+            this.dragCleanup?.();
+            this.dragCleanup = undefined;
+        };
+
+        const removeMove = this.renderer.listen('document', 'pointermove', onMove);
+        const removeUp = this.renderer.listen('document', 'pointerup', onUp);
+
+        this.dragCleanup = () => {
+            removeMove();
+            removeUp();
+        };
+    }
+
+
+    private buildColumnSearchForm(): void {
+        this.columnSearchForm = new UntypedFormGroup(
+            Object.fromEntries((this.columns || []).map(c => [c.name, new UntypedFormControl('')]))
         );
     }
 

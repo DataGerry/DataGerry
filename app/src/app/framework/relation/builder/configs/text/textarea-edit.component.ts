@@ -27,6 +27,7 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-textarea-edit',
+    host: { 'data-config-edit': 'relation' },
     templateUrl: './textarea-edit.component.html',
     styleUrls: ['./textarea-edit.component.scss'],
     standalone: false

@@ -21,6 +21,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { BehaviorSubject, Observable, ReplaySubject, takeUntil } from 'rxjs';
 
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { TypeService } from '../../services/type.service';
 import { UserService } from '../../../management/services/user.service';
 import { ObjectService } from '../../services/object.service';
@@ -32,8 +34,9 @@ import { CmdbType } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
 import { RenderComponent } from '../../render/render.component';
 import { CmdbObject } from '../../models/cmdb-object';
+import { SpecialType } from '../../models/special-type';
 import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
-import { finalize } from 'rxjs/operators';
+import { finalize, take } from 'rxjs/operators';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -75,6 +78,7 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
         private locationService: LocationService,
         private toastService: ToastService,
         private loaderService: LoaderService,
+        private premiumFeatureService: PremiumFeatureService,
     ) {
 
         this.objectInstance = new CmdbObject();
@@ -92,6 +96,7 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
             if (selectedTypeID !== null) {
                 this.typeService.getType(selectedTypeID).subscribe((typeInstance: CmdbType) => {
                     this.typeInstance = typeInstance;
+                    this.enforceIpamForSpecialType(typeInstance);
                 });
             }
         });
@@ -130,6 +135,27 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
+    /**
+     * Blocks creating an object of a special (IPAM) type when IPAM is not part of the edition:
+     * surfaces the upgrade modal and leaves the add form. Awaits license hydration so an entitled
+     * user is never wrongly bounced. No-op for non-special types and entitled editions.
+     */
+    private enforceIpamForSpecialType(typeInstance: CmdbType): void {
+        if (!typeInstance?.special_type) {
+            return;
+        }
+
+        this.premiumFeatureService.isAvailable$(LicenseFeature.Ipam)
+            .pipe(take(1), takeUntil(this.subscriber))
+            .subscribe((available) => {
+                if (!available) {
+                    this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
+                    this.router.navigate(['/framework/object']);
+                }
+            });
+    }
+
+
     public get formTypeID() {
         return this.typeIDForm.get('typeID').value;
     }
@@ -142,6 +168,16 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
 
     public get currentTypeID() {
         return this.typeIDSubject.value;
+    }
+
+
+    public get specialType(): SpecialType | null {
+        return this.typeInstance?.special_type ?? null;
+    }
+
+
+    public get isSpecialType(): boolean {
+        return this.specialType !== null;
     }
 
 
@@ -159,6 +195,10 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
             this.objectInstance.version = '1.0.0';
             this.objectInstance.author_id = this.userService.getCurrentUser().public_id;
             this.objectInstance.ci_explorer_tooltip = null;
+
+            if (this.isSpecialType) {
+                this.objectInstance.special_type = this.specialType;
+            }
 
             this.objectInstance.fields = [];
             this.render.renderForm.removeControl('active');

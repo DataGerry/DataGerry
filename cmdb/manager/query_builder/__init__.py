@@ -22,6 +22,7 @@ from .builder import Builder
 from .pipeline_builder import PipelineBuilder
 from .quick_search_pipeline_builder import QuickSearchPipelineBuilder
 from .search_references_pipeline_builder import SearchReferencesPipelineBuilder
+from .search_pipeline_builder import SearchPipelineBuilder
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     'PipelineBuilder',
     'QuickSearchPipelineBuilder',
     'SearchReferencesPipelineBuilder',
+    'SearchPipelineBuilder',
 ]

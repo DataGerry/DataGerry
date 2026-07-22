@@ -24,6 +24,18 @@ import { CmdbLog } from '../models/cmdb-log';
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { APIGetMultiResponse } from '../../services/models/api-response';
 import { HttpResponse } from '@angular/common/http';
+import { User } from '../../management/models/user';
+
+export interface LogUserMap {
+  [publicId: number]: Partial<User>;
+}
+
+export type APILogsWithUsersResponse<T = CmdbLog> = Omit<APIGetMultiResponse<T>, 'results'> & {
+  results: {
+    logs: Array<T>;
+    users: LogUserMap;
+  };
+};
 
 @Injectable({
   providedIn: 'root'
@@ -53,8 +65,10 @@ export class LogService<T = CmdbLog> implements ApiServicePrefix {
    * @param publicID
    * @param params Instance of CollectionParameters
    */
-  public getLogsByObject(publicID: number, params: CollectionParameters = { filter: undefined,
-    limit: 10, sort: 'public_id', order: 1, page: 1}): Observable<APIGetMultiResponse<T>> {
+  public getLogsByObject(publicID: number, params: CollectionParameters = {
+    filter: undefined,
+    limit: 10, sort: 'public_id', order: 1, page: 1
+  }): Observable<APIGetMultiResponse<T>> {
     const options = HttpProtocolHelper.createHttpProtocolOptions(httpObserveOptions,
       JSON.stringify(params.filter), params.limit, params.sort, params.order, params.page);
     return this.api.callGet<Array<T>>(`${this.servicePrefix}/object/${publicID}`, options).pipe(
@@ -66,13 +80,16 @@ export class LogService<T = CmdbLog> implements ApiServicePrefix {
 
 
 
-  public getLogsWithExistingObject(params: CollectionParameters = { filter: undefined,
-    limit: 10, sort: 'public_id', order: 1, page: 1}): Observable<APIGetMultiResponse<T>> {
+  public getLogsWithExistingObject(params: CollectionParameters = {
+    filter: undefined,
+    limit: 10, sort: 'public_id', order: 1, page: 1
+  }): Observable<APILogsWithUsersResponse<T>> {
     const options = HttpProtocolHelper.createHttpProtocolOptions(httpObserveOptions, params.filter,
       params.limit, params.sort, params.order, params.page);
+    options.params = options.params.set('include_users', 'true');
 
     return this.api.callGet<Array<T>>(`${this.servicePrefix}/object/exists`, options).pipe(
-      map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
+      map((apiResponse: HttpResponse<APILogsWithUsersResponse<T>>) => {
         return apiResponse.body;
       })
     );
@@ -80,13 +97,16 @@ export class LogService<T = CmdbLog> implements ApiServicePrefix {
 
 
 
-  public getLogsWithNotExistingObject(params: CollectionParameters = { filter: undefined,
-    limit: 10, sort: 'public_id', order: 1, page: 1}): Observable<APIGetMultiResponse<T>> {
+  public getLogsWithNotExistingObject(params: CollectionParameters = {
+    filter: undefined,
+    limit: 10, sort: 'public_id', order: 1, page: 1
+  }): Observable<APILogsWithUsersResponse<T>> {
     const options = HttpProtocolHelper.createHttpProtocolOptions(httpObserveOptions, params.filter,
       params.limit, params.sort, params.order, params.page);
+    options.params = options.params.set('include_users', 'true');
 
     return this.api.callGet<T>(`${this.servicePrefix}/object/notexists`, options).pipe(
-      map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
+      map((apiResponse: HttpResponse<APILogsWithUsersResponse<T>>) => {
         return apiResponse.body;
       })
     );
@@ -94,13 +114,16 @@ export class LogService<T = CmdbLog> implements ApiServicePrefix {
 
 
 
-  public getDeleteLogs(params: CollectionParameters = { filter: undefined,
-    limit: 10, sort: 'public_id', order: 1, page: 1}): Observable<APIGetMultiResponse<T>> {
+  public getDeleteLogs(params: CollectionParameters = {
+    filter: undefined,
+    limit: 10, sort: 'public_id', order: 1, page: 1
+  }): Observable<APILogsWithUsersResponse<T>> {
     const options = HttpProtocolHelper.createHttpProtocolOptions(httpObserveOptions, params.filter,
       params.limit, params.sort, params.order, params.page);
+    options.params = options.params.set('include_users', 'true');
 
     return this.api.callGet<T>(`${this.servicePrefix}/object/deleted`, options).pipe(
-      map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
+      map((apiResponse: HttpResponse<APILogsWithUsersResponse<T>>) => {
         return apiResponse.body;
       })
     );
@@ -121,7 +144,7 @@ export class LogService<T = CmdbLog> implements ApiServicePrefix {
 
 
 
-  public deleteLog(publicID: number): Observable<T>  {
+  public deleteLog(publicID: number): Observable<T> {
     return this.api.callDelete<boolean>(`${this.servicePrefix}/${publicID}`).pipe(
       map((apiResponse) => {
         return apiResponse.body;

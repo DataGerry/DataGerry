@@ -20,6 +20,11 @@ import { Routes, RouterModule } from '@angular/router';
 
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { PermissionGuard } from '../auth/guards/permission.guard';
+<<<<<<< HEAD
+=======
+import { premiumFeatureGuard } from '../../settings/license-management/premium-feature/premium-feature.guard';
+import { LicenseFeature } from '../../settings/license-management/models/license.model';
+>>>>>>> origin/version-3.2
 
 import { DashboardComponent } from '../../components/dashboard/dashboard.component';
 import { AutomationsWrapperComponent } from '../../toolbox/automations/components/automations-wrapper/automations-wrapper.component';
@@ -83,9 +88,10 @@ const routes: Routes = [
     {
         path: 'isms',
         data: {
-            breadcrumb: 'ISMS'
+            breadcrumb: 'ISMS',
+            premiumFeature: LicenseFeature.Isms
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../../toolbox/isms/isms.module').then(m => m.ISMSModule)
     },
@@ -93,9 +99,14 @@ const routes: Routes = [
         path: 'automations',
         component: AutomationsWrapperComponent,
         data: {
-            breadcrumb: 'Automations'
+            breadcrumb: 'Automations',
+            premiumFeature: LicenseFeature.Automations
         },
+<<<<<<< HEAD
         canActivate: [AuthGuard],
+=======
+        canActivate: [AuthGuard, premiumFeatureGuard],
+>>>>>>> origin/version-3.2
         canActivateChild: [AuthGuard, PermissionGuard],
         children: [
             {
@@ -148,9 +159,14 @@ const routes: Routes = [
     {
         path: 'docapi',
         data: {
+<<<<<<< HEAD
             breadcrumb: 'Document Generator'
+=======
+            breadcrumb: 'Document Generator',
+            premiumFeature: LicenseFeature.DocumentGenerator
+>>>>>>> origin/version-3.2
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../docapi/docapi.module').then(m => m.DocapiModule)
     },

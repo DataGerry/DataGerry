@@ -3,7 +3,8 @@
     <h4 class="modal-title">
       <i class="fas fa-info-circle"></i> Metadata Info
     </h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss(true)"></button>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close"
+      (click)="activeModal.dismiss(true)"></button>
   </div>
   <div class="modal-body">
     <div class="row g-0">
@@ -17,29 +18,28 @@
             <div class="mb-3 row">
               <label for="colForFilename" class="col-sm-3 col-form-label col-form-label-sm">Filename</label>
               <div class="col-sm-9">
-                <input type="text" [value]="fileElement.filename" [disabled]="true"
-                       class="form-control form-control-sm" id="colForFilename" placeholder="">
+                <input type="text" [value]="fileElement.filename" [disabled]="true" class="form-control form-control-sm"
+                  id="colForFilename" placeholder="">
               </div>
             </div>
             <div class="mb-3 row">
               <label for="colForType" class="col-sm-3 col-form-label col-form-label-sm">Type</label>
               <div class="col-sm-9">
                 <input type="text" [value]="fileElement?.metadata.mime_type" [disabled]="true"
-                       class="form-control form-control-sm" id="colForType" placeholder="">
+                  class="form-control form-control-sm" id="colForType" placeholder="">
               </div>
             </div>
             <div class="mb-3 row">
               <label for="colForSize" class="col-sm-3 col-form-label col-form-label-sm">Size</label>
               <div class="col-sm-9">
                 <input type="text" [value]="fileElement?.size | fileSize" [disabled]="true"
-                       class="form-control form-control-sm" id="colForSize" placeholder="">
+                  class="form-control form-control-sm" id="colForSize" placeholder="">
               </div>
             </div>
             <div class="mb-3 row">
               <label for="colForFilename" class="col-sm-3 col-form-label col-form-label-sm">Path</label>
               <div class="col-sm-9">
-                <cmdb-folder-path-viewer
-                  [selectedFileFolder]="selectedFileFolder"
+                <cmdb-folder-path-viewer [selectedFileFolder]="selectedFileFolder"
                   [folderTree]="folderTree"></cmdb-folder-path-viewer>
               </div>
             </div>
@@ -49,27 +49,29 @@
             <div class="mb-3 row">
               <label class="col-sm-3 col-form-label col-form-label-sm">Reference</label>
               <div class="col-sm-9 pre-scrollable">
-                <ng-container *ngFor="let objRefId of refId" >
-                  <abbr title="Forwarding to the referenced object" class="initialism">
-                    <a [routerLink]="['/framework/object/view/', objRefId]" target="_blank" rel="noopener noreferrer">
-                      #{{objRefId}}
-                    </a>
-                  </abbr>
-                </ng-container>
+                @for (objRefId of refId; track objRefId) {
+
+                <abbr title="Forwarding to the referenced object" class="initialism">
+                  <a [routerLink]="['/framework/object/view/', objRefId]" target="_blank" rel="noopener noreferrer">
+                    #{{objRefId}}
+                  </a>
+                </abbr>
+
+                }
               </div>
             </div>
             <div class="mb-3 row">
               <label for="colForModifier" class="col-sm-3 col-form-label col-form-label-sm">Modifier</label>
               <div class="col-sm-9">
                 <input type="text" class="form-control form-control-sm" id="colForModifier" placeholder=""
-                       [value]="username" [disabled]="true">
+                  [value]="username" [disabled]="true">
               </div>
             </div>
             <div class="mb-3 row">
               <label for="colForDate" class="col-sm-3 col-form-label col-form-label-sm">Modify</label>
               <div class="col-sm-9">
                 <input type="text" class="form-control form-control-sm" id="colForDate" placeholder=""
-                       [value]="fileElement.upload_date.$date | date: 'dd/MM/yyyy - HH:mm:ss'" [disabled]="true">
+                  [value]="fileElement.upload_date.$date | date: 'dd/MM/yyyy - HH:mm:ss'" [disabled]="true">
               </div>
             </div>
           </fieldset>

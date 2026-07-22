@@ -9,16 +9,20 @@
         </span>
       </label>
 
-      <ng-container *ngIf="parentForm.get('risk_id')?.disabled; else editableRisk">
-        <input type="text" readonly class="form-control"
-          [value]="'#' + parentForm.get('risk_id')?.value + (riskName ? ' | ' + riskName : '')">
-      </ng-container>
+      @if (parentForm.get('risk_id')?.disabled) {
 
-      <ng-template #editableRisk>
-        <app-form-select [formControl]="parentForm.get('risk_id')" [items]="risks" bindLabel="name"
-          bindValue="public_id" placeholder="Select a Risk">
-        </app-form-select>
-      </ng-template>
+      <input type="text" readonly class="form-control"
+        [value]="'#' + parentForm.get('risk_id')?.value + (riskName ? ' | ' + riskName : '')">
+
+      } @else {
+
+      <app-form-select [formControl]="parentForm.get('risk_id')" [items]="risks" bindLabel="name" bindValue="public_id"
+        placeholder="Select a Risk">
+      </app-form-select>
+
+      }
+
+
     </div>
 
     <!-- ═══════════ 2. Object Ref Type (radios) ═══════════ -->
@@ -28,11 +32,13 @@
         <span class="required">{{ parentForm.get('object_id_ref_type')?.validator ? '*' : '' }}</span>
       </label>
 
-      <ng-container *ngFor="let t of objectRefTypes">
-        <app-radio [label]="t.label" [value]="t.value" name="objectRefTypeGroup" [id]="'objRef_' + t.value"
-          [formControl]="parentForm.get('object_id_ref_type')">
-        </app-radio>
-      </ng-container>
+      @for (t of objectRefTypes; track t) {
+
+      <app-radio [label]="t.label" [value]="t.value" name="objectRefTypeGroup" [id]="'objRef_' + t.value"
+        [formControl]="parentForm.get('object_id_ref_type')">
+      </app-radio>
+
+      }
     </div>
 
     <!-- ═══════════ 3. Object / Object Group ═══════════ -->
@@ -47,139 +53,98 @@
       </label>
 
       <!-- READONLY object/object group block -->
-      <!-- <ng-container *ngIf="parentForm.get('object_id')?.disabled; else editableObject">
-        <div class="form-control bg-light" style="min-height: 38px;">
-          <ng-container *ngIf="isObjectLoading">
-            <span class="spinner-border spinner-border-sm me-2 text-secondary"></span>
-            Loading object…
-          </ng-container>
+      @if (parentForm.get('object_id')?.disabled) {
 
-          <ng-container *ngIf="!isObjectLoading && selectedObjectRenderResult; else fallbackObject">
-            <i [class]="selectedObjectRenderResult.type_information?.icon" class="me-1"></i>
-            <a [routerLink]="['/framework/object/view/', selectedObjectRenderResult.object_information?.object_id]"
-               class="text-decoration-none"
-               target="_blank">
-              #{{ selectedObjectRenderResult.object_information?.object_id }}
-              {{ selectedObjectRenderResult.type_information?.type_label }}
-            </a>
-            <span *ngIf="selectedObjectRenderResult.summaries?.length">
-              – {{ selectedObjectRenderResult.summary_line }}
-            </span>
-          </ng-container>
+      <div class="form-control bg-light" style="min-height: 38px;">
+        @if (!isObjectLoading) {
 
-          <ng-template #fallbackObject>
-            #{{ parentForm.get('object_id')?.value }}
-            {{ objectSummary ? '– ' + objectSummary : '' }}
-          </ng-template>
-        </div>
-      </ng-container> -->
+        <!-- For OBJECT type -->
+        @if (parentForm.get('object_id_ref_type')?.value === 'OBJECT') {
+
+        <!-- If naming is available, use it -->
+        @if (parentForm.value.naming?.object_id_name) {
+
+        <a [routerLink]="['/framework/object/view/', parentForm.get('object_id')?.value]">
+          {{ parentForm.value.naming?.object_id_name }}
+        </a>
+        @if ((selectedObjectRenderResult?.summary_line || objectSummary)) {
+        <span> – {{ selectedObjectRenderResult?.summary_line || objectSummary }}</span>
+        }
+        } @else {
+        @if (selectedObjectRenderResult) {
+        <i [class]="selectedObjectRenderResult.type_information?.icon" class="me-1"></i>
+        <a [routerLink]="['/framework/object/view/', selectedObjectRenderResult.object_information?.object_id]"
+          class="text-decoration-none">
+          #{{ selectedObjectRenderResult.object_information?.object_id }} {{
+          selectedObjectRenderResult.type_information?.type_label }}
+        </a>
+        @if (selectedObjectRenderResult.summary_line) {
+        <span> – {{ selectedObjectRenderResult.summary_line }}</span>
+        }
+        } @else {
+
+        <span>
+          #{{ parentForm.get('object_id')?.value }}
+          {{ objectSummary ? ' – ' + objectSummary : '' }}
+        </span>
+
+        }
+        }
+        <!-- If naming is not available (e.g., add mode), show rendered object with summary when possible -->
+
+        }
+        <!-- For OBJECT_GROUP type -->
+        @if (parentForm.get('object_id_ref_type')?.value === 'OBJECT_GROUP') {
+        @if (parentForm.value.naming?.object_group_id_name) {
+        <span>
+          #{{ parentForm.get('object_id')?.value }} -
+          {{ parentForm.value.naming?.object_group_id_name }}
+        </span>
+        } @else {
+        <span>
+          #{{ parentForm.get('object_id')?.value }}
+          {{ objectSummary ? ' – ' + objectSummary : '' }}
+        </span>
+        }
+        }
+        }
+      </div>
+
+      } @else {
 
 
-      <!-- READONLY object/object group block -->
-      <!-- <ng-container *ngIf="parentForm.get('object_id')?.disabled; else editableObject">
-        <div class="form-control bg-light" style="min-height: 38px;"> -->
-          <!-- Spinner -->
-          <!-- <ng-container *ngIf="isObjectLoading">
-            <span class="spinner-border spinner-border-sm me-2 text-secondary"></span>
-            Loading object…
-          </ng-container> -->
+      @switch (parentForm.get('object_id_ref_type')?.value) {
+      <!-- OBJECT -->
+      @case ('OBJECT') {
 
-          <!-- For OBJECT: show render block -->
-          <!-- <ng-container *ngIf="parentForm.get('object_id_ref_type')?.value === 'OBJECT'; else showGroup">
-            <ng-container *ngIf="!isObjectLoading && selectedObjectRenderResult; else fallbackObject">
-              <i [class]="selectedObjectRenderResult.type_information?.icon" class="me-1"></i>
-              <a [routerLink]="['/framework/object/view/', selectedObjectRenderResult.object_information?.object_id]"
-                class="text-decoration-none" target="_blank">
-                #{{ selectedObjectRenderResult.object_information?.object_id }}
-                {{ selectedObjectRenderResult.type_information?.type_label }}
-              </a>
-              <span *ngIf="selectedObjectRenderResult.summaries?.length">
-                – {{ selectedObjectRenderResult.summary_line }}
-              </span>
-            </ng-container>
-          </ng-container> -->
+      @if (typesLoaded) {
+      <app-object-selector [typeIds]="allTypeIds" [multiple]="false" [closeOnSelect]="true"
+        [selectedIds]="parentForm.get('object_id')?.value ? [parentForm.get('object_id')?.value] : []"
+        (selectionChange)="onObjectSelected($event)">
+      </app-object-selector>
+      }
 
-          <!-- For OBJECT_GROUP: show only fallback block -->
-          <!-- <ng-template #showGroup>
-            <ng-container>
-              #{{ parentForm.get('object_id')?.value }}
-              {{ objectSummary ? '– ' + objectSummary : '' }}
-            </ng-container>
-          </ng-template>
-        </div>
-      </ng-container> -->
+      @if (!typesLoaded) {
+      <div class="form-text">Loading types…</div>
+      }
 
-      <ng-container *ngIf="parentForm.get('object_id')?.disabled; else editableObject">
-        <div class="form-control bg-light" style="min-height: 38px;">
-          <ng-container *ngIf="!isObjectLoading">
-            <!-- For OBJECT type -->
-            <ng-container *ngIf="parentForm.get('object_id_ref_type')?.value === 'OBJECT'">
-              <!-- If naming is available, use it -->
-              <ng-container *ngIf="parentForm.value.naming?.object_id_name; else noNaming">
-                <a [routerLink]="['/framework/object/view/', parentForm.get('object_id')?.value]">
-                  {{ parentForm.value.naming?.object_id_name }}
-                </a>
-                <span *ngIf="(selectedObjectRenderResult?.summary_line || objectSummary)"> – {{ selectedObjectRenderResult?.summary_line || objectSummary }}</span>
-              </ng-container>
-              <!-- If naming is not available (e.g., add mode), show rendered object with summary when possible -->
-              <ng-template #noNaming>
-                <ng-container *ngIf="selectedObjectRenderResult; else fallbackObject">
-                  <i [class]="selectedObjectRenderResult.type_information?.icon" class="me-1"></i>
-                  <a [routerLink]="['/framework/object/view/', selectedObjectRenderResult.object_information?.object_id]" class="text-decoration-none">
-                    #{{ selectedObjectRenderResult.object_information?.object_id }} {{ selectedObjectRenderResult.type_information?.type_label }}
-                  </a>
-                  <span *ngIf="selectedObjectRenderResult.summary_line"> – {{ selectedObjectRenderResult.summary_line }}</span>
-                </ng-container>
-              </ng-template>
-            </ng-container>
-            <!-- For OBJECT_GROUP type -->
-            <ng-container *ngIf="parentForm.get('object_id_ref_type')?.value === 'OBJECT_GROUP'">
-              <ng-container *ngIf="parentForm.value.naming?.object_group_id_name; else fallbackGroup">
-                <span>
-                  #{{ parentForm.get('object_id')?.value }} -
-                  {{ parentForm.value.naming?.object_group_id_name }}
-                </span>
-              </ng-container>
-            </ng-container>
-          </ng-container>
-      
-          <ng-template #fallbackObject>
-            <span>
-              #{{ parentForm.get('object_id')?.value }}
-              {{ objectSummary ? ' – ' + objectSummary : '' }}
-            </span>
-          </ng-template>
-      
-          <ng-template #fallbackGroup>
-            <span>
-              #{{ parentForm.get('object_id')?.value }}
-              {{ objectSummary ? ' – ' + objectSummary : '' }}
-            </span>
-          </ng-template>
-        </div>
-      </ng-container>
+      }
+
+      <!-- OBJECT GROUP -->
+      @case ('OBJECT_GROUP') {
+
+      <app-form-select [formControl]="parentForm.get('object_id')" [items]="objectGroups" bindLabel="name"
+        bindValue="public_id" placeholder="Select Object Group">
+      </app-form-select>
+
+      }
+      }
+
+
+      }
 
       <!-- EDITABLE object/object group picker -->
-      <ng-template #editableObject>
-        <ng-container [ngSwitch]="parentForm.get('object_id_ref_type')?.value">
-          <!-- OBJECT -->
-          <ng-container *ngSwitchCase="'OBJECT'">
-            <app-object-selector *ngIf="typesLoaded" [typeIds]="allTypeIds" [multiple]="false" [closeOnSelect]="true"
-              [selectedIds]="parentForm.get('object_id')?.value ? [parentForm.get('object_id')?.value] : []"
-              (selectionChange)="onObjectSelected($event)">
-            </app-object-selector>
 
-            <div *ngIf="!typesLoaded" class="form-text">Loading types…</div>
-          </ng-container>
-
-          <!-- OBJECT GROUP -->
-          <ng-container *ngSwitchCase="'OBJECT_GROUP'">
-            <app-form-select [formControl]="parentForm.get('object_id')" [items]="objectGroups" bindLabel="name"
-              bindValue="public_id" placeholder="Select Object Group">
-            </app-form-select>
-          </ng-container>
-        </ng-container>
-      </ng-template>
     </div>
   </div>
 </div>

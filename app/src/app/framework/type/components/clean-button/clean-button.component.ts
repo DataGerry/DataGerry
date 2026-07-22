@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
 
@@ -50,13 +50,9 @@ export class CleanButtonComponent implements OnChanges, OnDestroy {
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
-    constructor(
-        private objectService: ObjectService,
-        private modalService: NgbModal,
-        private toastService: ToastService
-    ) {
-
-    }
+    private readonly objectService = inject(ObjectService);
+    private readonly modalService = inject(NgbModal);
+    private readonly toastService = inject(ToastService);
 
 
     public ngOnChanges(changes: SimpleChanges): void {

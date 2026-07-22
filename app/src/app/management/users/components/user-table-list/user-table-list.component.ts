@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit } from '@angular/core';
 import { Column, Sort, SortDirection } from '../../../../layout/table/table.types';
 import { User } from '../../../models/user';
 import { ReplaySubject } from 'rxjs';
@@ -66,8 +66,7 @@ export class UserTableListComponent implements OnInit, OnDestroy {
    */
   public users: Array<User> = [];
 
-  constructor(private userService: UserService) {
-  }
+  private readonly userService = inject(UserService);
 
   public ngOnInit(): void {
     this.columns = [

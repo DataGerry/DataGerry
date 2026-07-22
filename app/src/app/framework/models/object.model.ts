@@ -5,6 +5,7 @@ export interface ExtendedRelation extends CmdbRelation {
   canBeParent: boolean;
   canBeChild: boolean;
 }
+<<<<<<< HEAD
 
 // Interface for raw relation instances from the API
 export interface ObjectRelationInstance {
@@ -37,3 +38,5 @@ export interface RelationGroup {
   pageSize?: number; // items per page for this group
   definition: CmdbRelation;
 }
+=======
+>>>>>>> origin/version-3.2

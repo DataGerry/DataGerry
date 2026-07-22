@@ -17,35 +17,53 @@
 This module contains the implementation of the WebhooksManager
 """
 from logging import Logger, getLogger
+<<<<<<< HEAD
 from typing import Any
 import json
 from datetime import datetime, timezone
 import requests
+=======
+>>>>>>> origin/version-3.2
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.database.database_utils import default
-from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager.base_manager import BaseManager
-from cmdb.manager import WebhooksEventManager
+from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
-from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
-from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import BaseManagerInsertError, BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager import (
+    BaseManagerInitError,
+    BaseManagerInsertError,
+    BaseManagerGetError,
+    BaseManagerUpdateError,
+    BaseManagerDeleteError,
+    BaseManagerIterationError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+<<<<<<< HEAD
+=======
+
+# Webhooks have no dedicated manager-error hierarchy yet (see discussion backlog); the shared
+# BaseManager errors are used so this manager can run on GenericManager
+WEBHOOKS_MANAGER_ERRORS: dict[str, type[Exception]] = {
+    'init': BaseManagerInitError,
+    'insert': BaseManagerInsertError,
+    'get': BaseManagerGetError,
+    'update': BaseManagerUpdateError,
+    'delete': BaseManagerDeleteError,
+    'iterate': BaseManagerIterationError,
+}
+>>>>>>> origin/version-3.2
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                WebhooksManager - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-class WebhooksManager(BaseManager):
+class WebhooksManager(GenericManager):
     """
-    The WebhooksManager handles the interaction between the Webhooks-API and the database
-    Extends: BaseManager
-    """
+    The WebhooksManager manages the interaction between CmdbWebhooks and the database
 
+<<<<<<< HEAD
     def __init__(self, dbm: MongoDatabaseManager, database:str = None) -> None:
         """
         Set the database connection and the queue for sending events
@@ -215,3 +233,9 @@ class WebhooksManager(BaseManager):
             'object_after': object_after,
             'changes': changes,
         }
+=======
+    Extends: GenericManager
+    """
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        super().__init__(dbm, CmdbWebhook, WEBHOOKS_MANAGER_ERRORS, database)
+>>>>>>> origin/version-3.2

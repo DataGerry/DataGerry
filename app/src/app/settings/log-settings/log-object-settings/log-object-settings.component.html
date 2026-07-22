@@ -1,70 +1,52 @@
 <ul class="nav nav-tabs" id="myTab" role="tablist">
     <li class="nav-item">
-        <a class="nav-link" 
-           [class.active]="showExistingObjectsLogs"
-           id="log-object-activate-tab" 
-           href="javascript:void(0)" 
-           role="tab" 
-           (click)="handleClick(1)">
+        <a class="nav-link" [class.active]="showExistingObjectsLogs" id="log-object-activate-tab"
+            href="javascript:void(0)" role="tab" (click)="handleClick(1)">
             Existing Objects Logs
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" 
-           [class.active]="showDeletedObjectsLogs"
-           id="log-object-deactivate-tab" 
-           href="javascript:void(0)" 
-           role="tab" 
-           (click)="handleClick(2)">
+        <a class="nav-link" [class.active]="showDeletedObjectsLogs" id="log-object-deactivate-tab"
+            href="javascript:void(0)" role="tab" (click)="handleClick(2)">
             Deleted Objects Logs
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" 
-           [class.active]="showDeleteLogs"
-           id="log-object-delete-tab" 
-           href="javascript:void(0)" 
-           role="tab" 
-           (click)="handleClick(3)">
+        <a class="nav-link" [class.active]="showDeleteLogs" id="log-object-delete-tab" href="javascript:void(0)"
+            role="tab" (click)="handleClick(3)">
             Delete Logs
         </a>
     </li>
 </ul>
 <div class="tab-content pt-2">
-    <div *ngIf="cleanupInProgress" 
-         id="cleanup-progress" 
-         class="m-2">
-        <ngb-progressbar type="danger" 
-                         [value]="cleanupProgress" 
-                         [animated]="true" 
-                         [striped]="true">
+    @if (cleanupInProgress) {
+    <div id="cleanup-progress" class="m-2">
+        <ngb-progressbar type="danger" [value]="cleanupProgress" [animated]="true" [striped]="true">
         </ngb-progressbar>
     </div>
-    <div *ngIf="showExistingObjectsLogs">
-        <cmdb-activate-tab 
-            [reloadLogs]="reloadActiveLogs" 
-            (deleteEmitter)="deleteLog($event, 'active')" 
+    }
+    @if (showExistingObjectsLogs) {
+    <div>
+        <cmdb-activate-tab [reloadLogs]="reloadActiveLogs" (deleteEmitter)="deleteLog($event, 'active')"
             (cleanUpEmitter)="cleanup($event, 'active')">
         </cmdb-activate-tab>
     </div>
-    <div *ngIf="showDeletedObjectsLogs">
-        <cmdb-deactivate-tab 
-            [reloadLogs]="reloadDeActiveLogs" 
-            (deleteEmitter)="deleteLog($event, 'deactive')" 
+    }
+    @if (showDeletedObjectsLogs) {
+    <div>
+        <cmdb-deactivate-tab [reloadLogs]="reloadDeActiveLogs" (deleteEmitter)="deleteLog($event, 'deactive')"
             (cleanUpEmitter)="cleanup($event, 'deactive')">
         </cmdb-deactivate-tab>
     </div>
-    <div *ngIf="showDeleteLogs">
-        <cmdb-delete-tab 
-            [reloadLogs]="reloadDeleteLogs" 
-            (deleteEmitter)="deleteLog($event, 'delete')" 
+    }
+    @if (showDeleteLogs) {
+    <div>
+        <cmdb-delete-tab [reloadLogs]="reloadDeleteLogs" (deleteEmitter)="deleteLog($event, 'delete')"
             (cleanUpEmitter)="cleanup($event, 'delete')">
         </cmdb-delete-tab>
     </div>
+    }
 </div>
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

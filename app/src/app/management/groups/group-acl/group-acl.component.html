@@ -1,32 +1,25 @@
 <h1>Object ACL Management</h1>
-<hr/>
+<hr />
 
 <form [formGroup]="objectsACLGroupForm">
     <div class="mb-3 row">
         <label class="col-sm-2 col-form-label">Group</label>
         <div class="col-sm-10">
-            <ng-select
-                [items]="groups"
-                [virtualScroll]="true"
-                [loading]="groupsLoading"
-                formControlName="group"
-                bindLabel="label"
-                placeholder="Select a group"
-                appendTo="body"
-                (scrollToEnd)="onScrollToEnd()"
-            >
+            <ng-select [items]="groups" [virtualScroll]="true" [loading]="groupsLoading" formControlName="group"
+                bindLabel="label" placeholder="Select a group" appendTo="body" (scrollToEnd)="onScrollToEnd()">
                 <ng-template ng-header-tmp>
-                    <small class="form-text text-muted" *ngIf="totalGroups">Loaded {{groups.length}} of {{totalGroups}}</small>
+                    @if (totalGroups) {
+                    <small class="form-text text-muted">Loaded {{groups.length}} of {{totalGroups}}</small>
+                    }
                 </ng-template>
             </ng-select>
         </div>
     </div>
 </form>
 
-<cmdb-acl-objects-table *ngIf="selectedGroup" [group]="selectedGroup"/>
+@if (selectedGroup) {
+<cmdb-acl-objects-table [group]="selectedGroup" />
+}
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

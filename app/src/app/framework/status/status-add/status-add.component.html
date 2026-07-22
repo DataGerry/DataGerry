@@ -8,12 +8,16 @@
              [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                  'is-invalid': name.invalid && (name.dirty || name.touched)}" lowercase>
       <small class="description form-text text-muted">Name of status - has to be lowercase.</small>
-      <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-        <div *ngIf="name.errors.required">
+      @if (name.invalid && (name.dirty || name.touched)) {
+<div class="invalid-feedback">
+        @if (name.errors.required) {
+<div>
           Name is a required field.
         </div>
+}
         <div class="clearfix"></div>
       </div>
+}
     </div>
   </div>
   <div class="mb-3 row">
@@ -23,12 +27,16 @@
              [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched),
                  'is-invalid': label.invalid && (label.dirty || label.touched)}">
       <small class="description form-text text-muted">Display name/label of status.</small>
-      <div *ngIf="label.invalid && (label.dirty || label.touched)" class="invalid-feedback">
-        <div *ngIf="label.errors.required">
+      @if (label.invalid && (label.dirty || label.touched)) {
+<div class="invalid-feedback">
+        @if (label.errors.required) {
+<div>
           Label is a required field.
         </div>
+}
         <div class="clearfix"></div>
       </div>
+}
     </div>
   </div>
   <div class="mb-3 row">

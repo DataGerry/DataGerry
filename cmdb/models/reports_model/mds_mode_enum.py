@@ -16,10 +16,10 @@
 """
 Implementation of MdsMode
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class MdsMode(str, Enum):
+class MdsMode(BaseStrEnum):
     """
     Available MDS modes
     """

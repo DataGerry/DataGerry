@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs/operators';
@@ -51,14 +51,12 @@ export class PersonListComponent implements OnInit {
   public columns: Column[] = [];
   public initialVisibleColumns: string[] = [];
 
-  constructor(
-    private router: Router,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private modalService: NgbModal,
-    private filterBuilderService: FilterBuilderService,
-    private personService: PersonService
-  ) { }
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly modalService = inject(NgbModal);
+  private readonly filterBuilderService = inject(FilterBuilderService);
+  private readonly personService = inject(PersonService);
 
   
   ngOnInit(): void {

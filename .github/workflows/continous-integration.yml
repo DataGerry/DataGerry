@@ -9,8 +9,17 @@ on:
 jobs:
 
   test:
-
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    services:
+      mongo:
+        image: mongo:${{ matrix.mongodb-version }}
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd="mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     strategy:
       matrix:
         python-version: ['3.12']
@@ -22,10 +31,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libcairo2-dev pkg-config libjpeg-dev zlib1g-dev libfreetype6-dev libffi-dev
-      - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.7.0
-        with:
-          mongodb-version: ${{ matrix.mongodb-version }}
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:

@@ -71,11 +71,12 @@ export interface Field {
   
   /* -------- Edge & relation metadata ----------------------------------- */
   export interface RelationMeta {
-    relation_id: number;
+    relation_id: number | null;
     relation_name?: string;
     relation_label?: string;
     relation_icon?: string;
     relation_color?: string;
+    source?: string;
   }
   
   export interface CIEdge {

@@ -16,10 +16,10 @@
 """
 Defines available actions for Logs
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class LogInteraction(str, Enum):
+class LogInteraction(BaseStrEnum):
     """
     Available Log interactions (currently used only by CmdbObjectRelationLog)
     """

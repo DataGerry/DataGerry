@@ -16,10 +16,9 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit } from '@angular/core';
 import { CmdbType } from '../../../framework/models/cmdb-type';
 import { Subscription } from 'rxjs';
-import { ObjectService } from '../../../framework/services/object.service';
 import { SidebarService } from '../../services/sidebar.service';
 
 @Component({
@@ -32,16 +31,19 @@ export class SidebarTypeComponent implements OnInit, OnDestroy {
 
   @Input() public type: CmdbType;
 
-  public objectCounter: unknown = 0;
+  public objectCounter: number | null = null;
+  private counterSubscription?: Subscription;
 
-  public constructor(private objectService: ObjectService, private sidebarService: SidebarService) {
-  }
+  private readonly sidebarService = inject(SidebarService);
+
+  /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
   public ngOnInit() {
-    this.sidebarService.initializeCounter(this);
+    this.counterSubscription = this.sidebarService.initializeCounter(this);
   }
 
   public ngOnDestroy() {
+    this.counterSubscription?.unsubscribe();
     this.sidebarService?.deleteCounter(this);
   }
 

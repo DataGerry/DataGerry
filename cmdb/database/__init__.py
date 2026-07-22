@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This mdule provides all Database classes
+This module provides all Database classes
 """
 from .connection_status import ConnectionStatus
 from .database_gridfs import DatabaseGridFS

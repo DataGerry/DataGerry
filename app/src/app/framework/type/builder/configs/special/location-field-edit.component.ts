@@ -84,7 +84,15 @@ export class LocationFieldEditComponent extends ConfigEditBaseComponent implemen
       
         this.disableControlOnEdit(this.nameControl);
         this.patchData(this.data, this.form);
-      
+
+        // Keep the field label in sync with the shared field object now that the
+        // template no longer uses ngModel alongside the reactive formControl.
+        this.labelControl.valueChanges
+          .pipe(takeUntil(this.subscriber))
+          .subscribe((value: string) => {
+            this.data.label = value;
+          });
+
         this.initialValue = this.nameControl.value;
       
         // Get the initial value from the TYPE (edit mode), fallback to field (create), then to false.

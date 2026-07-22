@@ -1,5 +1,5 @@
 
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 import { Column, Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -29,6 +29,13 @@ const slug = (s: string) =>
     standalone: false
 })
 export class RiskAssesmentsComponent implements OnInit {
+  private readonly api = inject(RiskAssesmentsReportService);
+  private readonly rcSvc = inject(RiskClassService);
+  private readonly fileExp = inject(FileExportService);
+  private readonly loader = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly fb = inject(FilterBuilderService);
+  private readonly ismsValidationService = inject(IsmsValidationService);
 
   /* ───────── templates for coloured boxes ───────── */
   @ViewChild('riskBeforeTpl', { static: true }) riskBeforeTpl!: TemplateRef<any>;
@@ -86,16 +93,6 @@ export class RiskAssesmentsComponent implements OnInit {
   private headerMap: Record<string, string> = {};
 
   /* ───────── ctor ───────── */
-  constructor(
-    private readonly api: RiskAssesmentsReportService,
-    private readonly rcSvc: RiskClassService,
-    private readonly fileExp: FileExportService,
-    private readonly loader: LoaderService,
-    private readonly toast: ToastService,
-    private readonly fb: FilterBuilderService,
-    private readonly ismsValidationService: IsmsValidationService
-
-  ) { }
 
   ngOnInit(): void {
     this.ismsValidationService.checkAndHandleInvalidConfig().subscribe({

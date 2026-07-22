@@ -54,6 +54,7 @@ install %{_sourcedir}/datagerry %{buildroot}%{_bindir}/datagerry
 install %{_sourcedir}/datagerry.service %{buildroot}%{_unitdir}/datagerry.service
 install %{_sourcedir}/datagerry.conf %{buildroot}%{_tmpfilesdir}/datagerry.conf
 install -D %{_sourcedir}/cmdb.conf %{buildroot}%{_sysconfdir}/datagerry/cmdb.conf
+install -D %{_sourcedir}/app-config.json %{buildroot}%{_sysconfdir}/datagerry/app-config.json
 
 
 %files
@@ -61,6 +62,7 @@ install -D %{_sourcedir}/cmdb.conf %{buildroot}%{_sysconfdir}/datagerry/cmdb.con
 %{_unitdir}/datagerry.service
 %{_tmpfilesdir}/datagerry.conf
 %{_sysconfdir}/datagerry/cmdb.conf
+%{_sysconfdir}/datagerry/app-config.json
 
 %post
 systemctl daemon-reload || true

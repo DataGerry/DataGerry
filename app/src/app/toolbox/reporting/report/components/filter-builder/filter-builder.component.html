@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <div *ngIf="fields && fields.length > 0 && showQueryBuilder">
     <h5>
         <span class="bold-text">Fields Filter</span> <span class="required">*</span>:
@@ -18,3 +19,22 @@
         
     </query-builder>
 </div>
+=======
+@if (fields && fields.length > 0 && showQueryBuilder) {
+<div>
+    <h5>
+        <span class="bold-text">Fields Filter</span> <span class="required">*</span>:
+    </h5>
+    <query-builder [(ngModel)]="query" [config]="config" [classNames]="classNames"
+        (ngModelChange)="onQueryChange($event)">
+        <ng-container *queryInput="let rule">
+            @if (!shouldHideValueField(rule.operator)) {
+            <input [(ngModel)]="rule.value" class="form-control"
+                [type]="config.fields[rule.field]?.type === 'number' ? 'number' : 'text'" />
+            }
+        </ng-container>
+
+    </query-builder>
+</div>
+}
+>>>>>>> origin/version-3.2

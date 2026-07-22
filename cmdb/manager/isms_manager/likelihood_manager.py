@@ -17,6 +17,10 @@
 This module contains the implementation of the LikelihoodManager
 """
 from logging import Logger, getLogger
+<<<<<<< HEAD
+=======
+from typing import Any
+>>>>>>> origin/version-3.2
 
 from cmdb.database import MongoDatabaseManager
 
@@ -43,14 +47,20 @@ class LikelihoodManager(GenericManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_with_follow_up(self, public_id: int, new_data: dict) -> None:
+    def update_with_follow_up(self, public_id: int, new_data: dict[str, Any]) -> None:
         """
-        Updates an IsmsLikelihood and updates the calc basis where it is used
+        Updates an IsmsLikelihood and propagates the new calculation_basis to the likelihood_value
+        of every IsmsRiskAssessment referencing it.
+
+        The Likelihood is updated first, then a single aggregation-pipeline update rewrites the
+        likelihood_value in the before / after matrices where the likelihood_id matches.
 
         Args:
-            public_id (int): public_id of IsmsLikelihood which is changed
-            new_data (dict): new data for the Likelihood
+            public_id (int): public_id of the IsmsLikelihood which is changed
+            new_data (dict[str, Any]): new data for the Likelihood
         """
+        self.update_item(public_id, IsmsLikelihood.from_data(new_data))
+
         criteria = {
             '$or': [
                 {'risk_calculation_before.likelihood_id': public_id},
@@ -78,8 +88,6 @@ class LikelihoodManager(GenericManager):
         ]
 
         self.dbm.update_many(IsmsRiskAssessment.COLLECTION, self.db_name, criteria, update_data, plain=True)
-
-        self.update_item(public_id, IsmsLikelihood.from_data(new_data))
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -122,4 +130,4 @@ class LikelihoodManager(GenericManager):
             return bool(result)
         except Exception as err:
             LOGGER.error("[likelihood_calculation_basis_exists] Exception: %s. Type: %s", err, type(err))
-            raise LikelihoodManagerGetError(err) from err
+            raise LikelihoodManagerGetError(str(err)) from err

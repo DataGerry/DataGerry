@@ -17,9 +17,12 @@
 </ng-template>
 
 <ng-template #descriptionTemplate let-item="item">
-  <span *ngIf="item.description?.length <= 120">{{ item.description }}</span>
+  @if (item.description?.length <= 120) {
+<span>{{ item.description }}</span>
+}
 
-  <span *ngIf="item.description?.length > 120" 
+  @if (item.description?.length > 120) {
+<span 
         matTooltip="{{ item.description }}" 
         matTooltipPosition="right"
         matTooltipClass="custom-tooltip"
@@ -27,6 +30,7 @@
         class="tooltip-text">
     {{ item.description | slice:0:120 }}...
   </span>
+}
 </ng-template>
 
 

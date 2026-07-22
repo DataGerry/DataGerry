@@ -16,6 +16,8 @@
 """
 This module provides all errors for the GroupsManager
 """
+from typing import Any
+
 from .groups_manager_errors import (
     GroupsManagerError,
     GroupsManagerInitError,
@@ -35,4 +37,15 @@ __all__: list[str] = [
     'GroupsManagerIterationError',
     'GroupsManagerUpdateError',
     'GroupsManagerDeleteError',
+    'GROUPS_MANAGER_ERRORS',
 ]
+
+
+GROUPS_MANAGER_ERRORS: dict[str, Any] = {
+    "init": GroupsManagerInitError,
+    "insert": GroupsManagerInsertError,
+    "get": GroupsManagerGetError,
+    "update": GroupsManagerUpdateError,
+    "delete": GroupsManagerDeleteError,
+    "iterate": GroupsManagerIterationError,
+}

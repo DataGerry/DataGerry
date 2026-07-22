@@ -17,6 +17,7 @@
 */
 import { CmdbDao } from './cmdb-dao';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
+import { SpecialType } from './special-type';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export interface CmdbTypeSection {
@@ -87,6 +88,7 @@ export class CmdbType implements CmdbDao {
     public fields: Array<any> = [];
     public ci_explorer_label?: string = null; 
     public ci_explorer_color?: string = null;
+    public special_type?: SpecialType;
     public acl?: AccessControlList;
 
 

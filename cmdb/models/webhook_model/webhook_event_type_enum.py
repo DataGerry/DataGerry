@@ -16,10 +16,10 @@
 """
 Implementation of WebhookEventType enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class WebhookEventType(str, Enum):
+class WebhookEventType(BaseStrEnum):
     """Types of Events"""
     CREATE = 'CREATE'
     UPDATE = 'UPDATE'

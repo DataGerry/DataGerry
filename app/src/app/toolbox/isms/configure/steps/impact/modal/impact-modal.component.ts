@@ -1,5 +1,5 @@
 import { Location } from '@angular/common';
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import {
     FormBuilder,
     FormGroup,
@@ -35,15 +35,13 @@ export class ImpactModalComponent implements OnInit {
     public isModalVisible = true;
     private isMatrixValid = true;
 
-    constructor(
-        public activeModal: NgbActiveModal,
-        private fb: FormBuilder,
-        private impactService: ImpactService,
-        private toast: ToastService,
-        private ismsService: ISMSService,
-        private modalService: NgbModal,
-        private location: Location
-    ) { }
+    public readonly activeModal = inject(NgbActiveModal);
+    private readonly fb = inject(FormBuilder);
+    private readonly impactService = inject(ImpactService);
+    private readonly toast = inject(ToastService);
+    private readonly ismsService = inject(ISMSService);
+    private readonly modalService = inject(NgbModal);
+    private readonly location = inject(Location);
 
     ngOnInit(): void {
         this.isEditMode = !!this.impact;

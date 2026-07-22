@@ -17,7 +17,7 @@
 */
 
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { FileMetadata } from '../../model/metadata';
 import { checkFolderExistsValidator, FileService } from '../../service/file.service';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
@@ -52,7 +52,9 @@ export class NewFolderDialogComponent implements OnInit {
     );
   }
 
-  constructor(private fileService: FileService, public activeModal: NgbActiveModal, private toast: ToastService) {}
+  private readonly fileService = inject(FileService);
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly toast = inject(ToastService);
 
   public ngOnInit(): void {
     this.basicForm = new UntypedFormGroup({

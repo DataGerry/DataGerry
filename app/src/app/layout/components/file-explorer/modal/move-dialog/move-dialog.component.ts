@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Component, OnInit} from '@angular/core';
+import {Component, inject, OnInit} from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { FileMetadata } from '../../model/metadata';
 import { FileService } from '../../service/file.service';
@@ -37,7 +37,8 @@ export class MoveDialogComponent implements OnInit {
   public destinationFolder: FileElement[] = [];
   private readonly defaultApiParameter: CollectionParameters = {page: 1, limit: 100, order: 1};
 
-  constructor(private fileService: FileService, public activeModal: NgbActiveModal) {}
+  private readonly fileService = inject(FileService);
+  public readonly activeModal = inject(NgbActiveModal);
 
   groupByFn = (item) => item.metadata.parent ? item.metadata.parent : 0;
 

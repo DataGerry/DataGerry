@@ -16,11 +16,12 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy } from '@angular/core';
 import { CmdbType } from '../../models/cmdb-type';
 import { ActivatedRoute } from '@angular/router';
 import { CmdbMode } from '../../modes.enum';
 import { TypeService } from '../../services/type.service';
+import { LocationFieldDeletionService } from '../services/location-field-deletion.service';
 
 @Component({
     selector: 'cmdb-type-edit',
@@ -28,7 +29,7 @@ import { TypeService } from '../../services/type.service';
     styleUrls: ['./type-edit.component.scss'],
     standalone: false
 })
-export class TypeEditComponent {
+export class TypeEditComponent implements OnDestroy {
 
   /**
    * Type instance.
@@ -45,11 +46,20 @@ export class TypeEditComponent {
    */
   public stepIndex: number = 1;
 
-  constructor(private typeService: TypeService, private route: ActivatedRoute) {
+  constructor(
+    private typeService: TypeService,
+    private route: ActivatedRoute,
+    private locationFieldDeletion: LocationFieldDeletionService,
+  ) {
     this.route.queryParams.subscribe(params => {
       this.stepIndex = params.stepIndex || 0;
     });
     this.typeInstance = this.route.snapshot.data.type as CmdbType;
+    this.locationFieldDeletion.prime(this.typeInstance);
+  }
+
+  ngOnDestroy(): void {
+    this.locationFieldDeletion.clear();
   }
 
 }

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <div class="header-pane" *ngIf="headerForm" [formGroup]="headerForm">
     <div class="mb-3">
         <app-toggle [id]="activationToggleId" [formControlName]="activatedControlName" [label]="activationLabel" />
@@ -17,3 +18,24 @@
         {{ paginationHint }}
     </small>
 </div>
+=======
+@if (headerForm) {
+<div class="header-pane" [formGroup]="headerForm">
+    <div class="mb-3">
+        <app-toggle [id]="activationToggleId" [controlName]="activatedControlName" [label]="activationLabel" />
+    </div>
+
+    <label class="form-label" for="sectionContentInput">{{ contentLabel }}</label>
+    <editor id="sectionContentInput" [formControlName]="contentControlName" [init]="editorConfig"
+        aria-describedby="sectionContentHelp"></editor>
+    <small id="sectionContentHelp" class="form-text text-muted">
+        {{ contentHelpText }}
+    </small>
+    @if (paginationHint) {
+    <small class="form-text text-muted d-block mt-1">
+        {{ paginationHint }}
+    </small>
+    }
+</div>
+}
+>>>>>>> origin/version-3.2

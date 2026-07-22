@@ -28,6 +28,7 @@ import { FieldIdentifierValidationService } from 'src/app/framework/type/service
 
 @Component({
     selector: 'cmdb-choice-field-edit',
+    host: { 'data-config-edit': 'relation' },
     templateUrl: './choice-field-edit.component.html',
     styleUrls: ['./choice-field-edit.component.scss'],
     standalone: false

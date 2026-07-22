@@ -1,4 +1,5 @@
-<div class="card" *ngIf="relationInstance.sections.length > 0; else noPreview">
+@if (relationInstance.sections.length > 0) {
+<div class="card">
   <div class="card-header">
     Preview
   </div>
@@ -6,8 +7,11 @@
     <cmdb-render [mode]="mode" [relationInstance]="relationInstance" [renderForm]="previewForm"></cmdb-render>
   </div>
 </div>
-<ng-template #noPreview>
+} @else {
+
   <div class="alert alert-warning" role="alert">
     It was not possible to create a preview.
   </div>
-</ng-template>
+
+}
+

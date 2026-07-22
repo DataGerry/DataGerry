@@ -14,7 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
+<<<<<<< HEAD
 Implementation of Update20260417
+=======
+Database update 20260417: backfill the 'special_type' marker on types and objects
+>>>>>>> origin/version-3.2
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -31,13 +35,18 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class Update20260417(BaseDatabaseUpdate):
     """
+<<<<<<< HEAD
     Implementation of Update20260417
+=======
+    Backfills an empty 'special_type' marker onto every CmdbType and CmdbObject that lacks it
+>>>>>>> origin/version-3.2
     """
     def creation_date(self) -> int:
         return 20260417
 
 
     def description(self) -> str:
+<<<<<<< HEAD
         return """
                Adds Types and Objects a new property "special_type" which identifies special CmdbTypes
                and CmdbObjects of these CmdbTypes
@@ -45,6 +54,16 @@ class Update20260417(BaseDatabaseUpdate):
 
 
     def start_update(self) -> None:
+=======
+        return ("Adds a 'special_type' property to Types and Objects to identify special CmdbTypes "
+                "and the CmdbObjects of those types")
+
+
+    def start_update(self) -> None:
+        """
+        Sets 'special_type' to '' on all types and objects that do not yet have the property
+        """
+>>>>>>> origin/version-3.2
         try:
             filter_query: dict[str, Any] = {
                     "special_type": {"$exists": False}

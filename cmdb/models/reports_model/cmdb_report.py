@@ -22,6 +22,8 @@ from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
 
+from cmdb.class_schema.reports_model.cmdb_report_schema import get_cmdb_report_schema
+
 from cmdb.errors.models.cmdb_report import (
     CmdbReportInitError,
     CmdbReportInitFromDataError,
@@ -56,41 +58,7 @@ class CmdbReport(CmdbDAO):
         'mds_mode',
     ]
 
-    SCHEMA: dict[str, Any] = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'report_category_id': {
-            'type': 'integer',
-            'required': True,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-        },
-        'type_id': {
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
-        'selected_fields': {
-            'type': 'list',
-            'required': True,
-        },
-        'conditions': {
-            'type': 'dict',
-        },
-        'report_query': {
-            'type': 'dict',
-        },
-        'predefined': {
-            'type': 'boolean',
-            'default': False
-        },
-        'mds_mode': {
-            'type': 'string',
-        },
-    }
+    SCHEMA: dict[str, Any] = get_cmdb_report_schema()
 
 
     #pylint: disable=R0913, R0917

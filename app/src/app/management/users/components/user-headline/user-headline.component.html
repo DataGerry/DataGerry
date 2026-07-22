@@ -1,7 +1,9 @@
-<div class="user-headline" *ngIf="user">
+@if (user) {
+<div class="user-headline">
   <h1>
     <cmdb-user-display-name [user]="user"></cmdb-user-display-name>
   </h1>
   <h2><small>{{group?.label}}</small></h2>
   <hr />
 </div>
+}

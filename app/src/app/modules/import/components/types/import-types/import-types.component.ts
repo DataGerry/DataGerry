@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { finalize } from 'rxjs';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -31,6 +31,10 @@ import { ImportService } from 'src/app/modules/import/services/import.service';
     standalone: false
 })
 export class ImportTypesComponent implements OnInit {
+    private readonly importService = inject(ImportService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toastService = inject(ToastService);
+
     public fileForm: UntypedFormGroup;
     public preview: any;
     public done: boolean = false;
@@ -40,16 +44,6 @@ export class ImportTypesComponent implements OnInit {
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-    public constructor(
-        private importService: ImportService, 
-        private loaderService: LoaderService,
-        private toastService: ToastService 
-
-    ) {
-
-    }
-
 
     ngOnInit() {
         this.fileForm = new UntypedFormGroup({

@@ -14,10 +14,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module handles all predefined section templates
+Builders for the predefined ("global") section templates DataGerry ships with
+
+A predefined section template is a reusable, system-owned section (flagged is_global + predefined)
+that the bootstrap seeds into every tenant database and that the start assistant attaches to the
+types it creates. This module is the single source of their definitions; CollectionValidator seeds
+whatever get_predefined_templates returns, so adding or removing a template here is the only change
+needed for it to appear on fresh installs.
 """
 from logging import Logger, getLogger
 from typing import Any
+from cmdb.models.type_model import FieldType, SectionType
+from cmdb.models.special_type_model.schemas.cidr_regex import IP_ADDRESS_REGEX
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -27,16 +35,28 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class SectionTemplateCreator:
     """
-    This class handles all iteractions with predefined section templates
+    Factory for the predefined section templates DataGerry ships with
+
+    Exposes a single entry point, get_predefined_templates, which returns freshly built dict
+    representations of every predefined template (Rack mounting, Model specifications and the IPAM
+    interface MDS section). The private helpers assemble the shared section/field skeletons so each
+    template definition only declares what is specific to it. The creator is stateless: every call
+    returns new dicts and performs no database access.
     """
 
-    def get_predefined_templates(self) -> list:
-        """Retrieves all predefined section templates"""
-        predefined_templates: list[dict] = []
+    def get_predefined_templates(self) -> list[dict[str, Any]]:
+        """
+        Retrieves all predefined section templates
 
-        predefined_templates.append(self.__get_network_template())
+        Returns:
+            list[dict[str, Any]]: Dict representations of every predefined section template, ready
+                                  to be inserted into the section-template collection
+        """
+        predefined_templates: list[dict[str, Any]] = []
+
         predefined_templates.append(self.__get_rack_mounting_template())
         predefined_templates.append(self.__get_model_spec_template())
+        predefined_templates.append(self.__get_ipam_interface_template())
 
         return predefined_templates
 
@@ -46,12 +66,15 @@ class SectionTemplateCreator:
         """
         Retrieves the base section template model
 
+        Produces the shared skeleton every predefined template starts from: a global, predefined,
+        plain section with an empty field list the caller then fills in.
+
         Args:
             name (str): name for section template
             label (str): label for section template
 
         Returns:
-            dict: Base section template construct
+            dict[str, Any]: Base section template construct (is_global and predefined, no fields yet)
         """
         return {
             'is_global': True,
@@ -68,22 +91,28 @@ class SectionTemplateCreator:
         field_type: str,
         name: str,
         label: str,
-        options: list[dict] | None = None,
+        options: list[dict[str, Any]] | None = None,
         regex: str | None = None,
         helper_text: str | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Retrieves a field model for a section template
+
+        The optional properties are only written onto the field when supplied, so an unset option
+        is absent from the returned dict rather than present with a None value.
 
         Args:
             field_type (str): Type of the field like 'text', 'select' etc.
             name (str): Unique identifier for the field
             label (str): label of the field
-            options (list[dict], optional): Options for a field of type 'select'. Defaults to None.
-            regex (str): The regex which should be applied for the input. Defaults to None.
+            options (list[dict[str, Any]], optional): Options for a field of type 'select'.
+                                                      Defaults to None.
+            regex (str | None, optional): The regex which should be applied for the input.
+                                          Defaults to None.
+            helper_text (str | None, optional): Help text shown for the field. Defaults to None.
 
         Returns:
-            dict: The configured field for the section
+            dict[str, Any]: The configured field for the section
         """
         field_values: dict[str, str] = {
             'type': field_type,
@@ -104,6 +133,7 @@ class SectionTemplateCreator:
 
 # --------------------------------------------------- DATA SECTION --------------------------------------------------- #
 
+<<<<<<< HEAD
     def __get_network_template(self) -> dict[str, Any]:
         """Retrieves the 'Network' predefined section template"""
         network_section = self.__get_template_section("dg-network", "Network")
@@ -133,11 +163,25 @@ class SectionTemplateCreator:
         network_section['fields'] = network_fields
 
         return network_section
+=======
+    def __get_rack_mounting_template(self) -> dict[str, Any]:
+        """
+        Retrieves the 'Rack mounting' predefined section template
+>>>>>>> origin/version-3.2
 
+        A plain section with two positive-integer text fields (rack units, mounting position) and a
+        horizontal/vertical orientation select.
 
+<<<<<<< HEAD
     def __get_rack_mounting_template(self) -> dict[str, Any]:
         """Retrieves the 'Rack mounting' predefined section template"""
         rack_section = self.__get_template_section("dg-rackmounting", "Rack mounting")
+=======
+        Returns:
+            dict[str, Any]: The 'Rack mounting' section template
+        """
+        rack_section: dict[str, Any] = self.__get_template_section("dg-rackmounting", "Rack mounting")
+>>>>>>> origin/version-3.2
 
         rack_fields: list[dict[str, Any]] = []
 
@@ -154,7 +198,7 @@ class SectionTemplateCreator:
                                                              None,
                                                              positive_integer_regex))
 
-        rack_field_options: list = [
+        rack_field_options: list[dict[str, str]] = [
             {
                 'name': 'horizontal',
                 'label': 'Horizontal'
@@ -176,8 +220,20 @@ class SectionTemplateCreator:
 
 
     def __get_model_spec_template(self) -> dict[str, Any]:
+<<<<<<< HEAD
         """Retrieves the 'Model specifications' predefined section template"""
         model_spec_section = self.__get_template_section("dg-modelspec", "Model specifications")
+=======
+        """
+        Retrieves the 'Model specifications' predefined section template
+
+        A plain section with three bare text fields: manufacturer, model name and serial number.
+
+        Returns:
+            dict[str, Any]: The 'Model specifications' section template
+        """
+        model_spec_section: dict[str, Any] = self.__get_template_section("dg-modelspec", "Model specifications")
+>>>>>>> origin/version-3.2
 
         model_spec_fields: list[dict[str, Any]] = []
 
@@ -190,20 +246,42 @@ class SectionTemplateCreator:
         return model_spec_section
 
 
+<<<<<<< HEAD
     def get_ipam_interface_template(self, subnet_id: int) -> dict[str, Any]:
         """TODO: document"""
         if not subnet_id:
             raise ValueError("No Subnet-ID provided to IPAM Interface SectionTemplate")
 
+=======
+    def __get_ipam_interface_template(self) -> dict[str, Any]:
+        """
+        Retrieves the 'Interfaces' (dg-ipam-interface) predefined section template
+
+        Unlike the other predefined templates this is a multi-data-section, so a single object can
+        hold several interface rows. Each row carries an active flag, an IPv4/IPv6 type select, a
+        Subnet reference (its ref_types are wired to the created Subnet type by the assistant /
+        special-type wiring, hence empty here), and IP / hostname / domain / MAC text fields.
+
+        Returns:
+            dict[str, Any]: The 'Interfaces' MDS section template
+        """
+>>>>>>> origin/version-3.2
         interface: dict[str, Any] = {
             "is_global": True,
             "predefined": True,
             "name": "dg-ipam-interface",
             "label": "Interfaces",
+<<<<<<< HEAD
             "type": "multi-data-section",
             "fields": [
                 {
                     "type": "checkbox",
+=======
+            "type": SectionType.MDS_SECTION,
+            "fields": [
+                {
+                    "type": FieldType.CHECKBOX,
+>>>>>>> origin/version-3.2
                     "name": "dg-interface-active",
                     "label": "Active",
                     "options": [
@@ -215,9 +293,17 @@ class SectionTemplateCreator:
                     "value": True
                 },
                 {
+<<<<<<< HEAD
                     "type": "select",
                     "name": "dg-interface-type",
                     "label": "Type",
+=======
+                    "type": FieldType.SELECT,
+                    "name": "dg-interface-type",
+                    "label": "Type",
+                    "required": True,
+                    "value": "ipv4",
+>>>>>>> origin/version-3.2
                     "options": [
                         {
                             "name": "ipv4",
@@ -230,6 +316,7 @@ class SectionTemplateCreator:
                     ],
                 },
                 {
+<<<<<<< HEAD
                     "type": "ref",
                     "name": "dg-interface-subnet",
                     "label": "Network",
@@ -242,16 +329,40 @@ class SectionTemplateCreator:
                 },
                 {
                     "type": "text",
+=======
+                    'type': FieldType.REFERENCE,
+                    'name': "dg-interface-subnet",
+                    'label': "Network",
+                    'description': "Reference to Subnet SpecialType",
+                    'ref_types': []
+                },
+                {
+                    "type": FieldType.TEXT,
+                    "name": "dg-interface-ip-address",
+                    "label": "IP-Address",
+                    "regex": IP_ADDRESS_REGEX,
+                },
+                {
+                    "type": FieldType.TEXT,
+>>>>>>> origin/version-3.2
                     "name": "dg-interface-host",
                     "label": "Hostname",
                 },
                 {
+<<<<<<< HEAD
                     "type": "text",
+=======
+                    "type": FieldType.TEXT,
+>>>>>>> origin/version-3.2
                     "name": "dg-interface-domain",
                     "label": "Domain",
                 },
                 {
+<<<<<<< HEAD
                     "type": "text",
+=======
+                    "type": FieldType.TEXT,
+>>>>>>> origin/version-3.2
                     "name": "dg-interface-mac-address",
                     "label": "Mac-Address",
                     "regex": r'^(([0-9A-Fa-f]{2}([:-])){5}[0-9A-Fa-f]{2})$|^(([0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4})$',

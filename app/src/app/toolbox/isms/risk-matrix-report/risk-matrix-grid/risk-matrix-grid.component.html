@@ -5,30 +5,33 @@
     <tr>
       <th class="axis-corner">
         <div class="axis-labels">
-            <span class="impact-label">Impact →</span>
+          <span class="impact-label">Impact →</span>
           <span class="likelihood-label">Likelihood ↓</span>
         </div>
       </th>
-      <th *ngFor="let imp of impacts" class="impact-header">
+      @for (imp of impacts; track imp) {
+      <th class="impact-header">
         {{ imp.name }}
       </th>
+      }
     </tr>
   </thead>
 
   <tbody>
-    <tr *ngFor="let lh of likelihoods; let r = index; trackBy: trackByIndex">
+    @for (lh of likelihoods; track trackByIndex(r, lh); let r = $index) {
+    <tr>
       <td class="likelihood-header">
         {{ lh.name }}
       </td>
-      <td *ngFor="let imp of impacts; let c = index" 
-          class="matrix-cell" 
-          [ngStyle]="{
+      @for (imp of impacts; track imp; let c = $index) {
+      <td class="matrix-cell" [ngStyle]="{
             'background-color': color(cell(backendRow(r), c)),
             'color': text(color(cell(backendRow(r), c)))
-          }" 
-          (click)="viewAssessments.emit(cell(backendRow(r), c)?.risk_assessment_ids || [])">
+          }" (click)="viewAssessments.emit(cell(backendRow(r), c)?.risk_assessment_ids || [])">
         {{ cell(backendRow(r), c)?.count || 0 }}
       </td>
+      }
     </tr>
+    }
   </tbody>
 </table>

@@ -2,6 +2,7 @@ import * as ReactDOM from 'react-dom';
 import React from 'react';
 import {
   Component,
+  inject,
   ElementRef,
   Input,
   AfterViewInit,
@@ -28,7 +29,8 @@ export class OpenCeliumLogsViewComponent
   private container?: HTMLElement;
   private LogsView?: any;
 
-  constructor(private host: ElementRef, private toast: ToastService) {}
+  private readonly host = inject(ElementRef);
+  private readonly toast = inject(ToastService);
   async ngAfterViewInit() {
 
     // this.LogsView = LogsView;

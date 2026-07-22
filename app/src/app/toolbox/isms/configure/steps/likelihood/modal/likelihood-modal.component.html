@@ -15,69 +15,70 @@
       <label for="likelihoodName" class="form-label">
         Name <span class="text-danger">*</span>
       </label>
-      <input
-        id="likelihoodName"
-        type="text"
-        class="form-control"
-        formControlName="name"
-        placeholder="Enter a name..."
-      />
-      <div *ngIf="form.get('name')?.touched && form.get('name')?.invalid" class="invalid-feedback d-block">
+      <input id="likelihoodName" type="text" class="form-control" formControlName="name"
+        placeholder="Enter a name..." />
+      @if (form.get('name')?.touched && form.get('name')?.invalid) {
+      <div class="invalid-feedback d-block">
         Name is required.
       </div>
+      }
     </div>
-  
+
     <!-- Description Field -->
     <div class="mb-3">
       <label for="likelihoodDescription" class="form-label">
-        Description 
+        Description
       </label>
-      <textarea
-        id="likelihoodDescription"
-        class="form-control"
-        formControlName="description"
-        rows="3"
-        placeholder="Enter a description..."
-      ></textarea>
-      <div *ngIf="form.get('description')?.touched && form.get('description')?.invalid" class="invalid-feedback d-block">
+      <textarea id="likelihoodDescription" class="form-control" formControlName="description" rows="3"
+        placeholder="Enter a description..."></textarea>
+      @if (form.get('description')?.touched && form.get('description')?.invalid) {
+      <div class="invalid-feedback d-block">
         Description is required.
       </div>
+      }
     </div>
-  
+
     <!-- Calculation Basis Field -->
     <div class="mb-3">
       <label for="calculation_basis" class="form-label">
         Calculation Basis <span class="text-danger">*</span>
       </label>
       <!-- Use type="text" to preserve the trailing zero -->
-      <input
-        id="calculation_basis"
-        type="text"
-        class="form-control"
-        formControlName="calculation_basis"
-        placeholder="E.g., 2.0, 3.1, 9.9"
-      />
-      <div *ngIf="form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.required" class="invalid-feedback d-block">
+      <input id="calculation_basis" type="text" class="form-control" formControlName="calculation_basis"
+        placeholder="E.g., 2.0, 3.1, 9.9" />
+      @if (form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.required) {
+      <div class="invalid-feedback d-block">
         Calculation Basis is required.
       </div>
-      <div *ngIf="form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.invalidNumber" class="invalid-feedback d-block">
+      }
+      @if (form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.invalidNumber) {
+      <div class="invalid-feedback d-block">
         Please enter a valid number or decimal value (e.g., 1, 2.5).
-      </div>        
-      <div *ngIf="form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.duplicateCalculationBasis" class="invalid-feedback d-block">
+      </div>
+      }
+      @if (form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.duplicateCalculationBasis) {
+      <div class="invalid-feedback d-block">
         This calculation basis already exists.
       </div>
-      <div *ngIf="form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.zeroNotAllowed" class="invalid-feedback d-block">
+      }
+      @if (form.get('calculation_basis')?.touched && form.get('calculation_basis')?.errors?.zeroNotAllowed) {
+      <div class="invalid-feedback d-block">
         Calculation Basis cannot be zero.
       </div>
-      
+      }
+
     </div>
-  
+
     <!-- Modal Footer -->
     <div class="modal-footer">
       <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
       <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-        <span *ngIf="!isSubmitting">{{ isEditMode ? 'Save Changes' : 'Add Likelihood' }}</span>
-        <span *ngIf="isSubmitting" class="spinner-border spinner-border-sm"></span>
+        @if (!isSubmitting) {
+        <span>{{ isEditMode ? 'Save Changes' : 'Add Likelihood' }}</span>
+        }
+        @if (isSubmitting) {
+        <span class="spinner-border spinner-border-sm"></span>
+        }
       </button>
     </div>
   </form>

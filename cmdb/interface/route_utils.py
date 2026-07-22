@@ -100,7 +100,11 @@ def user_has_right(required_right: str, request_user: CmdbUser | None = None) ->
         users_manager = UsersManager(current_app.database_manager)
         groups_manager = GroupsManager(current_app.database_manager)
 
-    token = parse_authorization_header(request.headers['Authorization'])
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        abort(401, "No Authorization header provided!")
+
+    token = parse_authorization_header(auth_header)
 
     try:
         decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
@@ -168,7 +172,7 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
                 raise http_err
             except AuthError as err:
                 LOGGER.error("[OC General Error] AuthError: %s", err, exc_info=True)
-                abort(500, str(err))
+                abort(500, "Authentication with OpenCelium failed!")
             except ConnectTimeout as err:
                 LOGGER.error("[OC General Error] ConnectTimeout: %s", err, exc_info=True)
                 abort(500, "Connection to OpenCelium could not be established!")
@@ -219,7 +223,11 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
             if current_app.cloud_mode and "x-api-key" in request.headers:
                 return func(*args, **kwargs)
 
-            token = parse_authorization_header(request.headers['Authorization'])
+            auth_header = request.headers.get('Authorization')
+            if not auth_header:
+                abort(401, "No Authorization header provided!")
+
+            token = parse_authorization_header(auth_header)
 
             with current_app.app_context():
                 decrypted_token = TokenValidator(current_app.database_manager).decode_token(token)
@@ -782,7 +790,7 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
         raise UsersManagerInsertError(err) from err
 
 
-def retrive_user(user_data: dict[str, Any], database: str) -> dict[str, Any] | None:
+def retrive_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
     """
     Retrieve a user from the database by email
 
@@ -881,6 +889,7 @@ def validate_subscrption_user(
     except requests.exceptions.RequestException as err:
         raise RequestError(str(err)) from err
 
+<<<<<<< HEAD
 
 #TODO: Move this method to DataGerry ServicePortal Manager
 def sync_config_items(email: str, database: str, config_item_count: int) -> bool:
@@ -937,6 +946,8 @@ def sync_config_items(email: str, database: str, config_item_count: int) -> bool
         LOGGER.error("[sync_config_items] Request Error: %s. Type: %s", err, type(err))
         return False
 
+=======
+>>>>>>> origin/version-3.2
 # --------------------------------------------------- USER CACHING --------------------------------------------------- #
 
 # Cache: { cache_key: {"data": dict, "timestamp": float } }

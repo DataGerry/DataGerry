@@ -1,0 +1,15 @@
+.nav-tabs .nav-link {
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+}
+
+.nav-link {
+  max-width: none;
+  display: inline-flex;
+  align-items: center;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  vertical-align: middle;
+}

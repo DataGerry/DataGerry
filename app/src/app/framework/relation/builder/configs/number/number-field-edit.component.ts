@@ -30,6 +30,7 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 
 @Component({
     selector: 'cmdb-number-field-edit',
+    host: { 'data-config-edit': 'relation' },
     templateUrl: './number-field-edit.component.html',
     styleUrls: ['./number-field-edit.component.scss'],
     standalone: false

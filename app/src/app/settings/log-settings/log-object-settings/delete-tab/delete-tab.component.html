@@ -1,65 +1,38 @@
 <div id="delete-log-list" class="row">
-  <div class="col-12">
-      <button type="button" 
-              class="btn btn-danger btn-sm my-2" 
-              [disabled]="selectedLogIDs.length<=0"
-              placement="auto" 
-              ngbTooltip="Delete selected logs" 
-              (click)="cleanup()">
-          <i class="far fa-trash-alt"></i> Cleanup
-          <span class="badge bg-secondary">{{selectedLogIDs.length}}</span>
-      </button>
-      <hr/>
-  </div>
-  <div class="col-12">
-      <cmdb-table 
-          [items]="deleteLogList" 
-          [totalItems]="total" 
-          [columns]="columns" 
-          [sort]="sort"
-          [page]="page" 
-          [rowClasses]="['align-middle']" 
-          [pageSize]="limit" 
-          [id]="id"
-          [tableStates]="tableStates" 
-          [loading]="loading" 
-          [tableState]="tableState"
-          [emptyMessage]="'This object is not referenced!'" 
-          [stateEnabled]="true"
-          (stateSelect)="onStateSelect($event)" 
-          (selectedChange)="onSelectedChange($event)"
-          (stateChange)="onStateChange($event)" 
-          (stateReset)="onStateReset()"
-          (pageChange)="onPageChange($event)" 
-          (pageSizeChange)="onPageSizeChange($event)"
-          (sortChange)="onSortChange($event)" 
-          (searchChange)="onSearchChange($event)"
-          [selectEnabled]="true">
-      </cmdb-table>
+    <div class="col-12">
+        <button type="button" class="btn btn-danger btn-sm my-2" [disabled]="selectedLogIDs.length<=0" placement="auto"
+            ngbTooltip="Delete selected logs" (click)="cleanup()">
+            <i class="far fa-trash-alt"></i> Cleanup
+            <span class="badge bg-secondary">{{selectedLogIDs.length}}</span>
+        </button>
+        <hr />
+    </div>
+    <div class="col-12">
+        <cmdb-table [items]="deleteLogList" [totalItems]="total" [columns]="columns" [sort]="sort" [page]="page"
+            [rowClasses]="['align-middle']" [pageSize]="limit" [id]="id" [tableStates]="tableStates" [loading]="loading"
+            [tableState]="tableState" [emptyMessage]="'This object is not referenced!'" [stateEnabled]="true"
+            (stateSelect)="onStateSelect($event)" (selectedChange)="onSelectedChange($event)"
+            (stateChange)="onStateChange($event)" (stateReset)="onStateReset()" (pageChange)="onPageChange($event)"
+            (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
+            (searchChange)="onSearchChange($event)" [selectEnabled]="true">
+        </cmdb-table>
 
-      <ng-template #dateTemplate let-data="data">
-          {{data | dateFormatter}}
-      </ng-template>
-      <ng-template #dataTemplate let-data="data">
-          {{data}}
-      </ng-template>
-      <ng-template #changeTemplate let-item="item">
-          <cmdb-object-log-change-view 
-              [mode]="item.action" 
-              [changes]="item.changes">
-          </cmdb-object-log-change-view>
-      </ng-template>
-      <ng-template #userTemplate let-item="item">
-          <cmdb-object-log-user 
-              [userID]="item.user_id" 
-              [userName]="item.user_name">
-          </cmdb-object-log-user>
-      </ng-template>
-  </div>
+        <ng-template #dateTemplate let-data="data">
+            {{data | dateFormatter}}
+        </ng-template>
+        <ng-template #dataTemplate let-data="data">
+            {{data}}
+        </ng-template>
+        <ng-template #changeTemplate let-item="item">
+            <cmdb-object-log-change-view [mode]="item.action" [changes]="item.changes">
+            </cmdb-object-log-change-view>
+        </ng-template>
+        <ng-template #userTemplate let-item="item">
+            <cmdb-object-log-user [user]="logUsers[item.user_id]" [userName]="item.user_name">
+            </cmdb-object-log-user>
+        </ng-template>
+    </div>
 </div>
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

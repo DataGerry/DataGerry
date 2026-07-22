@@ -56,7 +56,12 @@ export class ExtendableOptionService<T = any> implements ApiServicePrefix {
 
     const filterObj = { option_type: optionType };
     const filter = JSON.stringify(filterObj);
-    httpParams = httpParams.set('filter', filter);
+    httpParams = httpParams
+      .set('filter', filter)
+      .set('limit', '0')
+      .set('page', '1')
+      .set('sort', 'public_id')
+      .set('order', '1');
     options.params = httpParams;
 
     return this.api.callGet<APIGetMultiResponse<ExtendableOption>>(`${this.servicePrefix}/`, options)

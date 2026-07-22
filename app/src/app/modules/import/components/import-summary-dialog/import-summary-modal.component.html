@@ -1,40 +1,43 @@
 <div class="modal-header">
-    <h5 class="modal-title">Import Summary</h5>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="modal.dismiss()">
-    </button>
-  </div>
-  
-  <div class="modal-body">
-    <p><strong>Total Imported:</strong> {{ summary.imported_objects }}</p>
-    <p><strong>Newly Created:</strong> {{ summary.created_objects }}</p>
-    <p><strong>Already Existing:</strong> {{ summary.existing_objects }}</p>
-  
-    <div *ngIf="summary.invalid_objects?.length">
-      <h6 class="mt-3">Invalid Entries:</h6>
-      <div class="table-responsive">
-        <table class="table table-bordered table-sm">
-          <thead class="thead-light">
-            <tr>
-              <th>Name</th>
-              <th>Risk Type</th>
-              <th>Identifier</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let obj of summary.invalid_objects">
-              <td>{{ obj.name }}</td>
-              <td>{{ obj.risk_type }}</td>
-              <td>{{ obj.identifier }}</td>
-              <td>{{ obj.description }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+  <h5 class="modal-title">Import Summary</h5>
+  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="modal.dismiss()">
+  </button>
+</div>
+
+<div class="modal-body">
+  <p><strong>Total Imported:</strong> {{ summary.imported_objects }}</p>
+  <p><strong>Newly Created:</strong> {{ summary.created_objects }}</p>
+  <p><strong>Already Existing:</strong> {{ summary.existing_objects }}</p>
+
+  @if (summary.invalid_objects?.length) {
+  <div>
+    <h6 class="mt-3">Invalid Entries:</h6>
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm">
+        <thead class="thead-light">
+          <tr>
+            <th>Name</th>
+            <th>Risk Type</th>
+            <th>Identifier</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (obj of summary.invalid_objects; track obj) {
+          <tr>
+            <td>{{ obj.name }}</td>
+            <td>{{ obj.risk_type }}</td>
+            <td>{{ obj.identifier }}</td>
+            <td>{{ obj.description }}</td>
+          </tr>
+          }
+        </tbody>
+      </table>
     </div>
   </div>
-  
-  <div class="modal-footer">
-    <button type="button" class="btn btn-secondary" (click)="modal.close()">Close</button>
-  </div>
-  
+  }
+</div>
+
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" (click)="modal.close()">Close</button>
+</div>

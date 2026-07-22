@@ -21,6 +21,7 @@ from logging import Logger, getLogger
 from bson import json_util
 from flask import abort, request, Response
 from werkzeug.wrappers.response import Response as Resp
+from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.responses.gridfs_response import GridFsResponse
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -64,10 +65,10 @@ media_file_blueprint = APIBlueprint('media_file_blueprint', __name__, url_prefix
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @media_file_blueprint.route('/', methods=['GET', 'HEAD'])
-@media_file_blueprint.parse_collection_parameters()
 @insert_request_user
-@media_file_blueprint.protect(auth=True, right='base.framework.object.view')
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@media_file_blueprint.protect(auth=True, right='base.framework.object.view')
+@media_file_blueprint.parse_collection_parameters()
 def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
     """
     Get all objects in database
@@ -89,6 +90,8 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
         api_response = GetMultiResponse(output.result, total=output.total, params=params, url=request.url)
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except MediaFileManagerGetError as err:
         LOGGER.error("[get_file_list] MediaFileManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the FilesList from the database!")
@@ -148,7 +151,8 @@ def add_new_file(request_user: CmdbUser) -> Resp:
 
         if file_exists:
             exist = media_files_manager.get_file(filter_metadata)
-            media_files_manager.delete_file(exist['public_id'])
+            if exist:
+                media_files_manager.delete_file(exist['public_id'])
 
         # If file exist overwrite the references from previous file
         if exist:
@@ -161,6 +165,8 @@ def add_new_file(request_user: CmdbUser) -> Resp:
         result = media_files_manager.insert_file(data=file, metadata=metadata)
 
         return InsertSingleResponse(result, result['public_id']).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except MediaFileManagerGetError as err:
         LOGGER.error("[add_new_file] MediaFileManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the FilesList from the database!")
@@ -231,6 +237,8 @@ def update_file(request_user: CmdbUser) -> Resp:
         media_files_manager.update_file(data)
 
         return DefaultResponse(data).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except MediaFileManagerUpdateError as err:
         LOGGER.error("[update_file] MediaFileManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the File in the database!")
@@ -270,6 +278,8 @@ def get_file(filename: str, request_user: CmdbUser) -> Resp:
             result = None
 
         return DefaultResponse(result).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except Exception as err:
         LOGGER.error("[get_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while retrieving the file: {filename}!")
@@ -308,14 +318,17 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
                     f"attachment; filename={filename}"
             }
         )
+    except HTTPException as http_err:
+        raise http_err
     except Exception as err:
         LOGGER.error("[download_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while downloading the file: {filename}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-@media_file_blueprint.route('<int:public_id>', methods=['DELETE'])
+@media_file_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right='base.framework.object.edit')
 def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
     """
@@ -343,6 +356,8 @@ def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
                 media_files_manager.delete_file(_id)
 
         return DefaultResponse(file_to_delete).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except MediaFileManagerDeleteError as err:
         LOGGER.error("[delete_file] MediaFileManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the File with ID: {public_id} in the database!")

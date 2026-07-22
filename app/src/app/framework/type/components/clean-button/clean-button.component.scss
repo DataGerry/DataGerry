@@ -1,0 +1,75 @@
+/* ----------------------------------------------- CLEAN STATUS CHIP ----------------------------------------------- */
+
+:host {
+    display: inline-flex;
+}
+
+.status-chip {
+    --chip-fg: #6b7280;
+    --chip-bg: #f3f4f6;
+    --chip-border: #e5e7eb;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--chip-fg);
+    background-color: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+    border-radius: 6px;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+
+    &__icon {
+        font-size: 0.875rem;
+    }
+}
+
+/* Clean - soft, passive success state (not actionable) */
+.status-chip--clean {
+    --chip-fg: #166534;
+    --chip-bg: #dcfce7;
+    --chip-border: #bbf7d0;
+    cursor: default;
+
+    &:disabled {
+        opacity: 1; // keep the success state fully legible
+    }
+}
+
+/* Unclean - subtle but actionable, opens the cleanup modal */
+.status-chip--unclean {
+    --chip-fg: #b91c1c;
+    --chip-bg: #fee2e2;
+    --chip-border: #fecaca;
+    cursor: pointer;
+
+    &:hover {
+        --chip-fg: #991b1b;
+        --chip-bg: #fecaca;
+        --chip-border: #fca5a5;
+    }
+
+    &:active {
+        --chip-bg: #fca5a5;
+    }
+
+    &:focus-visible {
+        outline: 2px solid #b91c1c;
+        outline-offset: 2px;
+    }
+}
+
+/* Loading - neutral while the status resolves (uses the base palette) */
+.status-chip--loading {
+    cursor: default;
+
+    .spinner-border {
+        width: 0.85rem;
+        height: 0.85rem;
+        border-width: 2px;
+    }
+}

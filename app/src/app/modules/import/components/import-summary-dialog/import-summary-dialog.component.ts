@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
@@ -8,7 +8,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
     standalone: false
 })
 export class ImportSummaryModalComponent {
-    constructor(public modal: NgbActiveModal) { }
+    public readonly modal = inject(NgbActiveModal);
 
     @Input() summary: any;
 }

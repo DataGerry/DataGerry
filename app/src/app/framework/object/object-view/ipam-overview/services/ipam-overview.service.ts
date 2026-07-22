@@ -1,0 +1,295 @@
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2026 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+*
+* You should have received a copy of the GNU Affero General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*/
+import { Injectable, inject } from '@angular/core';
+import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+
+import { ApiCallService, resp } from '../../../../../services/api-call.service';
+import {
+    IpamAssignableObjectsParams,
+    IpamAssignableObjectsResponse,
+    IpamSubnetOverviewParams,
+    IpamSubnetOverviewResponse,
+    IpamSubnetSectorParams,
+    IpamSubnetSectorResponse,
+    IpamSupernetChildrenResponse,
+    IpamSupernetInvalidSubnetsParams,
+    IpamSupernetInvalidSubnetsResponse,
+    IpamSupernetOverviewParams,
+    IpamSupernetOverviewResponse,
+    IpamUnassignIpsResponse,
+    IpamUnassignMode,
+    IpamUnassignSubnetsResponse
+} from '../models/ipam-overview.types';
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+
+@Injectable({ providedIn: 'root' })
+export class IpamOverviewService {
+
+    public servicePrefix: string = 'ipam';
+
+    private readonly api = inject(ApiCallService);
+
+    private readonly jsonHeaders = new HttpHeaders({ 'Content-Type': 'application/json' });
+
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public getSupernetOverview(
+        publicId: number,
+        params: IpamSupernetOverviewParams = {}
+    ): Observable<IpamSupernetOverviewResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildPagedParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSupernetOverviewResponse>(`${this.servicePrefix}/supernet/overview/${publicId}`, options)
+            .pipe(map(response => response?.body as IpamSupernetOverviewResponse));
+    }
+
+
+    public unassignSubnetsFromSupernet(
+        supernetId: number,
+        subnetIds: number[]
+    ): Observable<IpamUnassignSubnetsResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: {},
+            observe: resp
+        };
+
+        return this.api
+            .callPost<IpamUnassignSubnetsResponse>(
+                `${this.servicePrefix}/supernet/overview/${supernetId}/subnets/unassign`,
+                { subnet_ids: subnetIds },
+                options
+            )
+            .pipe(map(response => response?.body as IpamUnassignSubnetsResponse));
+    }
+
+
+    public getInvalidSubnets(
+        supernetId: number,
+        params: IpamSupernetInvalidSubnetsParams = {}
+    ): Observable<IpamSupernetInvalidSubnetsResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildPagedParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSupernetInvalidSubnetsResponse>(
+                `${this.servicePrefix}/supernet/overview/${supernetId}/subnets/invalid`,
+                options
+            )
+            .pipe(map(response => response?.body as IpamSupernetInvalidSubnetsResponse));
+    }
+
+
+    public getSupernetSubnetChildren(
+        supernetId: number,
+        subnetId: number
+    ): Observable<IpamSupernetChildrenResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: {},
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSupernetChildrenResponse>(
+                `${this.servicePrefix}/supernet/overview/${supernetId}/subnets/children/${subnetId}`,
+                options
+            )
+            .pipe(map(response => response?.body as IpamSupernetChildrenResponse));
+    }
+
+
+    public exportSupernetSubnets(publicId: number): Observable<HttpResponse<Blob>> {
+        const options = {
+            headers: new HttpHeaders({}),
+            params: {},
+            observe: resp,
+            responseType: 'blob'
+        };
+
+        return this.api.callGet<Blob>(`${this.servicePrefix}/supernet/overview/${publicId}/subnets/export`, options);
+    }
+
+
+    public getSubnetOverview(
+        publicId: number,
+        params: IpamSubnetOverviewParams = {}
+    ): Observable<IpamSubnetOverviewResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildSubnetParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSubnetOverviewResponse>(`${this.servicePrefix}/subnet/overview/${publicId}`, options)
+            .pipe(map(response => response?.body as IpamSubnetOverviewResponse));
+    }
+
+
+    public getSubnetInvalidOverview(
+        publicId: number,
+        params: IpamSubnetOverviewParams = {}
+    ): Observable<IpamSubnetOverviewResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: this.buildSubnetParams(params),
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSubnetOverviewResponse>(`${this.servicePrefix}/subnet/overview/${publicId}/invalid`, options)
+            .pipe(map(response => response?.body as IpamSubnetOverviewResponse));
+    }
+
+
+    public exportSubnetOverview(publicId: number): Observable<HttpResponse<Blob>> {
+        const options = {
+            headers: new HttpHeaders({}),
+            params: {},
+            observe: resp,
+            responseType: 'blob'
+        };
+
+        return this.api.callGet<Blob>(`${this.servicePrefix}/subnet/overview/${publicId}/export`, options);
+    }
+
+
+    public getSubnetSectorIps(
+        publicId: number,
+        sectorStart: string,
+        params: IpamSubnetSectorParams = {}
+    ): Observable<IpamSubnetSectorResponse> {
+        let httpParams = new HttpParams().set('sector_start', sectorStart);
+
+        if (params.page != null) {
+            httpParams = httpParams.set('page', String(params.page));
+        }
+        if (params.page_size != null) {
+            httpParams = httpParams.set('page_size', String(params.page_size));
+        }
+
+        const options = {
+            headers: this.jsonHeaders,
+            params: httpParams,
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamSubnetSectorResponse>(`${this.servicePrefix}/subnet/overview/${publicId}/sector`, options)
+            .pipe(map(response => response?.body as IpamSubnetSectorResponse));
+    }
+
+
+    public unassignIpsFromSubnet(
+        subnetId: number,
+        ips: string[],
+        mode: IpamUnassignMode = 'reference'
+    ): Observable<IpamUnassignIpsResponse> {
+        const options = {
+            headers: this.jsonHeaders,
+            params: {},
+            observe: resp
+        };
+
+        return this.api
+            .callPost<IpamUnassignIpsResponse>(
+                `${this.servicePrefix}/subnet/overview/${subnetId}/unassign`,
+                { ips, mode },
+                options
+            )
+            .pipe(map(response => response?.body as IpamUnassignIpsResponse));
+    }
+
+
+    public getAssignableObjects(
+        params: IpamAssignableObjectsParams = {}
+    ): Observable<IpamAssignableObjectsResponse> {
+        let httpParams = new HttpParams();
+
+        if (params.page != null) {
+            httpParams = httpParams.set('page', String(params.page));
+        }
+        if (params.page_size != null) {
+            httpParams = httpParams.set('page_size', String(params.page_size));
+        }
+        if (params.search) {
+            httpParams = httpParams.set('search', params.search);
+        }
+
+        const options = {
+            headers: this.jsonHeaders,
+            params: httpParams,
+            observe: resp
+        };
+
+        return this.api
+            .callGet<IpamAssignableObjectsResponse>(`${this.servicePrefix}/assignable-objects/`, options)
+            .pipe(map(response => response?.body as IpamAssignableObjectsResponse));
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private buildSubnetParams(params: IpamSubnetOverviewParams): HttpParams {
+        let httpParams = this.buildPagedParams(params);
+
+        if (params.status) {
+            httpParams = httpParams.set('status', params.status);
+        }
+        if (params.type?.length) {
+            httpParams = httpParams.set('type', params.type.join(','));
+        }
+
+        return httpParams;
+    }
+
+    private buildPagedParams(
+        params: IpamSupernetOverviewParams | IpamSubnetOverviewParams | IpamSupernetInvalidSubnetsParams
+    ): HttpParams {
+        let httpParams = new HttpParams();
+
+        if (params.page != null) {
+            httpParams = httpParams.set('page', String(params.page));
+        }
+        if (params.page_size != null) {
+            httpParams = httpParams.set('page_size', String(params.page_size));
+        }
+        if ('sort' in params && params.sort) {
+            httpParams = httpParams.set('sort', params.sort);
+        }
+        if ('order' in params && params.order != null) {
+            httpParams = httpParams.set('order', String(params.order));
+        }
+        if ('search' in params && params.search) {
+            httpParams = httpParams.set('search', params.search);
+        }
+
+        return httpParams;
+    }
+}

@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit } from '@angular/core';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { ToastService } from '../../../toast/toast.service';
 import { GeneralModalComponent } from '../general-modal/general-modal.component';
@@ -36,6 +36,11 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     standalone: false
 })
 export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
+  private readonly fileService = inject(FileService);
+  private readonly modalService = inject(NgbModal);
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
 
   /**
    * Global unsubscriber for http calls to the rest backend.
@@ -51,10 +56,6 @@ export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
   private readonly defaultApiParameter: CollectionParameters = { page: 1, limit: 100, order: 1 };
 
   public isLoading$ = this.loaderService.isLoading$;
-
-  constructor(private fileService: FileService,
-    private modalService: NgbModal, public activeModal: NgbActiveModal, private toast: ToastService,   private loaderService: LoaderService
-  ) { }
 
   public ngOnInit(): void {
     this.loaderService.show();

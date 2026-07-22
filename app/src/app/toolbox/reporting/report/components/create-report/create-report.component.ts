@@ -15,7 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+<<<<<<< HEAD
 import { Component, OnInit, OnDestroy } from '@angular/core';
+=======
+import { Component, inject, OnInit, OnDestroy } from '@angular/core';
+>>>>>>> origin/version-3.2
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { Observable, ReplaySubject, forkJoin, throwError } from 'rxjs';
@@ -33,6 +37,18 @@ import { ReportService } from '../../../services/report.service';
     standalone: false
 })
 export class CreateReportComponent implements OnInit, OnDestroy {
+<<<<<<< HEAD
+=======
+    private readonly fb = inject(FormBuilder);
+    private readonly categoryService = inject(ReportCategoryService);
+    private readonly typeService = inject(TypeService);
+    private readonly reportService = inject(ReportService);
+    private readonly toast = inject(ToastService);
+    private readonly router = inject(Router);
+    private readonly route = inject(ActivatedRoute);
+    private readonly loaderService = inject(LoaderService);
+
+>>>>>>> origin/version-3.2
     public createReportForm: FormGroup;
     public categories = [];
     public types = [];
@@ -55,6 +71,7 @@ export class CreateReportComponent implements OnInit, OnDestroy {
 
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
+<<<<<<< HEAD
     constructor(
         private fb: FormBuilder,
         private categoryService: ReportCategoryService,
@@ -66,6 +83,8 @@ export class CreateReportComponent implements OnInit, OnDestroy {
         private loaderService: LoaderService
     ) { }
 
+=======
+>>>>>>> origin/version-3.2
     ngOnInit(): void {
         this.createReportForm = this.fb.group({
             name: ['', [Validators.required, Validators.minLength(3)]],

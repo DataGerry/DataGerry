@@ -6,46 +6,62 @@
 </div>
 
 <!-- BODY -->
-<ng-container *ngIf="ready; else spinner">
-  <form class="modal-body" [formGroup]="form" autocomplete="off">
-    <!-- summary -->
-    <section class="summary mb-3" [ngSwitch]="ctx">
-      <div *ngSwitchCase="'OBJECT'">
-        <strong>Object&nbsp;#{{ item.object_id }}</strong> – {{ objectSummaryLine }}
-      </div>
-      <div *ngSwitchCase="'GROUP'">
-        <strong>Object&nbsp;Group&nbsp;#{{ item.object_id }}</strong> – {{ objectGroupName }}
-      </div>
-      <div *ngSwitchCase="'RISK'">
-        <strong>Risk&nbsp;#{{ item.risk_id }}</strong> – {{ riskSummaryLine }}
-      </div>
-    </section>
+@if (ready) {
 
-    <!-- selector -->
-    <app-form-select *ngIf="selectorKind !== 'OBJECTS'" class="w-100" [label]="selectorLabel" [items]="options"
-      bindLabel="name" bindValue="public_id" [multiple]="true" [formControl]="form.get('targets')">
-    </app-form-select>
-
-    <app-object-selector *ngIf="selectorKind === 'OBJECTS'" [typeIds]="allTypeIds" [multiple]="true" [closeOnSelect]="true"
-      [selectedIds]="form.get('targets')?.value" (selectionChange)="form.get('targets')?.setValue($event)">
-    </app-object-selector>
-
-    <!-- copy_cma -->
-    <div class="form-check mt-3">
-      <input type="checkbox" id="copyCma" class="form-check-input" formControlName="copyCma">
-      <label for="copyCma" class="form-check-label">
-        Keep assigned Controls
-      </label>
+<form class="modal-body" [formGroup]="form" autocomplete="off">
+  <!-- summary -->
+  <section class="summary mb-3">
+    @switch (ctx) {
+    @case ('OBJECT') {
+    <div>
+      <strong>Object&nbsp;#{{ item.object_id }}</strong> – {{ objectSummaryLine }}
     </div>
-  </form>
-</ng-container>
+    }
+    @case ('GROUP') {
+    <div>
+      <strong>Object&nbsp;Group&nbsp;#{{ item.object_id }}</strong> – {{ objectGroupName }}
+    </div>
+    }
+    @case ('RISK') {
+    <div>
+      <strong>Risk&nbsp;#{{ item.risk_id }}</strong> – {{ riskSummaryLine }}
+    </div>
+    }
+    }
+  </section>
+
+  <!-- selector -->
+  @if (selectorKind !== 'OBJECTS') {
+  <app-form-select class="w-100" [label]="selectorLabel" [items]="options" bindLabel="name" bindValue="public_id"
+    [multiple]="true" [formControl]="form.get('targets')">
+  </app-form-select>
+  }
+
+  @if (selectorKind === 'OBJECTS') {
+  <app-object-selector [typeIds]="allTypeIds" [multiple]="true" [closeOnSelect]="true"
+    [selectedIds]="form.get('targets')?.value" (selectionChange)="form.get('targets')?.setValue($event)">
+  </app-object-selector>
+  }
+
+  <!-- copy_cma -->
+  <div class="form-check mt-3">
+    <input type="checkbox" id="copyCma" class="form-check-input" formControlName="copyCma">
+    <label for="copyCma" class="form-check-label">
+      Keep assigned Controls
+    </label>
+  </div>
+</form>
+
+} @else {
+
+<div class="modal-body d-flex justify-content-center py-5">
+  <dg-spinner></dg-spinner>
+</div>
+
+}
 
 <!-- spinner -->
-<ng-template #spinner>
-  <div class="modal-body d-flex justify-content-center py-5">
-    <dg-spinner></dg-spinner>
-  </div>
-</ng-template>
+
 
 <!-- FOOTER -->
 <div class="modal-footer">

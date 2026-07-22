@@ -17,11 +17,13 @@
 */
 import {
     Component,
-    ComponentFactoryResolver, HostBinding,
+    inject,
+    ComponentFactoryResolver,
+    HostBinding,
     Input,
     OnInit,
     ViewChild,
-    ViewContainerRef
+    ViewContainerRef,
 } from '@angular/core';
 import { Column } from '../../table.types';
 import { Router } from '@angular/router';
@@ -34,7 +36,7 @@ import { Router } from '@angular/router';
 })
 export class TableCellComponent<T> {
 
-    constructor(private router: Router) { }
+    private readonly router = inject(Router);
 
     // noinspection JSMismatchedCollectionQueryUpdate
     @HostBinding('class') private cssClasses: Array<string>;

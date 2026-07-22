@@ -14,20 +14,49 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the implementation of ProfileTypeConstructor
+Builder that turns the assistant's section/field definitions into insertable CmdbType dicts
+
+ProfileTypeConstructor assembles a CmdbType document from the intermediate section/field
+representation the profiles hand it: it builds the type skeleton, the flat 'fields' list, the
+'render_meta' section layout and the summary list, and appends conditional reference sections whose
+target types exist. It also wraps the canonical SpecialType blueprints (from SchemaProvider) into
+full CmdbType configs. Predefined section templates are resolved through an injected
+PredefinedTemplateProvider, keeping all DB access out of this builder.
 """
 from logging import Logger, getLogger
+<<<<<<< HEAD
+=======
+from typing import Any
+>>>>>>> origin/version-3.2
 import random
 from datetime import datetime, timezone
 
-from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager import SectionTemplatesManager
+from cmdb.models.type_model import FieldKey, SectionKey, FieldType, SectionType, TypeSchemaKey
+from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 
-from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
-from cmdb.framework.results import IterationResult
+from .predefined_template_provider import PredefinedTemplateProvider
+from .datagerry_assistant_constants import (
+    AssistantFieldKey,
+    AssistantSectionKey,
+    RenderMetaKey,
+    TypeDefault,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+<<<<<<< HEAD
+=======
+
+# Extra-property keys that may be lifted from a field's 'extras' dict onto the persisted field
+FIELD_EXTRA_KEYS: list[str] = [
+    FieldKey.OPTIONS,
+    AssistantFieldKey.HELPER_TEXT,
+    FieldKey.REGEX,
+    FieldKey.REF_TYPES,
+    FieldKey.DESCRIPTION,
+    AssistantFieldKey.SUMMARIES,
+]
+>>>>>>> origin/version-3.2
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            ProfileTypeConstructor - CLASS                                            #
@@ -35,69 +64,115 @@ LOGGER: Logger = getLogger(__name__)
 class ProfileTypeConstructor:
     """Creates valid section and field data for types in order to be stored in the DB"""
 
-    def __init__(self, section_templates_manager: SectionTemplatesManager):
-        self.section_templates_manager = section_templates_manager
-        self.predefined_templates = self.__get_predefined_templates()
-        self.type_config: dict = {}
+    def __init__(self, template_provider: PredefinedTemplateProvider) -> None:
+        """
+        Args:
+            template_provider (PredefinedTemplateProvider): Provider of the predefined section templates
+        """
+        self.template_provider: PredefinedTemplateProvider = template_provider
+        self.type_config: dict[str, Any] = {}
 
 # --------------------------------------------------- TYPE BUILDER --------------------------------------------------- #
 
     def create_type_config(self,
-                           type_data: list,
+                           type_data: list[dict[str, Any]],
                            name: str,
                            label: str,
                            icon: str,
-                           selectable_as_parent: bool = True) -> dict:
+                           selectable_as_parent: bool = True) -> dict[str, Any]:
         """
-        Initialses the creation of the CmdbType. This method should always be called First when
-        creating a new CmdbType with the TypeConstructor.
+        Initialises the creation of the CmdbType. Must always be called first when creating a new
+        CmdbType with the TypeConstructor, since it (re)initialises the internal type_config.
 
         Args:
-            type_data (list): Sections with fields which should be added to this type
+            type_data (list[dict[str, Any]]): Sections (each with its fields) to add to this type
             name (str): name for the type
             label (str): label for the type
             icon (str): icon for the type
-            selectable_as_parent (bool, optional): Sets if this type can be selected as parent for a location.
+            selectable_as_parent (bool, optional): Whether the type can be a location parent.
                                                    Defaults to True.
 
         Returns:
-            dict: The initialized CmdbType
+            dict[str, Any]: The initialized CmdbType config
         """
-        self.__create_type_body(name, label,icon,selectable_as_parent)
+        self.__create_type_body(name, label, icon, selectable_as_parent)
         self.__create_sections_and_fields(type_data)
+
+        return self.type_config
+
+
+    def create_special_type_config(self,
+                                   schema: dict[str, Any],
+                                   name: str,
+                                   label: str,
+                                   icon: str,
+                                   selectable_as_parent: bool = True) -> dict[str, Any]:
+        """
+        Wraps a SpecialType section/field blueprint into a full, insertable CmdbType config
+
+        The blueprint (from SchemaProvider) already stores its sections in the render_meta layout
+        (each section lists its field names) and its fields in the persisted field-list shape, so
+        both are assigned directly. The first field - the SpecialType's name field - is marked as
+        the summary field. Reference fields keep their empty 'ref_types'; the cross-wiring to the
+        other SpecialTypes happens post-insert via handle_special_types.
+
+        Args:
+            schema (dict[str, Any]): SpecialType blueprint with 'special_type', 'sections' and 'fields'
+            name (str): name for the type
+            label (str): label for the type
+            icon (str): icon for the type
+            selectable_as_parent (bool, optional): Whether the type can be a location parent.
+                                                   Defaults to True.
+
+        Returns:
+            dict[str, Any]: The initialized CmdbType config carrying the 'special_type' marker
+        """
+        self.__create_type_body(name, label, icon, selectable_as_parent)
+
+        self.type_config[TypeSchemaKey.SPECIAL_TYPE] = schema[TypeSchemaKey.SPECIAL_TYPE]
+        self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS] = schema[TypeSchemaKey.SECTIONS]
+        self.type_config[TypeSchemaKey.FIELDS] = schema[TypeSchemaKey.FIELDS]
+
+        schema_fields: list[dict[str, Any]] = schema[TypeSchemaKey.FIELDS]
+
+        if schema_fields:
+            summary: dict[str, Any] = self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SUMMARY]
+            summary[RenderMetaKey.FIELDS] = [schema_fields[0][FieldKey.NAME]]
 
         return self.type_config
 
 
     def __create_type_body(self, name: str, label: str, icon: str, selectable_as_parent: bool = True) -> None:
         """
-        Genereates a CmdbType skeleton for the current type
+        Generates a CmdbType skeleton for the current type
 
         Args:
             name (str): name for the type
             label (str): label for the type
             icon (str): icon for the type
-            selectable_as_parent (bool, optional): Sets if this type is selectable as parent for a location.
+            selectable_as_parent (bool, optional): Whether the type can be a location parent.
                                                    Defaults to True.
         """
+        color_value: int = random.randint(0, TypeDefault.CI_EXPLORER_COLOR_MAX)
+        ci_explorer_color: str = f'#{color_value:0{TypeDefault.CI_EXPLORER_COLOR_HEX_WIDTH}X}'
+
         self.type_config = {
-            "name": name,
-            "selectable_as_parent": selectable_as_parent,
-            "global_template_ids": [],
-            "active": True,
-            "author_id": 1,
-            "creation_time": datetime.now(timezone.utc),
-            "editor_id": None,
-            "last_edit_time": None,
-            "label": label,
-            "version": "1.0.0",
-            "description": None,
-            "render_meta": self.__create_render_meta(icon),
-            "ci_explorer_label": None,
-            "ci_explorer_color": f'#{random.randint(0, 0xFFFFFF):06X}',
-            "fields": [
-            ],
-            "acl": {
+            TypeSchemaKey.NAME: name,
+            TypeSchemaKey.SELECTABLE_AS_PARENT: selectable_as_parent,
+            TypeSchemaKey.GLOBAL_TEMPLATE_IDS: [],
+            TypeSchemaKey.ACTIVE: True,
+            TypeSchemaKey.AUTHOR_ID: TypeDefault.AUTHOR_ID,
+            TypeSchemaKey.CREATION_TIME: datetime.now(timezone.utc),
+            TypeSchemaKey.EDITOR_ID: None,
+            TypeSchemaKey.LAST_EDIT_TIME: None,
+            TypeSchemaKey.LABEL: label,
+            TypeSchemaKey.VERSION: TypeDefault.VERSION,
+            TypeSchemaKey.DESCRIPTION: None,
+            TypeSchemaKey.RENDER_META: self.__create_render_meta(icon),
+            TypeSchemaKey.CI_EXPLORER_LABEL: None,
+            TypeSchemaKey.CI_EXPLORER_COLOR: ci_explorer_color,
+            TypeSchemaKey.FIELDS: [],
+            TypeSchemaKey.ACL: {
                 "activated": False,
                 "groups": {
                     "includes": {}
@@ -106,160 +181,147 @@ class ProfileTypeConstructor:
         }
 
 
-    def __create_render_meta(self, icon: str) -> dict:
+    def __create_render_meta(self, icon: str) -> dict[str, Any]:
         """
         Creates a 'render_meta' skeleton for the current type
+
         Args:
             icon (str): The icon which the type should have
 
         Returns:
-            dict: Created skeleton of the 'render_meta'
+            dict[str, Any]: Created skeleton of the 'render_meta'
         """
-        return  {
-                "icon": icon,
-                "sections": [
-                ],
-                "externals": [
-                ],
-                "summary": {
-                    "fields": [
-                    ]
-                }
+        return {
+            RenderMetaKey.ICON: icon,
+            RenderMetaKey.SECTIONS: [],
+            RenderMetaKey.EXTERNALS: [],
+            RenderMetaKey.SUMMARY: {
+                RenderMetaKey.FIELDS: []
             }
+        }
 
 
-    def __create_sections_and_fields(self, type_data: list[dict]) -> None:
+    def __create_sections_and_fields(self, type_data: list[dict[str, Any]]) -> None:
         """
-        Sets all sections and fields for the type
+        Sets all sections and their fields on the current type
 
         Args:
-            type_data (list[dict]): List containing sections with fields which should set for the current type
+            type_data (list[dict[str, Any]]): Sections (each with its fields) to set on the type
         """
-        new_section: dict
+        new_section: dict[str, Any]
         for new_section in type_data:
-            section_name: str = new_section['name']
-            section_label: str = new_section['label']
-            section_fields: list = new_section['fields']
+            section_name: str = new_section[SectionKey.NAME]
+            section_label: str = new_section[SectionKey.LABEL]
+            section_fields: list[dict[str, Any]] = new_section[SectionKey.FIELDS]
+            # Inline profile sections and conditional ref-sections carry no 'type'; only predefined
+            # templates do, so a missing key defaults to a plain section
+            section_type: str = new_section.get(SectionKey.TYPE, SectionType.SECTION)
 
-            if 'global_id_name' in new_section.keys():
-                global_id_name = new_section['global_id_name']
+            if AssistantSectionKey.GLOBAL_ID_NAME in new_section.keys():
+                global_id_name: str = new_section[AssistantSectionKey.GLOBAL_ID_NAME]
                 self.__set_predefined_template_id(global_id_name)
 
-            self.__set_section(section_name, section_label)
+            self.__set_section(section_name, section_label, section_type)
             self.__set_fields(section_fields, section_name)
 
 # ------------------------------------------------- SECTION HANDLING ------------------------------------------------- #
 
-    def __set_section(self, section_name: str, section_label: str) -> None:
+    def __set_section(self, section_name: str, section_label: str,
+                      section_type: str = SectionType.SECTION) -> None:
         """
-        Sets a basic section skeleton without fields for the current type in 'render_meta'
-        
+        Appends an empty section skeleton (no fields yet) to the current type's 'render_meta'
+
         Args:
             section_name (str): name for the section
             section_label (str): label for the section
+            section_type (str, optional): kind of section to create. Defaults to SectionType.SECTION.
         """
-        default_section: dict = {
-            "type": "section",
-            "name": section_name,
-            "label": section_label,
-            "fields": [
-            ]
+        default_section: dict[str, Any] = {
+            SectionKey.TYPE: section_type,
+            SectionKey.NAME: section_name,
+            SectionKey.LABEL: section_label,
+            SectionKey.FIELDS: []
         }
 
-        type_sections: list = list(self.type_config['render_meta']['sections'])
-        type_sections.append(default_section)
+        # Multi-data-sections carry an extra 'hidden_fields' list (see TypeMultiDataSection)
+        if section_type == SectionType.MDS_SECTION:
+            default_section[SectionKey.HIDDEN_FIELDS] = []
 
-        self.type_config['render_meta']['sections'] = type_sections
+        self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS].append(default_section)
 
 # ---------------------------------------------- SECTION FIELD HANDLING ---------------------------------------------- #
 
-    def __set_fields(self, new_fields:list, section_name: str) -> None:
+    def __set_fields(self, new_fields: list[dict[str, Any]], section_name: str) -> None:
         """
-        Sets all given fields in the section with the name 'section_name'
+        Sets all given fields on the section named 'section_name'
 
         Args:
-            new_fields (list): List of fields which should be set for a type
+            new_fields (list[dict[str, Any]]): Fields to set on the type
             section_name (str): name of the section which should contain the fields
         """
+        new_field_params: dict[str, Any]
         for new_field_params in new_fields:
             self.__set_type_field(new_field_params, section_name)
 
 
-    def __set_type_field(self, field_params: dict, section_name: str) -> None:
+    def __set_type_field(self, field_params: dict[str, Any], section_name: str) -> None:
         """
-        Configures a section fields and sets it for the type_config in 'fields', 'render_meta' and 'summary' according
-        to the configuration
+        Configures a field and records it on the type_config: in the flat 'fields' list, under its
+        section in 'render_meta', and in the summary list when flagged as a summary field
 
         Args:
-            field_params (dict): All data which the field should have
-            section_name (str): 'name' of the section for which this field is used
+            field_params (dict[str, Any]): All data the field should carry
+            section_name (str): 'name' of the section this field belongs to
         """
-        is_summary:bool = False
-        extras: dict = {}
+        is_summary: bool = False
+        extras: dict[str, Any] = {}
 
-        field_type: str = field_params['type']
-        field_name: str = field_params['name']
-        field_label: str = field_params['label']
+        field_type: str = field_params[FieldKey.TYPE]
+        field_name: str = field_params[FieldKey.NAME]
+        field_label: str = field_params[FieldKey.LABEL]
 
-        if 'is_summary' in field_params.keys():
-            is_summary = field_params['is_summary']
+        if AssistantFieldKey.IS_SUMMARY in field_params.keys():
+            is_summary = field_params[AssistantFieldKey.IS_SUMMARY]
 
-        if 'extras' in field_params.keys():
-            extras = field_params['extras']
+        if AssistantFieldKey.EXTRAS in field_params.keys():
+            extras = field_params[AssistantFieldKey.EXTRAS]
 
-
-        type_field: dict = {
-            "type": field_type,
-            "name": field_name,
-            "label": field_label
+        type_field: dict[str, Any] = {
+            FieldKey.TYPE: field_type,
+            FieldKey.NAME: field_name,
+            FieldKey.LABEL: field_label
         }
 
         if extras:
             type_field = self.__set_type_field_extras(type_field, extras)
 
-        # Set field on type config
-        type_fields: list = self.type_config['fields']
-        type_fields.append(type_field)
+        # Add to the flat field list
+        self.type_config[TypeSchemaKey.FIELDS].append(type_field)
 
-        self.type_config['fields'] = type_fields
-
-        # Set field on section
-        type_sections: list = list(self.type_config['render_meta']['sections'])
-
-        index: int = 0
-        for section in type_sections:
-            if section['name'] == section_name:
-                section_fields: list = list(section['fields'])
-                section_fields.append(field_name)
-                section['fields'] = section_fields
-                type_sections[index] = section
-
-                self.type_config['render_meta']['sections'] = type_sections
+        # Add the field name under its section in render_meta
+        section: dict[str, Any]
+        for section in self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SECTIONS]:
+            if section[SectionKey.NAME] == section_name:
+                section[SectionKey.FIELDS].append(field_name)
                 break
 
-            index = index +1
-
-        # Set field as summary if summary
         if is_summary:
             self.__set_summary_field(field_name)
 
 
-    def __set_type_field_extras(self, type_field: dict, extras: dict) -> dict:
+    def __set_type_field_extras(self, type_field: dict[str, Any], extras: dict[str, Any]) -> dict[str, Any]:
         """
-        Sets additional properties for a field (other than type, name and label)
-        
+        Lifts the accepted extra properties (other than type, name and label) onto a field
+
         Args:
-            type_field (dict): The field which needs the extra properties to be set
-            extras (dict): Key-Value pairs of extra properties. The accepted keys are
-                           in the list 'extra_keys'
+            type_field (dict[str, Any]): The field to receive the extra properties
+            extras (dict[str, Any]): Key-Value pairs of extra properties. Only the keys listed in
+                                     FIELD_EXTRA_KEYS are copied over
 
         Returns:
-            dict: The updated version of the given field
+            dict[str, Any]: The updated field
         """
-
-        extra_keys = ['options', 'helperText', 'regex', 'ref_types','summaries']
-
-        for extra_key in extra_keys:
+        for extra_key in FIELD_EXTRA_KEYS:
             if extra_key in extras.keys():
                 type_field[extra_key] = extras[extra_key]
 
@@ -267,17 +329,20 @@ class ProfileTypeConstructor:
 
 # ------------------------------------------- CONDITIONAL SECTIONS HANDLING ------------------------------------------ #
 
-    def add_conditional_sections(self, conditional_sections: list) -> None:
+    def add_conditional_sections(self, conditional_sections: list[dict[str, Any]]) -> None:
         """
-        Adds additional sections to the type if the all given conditionIDs are not None
-        
-        Args:
-            conditional_sections (list): List of sections which should be created
-        """
-        affirmed_sections: list = []
+        Adds each conditional section to the type, but only when all of its conditional ids are set
 
+        Args:
+            conditional_sections (list[dict[str, Any]]): Candidate sections, each carrying a
+                                                         'conditional_ids' list (see
+                                                         create_conditional_ref_section)
+        """
+        affirmed_sections: list[dict[str, Any]] = []
+
+        conditional_section: dict[str, Any]
         for conditional_section in conditional_sections:
-            conditional_ids: list = conditional_section['conditional_ids']
+            conditional_ids: list[int | None] = conditional_section[AssistantSectionKey.CONDITIONAL_IDS]
 
             if self.__check_conditional_ids(conditional_ids):
                 conditional_section = self.__set_conditional_ref(conditional_section, conditional_ids)
@@ -289,67 +354,69 @@ class ProfileTypeConstructor:
     def create_conditional_ref_section(self,
                                        field_name: str,
                                        field_label: str,
-                                       section_name:str,
+                                       section_name: str,
                                        section_label: str,
-                                       conditional_ids: list) -> dict:
+                                       conditional_ids: list[int | None]) -> dict[str, Any]:
         """
-        Generates a conditional section which has one ref-field. The referenced typeIDs
-        are requested and can be 'None'. If any of the requested IDs is None then the section
-        will not be created.
+        Generates a conditional section holding a single reference field
+
+        The referenced type ids may be None (the slot's type was not created). When any id is None
+        the section is skipped by add_conditional_sections.
 
         Args:
             field_name (str): name for the ref-field
             field_label (str): label for the ref-field
             section_name (str): name for the section
             section_label (str): label for the section
-            conditional_ids (list): List of required type IDs which should be referenced
+            conditional_ids (list[int | None]): Required type ids to reference; any None skips the section
 
         Returns:
-            dict: _description_
+            dict[str, Any]: A conditional section dict carrying its 'conditional_ids' alongside the
+                            section/field layout, ready for add_conditional_sections()
         """
         return {
-            "conditional_ids": conditional_ids,
-            "name": section_name,
-            "label": section_label,
-            "fields": [
+            AssistantSectionKey.CONDITIONAL_IDS: conditional_ids,
+            SectionKey.NAME: section_name,
+            SectionKey.LABEL: section_label,
+            SectionKey.FIELDS: [
                 {
-                    "type": "ref",
-                    "name": field_name,
-                    "label": field_label,
-                    "extras":{
-                        "ref_types": [],
-                        "summaries": []
+                    FieldKey.TYPE: FieldType.REFERENCE,
+                    FieldKey.NAME: field_name,
+                    FieldKey.LABEL: field_label,
+                    AssistantFieldKey.EXTRAS: {
+                        FieldKey.REF_TYPES: [],
+                        AssistantFieldKey.SUMMARIES: []
                     }
-
                 }
             ]
         }
 
 
-    def __set_conditional_ref(self, section: dict, conditional_ids: list) -> dict:
+    def __set_conditional_ref(self, section: dict[str, Any], conditional_ids: list[int]) -> dict[str, Any]:
         """
-        Sets the reference property of the ref-field for a conditional section
+        Sets the 'ref_types' of a conditional section's single reference field
+
         Args:
-            section (dict): target section which the ref-field
-            conditional_ids (list): public_id's of types which should be referenced
+            section (dict[str, Any]): Target section holding the ref-field
+            conditional_ids (list[int]): public_ids of the types to reference
 
         Returns:
-            dict: The updated version of the given section
+            dict[str, Any]: The updated section
         """
-        section['fields'][0]['extras']['ref_types'] = conditional_ids
+        section[SectionKey.FIELDS][0][AssistantFieldKey.EXTRAS][FieldKey.REF_TYPES] = conditional_ids
 
         return section
 
 
-    def __check_conditional_ids(self, conditional_ids: list) -> bool:
+    def __check_conditional_ids(self, conditional_ids: list[int | None]) -> bool:
         """
-        Checks if all requested public_ids exist before the conditional section is created
-        
+        Checks that every requested public_id is set before its conditional section is created
+
         Args:
-            conditional_ids (list): list with all requested ids
+            conditional_ids (list[int | None]): All requested ids
 
         Returns:
-            bool: True if all IDs are present, else False
+            bool: True if every id is truthy, else False
         """
         for conditional_id in conditional_ids:
             if not conditional_id:
@@ -359,107 +426,80 @@ class ProfileTypeConstructor:
 
 # --------------------------------------- PREDEFINED SECTION TEMPLATES HANDLING -------------------------------------- #
 
-    def get_predefined_template_data(self, template_name: str, summary_fields: list[str] = None) -> dict:
+    def get_predefined_template_data(self,
+                                     template_name: str,
+                                     summary_fields: list[str] | None = None) -> dict[str, Any]:
         """
-        Retrives a predefined section template
+        Returns a fresh copy of a predefined section template via the PredefinedTemplateProvider
+
         Args:
             template_name (str): name of the predefined section template
-            summary_fields (list[str], optional): List of field names which should be set as summary.
-                                                  Defaults to None.
+            summary_fields (list[str] | None, optional): Field names to flag as summary. Defaults to None.
 
         Returns:
-            dict: The formatted section template 
+            dict[str, Any]: The formatted section template
         """
-        template_data: dict = self.predefined_templates[template_name]
-
-        section_fields: list[dict] = template_data['fields']
-
-        if summary_fields:
-            for field in section_fields:
-                if field['name'] in summary_fields:
-                    field['is_summary'] = True
-
-        return self.predefined_templates[template_name]
+        return self.template_provider.get_template(template_name, summary_fields)
 
 
-    def __get_predefined_templates(self):
-        """Retrives all predefined section templates from the DB"""
-        formatted_list: dict = {}
-        predefined_filter = {'predefined': True}
+    def get_ipam_interface_template_data(self, subnet_type_id: int | None) -> dict[str, Any]:
+        """
+        Returns the dg-ipam-interface section template with its Subnet reference wired
 
-        builder_params: BuilderParameters = BuilderParameters(predefined_filter)
+        The template's Subnet reference field keeps its empty 'ref_types' when no Subnet type was
+        created in the run (subnet_type_id is None); otherwise the field is pointed at that type so
+        the IPAM interface is usable without manual setup.
 
-        iteration_result: IterationResult[CmdbSectionTemplate] = self.section_templates_manager.iterate(builder_params)
+        Args:
+            subnet_type_id (int | None): public_id of the created Subnet SpecialType, or None
 
-        template_list: list[dict] = [template_.__dict__ for template_ in iteration_result.results]
+        Returns:
+            dict[str, Any]: The formatted dg-ipam-interface section template
+        """
+        template_data: dict[str, Any] = self.get_predefined_template_data(IpamSection.INTERFACE)
 
-        for template in template_list:
-            template_name = template['name']
-            formatted_list[template_name] = self.__format_predefined_template_data(template)
+        if subnet_type_id is not None:
+            self.__set_template_field_ref_types(template_data, InterfaceField.SUBNET, [subnet_type_id])
 
-        return formatted_list
+        return template_data
+
+
+    def __set_template_field_ref_types(self,
+                                       template_data: dict[str, Any],
+                                       field_name: str,
+                                       ref_types: list[int]) -> None:
+        """
+        Sets the 'ref_types' of a formatted template field (inside its 'extras' dict)
+
+        Args:
+            template_data (dict[str, Any]): A formatted section template (fields carry an 'extras' dict)
+            field_name (str): 'name' of the reference field to wire
+            ref_types (list[int]): public_ids of the types the field should reference
+        """
+        field: dict[str, Any]
+        for field in template_data[SectionKey.FIELDS]:
+            if field[FieldKey.NAME] == field_name:
+                field[AssistantFieldKey.EXTRAS][FieldKey.REF_TYPES] = ref_types
+                break
 
 
     def __set_predefined_template_id(self, template_id_name: str) -> None:
         """
-        Sets the name of the predefined section template on the current type
+        Records a predefined section template's name in the current type's 'global_template_ids'
 
         Args:
             template_id_name (str): name of the predefined section template
         """
-        global_ids= list(self.type_config['global_template_ids'])
-        global_ids.append(template_id_name)
-        self.type_config['global_template_ids'] = global_ids
-
-
-    def __format_predefined_template_data(self, template_data: dict)-> dict:
-        """
-        Formats the API response containing the predefined section templates so that
-        they can be used by the TypeConstructor
-
-        Args:
-            template_data (dict): The predefined section template data
-
-        Returns:
-            dict: Formatted section template data
-        """
-        formatted_template: dict = {
-            "name": template_data['name'],
-            "label": template_data['label'],
-            "global_id_name": template_data['name'],
-        }
-
-        template_fields: list = template_data['fields']
-        formatted_fields: list = []
-        default_keys: list = ['type', 'name', 'label']
-
-        field: dict
-        for field in template_fields:
-            formatted_field = {
-                "extras": {}
-            }
-
-            for key, value in field.items():
-                if key in default_keys:
-                    formatted_field[key] = value
-                else:
-                    formatted_field['extras'][key] = value
-
-            formatted_fields.append(formatted_field)
-
-        formatted_template['fields'] = formatted_fields
-
-        return formatted_template
+        self.type_config[TypeSchemaKey.GLOBAL_TEMPLATE_IDS].append(template_id_name)
 
 # ------------------------------------------------- SUMMARY HANDLING ------------------------------------------------- #
 
     def __set_summary_field(self, field_name: str) -> None:
         """
-        Sets the given field_name as a summary field of the current type
-        Args:
-            field_name (str): name of the field which should be set as a summary field
-        """
-        type_summary = list(self.type_config['render_meta']['summary']['fields'])
-        type_summary.append(field_name)
+        Appends 'field_name' to the current type's summary field list
 
-        self.type_config['render_meta']['summary']['fields'] = type_summary
+        Args:
+            field_name (str): name of the field to mark as a summary field
+        """
+        summary: dict[str, Any] = self.type_config[TypeSchemaKey.RENDER_META][RenderMetaKey.SUMMARY]
+        summary[RenderMetaKey.FIELDS].append(field_name)

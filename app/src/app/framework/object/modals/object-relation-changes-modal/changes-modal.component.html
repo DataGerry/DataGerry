@@ -7,9 +7,10 @@
         <h5 class="modal-title">Relation Log Details</h5>
         <button type="button" class="btn-close btn-close-white" (click)="close.emit()" aria-label="Close"></button>
       </div>
-      
+
       <div class="modal-body">
-        <div *ngIf="log" class="log-details">
+        @if (log) {
+        <div class="log-details">
           <div class="row mb-3">
             <div class="col-6">
               <div class="detail-item">
@@ -34,25 +35,36 @@
           </div>
 
           <div class="changes-section">
-            <div *ngIf="log.action === 'CREATE'">
+            @if (log.action === 'CREATE') {
+            <div>
               <h6 class="section-title">Relation Attributes</h6>
-              <div *ngIf="hasCreateChanges(); else noCreate">
-                <div class="change-item create-item" *ngFor="let field of objectKeys(log.changes)">
+              @if (hasCreateChanges()) {
+              <div>
+                @for (field of objectKeys(log.changes); track field) {
+                <div class="change-item create-item">
                   <div class="field-line">
                     <span class="field-name">{{ field }}:</span>
                     <span class="change-value">{{ log.changes[field] || 'Not set' }}</span>
                   </div>
                 </div>
+                }
               </div>
-              <ng-template #noCreate>
-                <div class="no-changes">No initial values recorded</div>
-              </ng-template>
-            </div>
+              } @else {
 
-            <div *ngIf="log.action === 'EDIT'">
+              <div class="no-changes">No initial values recorded</div>
+
+              }
+
+            </div>
+            }
+
+            @if (log.action === 'EDIT') {
+            <div>
               <h6 class="section-title">Attribute Modifications</h6>
-              <div *ngIf="hasEditChanges(); else noEdit">
-                <div class="change-item" *ngFor="let field of objectKeys(log.changes?.modified || {})">
+              @if (hasEditChanges()) {
+              <div>
+                @for (field of objectKeys(log.changes?.modified || {}); track field) {
+                <div class="change-item">
                   <div class="field-name">{{ field }}</div>
                   <div class="change-details">
                     <div class="change-before">
@@ -65,20 +77,28 @@
                     </div>
                   </div>
                 </div>
+                }
               </div>
-              <ng-template #noEdit>
-                <div class="no-changes">No attribute modifications recorded</div>
-              </ng-template>
-            </div>
+              } @else {
 
-            <div *ngIf="log.action === 'DELETE'">
+              <div class="no-changes">No attribute modifications recorded</div>
+
+              }
+
+            </div>
+            }
+
+            @if (log.action === 'DELETE') {
+            <div>
               <div class="delete-warning">
                 <i class="fas fa-exclamation-triangle"></i>
                 This relation was permanently deleted
               </div>
             </div>
+            }
           </div>
         </div>
+        }
       </div>
 
       <div class="modal-footer">

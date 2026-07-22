@@ -57,6 +57,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
   public locationForObjectExists = new FormControl('', Validators.required);
   
   @ViewChild('locationSelect') locationSelect: NgSelectComponent;
+  public clearable = true;
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -125,7 +126,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
                 this.setValidLocations(ownChildren,locations);
 
                 if(this.mode == this.MODES.Edit && this.hasChildren){
-                    this.locationSelect.clearable = false;
+                    this.clearable = false;
                 }
         });
     }

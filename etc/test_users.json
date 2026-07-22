@@ -8,6 +8,7 @@
             {
                 "id": 1,
                 "name": "Sub-Test-1",
+                "short_id": "SUB-TEST-1",
                 "is_valid": true,
                 "database": "testdb1",
                 "api_level": 2,
@@ -30,6 +31,7 @@
             {
                 "id": 2,
                 "name": "Sub-Wurst-1",
+                "short_id": "SUB-WURST-1",
                 "is_valid": true,
                 "database": "testdb2",
                 "api_level": 2,
@@ -44,6 +46,7 @@
             {
                 "id": 3,
                 "name": "Sub-Wurst-2",
+                "short_id": "SUB-WURST-2",
                 "is_valid": true,
                 "database": "testdb3",
                 "api_level": 2,
@@ -66,6 +69,7 @@
             {
                 "id": 4,
                 "name": "Sub-Muster-1",
+                "short_id": "SUB-MUSTER-1",
                 "is_valid": true,
                 "database": "testdb4",
                 "api_level": 2,
@@ -80,6 +84,7 @@
             {
                 "id": 5,
                 "name": "Sub-Muster-2",
+                "short_id": "SUB-MUSTER-2",
                 "is_valid": true,
                 "database": "testdb5",
                 "api_level": 2,
@@ -94,6 +99,7 @@
             {
                 "id": 6,
                 "name": "Sub-Muster-3",
+                "short_id": "SUB-MUSTER-3",
                 "is_valid": true,
                 "database": "testdb6",
                 "api_level": 2,

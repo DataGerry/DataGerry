@@ -32,6 +32,7 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 
 @Component({
     selector: 'cmdb-date-field-edit',
+    host: { 'data-config-edit': 'relation' },
     templateUrl: './date-field-edit.component.html',
     styleUrls: ['./date-field-edit.component.scss'],
     providers: [

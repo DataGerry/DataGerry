@@ -22,6 +22,8 @@
 <div class="modal-footer">
     <button type="button" class="btn btn-outline-dark" (click)="activeModal.close('Close')">Close</button>
     <button type="submit" class="btn btn-danger" [disabled]="cleaning" (click)="clean()">
-        <span class="spinner-border spinner-border-sm me-2" *ngIf="cleaning"></span> Clean!
+        @if (cleaning) {
+        <span class="spinner-border spinner-border-sm me-2"></span>
+        } Clean!
     </button>
 </div>

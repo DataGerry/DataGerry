@@ -8,6 +8,7 @@
     <div id="delete-message">
         Do you want to <b>delete</b> the report <b>"{{ report.name }}"</b>?
         <br><br>
+<<<<<<< HEAD
         <ng-container *ngIf="report.impact">
             This action affects <b>{{ report.impact.types }} types</b> and <b>{{ report.impact.objects }} objects</b>!
         </ng-container>
@@ -19,6 +20,23 @@
             This action cannot be undone!
         </div>
     </ng-container>
+=======
+        @if (report.impact) {
+
+        This action affects <b>{{ report.impact.types }} types</b> and <b>{{ report.impact.objects }} objects</b>!
+
+        }
+    </div>
+    @if (report.impact) {
+
+    <br>
+    <div class="warning-text text-danger">
+        This will delete this report and its associated data. <br>
+        This action cannot be undone!
+    </div>
+
+    }
+>>>>>>> origin/version-3.2
 </div>
 
 <div class="modal-footer">

@@ -1,4 +1,4 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs/operators';
@@ -24,12 +24,10 @@ export class ProtectionGoalModalComponent implements OnInit {
   public isEditMode = false;
   public isDuplicateName = false;
 
-  constructor(
-    public activeModal: NgbActiveModal,
-    private fb: FormBuilder,
-    private protectionGoalService: ProtectionGoalService,
-    private toast: ToastService
-  ) { }
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly fb = inject(FormBuilder);
+  private readonly protectionGoalService = inject(ProtectionGoalService);
+  private readonly toast = inject(ToastService);
 
   ngOnInit(): void {
     // Determine mode: edit if protectionGoal provided and not copy mode.

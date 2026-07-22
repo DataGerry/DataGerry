@@ -1,0 +1,60 @@
+$brand-orange: #e94d18;
+
+.ipam-assign-modal__body {
+    padding: 1.25rem 1.5rem;
+    min-height: 23rem;
+}
+
+.ipam-assign-modal__intro {
+    margin-bottom: 1.25rem;
+    color: #4b5563;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+}
+
+.ipam-assign-modal__pill {
+    display: inline-block;
+    padding: 0.05rem 0.45rem;
+    border-radius: 0.3rem;
+    background-color: rgba(233, 77, 24, 0.08);
+    color: $brand-orange;
+    font-family: var(--bs-font-monospace, monospace);
+    font-weight: 600;
+}
+
+.ipam-assign-modal__interface {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid #eceff3;
+
+    // The editable section ships its own "Add" button; this modal only assigns the single
+    // pre-filled row, so the extra entry point is hidden.
+    ::ng-deep .add-row-button {
+        display: none;
+    }
+
+    ::ng-deep fieldset {
+        border: 0;
+        margin: 0;
+        padding: 0;
+    }
+
+    ::ng-deep legend {
+        float: none;
+        width: auto;
+        margin-bottom: 0.75rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #1f2937;
+    }
+
+    // Existing interface rows carry no row actions; the new row is rendered first and keeps only
+    // its edit action (the action group is preview / edit / delete in that order).
+    ::ng-deep table tbody tr .actions-div span {
+        display: none;
+    }
+
+    ::ng-deep table tbody tr:first-child .actions-div span:nth-child(2) {
+        display: inline-block;
+    }
+}

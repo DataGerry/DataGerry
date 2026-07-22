@@ -26,11 +26,20 @@ import { GroupService } from '../../../management/services/group.service';
 import { User } from '../../../management/models/user';
 import { Group } from '../../../management/models/group';
 import { ObjectService } from 'src/app/framework/services/object.service';
+<<<<<<< HEAD
 import { Observable, Subscription, switchMap } from 'rxjs';
+=======
+import { map, Observable, of, Subscription, switchMap } from 'rxjs';
+>>>>>>> origin/version-3.2
 import { environment } from '../../../../environments/environment';
 
 import { Router } from '@angular/router';
 import { NotificationQuery } from 'src/app/core/state/notification/notification.query';
+<<<<<<< HEAD
+=======
+import { LICENSE_TIER_LABELS, LicenseFeature, LicenseTier } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+>>>>>>> origin/version-3.2
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare global {
@@ -56,8 +65,15 @@ export class NavigationComponent implements OnInit {
     public featurePreviewMode = environment.featurePreviewMode;
     public isNotificationDrawerOpen = false;
     public readonly notificationCount$: Observable<number>;
+<<<<<<< HEAD
+=======
+    public readonly edition$: Observable<{ label: string; cssClass: string } | null>;
+    public readonly LicenseFeature = LicenseFeature;
+>>>>>>> origin/version-3.2
     configItemsLimit: number;
     private subscription: Subscription;
+    private premiumSubscription?: Subscription;
+    private lockedFeatures = new Set<LicenseFeature>();
 
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
@@ -68,10 +84,23 @@ export class NavigationComponent implements OnInit {
         private groupService: GroupService,
         private objectService: ObjectService,
         private router: Router,
+<<<<<<< HEAD
         private notificationQuery: NotificationQuery
     ) {
         this.user = this.userService.getCurrentUser();
         this.notificationCount$ = this.notificationQuery.selectCount();
+=======
+        private notificationQuery: NotificationQuery,
+        private premiumFeatureService: PremiumFeatureService
+    ) {
+        this.user = this.userService.getCurrentUser();
+        this.notificationCount$ = this.notificationQuery.selectCount();
+        this.edition$ = this.isCloudMode
+            ? of(null)
+            : this.premiumFeatureService.currentEdition$().pipe(
+                map((tier) => this.toEditionBadge(tier))
+            );
+>>>>>>> origin/version-3.2
     }
 
 
@@ -96,6 +125,7 @@ export class NavigationComponent implements OnInit {
 
         }
 
+        this.resolveLockedPremiumFeatures();
         this.dropdownSubmenu();
     }
 
@@ -104,6 +134,8 @@ export class NavigationComponent implements OnInit {
         if (this.subscription) {
             this.subscription.unsubscribe();
         }
+
+        this.premiumSubscription?.unsubscribe();
     }
 
     /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
@@ -113,6 +145,46 @@ export class NavigationComponent implements OnInit {
      */
     public logout(): void {
         this.authService.logout();
+    }
+
+
+    /**
+     * Whether a premium toolbox feature is locked for the active edition. Drives the "Pro" badge;
+     * always false for Cloud and licensed Self-Hosted installs, so no badge is shown there.
+     */
+    public isLocked(feature: LicenseFeature): boolean {
+        return this.lockedFeatures.has(feature);
+    }
+
+
+    /**
+     * Tracks which premium toolbox features are locked for the active edition so the matching cards
+     * can surface a "Pro" badge. The watcher re-emits on license import/removal, keeping the badges
+     * in sync without a reload. Cloud installs short-circuit to "all unlocked" inside the service.
+     */
+    private resolveLockedPremiumFeatures(): void {
+        this.premiumSubscription = this.premiumFeatureService
+            .watchLockedFeatures([
+                LicenseFeature.DocumentGenerator,
+                LicenseFeature.Automations,
+                LicenseFeature.Isms
+            ])
+            .subscribe((locked) => {
+                this.lockedFeatures = locked;
+            });
+    }
+
+
+    /**
+     * Maps the effective license tier to the navbar edition pill: a human-readable label plus a
+     * tier-scoped style class. An unknown but licensed tier falls back to a neutral "Licensed" badge.
+     */
+    private toEditionBadge(tier: string): { label: string; cssClass: string } {
+        const isKnown = (Object.values(LicenseTier) as string[]).includes(tier);
+        const label = LICENSE_TIER_LABELS[tier as LicenseTier] ?? 'Licensed';
+        const key = isKnown ? tier : 'default';
+
+        return { label, cssClass: `edition-badge edition-badge--${key}` };
     }
 
 

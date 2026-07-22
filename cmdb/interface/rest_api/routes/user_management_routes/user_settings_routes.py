@@ -73,13 +73,21 @@ def insert_cmdb_user_setting(user_id: int, data: dict[str, Any], request_user: C
         user_settings_manager: UserSettingsManager = ManagerProvider.get_manager(ManagerType.USER_SETTINGS,
                                                                                  request_user)
 
+        # Pin the owning user to the URL so a mismatched body cannot store the setting under another id
+        data['user_id'] = user_id
+
+        # A setting is uniquely identified by (user_id, resource); reject a duplicate create explicitly
+        # rather than relying on the unique index (business-rule rejection -> 400)
+        if user_settings_manager.get_user_setting(user_id, data.get('resource')):
+            abort(400, f"A UserSetting for resource: '{data.get('resource')}' already exists for this user!")
+
         user_settings_manager.insert_item(data)
 
         created_user_setting = user_settings_manager.get_user_setting(user_id, data.get('resource'))
 
         if created_user_setting:
             api_response = InsertSingleResponse(raw=created_user_setting,
-                                                result_id=created_user_setting.get('resource'))
+                                                result_id=created_user_setting.get('public_id'))
 
             return api_response.make_response()
 
@@ -170,7 +178,7 @@ def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @user_settings_blueprint.validate(CmdbUserSetting.SCHEMA)
-def update_cmdb_user_setting(user_id: int, resource: str, data: dict, request_user: CmdbUser) -> Response:
+def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUserSetting or create it if it does not exist
 
@@ -187,7 +195,11 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict, request_us
         user_settings_manager: UserSettingsManager = ManagerProvider.get_manager(ManagerType.USER_SETTINGS,
                                                                                  request_user)
 
-        to_update_user_setting = user_settings_manager.get_user_setting(user_id, data.get('resource'))
+        # Pin the owning user + resource to the URL so a mismatched body cannot target another record
+        data['user_id'] = user_id
+        data['resource'] = resource
+
+        to_update_user_setting = user_settings_manager.get_user_setting(user_id, resource)
 
         # If it does not exist, create it
         if not to_update_user_setting:
@@ -196,14 +208,16 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict, request_us
             user_settings_manager.update_user_setting(user_id, resource, CmdbUserSetting.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except UserSettingsManagerGetError as err:
-        LOGGER.error("[get_cmdb_user_setting] UserSettingsManagerGetError: %s", err, exc_info=True)
+        LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserSetting for resource: '{resource}' from the database!")
     except UserSettingsManagerInsertError as err:
-        LOGGER.error("[get_cmdb_user_setting] UserSettingsManagerInsertError: %s", err, exc_info=True)
+        LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerInsertError: %s", err, exc_info=True)
         abort(400, f"Failed to create the UserSetting for resource: '{resource}' in the database!")
     except UserSettingsManagerUpdateError as err:
-        LOGGER.error("[get_cmdb_user_setting] UserSettingsManagerUpdateError: %s", err, exc_info=True)
+        LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the UserSetting for resource: '{resource}' in the database!")
     except Exception as err:
         LOGGER.error("[update_cmdb_user_setting] Exception: %s. Type: %s", err, type(err), exc_info=True)

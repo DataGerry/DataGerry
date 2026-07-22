@@ -6,16 +6,18 @@
     </button>
   </ng-container>
   <ng-container *permissionLink="['base.framework.category.edit']">
-    <button *ngIf="mode != 2; else listButton" [routerLink]="['/framework/category/edit']" type="button"
-            class="btn btn-sm btn-secondary ms-2 text-white">
+    @if (mode != 2) {
+    <button [routerLink]="['/framework/category/edit']" type="button" class="btn btn-sm btn-secondary ms-2 text-white">
       <i class="fas fa-edit"></i> Edit
     </button>
-  </ng-container>
-  <ng-template #listButton>
+    } @else {
+    
     <button [routerLink]="['/framework/category/']" type="button" class="btn btn-sm btn-secondary ms-2 text-white">
       <i class="fas fa-list"></i> List
     </button>
-  </ng-template>
+    
+    }
+    </ng-container>
 </div>
 <div class="clearfix"></div>
 <hr/>
@@ -30,11 +32,13 @@
           <cmdb-category-tree [mode]="mode" [tree]="categoryTree" (change)="onTreeChange()"></cmdb-category-tree>
         </div>
       </div>
-      <div *ngIf="mode == 2;" class="card-footer">
-        <div  class="btn-group text-end" role="group">
+      @if (mode == 2;) {
+      <div class="card-footer">
+        <div class="btn-group text-end" role="group">
           <button type="submit" class="btn btn-success" (click)="onSave()">Save</button>
         </div>
       </div>
+      }
     </div>
   </div>
   <div id="category-list" class="col-sm-12 col-md-8">

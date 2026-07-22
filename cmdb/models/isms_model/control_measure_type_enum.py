@@ -11,27 +11,13 @@
 """
 Implementation of ControlMeasureType enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ControlMeasureType(str, Enum):
+class ControlMeasureType(BaseStrEnum):
     """
     Available ControlMeasureTypes for IsmsControlMeasures
     """
     CONTROL = 'CONTROL'
     REQUIREMENT = 'REQUIREMENT'
     MEASURE = 'MEASURE'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid ControlMeasureType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing ControlMeasureType, False otherwise
-        """
-        return value in ControlMeasureType.__members__

@@ -9,9 +9,11 @@
   </div>
 </div>
 <div class="modal-body">
-  <opencelium-log-viewer *ngIf="executionId" [baseUrl]="baseUrl" [token]="token" [executionId]="executionId"
+  @if (executionId) {
+  <opencelium-log-viewer [baseUrl]="baseUrl" [token]="token" [executionId]="executionId"
     (logViewLoad)="onLogViewLoaded()">
   </opencelium-log-viewer>
+  }
 </div>
 
 

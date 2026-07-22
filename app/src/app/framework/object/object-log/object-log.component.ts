@@ -74,11 +74,14 @@ export class ObjectLogComponent implements OnInit {
 
 
     public loadCompareRender(logID: number) {
-        const selectedCompareLog: CmdbLog = this.completeLogList.filter(compareLog => compareLog.public_id == logID)[0];
-        if (selectedCompareLog.render_state !== undefined) {
-            this.compareForm = new UntypedFormGroup({});
-            this.compareResult = JSON.parse(selectedCompareLog.render_state);
+        const selectedCompareLog = this.completeLogList?.find(compareLog => compareLog.public_id == logID);
+
+        if (!selectedCompareLog || selectedCompareLog.render_state === undefined) {
+            return;
         }
+
+        this.compareForm = new UntypedFormGroup({});
+        this.compareResult = JSON.parse(selectedCompareLog.render_state);
         this.markDifferences();
     }
 

@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { FormGroup, FormControl, ValidatorFn } from '@angular/forms';
 
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
@@ -30,7 +30,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 })
   export class BranchInfoModalComponent {
     
-    constructor(public activeModal: NgbActiveModal){}
+    public readonly activeModal = inject(NgbActiveModal);
 
 
     branchForm: FormGroup = new FormGroup({

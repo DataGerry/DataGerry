@@ -21,8 +21,9 @@ from logging import Logger, getLogger
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.isms_manager.isms_manager_helper import delete_isms_item_if_unused_by_risk
 
-from cmdb.models.isms_model import IsmsProtectionGoal, IsmsRisk
+from cmdb.models.isms_model import IsmsProtectionGoal
 
 from cmdb.errors.manager.protection_goal_manager import PROTECTION_GOAL_MANAGER_ERRORS
 from cmdb.errors.manager.protection_goal_manager import (
@@ -61,18 +62,11 @@ class ProtectionGoalManager(GenericManager):
         Returns:
             bool: True if success, else False
         """
-        try:
-            # Only deletable if no Risk is using this IsmsProtectionGoal
-            risk_using_protection_goal = self.get_one_by(
-                {'protection_goals': public_id},
-                IsmsRisk.COLLECTION,
-            )
-
-            if risk_using_protection_goal:
-                raise ProtectionGoalManagerRiskUsageError('ProtectionGoal is used by IsmsRisks!')
-
-            return self.delete_item(public_id)
-        except ProtectionGoalManagerRiskUsageError as err:
-            raise err
-        except Exception as err:
-            raise ProtectionGoalManagerDeleteError(str(err)) from err
+        return delete_isms_item_if_unused_by_risk(
+            self,
+            public_id,
+            'protection_goals',
+            ProtectionGoalManagerRiskUsageError,
+            ProtectionGoalManagerDeleteError,
+            'ProtectionGoal is used by IsmsRisks!',
+        )

@@ -22,6 +22,11 @@ from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 
+<<<<<<< HEAD
+=======
+from cmdb.class_schema.isms_model.isms_control_measure_schema import get_isms_control_measure_schema
+
+>>>>>>> origin/version-3.2
 from cmdb.errors.models.isms_control_measure import (
     IsmsControlMeasureInitError,
     IsmsControlMeasureInitFromDataError,
@@ -36,17 +41,21 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class IsmsControlMeasure(CmdbDAO):
     """
-    Implementation of IsmsControlMeasure which represents a threat in ISMS
+    Implementation of IsmsControlMeasure which represents a control measure in ISMS
 
     Extends: CmdbDAO
     """
     COLLECTION = "isms.controlMeasure"
+<<<<<<< HEAD
     MODEL = 'ControlMeasure'
+=======
+>>>>>>> origin/version-3.2
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('control_measure_type', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_type', 'unique': False},
     ]
 
+<<<<<<< HEAD
     # pylint: disable=R0801
     SCHEMA: dict = {
         'public_id': {
@@ -99,6 +108,9 @@ class IsmsControlMeasure(CmdbDAO):
             'nullable': True,
         }
     }
+=======
+    SCHEMA: dict = get_isms_control_measure_schema()
+>>>>>>> origin/version-3.2
 
     #pylint: disable=R0913, R0917
     def __init__(

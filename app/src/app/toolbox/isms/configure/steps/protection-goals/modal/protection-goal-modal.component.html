@@ -1,18 +1,30 @@
 <div class="modal-header">
   <h4 class="modal-title">
     <!-- If in View Mode, show "View Protection Goal: [Name]" -->
-    <ng-container *ngIf="isViewMode; else editAddCopyMode">
-      View Protection Goal: {{ form.get('name')?.value }}
-    </ng-container>
+    @if (isViewMode) {
+
+    View Protection Goal: {{ form.get('name')?.value }}
+
+    } @else {
+
+    @if (isEditMode) {
+    <span>
+      @if (isCopyMode) {
+      <span>Copy Protection Goal</span>
+      }
+      @if (!isCopyMode) {
+      <span>Edit Protection Goal</span>
+      }
+    </span>
+    }
+    @if (!isEditMode) {
+    <span>Add Protection Goal</span>
+    }
+
+    }
 
     <!-- If NOT in View Mode, show the usual Add/Edit/Copy text -->
-    <ng-template #editAddCopyMode>
-      <span *ngIf="isEditMode">
-        <span *ngIf="isCopyMode">Copy Protection Goal</span>
-        <span *ngIf="!isCopyMode">Edit Protection Goal</span>
-      </span>
-      <span *ngIf="!isEditMode">Add Protection Goal</span>
-    </ng-template>
+
   </h4>
 
   <!-- Textual "x" close button -->
@@ -24,33 +36,27 @@
 <div class="modal-body">
   <form [formGroup]="form" (ngSubmit)="onSubmit()">
     <!-- Show Name field ONLY if not in View Mode -->
-    <div *ngIf="!isViewMode" class="mb-3">
+    @if (!isViewMode) {
+    <div class="mb-3">
       <label for="pgName" class="form-label">
         Protection Goal Name <span class="text-danger">*</span>
       </label>
-      <input
-        id="pgName"
-        type="text"
-        class="form-control"
-        formControlName="name"
-        placeholder="Enter protection goal name..."
-        (input)="checkDuplicateName()"
-      />
+      <input id="pgName" type="text" class="form-control" formControlName="name"
+        placeholder="Enter protection goal name..." (input)="checkDuplicateName()" />
       <!-- Error message if name is required -->
-      <div
-        class="invalid-feedback d-block"
-        *ngIf="form.get('name')?.touched && form.get('name')?.invalid"
-      >
+      @if (form.get('name')?.touched && form.get('name')?.invalid) {
+      <div class="invalid-feedback d-block">
         Name is required.
       </div>
+      }
       <!-- Error message if name already exists -->
-      <div
-        class="invalid-feedback d-block"
-        *ngIf="isDuplicateName"
-      >
+      @if (isDuplicateName) {
+      <div class="invalid-feedback d-block">
         Name already exists.
       </div>
+      }
     </div>
+    }
 
     <!-- Modal Footer -->
     <div class="modal-footer">
@@ -58,24 +64,33 @@
         {{ isViewMode ? 'Close' : 'Cancel' }}
       </button>
       <!-- Show Save/Create/Copy button only if not in view mode -->
-      <button
-        type="submit"
-        class="btn btn-success"
-        *ngIf="!isViewMode"
-        [disabled]="isSubmitting || form.invalid"
-      >
-        <span *ngIf="!isSubmitting">
+      @if (!isViewMode) {
+      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+        @if (!isSubmitting) {
+        <span>
           <!-- If editing -->
-          <span *ngIf="isEditMode">
-            <span *ngIf="isCopyMode">Copy Protection Goal</span>
-            <span *ngIf="!isCopyMode">Save Changes</span>
+          @if (isEditMode) {
+          <span>
+            @if (isCopyMode) {
+            <span>Copy Protection Goal</span>
+            }
+            @if (!isCopyMode) {
+            <span>Save Changes</span>
+            }
           </span>
+          }
           <!-- If adding -->
-          <span *ngIf="!isEditMode">Add Protection Goal</span>
+          @if (!isEditMode) {
+          <span>Add Protection Goal</span>
+          }
         </span>
+        }
         <!-- Spinner while submitting -->
-        <span *ngIf="isSubmitting" class="spinner-border spinner-border-sm"></span>
+        @if (isSubmitting) {
+        <span class="spinner-border spinner-border-sm"></span>
+        }
       </button>
+      }
     </div>
   </form>
 </div>

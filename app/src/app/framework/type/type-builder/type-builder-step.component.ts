@@ -39,12 +39,16 @@ import { CmdbCategory } from '../../models/cmdb-category';
     color: #dc3545;
   }`],
     template: `{{step}}:
-  <span *ngIf="status" class="step-valid">
+  @if (status) {
+<span class="step-valid">
     <i class="far fa-check-circle"></i>
   </span>
-  <span *ngIf="!status" class="step-invalid">
+}
+  @if (!status) {
+<span class="step-invalid">
     <i class="fas fa-exclamation-circle"></i>
   </span>
+}
   <div class="clearfix"></div>
   `,
     standalone: false

@@ -14,7 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
+<<<<<<< HEAD
 Definition of all routes for the Type Assistant
+=======
+Definition of the ChatGPT REST routes for the document generator
+>>>>>>> origin/version-3.2
 """
 from logging import Logger, getLogger
 from flask import abort, request
@@ -27,18 +31,36 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+<<<<<<< HEAD
 from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client import ChatGptClient
 from cmdb.interface.rest_api.responses import DefaultResponse
+=======
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
+from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client import ChatGptClient
+from cmdb.interface.rest_api.responses import DefaultResponse
+
+from cmdb.security.license.license_constants import LicenseFeature
+>>>>>>> origin/version-3.2
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 chatgpt_blueprint = APIBlueprint('chatgpt', __name__)
+<<<<<<< HEAD
+=======
+
+# Key of the user message in the request body of the /message route
+MESSAGE_FIELD: str = 'message'
+>>>>>>> origin/version-3.2
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @chatgpt_blueprint.route('/message', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+<<<<<<< HEAD
+=======
+@requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
+>>>>>>> origin/version-3.2
 def send_chatgpt_message(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to interact with ChatGPT regarding the document generator
@@ -50,8 +72,13 @@ def send_chatgpt_message(request_user: CmdbUser) -> Response:
         DefaultResponse: The response from ChatGPT
     """
     try:
+<<<<<<< HEAD
         user_message: dict = request.get_json()
         user_message = user_message.get('message')
+=======
+        request_body = request.get_json(silent=True)
+        user_message = request_body.get(MESSAGE_FIELD) if isinstance(request_body, dict) else None
+>>>>>>> origin/version-3.2
 
         if not user_message:
             abort(400, "No message provided!")

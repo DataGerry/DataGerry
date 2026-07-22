@@ -38,7 +38,7 @@ EXECUTION_LOG_URL: str = f"{EXECUTION_URL}/log/element"
 # -------------------------------------------------------------------------------------------------------------------- #
 class OcConnectionLogManager(OcBaseManager):
     """
-    Manages COnnection Logs of OpenCelium
+    Manages Connection Logs of OpenCelium
     """
 
 # --------------------------------------------------- GET - ROUTES --------------------------------------------------- #
@@ -130,17 +130,17 @@ class OcConnectionLogManager(OcBaseManager):
 
     def get_log_list(self, connection_id: int, scheduler_id: int, status: Any) -> dict[str, Any]:
         """
-        Retrieves Operator children
+        Retrieves the execution log list for a Connection/Scheduler
 
         Args:
             connection_id (int): ID of Connection
             scheduler_id (int): ID of Scheduler
             status (Any): the status
         Raises:
-            OcConnectionLogGetError: When the Operator children could not be retrieved
+            OcConnectionLogGetError: When the log list could not be retrieved
 
         Returns:
-            dict[str, Any]: The retrieved children of the Operator
+            dict[str, Any]: The retrieved log list
         """
         target_connection_response: Response = self.oc_connector.oc_get(
             f"{EXECUTION_LOG_LIST_URL}?connectionId={connection_id}&schedulerId={scheduler_id}&status={status}"
@@ -149,7 +149,7 @@ class OcConnectionLogManager(OcBaseManager):
         if self.is_valid_response(target_connection_response):
             return json.loads(target_connection_response.text)
 
-        raise OcConnectionLogGetError("Failed to retrieve Operator children!")
+        raise OcConnectionLogGetError("Failed to retrieve the execution log list!")
 
 # -------------------------------------------------- DELETE - ROUTES ------------------------------------------------- #
 
@@ -160,8 +160,11 @@ class OcConnectionLogManager(OcBaseManager):
         Args:
             execution_id (int): the executionId
 
+        Raises:
+            OcConnectionLogDeleteError: When the deletion failed (non-2xx response from OpenCelium)
+
         Returns:
-            bool: True if deletion was a success else False
+            bool: True if deletion was a success
         """
         delete_connection_response: Response = self.oc_connector.oc_delete(f"{EXECUTION_URL}/{execution_id}")
 

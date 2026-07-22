@@ -163,6 +163,7 @@ class DefaultTemplateData:
         if type_ids:
             cursor = self.types_manager.find(
                 criteria={"public_id": {"$in": list(type_ids)}}
+<<<<<<< HEAD
             )
             for t in cursor:
                 self.type_cache[t["public_id"]] = t
@@ -192,6 +193,37 @@ class DefaultTemplateData:
         # Keep self.object_relations for first-hop scoped traversal
         self.object_relations = list(self.all_object_relations)
 
+=======
+            )
+            for t in cursor:
+                self.type_cache[t["public_id"]] = t
+
+        # Fetch relations + object relations
+        relation_ids = set()
+
+        for placeholder in self.relation_placeholders:
+            for rel_id, _, _ in RELATION_STEP_REGEX.findall(placeholder):
+                relation_ids.add(int(rel_id))
+
+        self.all_object_relations: list[dict] = []  # global relation list
+
+        if relation_ids:
+            cursor = self.relations_manager.find(
+                criteria={"public_id": {"$in": list(relation_ids)}}
+            )
+            for r in cursor:
+                self.relation_cache[r["public_id"]] = r
+
+            cursor = self.object_relations_manager.find(
+                criteria={"relation_id": {"$in": list(relation_ids)}}
+            )
+            # store global list separately
+            self.all_object_relations = list(cursor)
+
+        # Keep self.object_relations for first-hop scoped traversal
+        self.object_relations = list(self.all_object_relations)
+
+>>>>>>> origin/version-3.2
         # Final template data
         self.template_data: dict[str, Any] = {
             "root": self._root_accessor(),
@@ -323,6 +355,7 @@ class DefaultTemplateData:
             # Run report query
             query_str = report["report_query"]["data"]
 
+<<<<<<< HEAD
             processed_query_string = re.sub(
                 DATETIME_PATTERN,
                 self.replace_datetime,
@@ -332,6 +365,13 @@ class DefaultTemplateData:
             safe_globals = {"datetime": datetime}
             # pylint: disable=W0123
             report_query = eval(processed_query_string, safe_globals)
+=======
+            # The stored query is the repr of a Python dict; normalise the datetime calls and eval in
+            # a locked-down namespace (only 'datetime', no builtins) so it cannot reach arbitrary code
+            safe_globals = {"datetime": datetime, "__builtins__": {}}
+            # pylint: disable=W0123
+            report_query = eval(query_str.replace("datetime.datetime", "datetime"), safe_globals)
+>>>>>>> origin/version-3.2
 
             objects = []
 
@@ -505,6 +545,7 @@ class DefaultTemplateData:
         return "".join(tpl_html)
 
 
+<<<<<<< HEAD
     def replace_datetime(self, match: re.Match) -> str:
         """
         Replaces a regex match containing datetime arguments with a Python datetime object
@@ -527,6 +568,8 @@ class DefaultTemplateData:
         return repr(eval(f"datetime({args})"))
 
 
+=======
+>>>>>>> origin/version-3.2
     def _expand_mds_rows(self, base_fields: dict, mds_sections: list[dict]) -> list[dict]:
         """
         Expands multi data sections into cartesian product rows.

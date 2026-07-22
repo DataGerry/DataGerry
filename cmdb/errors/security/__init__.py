@@ -31,6 +31,7 @@ from .security_errors import (
     DisallowedActionError,
     WrongPasswordError,
     NoValidSubscriptionError,
+    LicenseDecryptionError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -49,4 +50,5 @@ __all__: list[str] = [
     'DisallowedActionError',
     'WrongPasswordError',
     'NoValidSubscriptionError',
+    'LicenseDecryptionError',
 ]

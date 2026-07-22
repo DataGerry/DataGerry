@@ -3,45 +3,53 @@
     <label for="group-form-name" class="col-sm-2 col-form-label">Name: <span class="required">*</span></label>
     <div class="col-sm-10">
       <input name-guideline type="text" formControlName="name" class="form-control" placeholder="Name"
-             id="group-form-name" [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
+        id="group-form-name" [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                  'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}" lowercase>
-      <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)"
-           class="invalid-feedback">
-        <div class="text-end" *ngIf="nameControl.errors.required">
+      @if (nameControl.invalid && (nameControl.dirty || nameControl.touched)) {
+      <div class="invalid-feedback">
+        @if (nameControl.errors.required) {
+        <div class="text-end">
           Name is required
         </div>
-        <div class="text-end" *ngIf="nameControl.errors.groupNameExists">
+        }
+        @if (nameControl.errors.groupNameExists) {
+        <div class="text-end">
           Group with this name already exists
         </div>
+        }
         <div class="clearfix"></div>
       </div>
+      }
     </div>
   </div>
   <div class=" row mb-3">
     <label for="group-form-label" class="col-sm-2 col-form-label">Label: <span class="required">*</span></label>
     <div class="col-sm-10">
       <input type="text" formControlName="label" class="form-control" placeholder="Label" id="group-form-label"
-             [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
+        [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
                  'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}">
-      <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)"
-           class="invalid-feedback">
-        <div class="text-end" *ngIf="labelControl.errors.required">
+      @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
+      <div class="invalid-feedback">
+        @if (labelControl.errors.required) {
+        <div class="text-end">
           Label is required
         </div>
+        }
         <div class="clearfix"></div>
       </div>
+      }
     </div>
   </div>
   <div class=" row mb-3">
     <label class="col-sm-2 col-form-label">Rights: <span class="required">*</span></label>
     <div class="col-sm-10">
       <div class="d-flex">
-        <ng-select class="form-control d-inline-flex" [items]="rights" [multiple]="true" bindLabel="name" bindValue="name"
-                   [groupBy]="groupByFn" [selectableGroup]="true" [selectableGroupAsModel]="false"
-                   [closeOnSelect]="false" [ngClass]="{ 'is-valid': rightsControl.valid
+        <ng-select class="form-control d-inline-flex" [items]="rights" [multiple]="true" bindLabel="name"
+          bindValue="name" [groupBy]="groupByFn" [selectableGroup]="true" [selectableGroupAsModel]="false"
+          [closeOnSelect]="false" [ngClass]="{ 'is-valid': rightsControl.valid
            && (rightsControl.dirty || rightsControl.touched),
            'is-invalid': rightsControl.invalid && (rightsControl.dirty || rightsControl.touched)}"
-                   formControlName="rights">
+          formControlName="rights">
         </ng-select>
         <cmdb-group-form-helper [form]="form" [rights]="rights"></cmdb-group-form-helper>
       </div>
@@ -49,7 +57,8 @@
   </div>
   <hr />
   <div class="d-flex flex-row-reverse">
-    <button type="button" class="btn btn-outline-success ms-2" [disabled]="form.invalid" (click)="onSubmit()">Save</button>
+    <button type="button" class="btn btn-outline-success ms-2" [disabled]="form.invalid"
+      (click)="onSubmit()">Save</button>
     <button [routerLink]="['/', 'management', 'groups']" type="button" class="btn btn-outline-danger">Cancel</button>
   </div>
 </form>

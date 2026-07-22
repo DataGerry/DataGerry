@@ -21,6 +21,8 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.webhook_model.cmdb_webhook_schema import get_cmdb_webhook_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -44,27 +46,7 @@ class CmdbWebhook(CmdbDAO):
         'active',
     ]
 
-    SCHEMA: dict[str, Any] = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-        },
-        'url': {
-            'type': 'string',
-            'required': True,
-        },
-        'event_types': {
-            'type': 'list',
-            'required': True,
-        },
-        'active': {
-            'type': 'boolean',
-            'default': True
-        },
-    }
+    SCHEMA: dict[str, Any] = get_cmdb_webhook_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnInit, Output, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnInit, Output, TemplateRef, ViewChild } from '@angular/core';
 import { debounceTime, distinctUntilChanged, finalize, switchMap } from 'rxjs/operators';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -23,6 +23,12 @@ import { Subject } from 'rxjs';
     standalone: false
 })
 export class ImpactCategoriesComponent implements OnInit {
+  private readonly impactCategoryService = inject(ImpactCategoryService);
+  private readonly impactService = inject(ImpactService);
+  private readonly toast = inject(ToastService);
+  private readonly modalService = inject(NgbModal);
+  private readonly loaderService = inject(LoaderService);
+
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
   @ViewChild('impactDescriptionsTemplate', { static: true }) impactDescriptionsTemplate: TemplateRef<any>;
   @Input() config: IsmsConfig;
@@ -38,16 +44,6 @@ export class ImpactCategoriesComponent implements OnInit {
   private impactMap = new Map<number, string>();
   public filter: string;
   public isLoading$ = this.loaderService.isLoading$; 
-
-
-  constructor(
-    private impactCategoryService: ImpactCategoryService,
-    private impactService: ImpactService,
-    private toast: ToastService,
-    private modalService: NgbModal,
-    private loaderService: LoaderService
-  ) { }
-
 
   ngOnInit(): void {
     this.columns = [

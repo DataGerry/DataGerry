@@ -27,6 +27,7 @@ import { UserService } from '../../management/services/user.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 import { CmdbType } from '../models/cmdb-type';
+import { LocationFieldUsageResponse } from '../models/location-field-usage';
 import {
   APIDeleteSingleResponse,
   APIGetMultiResponse,
@@ -206,6 +207,25 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
 
 
     /**
+<<<<<<< HEAD
+=======
+     * Checks whether the location field of a given type is currently in use by any objects.
+     *
+     * @param publicID PublicID of the type
+     * @returns Observable resolving to { in_use, count, object_public_ids }
+     */
+    public getLocationFieldUsage(publicID: number): Observable<LocationFieldUsageResponse> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<LocationFieldUsageResponse>(`${this.servicePrefix}/location_field_usage/${publicID}`, options).pipe(
+            map((apiResponse: HttpResponse<LocationFieldUsageResponse>) => apiResponse.body)
+        );
+    }
+
+
+    /**
+>>>>>>> origin/version-3.2
      * Get a specific type by the id
      * @param publicID PublicID of the type
      */

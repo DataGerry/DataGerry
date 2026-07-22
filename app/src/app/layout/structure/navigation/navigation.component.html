@@ -9,9 +9,19 @@
     </ul>
 
     <div class="navbar-header">
-      <a class="navbar-brand" routerLink="/" style="padding-left: 1.5rem">
-        <img src="/assets/img/datagerry_logo.svg" class="brand-logo" alt="DATAGERRY" />
-      </a>
+      <div class="brand-lockup">
+        <a class="navbar-brand" routerLink="/">
+          <img src="/assets/img/datagerry_logo.svg" class="brand-logo" alt="DATAGERRY" />
+        </a>
+        @if (!isCloudMode) {
+        @if (edition$ | async; as edition) {
+        <span class="brand-edition">
+          <span [class]="edition.cssClass"
+            [attr.aria-label]="'Current edition: ' + edition.label">{{ edition.label }} Edition</span>
+        </span>
+        }
+        }
+      </div>
     </div>
 
     <ul class="nav navbar-nav flex-row">
@@ -24,20 +34,29 @@
     </ul>
 
     <div id="navbar-content" class="collapse navbar-collapse container-content clearfix">
-      <div class="row w-100 align-items-center">
-        <div [ngClass]="{
-            'col-7 col-sm-5 list-inline justify-content-center ': isCloudMode,
-            'col-12 col-sm-7 list-inline justify-content-center': !isCloudMode,
-          }">
+      <div class="row w-100 align-items-center flex-nowrap m-0">
+
+        <div class="ps-0 pe-3" style="flex: 0 1 450px; min-width: 170px;">
           <cmdb-search-bar></cmdb-search-bar>
         </div>
+<<<<<<< HEAD
         <div *ngIf="isCloudMode" class="col-5 col-md-2 d-flex align-items-center justify-content-center">
           <div class="progress-container w-100 px-2">
+=======
+
+        @if (isCloudMode) {
+        <div class="col-auto d-flex align-items-center justify-content-center px-3">
+          <div class="progress-container w-100">
+>>>>>>> origin/version-3.2
             <div class="progress-label">
               <span class="label-text">Objects {{ usedObjects }} / {{ totalObjects }}</span>
               <span class="label-percent" [style.color]="getTextColor()">{{ percentage | number: '1.1-1' }}%</span>
             </div>
+<<<<<<< HEAD
         
+=======
+
+>>>>>>> origin/version-3.2
             <div class="progress track-modern">
               <div class="progress-bar fill-modern" role="progressbar" [style.width.%]="percentage"
                 [style.backgroundColor]="getProgressBarColor()" [attr.aria-valuenow]="usedObjects" aria-valuemin="0"
@@ -47,10 +66,11 @@
         
           </div>
         </div>
+        }
 
-        <div class="col-12 col-sm-5">
+        <div class="col-auto ms-auto pe-0">
           <ul
-            class="nav navbar-nav navbar-right-menu list-inline text-center d-flex justify-content-end align-items-center">
+            class="nav navbar-nav navbar-right-menu list-inline text-center d-flex flex-nowrap justify-content-end align-items-center mb-0">
             <!-- nav Framework -->
             <div class="nav-1">
               <li *permissionLink="[
@@ -85,19 +105,28 @@
                     <i class="fas fa-exchange-alt"></i> Relations
                   </a>
                   <a class="dropdown-item" *permissionLink="'base.framework.objectGroup.view'"
-                    [routerLink]="['/framework/persons']">
+                    [routerLink]="['/framework/persons']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
                     <i class="fas fa-user-friends"></i> Persons
+                    @if (isLocked(LicenseFeature.Isms)) {
+                    <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                    }
                   </a>
 
                   <a class="dropdown-item" *permissionLink="'base.framework.objectGroup.view'"
-                    [routerLink]="['/framework/person-groups']">
+                    [routerLink]="['/framework/person-groups']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
                     <i class="fas fa-users"></i> Person Groups
+                    @if (isLocked(LicenseFeature.Isms)) {
+                    <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                    }
                   </a>
 
                   <ng-container>
                     <a class="dropdown-item" *permissionLink="'base.framework.objectGroup.view'"
-                      [routerLink]="['/framework/object_groups']">
+                      [routerLink]="['/framework/object_groups']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
                       <i class="fas fa-layer-group"></i> Object Groups
+                      @if (isLocked(LicenseFeature.Isms)) {
+                      <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                      }
                     </a>
                   </ng-container>
                 </div>
@@ -119,8 +148,15 @@
                       <div class="col">
                         <a class="dropdown-icon-item" *permissionLink="['base.docapi.template.view']"
                           [routerLink]="['/docapi']">
+                          @if (isLocked(LicenseFeature.DocumentGenerator)) {
+                          <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                          }
                           <fa-icon icon="file-pdf"></fa-icon>
+<<<<<<< HEAD
                           <span>Document<br/>Generator</span>
+=======
+                          <span>Document<br />Generator</span>
+>>>>>>> origin/version-3.2
                         </a>
                       </div>
                       <div class="col">
@@ -147,34 +183,43 @@
 
                       <div class="col">
                         <a [routerLink]="['/webhooks']" class="dropdown-icon-item">
-                          <fa-icon class="fas fa-link"></fa-icon>
+                          <fa-icon icon="link"></fa-icon>
                           <span>Webhooks</span>
                         </a>
                       </div>
                       <div class="col">
-                        <a class="dropdown-icon-item" *permissionLink="['base.framework.ciExplorer.view']" [routerLink]="['/ci-explorer']">
+                        <a class="dropdown-icon-item" *permissionLink="['base.framework.ciExplorer.view']"
+                          [routerLink]="['/ci-explorer']">
                           <i class="fas fa-project-diagram"></i>
                           <span>CI Explorer</span>
                         </a>
                       </div>
                       <div class="col" *permissionLink="'base.openCelium.connection.view'">
                         <a [routerLink]="['/automations']" class="dropdown-icon-item">
-                          <img src="/assets/img/opencelium.jpg" class="automation-icon" alt="Automations" />
+                          @if (isLocked(LicenseFeature.Automations)) {
+                          <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                          }
+                          <img src="/assets/img/opencelium.png" class="automation-icon" alt="Automations" />
                           <span>Automations</span>
                         </a>
                       </div>
                       <div class="col">
                         <a [routerLink]="['/isms']" class="dropdown-icon-item">
-                          <fa-icon class="fas fa-shield-alt"></fa-icon>
+                          @if (isLocked(LicenseFeature.Isms)) {
+                          <span class="dg-premium-badge" title="Premium feature">Pro</span>
+                          }
+                          <fa-icon icon="shield-alt"></fa-icon>
                           <span>ISMS</span>
                         </a>
                       </div>
-                      <div class="col" *ngIf="featurePreviewMode">
+                      @if (featurePreviewMode) {
+                      <div class="col">
                         <a class="dropdown-icon-item" (click)="goToAiPromptPage()">
                           <i class="fas fa-robot"></i>
                           <span>AI Assistant</span>
                         </a>
                       </div>
+                      }
                       <div class="col">
                         <a class="dropdown-icon-item" data-bs-toggle="modal" data-bs-target="#feedback-modal"
                           (click)="feedback()">
@@ -194,6 +239,7 @@
             </div>
 
             <!-- nav System -->
+<<<<<<< HEAD
       
             <div class="nav-notification">
               <li class="nav-item notification-nav-item">
@@ -207,6 +253,20 @@
                   <span class="notification-badge" *ngIf="(notificationCount$ | async) as count">
                     {{ formatNotificationCount(count) }}
                   </span>
+=======
+
+            <div class="nav-notification">
+              <li class="nav-item notification-nav-item">
+                <button type="button" class="nav-link notification-toggle-btn hover-trigger"
+                  aria-label="Open notifications" [attr.aria-expanded]="isNotificationDrawerOpen"
+                  (click)="toggleNotificationDrawer()">
+                  <i class="fas fa-bell hover-trigger"></i>
+                  @if ((notificationCount$ | async); as count) {
+                  <span class="notification-badge">
+                    {{ formatNotificationCount(count) }}
+                  </span>
+                  }
+>>>>>>> origin/version-3.2
                 </button>
               </li>
               <p class="hover-trigger">Notifications</p>
@@ -235,7 +295,13 @@
                   </a>
 
                   <!-- Other System Items: Shown only when !isCloudMode -->
-                  <div *ngIf="!isCloudMode">
+                  @if (!isCloudMode) {
+                  <div>
+                    <!-- License Management: on-premise only -->
+                    <a class="dropdown-item" *permissionLink="'base.license.view'"
+                      [routerLink]="['/settings/license']">
+                      <i class="fas fa-certificate"></i> License Management
+                    </a>
                     <a class="dropdown-item" *permissionLink="'base.system.view'" [routerLink]="['/settings/system']">
                       <i class="fas fa-info-circle"></i> System Information
                     </a>
@@ -247,6 +313,7 @@
                       <i class="fas fa-database"></i> Database Properties
                     </a>
                   </div>
+                  }
 
                   <!-- Always-Visible User Management Header -->
                   <div class="dropdown-header" *permissionLink="[
@@ -307,25 +374,35 @@
                 </span>
               </a>
               <div class="dropdown-menu dropdown-menu-end" aria-labelledby="topbar-userdrop">
-                <div class="dropdown-header" *ngIf="!isCloudMode">
+                @if (!isCloudMode) {
+                <div class="dropdown-header">
                   My Account
                 </div>
-                <a routerLink="/management/users/view/" class="dropdown-item pt-1" *ngIf="!isCloudMode">
-                  <i class="fas fa-user-edit" *ngIf="!isCloudMode"></i> Settings
+                }
+                @if (!isCloudMode) {
+                <a routerLink="/management/users/view/" class="dropdown-item pt-1">
+                  @if (!isCloudMode) {
+                  <i class="fas fa-user-edit"></i>
+                  } Settings
                 </a>
+                }
                 <div class="dropdown-header">Services</div>
                 <a class="dropdown-item pt-1" [routerLink]="['/info/about']">
                   <i class="fas fa-cube"></i> About DataGerry
                 </a>
-                <a class="dropdown-item" href="https://service.datagerry.com" target="_blank" *ngIf="isCloudMode">
+                @if (isCloudMode) {
+                <a class="dropdown-item" href="https://service.datagerry.com" target="_blank">
                   <i class="fas fa-solid fa-circle-info"></i> DataGerry Service Portal
                 </a>
+                }
                 <a class="dropdown-item" href="https://docs.datagerry.com" target="_blank">
                   <i class="fas fa-book"></i> Documentation
                 </a>
-                <a class="dropdown-item" [routerLink]="['/info/license']" *ngIf="!isCloudMode">
+                @if (!isCloudMode) {
+                <a class="dropdown-item" [routerLink]="['/info/license']">
                   <i class="fas fa-lock-open"></i> License
                 </a>
+                }
                 <div class="dropdown-header">Goodbye</div>
                 <a class="dropdown-item pb-1" (click)="logout()">
                   <i class="fas fa-sign-out-alt"></i> Logout
@@ -339,7 +416,12 @@
   </div>
 </nav>
 
+<<<<<<< HEAD
 <cmdb-notification-drawer
   [open]="isNotificationDrawerOpen"
   (close)="closeNotificationDrawer()">
 </cmdb-notification-drawer>
+=======
+<cmdb-notification-drawer [open]="isNotificationDrawerOpen" (close)="closeNotificationDrawer()">
+</cmdb-notification-drawer>
+>>>>>>> origin/version-3.2

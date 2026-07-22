@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
@@ -33,7 +33,7 @@ export class CoreDeleteConfirmationModalComponent {
   @Input() warningMessage: string = '';
   @Input() warningIconClass: string = 'fas fa-exclamation-circle';
   
-  constructor(public activeModal: NgbActiveModal) { }
+  public readonly activeModal = inject(NgbActiveModal);
 
   confirmDelete(): void {
     this.activeModal.close('confirmed');

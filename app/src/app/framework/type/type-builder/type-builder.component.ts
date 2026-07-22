@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { ChangeDetectorRef, Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, ChangeDetectorRef, Input, OnDestroy, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { finalize, Observable, ReplaySubject, Subscription, takeUntil } from 'rxjs';
@@ -34,7 +34,6 @@ import { User } from '../../../management/models/user';
 import { CollectionParameters } from '../../../services/models/api-parameter';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
-import { SectionIdentifierService } from '../services/SectionIdentifierService.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -45,6 +44,15 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     standalone: false
 })
 export class TypeBuilderComponent implements OnInit, OnDestroy {
+    private readonly router = inject(Router);
+    private readonly typeService = inject(TypeService);
+    private readonly toast = inject(ToastService);
+    private readonly userService = inject(UserService);
+    private readonly groupService = inject(GroupService);
+    private readonly sidebarService = inject(SidebarService);
+    private readonly validationService = inject(ValidationService);
+    private readonly changeDetector = inject(ChangeDetectorRef);
+    private readonly loaderService = inject(LoaderService);
 
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
     private subscriptions = new Subscription();
@@ -95,23 +103,6 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
-
-    public constructor(
-        private router: Router,
-        private typeService: TypeService,
-        private toast: ToastService,
-        private userService: UserService,
-        private groupService: GroupService,
-        private sidebarService: SidebarService,
-        private validationService: ValidationService,
-        private changeDetector: ChangeDetectorRef,
-         private loaderService: LoaderService,
-    ) {
-
-    }
-
-
-
 
     public ngOnInit(): void {
 

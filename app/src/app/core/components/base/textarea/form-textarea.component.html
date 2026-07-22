@@ -1,8 +1,12 @@
 <div class="mb-3">
-    <label class="mb-1 mt-3" *ngIf="label">
+    @if (label) {
+<label class="mb-1 mt-3">
       {{ label }}
-      <span *ngIf="required" class="text-danger">*</span>
+      @if (required) {
+<span class="text-danger">*</span>
+}
     </label>
+}
     <textarea
       class="form-control"
       [disabled]="disabled"
@@ -13,8 +17,10 @@
     >{{ value }}</textarea>
   
     <!-- dedicated area for errors -->
-    <div class="invalid-feedback d-block" *ngIf="errorMessage">
+    @if (errorMessage) {
+<div class="invalid-feedback d-block">
       {{ errorMessage }}
     </div>
+}
   </div>
   

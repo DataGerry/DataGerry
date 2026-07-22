@@ -1,14 +1,13 @@
-<button *ngIf="loading; else statusButton" class="btn btn-secondary btn-sm" type="button">
-    <span class="spinner-border spinner-border-sm"></span> Checking...
-</button>
-
-<ng-template #statusButton>
-    <button *ngIf="clean" [disabled]="clean" class="btn btn-success btn-sm" type="button">
-        <i class="fas fa-check-circle me-1"></i> Clean
+@if (loading) {
+    <button class="status-chip status-chip--loading" type="button" aria-busy="true">
+        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Checking...
     </button>
-
-    <button *ngIf="!clean" (click)="openModal()" class="btn btn-danger btn-sm" type="button">
-        <i class="fas fa-exclamation-circle me-1"></i> Unclean
+} @else if (clean) {
+    <button class="status-chip status-chip--clean" type="button" disabled>
+        <i class="fas fa-check-circle status-chip__icon" aria-hidden="true"></i> Clean
     </button>
-</ng-template>
-
+} @else {
+    <button class="status-chip status-chip--unclean" type="button" (click)="openModal()">
+        <i class="fas fa-exclamation-circle status-chip__icon" aria-hidden="true"></i> Unclean
+    </button>
+}

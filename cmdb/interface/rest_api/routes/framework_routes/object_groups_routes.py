@@ -62,7 +62,7 @@ object_group_blueprint = APIBlueprint('object_group', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.add')
 @object_group_blueprint.validate(CmdbObjectGroup.SCHEMA)
-def insert_cmdb_object_group(data: dict, request_user: CmdbUser) -> Response:
+def insert_cmdb_object_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbObjectGroup into the database
 
@@ -81,7 +81,7 @@ def insert_cmdb_object_group(data: dict, request_user: CmdbUser) -> Response:
 
         result_id: int = object_groups_manager.insert_item(data)
 
-        created_object_group: dict = object_groups_manager.get_item(result_id, as_dict=True)
+        created_object_group: dict[str, Any] = object_groups_manager.get_item(result_id, as_dict=True)
 
         if not created_object_group:
             abort(404, "Could not retrieve the created ObjectGroup from the database!")
@@ -192,7 +192,7 @@ def get_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.edit')
 @object_group_blueprint.validate(CmdbObjectGroup.SCHEMA)
-def update_cmdb_object_group(public_id: int, data: dict, request_user: CmdbUser) -> Response:
+def update_cmdb_object_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbObjectGroup
 
@@ -214,6 +214,9 @@ def update_cmdb_object_group(public_id: int, data: dict, request_user: CmdbUser)
 
         if not to_update_object_group:
             abort(404, f"The ObjectGroup with ID:{public_id} was not found!")
+
+        # Pin the public_id from the URL so the body cannot overwrite or drop it
+        data['public_id'] = public_id
 
         object_groups_manager.update_item(public_id, CmdbObjectGroup.from_data(data))
 

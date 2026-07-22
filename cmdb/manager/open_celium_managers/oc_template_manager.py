@@ -50,8 +50,7 @@ class OcTemplateManager(OcBaseManager):
             template_data (dict[str, Any]): The data of the OcTemplate
 
         Raises:
-            OcTemplateGetError: When the template_id was not provided
-            OcTemplateGetError: When retrieving the OcTemplate failed
+            OcTemplateCreateError: When creating the OcTemplate failed
 
         Returns:
             dict[str, Any]: The data of the created OcTemplate

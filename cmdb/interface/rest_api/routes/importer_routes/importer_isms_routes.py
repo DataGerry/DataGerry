@@ -20,6 +20,7 @@ import io
 from csv import DictReader, Sniffer, Error
 from logging import Logger, getLogger
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 from werkzeug.datastructures import FileStorage
 
@@ -55,7 +56,7 @@ REQUEST_FILE = "file"
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_importer_blueprint.protect(auth=True, right='base.isms.import.add')
-def import_isms_objects(target: str, request_user: CmdbUser):
+def import_isms_objects(target: str, request_user: CmdbUser) -> Response:
     """
     Import IsmsThreats, IsmsMeasureControls, IsmsVulnerabilities and IsmsRisks
 
@@ -199,15 +200,15 @@ def handle_vulnerabilities_import(
     Returns:
         dict: Results of IsmsVulnerabilities imports
     """
-    created_vulerabilities = 0
-    existing_vulerabilities = 0
-    invalid_vulerabilities = []
+    created_vulnerabilities = 0
+    existing_vulnerabilities = 0
+    invalid_vulnerabilities = []
 
     expected_vulnerability_headers = {"name", "source", "identifier", "description"}
 
     reader = read_csv_file(csv_file, expected_vulnerability_headers)
 
-    vulerabilities = []
+    vulnerabilities = []
     for row in reader:
         source = handle_extendable_option(
             row.get("source"),
@@ -224,29 +225,29 @@ def handle_vulnerabilities_import(
 
         # Basic validation for 'name' (required field)
         if not vulnerability["name"]:
-            invalid_vulerabilities.append(vulnerability)
+            invalid_vulnerabilities.append(vulnerability)
             continue  # or raise an error
 
-        vulerabilities.append(vulnerability)
+        vulnerabilities.append(vulnerability)
 
     vulnerability_manager: VulnerabilityManager = ManagerProvider.get_manager(ManagerType.VULNERABILITY, request_user)
 
-    for a_vulnerability in vulerabilities:
+    for a_vulnerability in vulnerabilities:
         possible_vulnerability = vulnerability_manager.get_one_by(a_vulnerability)
 
         # An IsmsVulnerability already exists with the given values
         if possible_vulnerability:
-            existing_vulerabilities += 1
+            existing_vulnerabilities += 1
             continue
 
         vulnerability_manager.insert_item(a_vulnerability)
-        created_vulerabilities += 1
+        created_vulnerabilities += 1
 
     return {
-        "imported_objects": len(vulerabilities),
-        "created_objects": created_vulerabilities,
-        "existing_objects": existing_vulerabilities,
-        "invalid_objects": invalid_vulerabilities,
+        "imported_objects": len(vulnerabilities),
+        "created_objects": created_vulnerabilities,
+        "existing_objects": existing_vulnerabilities,
+        "invalid_objects": invalid_vulnerabilities,
     }
 
 
@@ -261,6 +262,8 @@ def handle_risks_import(csv_file: FileStorage, request_user: CmdbUser) -> dict:
     Returns:
         dict: Results of IsmsRisks imports
     """
+    # Per-row risk validation spans several fields (type, threats, vulnerabilities, goals, counters)
+    # pylint: disable=too-many-locals
     protection_goal_manager: ProtectionGoalManager = ManagerProvider.get_manager(ManagerType.PROTECTION_GOAL,
                                                                                  request_user)
 
@@ -373,6 +376,8 @@ def handle_control_measures_import(
     Returns:
         dict: Results of IsmsControlMeasures imports
     """
+    # Per-row control-measure validation spans several fields (type, source, state, flags, counters)
+    # pylint: disable=too-many-locals
     created_control_measures = 0
     existing_control_measures = 0
     invalid_control_measures = []
@@ -492,7 +497,7 @@ def read_csv_file(csv_file: FileStorage, expected_headers: set) -> DictReader:
     missing_headers = expected_headers - file_headers
 
     if missing_headers:
-        abort(400, f"The following headers for Threats are missing in the CSV: {', '.join(missing_headers)}")
+        abort(400, f"The following required headers are missing in the CSV: {', '.join(missing_headers)}")
 
     return reader
 
@@ -502,17 +507,18 @@ def handle_extendable_option(
         extendable_options_manager: ExtendableOptionsManager,
         option_type: OptionType) -> int | None:
     """
-    Retrieves the public_id of CmdbExtendableOptions based on the value.
+    Retrieves the public_id of a CmdbExtendableOption matching the value and option type.
 
-    If the CmdbExtendableOption does not exist, it will be created
+    If no such CmdbExtendableOption exists, a new (non-predefined) one is created and its public_id
+    returned.
 
     Args:
-        option (str): _description_
-        extendable_options_manager (ExtendableOptionsManager): _description_
-        option_type (OptionType): _description_
+        option (str): The option value read from the CSV (e.g. a source or implementation-state label)
+        extendable_options_manager (ExtendableOptionsManager): Manager for CmdbExtendableOptions
+        option_type (OptionType): The OptionType the value belongs to
 
     Returns:
-        int | None: The public_id of the corresponding CmdbExtendableOption, if an option was provided
+        int | None: The public_id of the matching / created CmdbExtendableOption, or None if no value
     """
     if not option:
         return None
@@ -545,13 +551,13 @@ def handle_protection_goals(protection_goals: list[str], protection_goal_manager
     Returns:
         list: A list with the corresponding public_ids of IsmsProtectionGoals
     """
-    proctection_goal_ids = []
+    protection_goal_ids = []
 
     for protection_goal_name in protection_goals:
         possible_protection_goal = protection_goal_manager.get_one_by({'name': protection_goal_name})
 
         if possible_protection_goal:
-            proctection_goal_ids.append(possible_protection_goal.get('public_id'))
+            protection_goal_ids.append(possible_protection_goal.get('public_id'))
         else:
             new_goal_dict = {
                 'name': protection_goal_name,
@@ -559,9 +565,9 @@ def handle_protection_goals(protection_goals: list[str], protection_goal_manager
             }
 
             new_goal_id = protection_goal_manager.insert_item(new_goal_dict)
-            proctection_goal_ids.append(new_goal_id)
+            protection_goal_ids.append(new_goal_id)
 
-    return proctection_goal_ids
+    return protection_goal_ids
 
 
 def handle_threats(threats: list[str], threat_manager: ThreatManager) -> list:
@@ -652,7 +658,7 @@ def parse_list_of_strings(field: str, row: dict) -> list[str]:
     return items
 
 
-def parse_bool(value: str = None) -> bool:
+def parse_bool(value: str | None = None) -> bool:
     """
     Parses a flexible boolean value from a string
 

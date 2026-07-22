@@ -3,18 +3,21 @@
     <h4 class="modal-title">
       <fa-icon icon="{{modalIcon}}"></fa-icon> <span class="mx-3">{{title}}</span>
     </h4>
-    <button type="button" class=" btn-close btn-close-white" aria-hidden="true" (click)="activeModal.close(false)"></button>
+    <button type="button" class=" btn-close btn-close-white" aria-hidden="true"
+      (click)="activeModal.close(false)"></button>
   </div>
   <div class="modal-body">
     <blockquote class="blockquote text-center">
       <p class="mb-0">{{modalMessage}}</p>
-      <footer *ngIf="subModalMessage" class="blockquote-footer">
+      @if (subModalMessage) {
+      <footer class="blockquote-footer">
         {{subModalMessage}}
       </footer>
+      }
     </blockquote>
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary me-1" (click)="activeModal.close(false)">{{buttonDeny}}</button>
-    <button type="button" class="btn btn-primary text-white"  (click)="activeModal.close(true)">{{buttonAccept}}</button>
+    <button type="button" class="btn btn-primary text-white" (click)="activeModal.close(true)">{{buttonAccept}}</button>
   </div>
 </div>

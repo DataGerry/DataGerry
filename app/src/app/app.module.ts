@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { BrowserModule } from '@angular/platform-browser';
-import { NgModule } from '@angular/core';
+import { NgModule, inject, provideAppInitializer } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { HTTP_INTERCEPTORS, provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
@@ -48,6 +48,7 @@ import { DateFormatterPipe } from './layout/pipes/date-formatter.pipe';
 import { AppComponent } from './app.component';
 import { DashboardComponent } from './components/dashboard/dashboard.component';
 import { CoreModule } from './core/core.module';
+import { RuntimeConfigService } from './modules/connect/services/runtime-config.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({ declarations: [
@@ -83,6 +84,7 @@ import { CoreModule } from './core/core.module';
         { provide: HTTP_INTERCEPTORS, useClass: BasicAuthInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: HttpErrorInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: APICachingInterceptor, multi: true },
-        provideHttpClient(withInterceptorsFromDi())
+        provideHttpClient(withInterceptorsFromDi()),
+        provideAppInitializer(() => inject(RuntimeConfigService).load())
     ] })
 export class AppModule {}

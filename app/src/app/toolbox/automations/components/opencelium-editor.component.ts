@@ -2,6 +2,7 @@ import * as ReactDOM from 'react-dom';
 import React from 'react';
 import {
   Component,
+  inject,
   ElementRef,
   Input,
   Output,
@@ -48,8 +49,8 @@ export class OpenCeliumEditorComponent
   );
 
   
-  constructor(private host: ElementRef, private connectionService: ConnectionService) {
-  }
+  private readonly host = inject(ElementRef);
+  private readonly connectionService = inject(ConnectionService);
 
 
   async ngAfterViewInit() {

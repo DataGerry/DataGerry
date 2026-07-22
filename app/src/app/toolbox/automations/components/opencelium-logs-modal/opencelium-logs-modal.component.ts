@@ -1,4 +1,4 @@
-import { AfterViewInit, ChangeDetectorRef, Component, Input, OnDestroy, OnInit, ViewEncapsulation } from '@angular/core';
+import { Component, inject, AfterViewInit, ChangeDetectorRef, Input, OnDestroy, OnInit, ViewEncapsulation } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
@@ -10,6 +10,9 @@ import { LoaderService } from 'src/app/core/services/loader.service';
   encapsulation: ViewEncapsulation.None
 })
 export class OpenCeliumLogsModalComponent implements AfterViewInit, OnDestroy {
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly loaderService = inject(LoaderService);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   public isLoading$ = this.loaderService.isLoading$;
 
@@ -18,14 +21,6 @@ export class OpenCeliumLogsModalComponent implements AfterViewInit, OnDestroy {
   @Input() executionId: number | null = null;
   @Input() isFullscreen = false;
   @Input() onToggleFullscreen?: (next: boolean) => void;
-
-  constructor(
-    public activeModal: NgbActiveModal,
-    private loaderService: LoaderService,
-    private cdr: ChangeDetectorRef
-  ) { }
-
-
 
   ngAfterViewInit(): void {
     Promise.resolve().then(() => {

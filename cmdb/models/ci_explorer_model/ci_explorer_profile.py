@@ -20,6 +20,8 @@ from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
 
+from cmdb.class_schema.ci_explorer_model.cmdb_ci_explorer_profile_schema import get_cmdb_ci_explorer_profile_schema
+
 from cmdb.errors.models.cmdb_ci_explorer_profile import (
     CmdbCiExplorerProfileInitError,
     CmdbCiExplorerProfileInitFromDataError,
@@ -40,38 +42,18 @@ class CmdbCiExplorerProfile(CmdbDAO):
     """
     COLLECTION = "framework.ciExplorerProfile"
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'types_filter': {
-            'type': 'list',
-            'required': False,
-            'nullable': True,
-            'empty': True,
-        },
-        'relations_filter': {
-            'type': 'list',
-            'required': False,
-            'nullable': True,
-            'empty': True,
-        },
-        'with_locations': {
-            'type': 'boolean',
-            'required': True,
-            'empty': False,
-            'default': True,
-        },
-    }
+    SCHEMA: dict = get_cmdb_ci_explorer_profile_schema()
 
 
-    def __init__(self, public_id: int, name: str, types_filter: list[int], relations_filter: list[int]):
+    def __init__(
+        self,
+        public_id: int,
+        name: str,
+        types_filter: list[int],
+        relations_filter: list[int],
+        with_locations: bool = True,
+        with_ipam_relations: bool = False
+    ) -> None:
         """
         Initialises a CmdbCiExplorerProfile
 
@@ -80,6 +62,10 @@ class CmdbCiExplorerProfile(CmdbDAO):
             name (str): The name of the CmdbCiExplorerProfile
             types_filter (list[int]): List of CmdbType public_ids which should be filtered
             relations_filter (list[int]): List of CmdbRelation public_ids which should be filtered
+            with_locations (bool): If True the saved filter includes the dg_location hierarchy.
+                                   Defaults to True
+            with_ipam_relations (bool): If True the saved filter includes IPAM-hierarchy neighbours.
+                                        Defaults to False
 
         Raises:
             CmdbCiExplorerProfileInitError: When the CmdbCiExplorerProfile could not be initialised
@@ -88,6 +74,8 @@ class CmdbCiExplorerProfile(CmdbDAO):
             self.name = name
             self.types_filter = types_filter or []
             self.relations_filter = relations_filter or []
+            self.with_locations = with_locations
+            self.with_ipam_relations = with_ipam_relations
 
             super().__init__(public_id=public_id)
         except Exception as err:
@@ -115,6 +103,8 @@ class CmdbCiExplorerProfile(CmdbDAO):
                 name = data.get('name'),
                 types_filter = data.get('types_filter', []),
                 relations_filter = data.get('relations_filter', []),
+                with_locations = data.get('with_locations', True),
+                with_ipam_relations = data.get('with_ipam_relations', False),
             )
         except Exception as err:
             raise CmdbCiExplorerProfileInitFromDataError(err) from err
@@ -140,6 +130,8 @@ class CmdbCiExplorerProfile(CmdbDAO):
                 'name': instance.name,
                 'types_filter': instance.types_filter,
                 'relations_filter': instance.relations_filter,
+                'with_locations': instance.with_locations,
+                'with_ipam_relations': instance.with_ipam_relations,
             }
         except Exception as err:
             raise CmdbCiExplorerProfileToJsonError(err) from err

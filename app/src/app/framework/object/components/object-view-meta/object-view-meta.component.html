@@ -1,13 +1,16 @@
 <table class="table table-sm table-hover">
   <tbody>
-  <tr *ngFor="let metaData of meteObject?.headerLine">
-    <ng-container *ngFor="let meta of metaData | keyvalue">
+    @for (metaData of meteObject?.headerLine; track metaData) {
+    <tr>
+      @for (meta of metaData | keyvalue; track meta) {
       <th scope="row">{{meta?.key}}</th>
-      <td *ngIf="!isObject(meta?.value); else dateTmpl">{{meta?.value}}</td>
-      <ng-template #dateTmpl>
-        <td>{{meta?.value | date:"dd/MM/yyyy - HH:mm:ss"}}</td>
-      </ng-template>
-    </ng-container>
-  </tr>
+      @if (!isObject(meta?.value)) {
+      <td>{{meta?.value}}</td>
+      } @else {
+      <td>{{meta?.value | date:"dd/MM/yyyy - HH:mm:ss"}}</td>
+      }
+      }
+    </tr>
+    }
   </tbody>
 </table>

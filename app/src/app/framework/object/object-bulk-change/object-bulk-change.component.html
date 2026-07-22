@@ -1,4 +1,5 @@
-<ng-container *ngIf="type; else noDataPassed;">
+@if (type) {
+
   <aw-wizard #wizard [navBarLayout]="'large-empty-symbols'">
     <aw-wizard-step stepId="1" stepTitle="Bulk Changes" >
       <ng-template awWizardStepSymbol><i class="fas fa-file-code"></i></ng-template>
@@ -30,9 +31,9 @@
       <button class="btn btn-primary next" [routerLink]="['/framework/object/type', type.public_id]" type="button">Done</button>
     </aw-wizard-step>
   </aw-wizard>
-</ng-container>
-<ng-template #noDataPassed>
+
+} @else {
   <div class="alert alert-danger">
     No data to change was passed!
   </div>
-</ng-template>
+}

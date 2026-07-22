@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy } from '@angular/core';
+import { Component, inject, Input, OnDestroy } from '@angular/core';
 import { Right } from '../../../models/right';
 import { GroupService } from '../../../services/group.service';
 import { takeUntil } from 'rxjs/operators';
@@ -60,8 +60,8 @@ export class RightTableGroupsCellComponent implements OnDestroy {
       });
   }
 
-  constructor(private groupService: GroupService, private modalService: NgbModal) {
-  }
+  private readonly groupService = inject(GroupService);
+  private readonly modalService = inject(NgbModal);
 
   public openGroupListModal(): void {
     this.modalRef = this.modalService.open(RightGroupsModalComponent, {size: 'lg'});

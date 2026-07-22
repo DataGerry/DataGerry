@@ -1,5 +1,7 @@
-<div *ngIf="loading" class="table-loading-inner">
+@if (loading) {
+<div class="table-loading-inner">
   <div class="table-loading-content">
     <span class="table-loading-spinner"></span>
   </div>
 </div>
+}

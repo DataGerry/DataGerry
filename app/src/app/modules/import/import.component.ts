@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { catchError, debounceTime, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { environment } from 'src/environments/environment';
@@ -39,7 +39,7 @@ export class ImportComponent {
     isCloudModeEnabled = environment.cloudMode;
 
 
-    public constructor(private objectService: ObjectService) { }
+    private readonly objectService = inject(ObjectService);
 
 
     ngOnInit(): void {

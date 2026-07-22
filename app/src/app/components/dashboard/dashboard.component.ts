@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 
 import { finalize, ReplaySubject, Subscription, switchMap, takeUntil } from 'rxjs';
 
@@ -38,6 +38,10 @@ import { environment } from 'src/environments/environment';
     standalone: false
 })
 export class DashboardComponent implements OnInit, OnDestroy {
+    private readonly objectService = inject(ObjectService);
+    private readonly toastService = inject(ToastService);
+    private readonly sidebarService = inject(SidebarService);
+    private readonly loaderService = inject(LoaderService);
 
     // Table Template: Dashboard active column
     @ViewChild('activeTemplate', { static: true }) activeTemplate: TemplateRef<any>;
@@ -81,14 +85,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     public isLoading$ = this.loaderService.isLoading$;
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
-
-    constructor(
-        private objectService: ObjectService,
-        private toastService: ToastService,
-        private sidebarService: SidebarService,
-        private loaderService: LoaderService,
-    ) {}
-
 
     public ngOnInit(): void {
         const activeColumn = {

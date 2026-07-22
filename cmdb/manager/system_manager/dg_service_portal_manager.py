@@ -18,6 +18,7 @@ Implementation of DataGerry Service-Portal Manager
 """
 import os
 import json
+from time import time
 from logging import Logger, getLogger
 from typing import Any
 
@@ -60,7 +61,6 @@ class DgServicePortalManager:
         """
         Initialises the DgServicePortalManager
         """
-        self.x_api_key: str = None
         self.x_access_token: str = None
         self.base_url: str = None
 
@@ -486,6 +486,7 @@ class DgServicePortalManager:
         raise DgServicePortalGetError("Failed retrieving user data from DG Service Portal!")
 
 
+<<<<<<< HEAD
     def sync_config_items(self, request_user: CmdbUser, config_item_count: int) -> bool:
         """
         Synchronize configuration items with the service portal
@@ -497,6 +498,28 @@ class DgServicePortalManager:
         Args:
             request_user (CmdbUser): The user which is using the API route
             config_item_count (int): Number of CmdbObjects in Database
+=======
+    def sync_config_items(
+        self,
+        request_user: CmdbUser,
+        config_item_count: int,
+        type_counts: list[dict[str, Any]],
+    ) -> bool:
+        """
+        Synchronize configuration items with the service portal
+
+        This function sends a request to the service portal to sync configuration items for a specific
+        user and database. It is only executed in cloud mode. If the mode is local, the function simply
+        returns `True`
+
+        Alongside the total count it reports the send timestamp and a per-type breakdown (each entry
+        holds the CmdbType label and its object count)
+
+        Args:
+            request_user (CmdbUser): The user which is using the API route
+            config_item_count (int): Number of CmdbObjects in Database
+            type_counts (list[dict[str, Any]]): Per-type object counts, each ``{"name": <label>, "count": <int>}``
+>>>>>>> origin/version-3.2
 
         Returns:
             bool:
@@ -513,7 +536,13 @@ class DgServicePortalManager:
         payload: dict[str, Any] = {
             "email": request_user.email,
             "database_name": request_user.database,
+<<<<<<< HEAD
             "config_item_count": config_item_count
+=======
+            "config_item_count": config_item_count,
+            "timestamp": self.current_timestamp(),
+            "types": type_counts,
+>>>>>>> origin/version-3.2
         }
 
         try:
@@ -533,6 +562,20 @@ class DgServicePortalManager:
             return False
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
+
+    @staticmethod
+    def current_timestamp() -> int:
+        """
+        Returns the current Unix timestamp in milliseconds
+
+        Milliseconds (a 13-digit long) match the format the Service Portal expects for the
+        `timestamp` field
+
+        Returns:
+            int: Current Unix time in milliseconds
+        """
+        return int(time() * 1000)
+
 
     def is_valid_response(self, response: Response) -> bool:
         """

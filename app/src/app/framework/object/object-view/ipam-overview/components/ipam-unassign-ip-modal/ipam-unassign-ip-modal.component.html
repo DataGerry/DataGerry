@@ -1,0 +1,31 @@
+<div class="modal-header bg-primary text-white">
+  <h4 class="modal-title">{{ headerText }}</h4>
+  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('cancel')"></button>
+</div>
+
+<div class="modal-body">
+  <p class="ipam-unassign-modal__question">What would you like to unassign?</p>
+
+  <div class="ipam-unassign-modal__options" role="radiogroup" aria-label="Unassign option">
+    @for (option of options; track option.value) {
+      <div
+        class="ipam-unassign-modal__option"
+        [class.ipam-unassign-modal__option--selected]="modeControl.value === option.value"
+        (click)="modeControl.setValue(option.value)">
+        <app-radio
+          name="unassignMode"
+          [id]="'unassign-mode-' + option.value"
+          [label]="option.label"
+          [value]="option.value"
+          [formControl]="modeControl">
+        </app-radio>
+        <p class="ipam-unassign-modal__option-description">{{ option.description }}</p>
+      </div>
+    }
+  </div>
+</div>
+
+<div class="modal-footer">
+  <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss('cancel')">Cancel</button>
+  <button type="button" class="btn btn-danger" (click)="confirm()">Unassign</button>
+</div>

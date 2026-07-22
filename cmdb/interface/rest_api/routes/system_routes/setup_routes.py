@@ -14,7 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-These routes are used to setup databases and the correspondig user in DataGerry
+Service-Portal-driven setup/teardown routes for the cloud deployment
+
+These routes let the DataGerry Service Portal tear down a tenant's resources: dropping a
+subscription's database and evicting cloud users from the local user cache (collection
+``cache.users``). Every route is gated at ``ApiLevel.SUPER_ADMIN`` via ``verify_api_access`` and is
+only meaningful in cloud mode (``verify_api_access`` passes through untouched when not in cloud
+mode). They are destructive and intended to be called by the portal, not end users.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -46,22 +52,27 @@ setup_blueprint = APIBlueprint('setup', __name__)
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 def delete_subscription() -> Response:
     """
-    Deletes a subscription
+    HTTP `DELETE` route to drop the database backing a subscription
 
-    Hint:
-    Expects a dict with the following keys:
-    {
-        "database"(str): Name of database
-    }
+    Reads the target database name from the ``database`` query parameter (e.g.
+    ``DELETE /setup/subscriptions?database=<name>``) and deletes that database. Intended for the
+    Service Portal to tear down a cancelled subscription's tenant database
+
+    Returns:
+        DefaultResponse: True after the database has been dropped
+
+    Raises:
+        HTTPException: 400 when no query arguments are given, the ``database`` argument is missing,
+            the named database does not exist, or the drop otherwise fails; 500 on an unexpected error
     """
     try:
         if not request.args:
             abort(400, "No request arguments provided!")
 
-        delete_data: dict = request.args.to_dict()
+        delete_data: dict[str, str] = request.args.to_dict()
 
         try:
-            subscrption_database = delete_data['database']
+            subscrption_database: str = delete_data['database']
         except KeyError:
             abort(400, "Database name was not provided!")
 
@@ -85,26 +96,31 @@ def delete_subscription() -> Response:
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 def delete_cached_user() -> Response:
     """
-    Deletes a single or multiple cached users
+    HTTP `DELETE` route to evict one or more cloud users from the local user cache
 
-    Hint:
-    Expects in the payload a dict with the following keys:
-    {
-        "email"(str | list[str]): Email or emails of the cached users
-    }
+    Expects a JSON body ``{"email": <str | list[str]>}``: a single email deletes that cached user,
+    a list of emails deletes each of them. Removing a user from ``cache.users`` forces the next
+    request for that user to be re-validated against the Service Portal
+
+    Returns:
+        DefaultResponse: True after the cached user(s) have been removed
+
+    Raises:
+        HTTPException: 400 when the body is missing / not a JSON object, the ``email`` key is absent,
+            or its value is neither a string nor a list; 500 on an unexpected error
     """
     try:
-        if not request.json:
-            abort(400, "No payload provided!")
+        user_emails: dict[str, Any] | None = request.get_json(silent=True)
 
-        user_emails: dict[str, Any] = request.json
+        if not isinstance(user_emails, dict):
+            abort(400, "No valid JSON object payload provided!")
 
         cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
 
         try:
             if isinstance(user_emails['email'], str):
                 cached_user_manager.delete_cached_user(user_emails['email'])
-            elif isinstance(user_emails['email'], list[str]):
+            elif isinstance(user_emails['email'], list):
                 cached_user_manager.delete_multiple_cached_users(user_emails['email'])
             else:
                 abort(400, "'email' must be a string or list of strings!")
@@ -124,7 +140,16 @@ def delete_cached_user() -> Response:
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 def delete_all_cached_users() -> Response:
     """
-    Deletes all cached users
+    HTTP `DELETE` route to clear the entire cloud user cache
+
+    Empties the ``cache.users`` collection, forcing every cloud user to be re-validated against the
+    Service Portal on their next request
+
+    Returns:
+        DefaultResponse: True after the cache has been cleared
+
+    Raises:
+        HTTPException: 500 on an unexpected error while clearing the cache
     """
     try:
         cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)

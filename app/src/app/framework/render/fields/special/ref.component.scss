@@ -7,3 +7,21 @@
   background: None!important;
 }
 
+:host {
+  display: block;
+}
+
+:host:has(.ng-select.ng-select-opened) {
+  position: relative;
+  z-index: 2000;
+}
+
+:host ::ng-deep .ng-select.ng-select-opened {
+  position: relative;
+  z-index: 2000;
+}
+
+:host ::ng-deep .ng-dropdown-panel {
+  z-index: 2000;
+}
+

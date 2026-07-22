@@ -27,6 +27,10 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import TypesManager
 
 from cmdb.models.user_model import CmdbUser
+<<<<<<< HEAD
+=======
+from cmdb.models.type_model import TypeSchemaKey
+>>>>>>> origin/version-3.2
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.schemas.schema_provider import SchemaProvider
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -34,6 +38,13 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
+<<<<<<< HEAD
+=======
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_constants import (
+    SPECIAL_TYPE_PARAM,
+    AVAILABLE_PARAM,
+)
+>>>>>>> origin/version-3.2
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -56,7 +67,11 @@ def check_special_type_exist(request_user: CmdbUser) -> Response:
         bool: True if the SpecialType exists in db else False
     """
     try:
+<<<<<<< HEAD
         special_type: str | None = request.args.get('special_type')
+=======
+        special_type: str | None = request.args.get(SPECIAL_TYPE_PARAM)
+>>>>>>> origin/version-3.2
 
         if not special_type:
             abort(400, "No SpecialType provided to check if it exists!")
@@ -83,14 +98,27 @@ def get_special_types(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve SpecialTypes
 
+<<<<<<< HEAD
+=======
+    With ``?available=true`` only the SpecialTypes not yet assigned to any CmdbType are returned,
+    otherwise the full set of SpecialTypes is returned
+
+>>>>>>> origin/version-3.2
     Args:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Returns:
+<<<<<<< HEAD
         dict[str, Any]: True if the SpecialType exists in db else False
     """
     try:
         only_available: str | None = request.args.get('available', default="false").lower() == "true"
+=======
+        DefaultResponse: The SpecialTypes (all, or only the unused ones when ?available=true)
+    """
+    try:
+        only_available: bool = request.args.get(AVAILABLE_PARAM, default="false").lower() == "true"
+>>>>>>> origin/version-3.2
 
         special_types: dict[str, Any] = {}
 
@@ -98,8 +126,13 @@ def get_special_types(request_user: CmdbUser) -> Response:
             types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
             existing: list[Any] = types_manager.get_distinct(
+<<<<<<< HEAD
                 "special_type",
                 {"special_type": {"$exists": True}}
+=======
+                TypeSchemaKey.SPECIAL_TYPE,
+                {TypeSchemaKey.SPECIAL_TYPE: {"$exists": True}}
+>>>>>>> origin/version-3.2
             )
 
             special_types = SpecialType.get_unused_types(existing)
@@ -108,7 +141,11 @@ def get_special_types(request_user: CmdbUser) -> Response:
 
         return DefaultResponse(special_types).make_response()
     except Exception as err:
+<<<<<<< HEAD
         LOGGER.error("[check_special_type_exist] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
+=======
+        LOGGER.error("[get_special_types] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
+>>>>>>> origin/version-3.2
         abort(500, "An internal server error occured while retrieving SpecialTypes!")
 
 
@@ -117,16 +154,27 @@ def get_special_types(request_user: CmdbUser) -> Response:
 @insert_request_user
 def get_special_type_schema(request_user: CmdbUser) -> Response:
     """
+<<<<<<< HEAD
     HTTP `GET`/`HEAD` route to retrieve SpecialTypes
+=======
+    HTTP `GET`/`HEAD` route to retrieve the field/section schema of a single SpecialType
+>>>>>>> origin/version-3.2
 
     Args:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Returns:
+<<<<<<< HEAD
         dict[str, Any]: True if the SpecialType exists in db else False
     """
     try:
         special_type: str | None = request.args.get('special_type')
+=======
+        DefaultResponse: The schema dict for the requested SpecialType
+    """
+    try:
+        special_type: str | None = request.args.get(SPECIAL_TYPE_PARAM)
+>>>>>>> origin/version-3.2
 
         if not special_type:
             abort(400, "No 'special_type' provided!")
@@ -134,6 +182,7 @@ def get_special_type_schema(request_user: CmdbUser) -> Response:
         if not SpecialType.is_valid(special_type):
             abort(400, f"The provided SpecialType: {special_type} is not valid!")
 
+<<<<<<< HEAD
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         schema: dict[str, Any] = {}
         schema_provider = SchemaProvider()
@@ -154,10 +203,17 @@ def get_special_type_schema(request_user: CmdbUser) -> Response:
             schema =  schema_provider.get_schema(special_type, subnet_id=subnet.get('public_id'))
         else:
             schema: dict[str, Any] = schema_provider.get_schema(special_type)
+=======
+        schema: dict[str, Any] = SchemaProvider().get_schema(special_type)
+>>>>>>> origin/version-3.2
 
         return DefaultResponse(schema).make_response()
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
+<<<<<<< HEAD
         LOGGER.error("[check_special_type_exist] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
+=======
+        LOGGER.error("[get_special_type_schema] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
+>>>>>>> origin/version-3.2
         abort(500, "An internal server error occured while retrieving a SpecialType schema!")

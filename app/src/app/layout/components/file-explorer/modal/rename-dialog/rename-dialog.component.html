@@ -13,14 +13,20 @@
         <input type="text" formControlName="name" class="form-control" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                  'is-invalid': name.invalid && (name.dirty || name.touched) }" id="folderNameInput" required>
         <small id="folderNameInputHelp" class="form-text text-muted">Folder name must be unique</small>
-        <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-          <div class="text-end" *ngIf="name.errors.required">
+        @if (name.invalid && (name.dirty || name.touched)) {
+        <div class="invalid-feedback">
+          @if (name.errors.required) {
+          <div class="text-end">
             Name is required.
           </div>
-          <div class="text-end" *ngIf="name.errors.nameAlreadyTaken">
+          }
+          @if (name.errors.nameAlreadyTaken) {
+          <div class="text-end">
             A element with this name already exists.
           </div>
+          }
         </div>
+        }
       </div>
     </div>
     <div class="modal-footer">

@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
 import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
@@ -67,6 +67,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
      * Input for sidebar expansion state
      */
     @Input() isExpanded: boolean;
+    @Input() showSidebarExpandButton: boolean = true;
 
     /**
      * Output event for expand button click
@@ -86,15 +87,11 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     /* -------------------------------------------------------------------------- */
 
 
-    constructor(
-        private locationService: LocationService,
-        private treeManagerService: TreeManagerService,
-        private objectService: ObjectService,
-        private route: Router,
-        private cdRef: ChangeDetectorRef
-    ) {
-
-    }
+    private readonly locationService = inject(LocationService);
+    private readonly treeManagerService = inject(TreeManagerService);
+    private readonly objectService = inject(ObjectService);
+    private readonly route = inject(Router);
+    private readonly cdRef = inject(ChangeDetectorRef);
 
 
     public ngOnInit() {

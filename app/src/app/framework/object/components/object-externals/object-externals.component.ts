@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { RenderResult } from '../../../models/cmdb-render';
 import { DomSanitizer } from '@angular/platform-browser';
 
@@ -29,7 +29,7 @@ import { DomSanitizer } from '@angular/platform-browser';
 export class ObjectExternalsComponent {
 
   @Input() renderResult: RenderResult = undefined;
-  constructor(private sanitizer: DomSanitizer) {}
+  private readonly sanitizer = inject(DomSanitizer);
 
   getSantizeUrl(url: string) {
     return this.sanitizer.bypassSecurityTrustUrl(url);

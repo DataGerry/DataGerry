@@ -1,26 +1,15 @@
 <div>
-
-    <!-- <div class="mb-3" *ngFor="let catCtrl of impactsArray.controls; let i = index">
-        <label class="fw-bold">{{ impactCategories[i]?.name }}</label>
-        <app-form-slider [items]="impacts" [allowNotRated]="true" [selectedId]="catCtrl.get('impact_id')?.value"
-            (selectedIdChange)="onImpactChanged(i, $event)"></app-form-slider>
-    </div> -->
-
-    <div class="slider-row" *ngFor="let catCtrl of impactsArray.controls; let i = index;">
+    @for (catCtrl of impactsArray.controls; track catCtrl; let i = $index) {
+    <div class="slider-row">
         <label class="cat-name mb-1">{{ impactCategories[i]?.name }}</label>
 
         <app-form-slider [items]="impacts" [allowNotRated]="true" [selectedId]="catCtrl.get('impact_id')?.value"
             (selectedIdChange)="onImpactChanged(i, $event)" [showChosenText]="false" [disabled]="isView">
         </app-form-slider>
     </div>
+    }
 
     <hr>
-    <!-- <div class="my-3">
-        <label class="fw-bold d-block">Likelihood</label>
-        <app-form-slider [items]="displayedLikelihoods" [allowNotRated]="true"
-            [selectedId]="afterGroup.get('likelihood_id')?.value"
-            (selectedIdChange)="onLikelihoodChanged($event)"></app-form-slider>
-    </div> -->
 
     <div class="slider-row">
         <label class="cat-name ">Likelihood</label>
@@ -32,7 +21,6 @@
     </div>
 
     <hr>
-
 
     <div class="row g-3 ms-2">
         <div class="row g-3">
@@ -55,9 +43,9 @@
                 word-wrap: break-word;
                 line-height: 1.1;
               ">
-                  <span style="display: block; width: 100%; overflow: hidden; text-overflow: ellipsis;">
-                    {{ afterGroup.get('risk_level_value')?.value }}
-                  </span>
+                    <span style="display: block; width: 100%; overflow: hidden; text-overflow: ellipsis;">
+                        {{ afterGroup.get('risk_level_value')?.value }}
+                    </span>
                 </div>
             </div>
         </div>

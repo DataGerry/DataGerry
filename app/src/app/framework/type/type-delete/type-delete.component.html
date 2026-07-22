@@ -1,16 +1,17 @@
-<h1>Delete type: {{typeInstance?.label}}</h1><hr />
+<h1>Delete type: {{typeInstance?.label}}</h1>
+<hr />
 <dl class="row">
-    <dt class="col-sm-2">Name</dt>
-    <dd class="col-sm-10">{{typeInstance?.name}}</dd>
+  <dt class="col-sm-2">Name</dt>
+  <dd class="col-sm-10">{{typeInstance?.name}}</dd>
 
-    <dt class="col-sm-2">Label</dt>
-    <dd class="col-sm-10">{{typeInstance?.label}}</dd>
+  <dt class="col-sm-2">Label</dt>
+  <dd class="col-sm-10">{{typeInstance?.label}}</dd>
 
-    <dt class="col-sm-2">Description</dt>
-    <dd class="col-sm-10 text-truncate">{{typeInstance?.description}}</dd>
+  <dt class="col-sm-2">Description</dt>
+  <dd class="col-sm-10 text-truncate">{{typeInstance?.description}}</dd>
 
-    <dt class="col-sm-2">Number of objects</dt>
-    <dd class="col-sm-10">{{numberOfObjects}}</dd>
+  <dt class="col-sm-2">Number of objects</dt>
+  <dd class="col-sm-10">{{numberOfObjects}}</dd>
 </dl>
 
 <hr />
@@ -19,10 +20,13 @@
 <button class="btn btn-danger" [class.disabled]="!canDeleteType()" (click)="open()">Delete</button>
 
 <div>
-  <label id="error_message" *ngIf="numberOfObjects > 0">Deletion is only possible if there are no objects of this type!</label>
+  @if (numberOfObjects > 0) {
+  <label id="error_message">Deletion is only possible if there are no objects of this type!</label>
+  }
   <br>
-  <label id="error_message" *ngIf="!canDeleteType()">
+  @if (!canDeleteType()) {
+  <label id="error_message">
     Deletion is only possible if this type is not used in reports!
-</label>
+  </label>
+  }
 </div>
-

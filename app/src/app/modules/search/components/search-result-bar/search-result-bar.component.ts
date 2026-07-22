@@ -17,11 +17,12 @@
 */
 import {
     Component,
+    inject,
     HostListener,
     Input,
     OnChanges,
     OnInit,
-    SimpleChanges
+    SimpleChanges,
 } from '@angular/core';
 import { Router } from '@angular/router';
 
@@ -51,9 +52,8 @@ export class SearchResultBarComponent implements OnInit, OnChanges {
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(private toast: ToastService, private router: Router) {
-
-    }
+    private readonly toast = inject(ToastService);
+    private readonly router = inject(Router);
 
 
     public ngOnInit(): void {

@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { ReplaySubject } from 'rxjs';
 import { CollectionParameters } from '../../../../services/models/api-parameter';
 import { Column, Sort, SortDirection } from '../../../../layout/table/table.types';
@@ -71,8 +71,7 @@ export class GroupTableListComponent implements OnInit, OnDestroy {
    */
   public groups: Array<Group> = [];
 
-  constructor(private groupService: GroupService) {
-  }
+  private readonly groupService = inject(GroupService);
 
   public ngOnInit(): void {
     this.columns = [

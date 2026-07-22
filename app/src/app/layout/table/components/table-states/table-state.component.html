@@ -1,10 +1,5 @@
 <div class="btn-group me-2">
-    <button
-        #toggleButton
-        type="button"
-        class="btn btn-warning btn-sm dropdown-toggle"
-        data-bs-toggle="dropdown"
-    >
+    <button #toggleButton type="button" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown">
         <i class="fas fa-border-none"></i> Configs
     </button>
 
@@ -12,30 +7,18 @@
         <div class="setting-dropdown dropdown-menu dropdown-menu-end dropdown-menu-start text-center">
             <!-- Save state -->
             <span class="input-group p-2">
-                <input
-                    type="text"
-                    formControlName="name"
-                    class="form-control form-control-sm me-auto p-2"
-                    [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
-                                'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}"
-                />
-                <button
-                type="button"
-                class="btn btn-success"
-                [disabled]="form.invalid"
-                (click)="saveState(nameControl.value, $event)"
-              >
-                <i class="fas fa-save"></i>
-              </button>
+                <input type="text" formControlName="name" class="form-control form-control-sm me-auto p-2" [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
+                                'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}" />
+                <button type="button" class="btn btn-success" [disabled]="form.invalid"
+                    (click)="saveState(nameControl.value, $event)">
+                    <i class="fas fa-save"></i>
+                </button>
             </span>
 
             <div class="dropdown-divider"></div>
             <!-- List state -->
-            <div
-                *ngFor="let state of tableStates"
-                class="dropdown-item pointer d-flex config-item"
-                (click)="selectState(state)"
-            >
+            @for (state of tableStates; track state) {
+            <div class="dropdown-item pointer d-flex config-item" (click)="selectState(state)">
                 <div class="flex-grow-1">
                     {{ state.name }}
                 </div>
@@ -44,6 +27,7 @@
                     <i class="far fa-trash-alt config-item-icon" (click)="deleteState(state, $event)"></i>
                 </div>
             </div>
+            }
 
             <div class="dropdown-divider"></div>
             <!-- Set default -->

@@ -22,20 +22,25 @@
 // import { finalize } from 'rxjs';
 // import { ToastService } from 'src/app/layout/toast/toast.service';
 
-import { OnInit, ChangeDetectorRef, Component } from "@angular/core";
+import { Component, inject, OnInit, ChangeDetectorRef } from "@angular/core";
 import { LoaderService } from "src/app/core/services/loader.service";
 import { ToastService } from "src/app/layout/toast/toast.service";
 import { IsmsConfigValidation } from "../models/isms-config-validation.model";
 import { ISMSService } from "../services/isms.service";
-import { ActivatedRoute, Router } from "@angular/router";
+import { finalize } from "rxjs";
 
 @Component({
-    selector: 'app-isms-overview',
-    templateUrl: './overview.component.html',
-    styleUrls: ['./overview.component.scss'],
-    standalone: false
+  selector: 'app-isms-overview',
+  templateUrl: './overview.component.html',
+  styleUrls: ['./overview.component.scss'],
+  standalone: false
 })
 export class OverviewComponent implements OnInit {
+
+  private readonly ismsService = inject(ISMSService);
+  private readonly cdRef = inject(ChangeDetectorRef);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toastService = inject(ToastService);
 
   public validationStatus: boolean = false;
   public isLoading$ = this.loaderService.isLoading$;
@@ -76,16 +81,11 @@ export class OverviewComponent implements OnInit {
   ];
 
 
-  constructor(private ismsService: ISMSService,
-    private cdRef: ChangeDetectorRef,
-    private loaderService: LoaderService,
-    private toastService: ToastService,
-
-  ) { }
-
   ngOnInit(): void {
     this.loaderService.show(); // Show loader
-    this.ismsService.getIsmsValidationStatus().subscribe({
+    this.ismsService.getIsmsValidationStatus().pipe(finalize(() => {
+      this.loaderService.hide();
+    })).subscribe({
       next: (status: IsmsConfigValidation) => {
         const isValid =
           status.risk_classes &&
@@ -105,9 +105,6 @@ export class OverviewComponent implements OnInit {
       },
       error: (err) => {
         this.toastService.error(err?.error?.message)
-      },
-      complete: () => {
-        this.loaderService.hide(); // Hide loader
       }
     });
   }

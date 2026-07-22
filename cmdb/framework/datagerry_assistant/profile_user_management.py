@@ -17,9 +17,13 @@
 This module manages the 'User Management'-Profile for the DataGerry assistant
 """
 from logging import Logger, getLogger
+<<<<<<< HEAD
 
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
+=======
+from typing import Any
+>>>>>>> origin/version-3.2
 
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -33,31 +37,17 @@ class UserManagementProfile(ProfileBase):
     """
     This class cointains all types and logics for the 'User management'-Profile
     """
-    def __init__(
-            self,
-            created_type_ids: dict,
-            types_manager: TypesManager,
-            section_templates_manager: SectionTemplatesManager):
-        self.created_type_ids = created_type_ids
-        super().__init__(created_type_ids, types_manager, section_templates_manager)
-
-
-    def create_user_management_profile(self) -> dict:
+    def create_profile(self) -> dict[str, int | None]:
         """
-        Creates all types from the 'User Management'- Profile
+        Creates all types of the 'User Management' profile (Company, User, Customer User)
 
         Returns:
-            dict: The created type ids dict
+            dict[str, int | None]: The shared slot map of created type ids
         """
-        user_management_profile_data: dict = {
-            'company_id' : self.get_company_type(),
-            'user_id': self.get_user_type()
-        }
-
-        for type_name, type_dict in user_management_profile_data.items():
-            self.create_basic_type(type_name, type_dict)
-
-        # depedent types
+        # Each type is created (inserted) before the next is built, so a type's reference fields can
+        # resolve the public_ids of types created earlier in this profile (Customer User -> Company)
+        self.create_basic_type('company_id', self.get_company_type())
+        self.create_basic_type('user_id', self.get_user_type())
         self.create_basic_type('customer_user_id', self.get_customer_user_type(self.created_type_ids['company_id']))
 
         return self.created_type_ids
@@ -66,11 +56,14 @@ class UserManagementProfile(ProfileBase):
 #                                                  TYPE DATA - SECTION                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_company_type(self) -> dict:
+    def get_company_type(self) -> dict[str, Any]:
         """
-        Returns the 'Company'-Type for the 'User management'-Profile
+        Builds the 'Company' type for the 'User Management' profile
+
+        Returns:
+            dict[str, Any]: The Company CmdbType config
         """
-        company_sections: list = [
+        company_sections: list[dict[str, Any]] = [
             {
                 "name": "section-24931",
                 "label": "Information",
@@ -112,20 +105,25 @@ class UserManagementProfile(ProfileBase):
             }
         ]
 
-        company_type: dict = self.type_constructor.create_type_config(company_sections,
-                                                                      'company',
-                                                                      'Company',
-                                                                      'fas fa-building')
+        company_type: dict[str, Any] = self.type_constructor.create_type_config(
+            company_sections,
+            'company',
+            'Company',
+            'fas fa-building'
+        )
 
         return company_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_user_type(self) -> dict:
+    def get_user_type(self) -> dict[str, Any]:
         """
-        Returns the 'User'-Type for the 'User management'-Profile
+        Builds the 'User' type for the 'User Management' profile
+
+        Returns:
+            dict[str, Any]: The User CmdbType config
         """
-        user_sections: list = [
+        user_sections: list[dict[str, Any]] = [
             {
                 "name": "section-92803",
                 "label": "Information",
@@ -167,23 +165,28 @@ class UserManagementProfile(ProfileBase):
             }
         ]
 
-        user_type: dict = self.type_constructor.create_type_config(user_sections,
-                                                                   'user',
-                                                                   'User',
-                                                                   'fas fa-male')
+        user_type: dict[str, Any] = self.type_constructor.create_type_config(
+            user_sections,
+            'user',
+            'User',
+            'fas fa-male'
+        )
 
         return user_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_customer_user_type(self, company_type_id: int) -> dict:
+    def get_customer_user_type(self, company_type_id: int) -> dict[str, Any]:
         """
-        Returns the 'Customer User'-Type for the 'User management'-Profile
-        
+        Builds the 'Customer User' type for the 'User Management' profile
+
         Args:
-            company_type_id (int): public_id of created 'Company'-Type
+            company_type_id (int): public_id of the created 'Company' type, referenced by this type
+
+        Returns:
+            dict[str, Any]: The Customer User CmdbType config
         """
-        customer_user_sections: list = [
+        customer_user_sections: list[dict[str, Any]] = [
             {
                 "name": "section-82897",
                 "label": "Information",
@@ -238,8 +241,11 @@ class UserManagementProfile(ProfileBase):
             }
         ]
 
-        customer_user_type: dict = self.type_constructor.create_type_config(customer_user_sections,
-                                                                            'customer_user',
-                                                                            'Customer User',
-                                                                            'fas fa-user-tie')
+        customer_user_type: dict[str, Any] = self.type_constructor.create_type_config(
+            customer_user_sections,
+            'customer_user',
+            'Customer User',
+            'fas fa-user-tie'
+        )
+
         return customer_user_type

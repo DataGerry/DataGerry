@@ -1,8 +1,20 @@
-<ng-container [ngSwitch]="tag.searchForm">
-    <i class="fas fa-font" *ngSwitchCase="'text'"></i>
-    <i class="fas fa-code" *ngSwitchCase="'regex'"></i>
-    <i class="fas fa-qrcode" *ngSwitchCase="'publicID'"></i>
-    <i class="fas fa-object-group" *ngSwitchCase="'type'"></i>
-    <i class="fas fa-folder-open" *ngSwitchCase="'category'"></i>
-    <i class="fas fa-font" *ngSwitchDefault></i>
-</ng-container>
+@switch (tag.searchForm) {
+@case ('text') {
+<i class="fas fa-font"></i>
+}
+@case ('regex') {
+<i class="fas fa-code"></i>
+}
+@case ('publicID') {
+<i class="fas fa-qrcode"></i>
+}
+@case ('type') {
+<i class="fas fa-object-group"></i>
+}
+@case ('category') {
+<i class="fas fa-folder-open"></i>
+}
+@default {
+<i class="fas fa-font"></i>
+}
+}

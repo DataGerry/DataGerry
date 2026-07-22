@@ -17,6 +17,7 @@
 */
 import { Component, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject, Subscription } from 'rxjs';
 
@@ -36,7 +37,7 @@ import { CopyService } from '../../../../../core/services/copy.service';
 export class SectionFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
 
     private initialValue: string;
@@ -120,6 +121,18 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
      * @param type - The type of the input field being changed.
      */
     onInputChange(event: any, type: string) {
+        if (type === 'name') {
+            if (this.isDuplicateSectionIdentifier(event)) {
+                this.setDuplicateIdentifierState(true);
+                this.validationService.setSectionHighlightState(true);
+                this.fieldChanges$.next({ isDuplicate: true, elementType: 'section' });
+                return;
+            }
+
+            this.setDuplicateIdentifierState(false);
+            this.fieldChanges$.next({ isDuplicate: false, elementType: 'section' });
+        }
+
         this.fieldChanges$.next({
             "newValue": event,
             "inputName": type,
@@ -141,6 +154,29 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
         if (this.mode === CmdbMode.Create) {
             this.updateSectionValue(this.nameControl.value)
         }
+    }
+
+
+    private isDuplicateSectionIdentifier(newValue: string): boolean {
+        if (!newValue || newValue === this.currentValue) {
+            return false;
+        }
+
+        return (this.sections ?? []).some(section => section !== this.data && section?.name === newValue);
+    }
+
+
+    private setDuplicateIdentifierState(isDuplicate: boolean): void {
+        this.isIdentifierValid = !isDuplicate;
+        const errors = { ...(this.nameControl.errors ?? {}) };
+
+        if (isDuplicate) {
+            this.nameControl.setErrors({ ...errors, duplicateIdentifier: true });
+            return;
+        }
+
+        delete errors.duplicateIdentifier;
+        this.nameControl.setErrors(Object.keys(errors).length ? errors : null);
     }
 
 

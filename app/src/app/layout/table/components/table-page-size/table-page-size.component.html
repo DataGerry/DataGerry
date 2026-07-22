@@ -2,7 +2,9 @@
   <label class="col-auto col-form-label me-1">Show:</label>
   <div class="col-auto">
     <select formControlName="size" class="form-select form-select-sm" title="table-page-size-changer">
-      <option [ngValue]="size.value" *ngFor="let size of pageSizeList">{{ size.label }}</option>
+      @for (size of pageSizeList; track size) {
+      <option [ngValue]="size.value">{{ size.label }}</option>
+      }
     </select>
   </div>
 </form>

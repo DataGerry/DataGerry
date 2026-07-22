@@ -32,6 +32,7 @@ from cmdb.models.isms_model import IsmsImpactCategory
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -162,12 +163,10 @@ def get_isms_impact_category(public_id: int, request_user: CmdbUser) -> Response
         impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                      request_user)
 
-        requested_impact = impact_category_manager.get_item(public_id, as_dict=True)
+        requested_impact = get_item_or_404(impact_category_manager, public_id,
+                                            f"The ImpactCategory with ID:{public_id} was not found!")
 
-        if requested_impact:
-            return GetSingleResponse(requested_impact, body = request.method == 'HEAD').make_response()
-
-        abort(404, f"The ImpactCategory with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_impact, body = request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except ImpactCategoryManagerGetError as err:
@@ -200,10 +199,8 @@ def update_isms_impact_category(public_id: int, data: dict[str, Any], request_us
         impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                      request_user)
 
-        to_update_impact = impact_category_manager.get_item(public_id)
-
-        if not to_update_impact:
-            abort(404, f"The ImpactCategory with ID:{public_id} was not found!")
+        get_item_or_404(impact_category_manager, public_id,
+                        f"The ImpactCategory with ID:{public_id} was not found!", as_dict=False)
 
         impact_category_manager.update_item(public_id, IsmsImpactCategory.from_data(data))
 
@@ -225,7 +222,7 @@ def update_isms_impact_category(public_id: int, data: dict[str, Any], request_us
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.edit')
-def update_multiple_isms_impact_categories(request_user: CmdbUser):
+def update_multiple_isms_impact_categories(request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update multiple IsmsImpactCategory records.
 
@@ -234,18 +231,22 @@ def update_multiple_isms_impact_categories(request_user: CmdbUser):
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        dict: Summary of success and failures
+        DefaultResponse: Per-item summary of successes and failures
     """
     try:
         impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                      request_user)
 
-        data = request.get_json()
-        results = []
+        data = request.get_json(silent=True)
+
+        if not isinstance(data, list):
+            abort(400, "The request body must be a list of ImpactCategories!")
+
+        results: list[dict[str, Any]] = []
 
         for item in data:
             public_id = item.get("public_id")
-            if not public_id:
+            if public_id is None:
                 results.append({"public_id": None, "status": "failed", "message": "Missing public_id"})
                 continue
 
@@ -304,7 +305,7 @@ def update_multiple_isms_impact_categories(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.delete')
-def delete_isms_impact_category(public_id: int, request_user: CmdbUser):
+def delete_isms_impact_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsImpactCategory
 
@@ -319,10 +320,8 @@ def delete_isms_impact_category(public_id: int, request_user: CmdbUser):
         impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                      request_user)
 
-        to_delete_impact = impact_category_manager.get_item(public_id, as_dict=True)
-
-        if not to_delete_impact:
-            abort(404, f"The ImpactCategory with ID:{public_id} was not found!")
+        to_delete_impact = get_item_or_404(impact_category_manager, public_id,
+                                           f"The ImpactCategory with ID:{public_id} was not found!")
 
         impact_category_manager.delete_with_follow_up(public_id)
 

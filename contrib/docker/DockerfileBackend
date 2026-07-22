@@ -10,6 +10,6 @@ ENV LANG=en_US
 
 # Copy datagerry binary
 COPY files/backend/datagerry /usr/bin/
-COPY files/backend/cmdb.conf /etc/datagerry/
+COPY files/conf/cmdb.conf /etc/datagerry/
 
 CMD ["/usr/bin/datagerry", "-c", "/etc/datagerry/cmdb.conf", "-s"]

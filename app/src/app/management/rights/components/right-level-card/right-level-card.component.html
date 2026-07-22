@@ -1,6 +1,9 @@
 <div class="card">
-  <div *ngIf="cardHeader" class="card-header">{{cardHeader}}</div>
-  <div *ngIf="securityLevels" class="card-body">
+  @if (cardHeader) {
+  <div class="card-header">{{cardHeader}}</div>
+  }
+  @if (securityLevels) {
+  <div class="card-body">
     <ul class="list-group list-group-flush">
       <li class="list-group-item">
         NOTSET <span class="badge bg-primary text-end">{{getLevel('NOTSET')}}</span>
@@ -22,7 +25,10 @@
       </li>
     </ul>
   </div>
-  <div *ngIf="securityLevels" class="card-footer">
+  }
+  @if (securityLevels) {
+  <div class="card-footer">
     There are {{securityLevels.length}} security levels defined
   </div>
+  }
 </div>

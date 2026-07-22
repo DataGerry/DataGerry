@@ -20,3 +20,547 @@
     height: $sidebar-height;
   }
 }
+
+
+$asst-brand:        $primary; 
+$asst-brand-ink:    darken($primary, 15%); 
+$asst-brand-strong: darken($primary, 10%);
+$asst-brand-lite:   lighten($primary, 6%);
+$asst-brand-soft:   rgba($primary, 0.1);
+$asst-brand-softer: rgba($primary, 0.06);
+$asst-ink:          #111827;
+$asst-label:        #374151;
+$asst-muted:        #6b7280;
+$asst-faint:        #9ca3af;
+$asst-border:       #e9ecef;
+$asst-hairline:     #eef0f3;
+$asst-surface:      #f8fafc;
+$asst-success:      #198754;
+$asst-done-line:    #7cc9a8;
+$asst-radius-card:  1.25rem;
+$asst-radius-chip:  0.7rem;
+$asst-radius-tile:  0.9rem;
+$asst-shadow:       0 32px 80px -32px rgba(15, 23, 42, 0.5), 0 12px 28px -18px rgba(15, 23, 42, 0.3);
+$asst-tile-shadow:  0 10px 24px -14px rgba(15, 23, 42, 0.3);
+$asst-focus-ring:   0 0 0 0.2rem rgba($primary, 0.22);
+
+
+.intro-tour-backdrop.modal-backdrop {
+  background: rgba(17, 24, 39, 0.55);
+  backdrop-filter: blur(3px);
+
+  &.show { opacity: 1; }
+}
+
+.intro-tour {
+  // Custom-element hosts must be block so the panel fills the modal width.
+  cmdb-intro,
+  cmdb-branch-info-modal,
+  cmdb-profile-info-modal {
+    display: block;
+  }
+
+  .modal-content {
+    border: none;
+    border-radius: $asst-radius-card;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: $asst-shadow;
+  }
+
+  .assistant {
+    display: flex;
+    flex-direction: column;
+    color: $asst-ink;
+  }
+
+  /* ------------------------------- header -------------------------------- */
+  .assistant__header {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+    padding: 1.6rem 1.85rem 1.35rem;
+    border-bottom: 1px solid $asst-hairline;
+    background:
+      radial-gradient(130% 150% at 92% -30%, rgba($primary, 0.12), transparent 55%),
+      linear-gradient(180deg, #ffffff, #f6f8fa);
+  }
+
+  .assistant__icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 2.65rem;
+    height: 2.65rem;
+    border-radius: $asst-radius-chip;
+    background: linear-gradient(135deg, rgba($primary, 0.18), rgba($primary, 0.08));
+    color: $asst-brand;
+    font-size: 1.1rem;
+    box-shadow: inset 0 0 0 1px rgba($primary, 0.12), 0 6px 14px -8px rgba($primary, 0.4);
+
+    i { margin: 0; }
+  }
+
+  .assistant__heading {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .assistant__eyebrow {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: $asst-brand-ink;
+
+    &--muted { color: $asst-muted; }
+  }
+
+  .assistant__title {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: $asst-ink;
+  }
+
+  .assistant__subtitle {
+    margin: 0.4rem 0 0;
+    font-size: 0.85rem;
+    line-height: 1.0;
+    color: $asst-muted;
+  }
+
+  .assistant__close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.6);
+    color: $asst-muted;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 180ms ease, color 180ms ease;
+
+    &:hover {
+      background: rgba(15, 23, 42, 0.07);
+      color: $asst-label;
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: $asst-focus-ring;
+    }
+  }
+
+  /* --------------------------- step progress ----------------------------- */
+  .assistant__steps {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.95rem;
+  }
+
+  .assistant__step {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: $asst-muted;
+
+    &--active { color: $asst-brand-ink; }
+    &--done { color: $asst-success; }
+  }
+
+  .assistant__step-dot {
+    display: grid;
+    place-items: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    border: 2px solid $asst-border;
+    border-radius: 50%;
+    background: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: $asst-muted;
+    transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+  }
+
+  /* Parent-state rules are written as descendants (not a trailing `&`) so the
+     `.intro-tour` scope prepends correctly instead of landing mid-selector. */
+  .assistant__step--active .assistant__step-dot {
+    border-color: $asst-brand;
+    color: $asst-brand-ink;
+    box-shadow: 0 0 0 4px rgba($primary, 0.14), 0 3px 10px -3px rgba($primary, 0.35);
+  }
+
+  .assistant__step--done .assistant__step-dot {
+    border-color: transparent;
+    background: linear-gradient(135deg, lighten($asst-success, 6%), darken($asst-success, 4%));
+    color: #fff;
+    box-shadow: 0 3px 8px -2px rgba($asst-success, 0.4);
+  }
+
+  .assistant__step-line {
+    flex: 0 1 2.25rem;
+    height: 2px;
+    border-radius: 1px;
+    background: $asst-border;
+
+    &--done { background: $asst-done-line; }
+  }
+
+  /* -------------------------------- body --------------------------------- */
+  .assistant__body {
+    padding: 1.6rem 1.85rem;
+    max-height: 62vh;
+    overflow-y: auto;
+
+    &::-webkit-scrollbar { width: 8px; }
+    &::-webkit-scrollbar-thumb {
+      border-radius: 4px;
+      background: rgba(15, 23, 42, 0.15);
+    }
+  }
+
+  /* welcome-screen numbered plan */
+  .assistant__plan {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .assistant__plan-item {
+    position: relative;
+    display: flex;
+    gap: 0.9rem;
+    padding-bottom: 1.25rem;
+
+    &:last-child { padding-bottom: 0; }
+
+    &:not(:last-child)::before {
+      content: "";
+      position: absolute;
+      left: calc(0.9rem - 1px);
+      top: 1.9rem;
+      bottom: -0.1rem;
+      width: 2px;
+      background: linear-gradient(180deg, rgba($primary, 0.35), $asst-border);
+    }
+  }
+
+  .assistant__plan-badge {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba($primary, 0.16), rgba($primary, 0.08));
+    color: $asst-brand-ink;
+    font-size: 0.8rem;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px rgba($primary, 0.16), 0 2px 6px -2px rgba($primary, 0.25);
+  }
+
+  .assistant__plan-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding-top: 0.15rem;
+  }
+
+  .assistant__plan-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: $asst-ink;
+  }
+
+  .assistant__plan-desc {
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: $asst-muted;
+  }
+
+  /* soft info callout */
+  .assistant__note {
+    display: flex;
+    gap: 0.65rem;
+    margin-top: 1.4rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid $asst-hairline;
+    border-radius: $asst-radius-chip;
+    background: linear-gradient(180deg, #fbfcfd, $asst-surface);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: $asst-muted;
+
+    > i {
+      margin-top: 0.1rem;
+      color: $asst-brand;
+    }
+
+    strong { color: $asst-label; }
+  }
+
+  /* --------------------------- option tiles ------------------------------ */
+  .assistant__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    align-items: start;
+    gap: 0.85rem;
+  }
+
+  .assistant-option {
+    position: relative;
+    display: block;
+    margin: 0;
+    cursor: pointer;
+  }
+
+  .assistant-option__input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    opacity: 0;
+  }
+
+  .assistant-option__box {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.9rem 1.05rem;
+    border: 1px solid $asst-border;
+    border-radius: $asst-radius-tile;
+    background: linear-gradient(180deg, #ffffff, #fcfcfd);
+    transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  }
+
+  .assistant-option:hover .assistant-option__box {
+    border-color: rgba($primary, 0.4);
+    box-shadow: $asst-tile-shadow;
+    transform: translateY(-2px);
+  }
+
+  .assistant-option__input:focus-visible ~ .assistant-option__box {
+    border-color: $asst-brand;
+    box-shadow: $asst-focus-ring;
+  }
+
+  .assistant-option__input:checked ~ .assistant-option__box {
+    border-color: $asst-brand;
+    background: linear-gradient(135deg, rgba($primary, 0.1), rgba($primary, 0.035));
+
+    .assistant-option__icon {
+      background: linear-gradient(135deg, $asst-brand-lite, $asst-brand-strong);
+      color: #fff;
+      box-shadow: 0 5px 12px -5px rgba($primary, 0.55);
+    }
+
+    .assistant-option__label { color: $asst-ink; }
+
+    .assistant-option__check {
+      border-color: transparent;
+      background: linear-gradient(135deg, $asst-brand-lite, $asst-brand-strong);
+      box-shadow: 0 3px 8px -3px rgba($primary, 0.55);
+
+      i {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+  }
+
+  .assistant-option__icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 0.6rem;
+    background: $asst-surface;
+    color: $asst-muted;
+    font-size: 0.95rem;
+    transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .assistant-option__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.9rem;
+    font-weight: 500;
+    line-height: 1.35;
+    color: $asst-label;
+    transition: color 180ms ease;
+  }
+
+  .assistant-option__check {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border: 2px solid $asst-border;
+    border-radius: 0.5rem;
+    color: #fff;
+    font-size: 0.7rem;
+    transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+
+    i {
+      opacity: 0;
+      transform: scale(0.6);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+  }
+
+  /* ------------------------------- footer -------------------------------- */
+  .assistant__footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    padding: 1.1rem 1.85rem 1.35rem;
+    border-top: 1px solid $asst-hairline;
+    background: linear-gradient(180deg, #fff, #fcfcfd);
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      padding: 0.55rem 1.15rem;
+      border-radius: 0.6rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      line-height: 1.2;
+      transition: background 150ms ease, border-color 150ms ease,
+        box-shadow 150ms ease, color 150ms ease;
+
+      i { font-size: 0.8rem; }
+
+      &:focus-visible {
+        outline: none;
+        box-shadow: $asst-focus-ring;
+      }
+    }
+
+    .btn-primary {
+      border: 1px solid transparent;
+      background: $asst-brand;
+      color: #fff;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+
+      &:hover {
+        background: $asst-brand-strong;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+      }
+
+      &:active { background: darken($primary, 16%); }
+
+      &:disabled,
+      &.disabled {
+        background: $asst-brand;
+        box-shadow: none;
+        opacity: 0.5;
+      }
+    }
+
+    .btn-light {
+      background: #fff;
+      border: 1px solid $asst-border;
+      color: $asst-label;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+
+      &:hover {
+        background: $asst-surface;
+        border-color: darken($asst-border, 8%);
+      }
+
+      &:active { background: darken($asst-surface, 2%); }
+    }
+  }
+
+  /* --------------------------- welcome variant --------------------------- */
+  .assistant--intro .assistant__header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding-top: 2.1rem;
+    background:
+      radial-gradient(120% 130% at 50% -35%, rgba($primary, 0.12), transparent 60%),
+      linear-gradient(180deg, #ffffff, #f6f8fa);
+  }
+
+  .assistant__logo {
+    width: 9.5rem;
+    max-width: 60%;
+    margin-bottom: 0.9rem;
+  }
+
+  /* --------------------------- status variant ---------------------------- */
+  /* Shown when the assistant is opened but the workspace already has data.
+     Positioned so the corner close button anchors to the panel (no header). */
+  .assistant--status {
+    position: relative;
+    text-align: center;
+  }
+
+  .assistant__status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.75rem 2rem 1.85rem;
+  }
+
+  .assistant__status-icon {
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    margin-bottom: 1.15rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba($asst-success, 0.16), rgba($asst-success, 0.07));
+    color: $asst-success;
+    font-size: 1.35rem;
+    box-shadow: inset 0 0 0 1px rgba($asst-success, 0.2), 0 8px 18px -10px rgba($asst-success, 0.5);
+  }
+
+  .assistant__status-text {
+    max-width: 27rem;
+    margin: 0.5rem 0 0;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: $asst-muted;
+  }
+
+  .assistant__footer--center {
+    justify-content: center;
+  }
+
+  /* ------------------------------ responsive ----------------------------- */
+  @media (max-width: 576px) {
+    .assistant__header { padding: 1.3rem 1.15rem 1.05rem; }
+    .assistant__body { padding: 1.3rem 1.15rem; }
+    .assistant__status { padding: 2.1rem 1.15rem 1.4rem; }
+    .assistant__footer {
+      padding: 0.95rem 1.15rem 1.15rem;
+
+      .btn { flex: 1 1 auto; }
+    }
+    .assistant__grid { grid-template-columns: 1fr; }
+  }
+}

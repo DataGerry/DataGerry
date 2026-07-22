@@ -37,6 +37,7 @@ systemctl stop datagerry
 
 # install files
 cp files/cmdb.conf ${DIR_ETC}/datagerry
+cp files/app-config.json ${DIR_ETC}/datagerry
 cp files/datagerry ${DIR_BIN}
 cp files/datagerry.conf ${DIR_TMPFILES}
 

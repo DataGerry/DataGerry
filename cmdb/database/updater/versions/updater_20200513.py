@@ -14,12 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of Update20200513
+Database update 20200513: backfill 'global_template_ids' and 'selectable_as_parent' on types
 """
 from logging import Logger, getLogger
 
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
-from cmdb.models.type_model import CmdbType
 
 from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,7 +30,7 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class Update20200513(BaseDatabaseUpdate):
     """
-    Implementation of Update20200513
+    Backfills 'global_template_ids' and 'selectable_as_parent' onto every type that lacks them
     """
 
 
@@ -44,33 +43,22 @@ class Update20200513(BaseDatabaseUpdate):
 
 
     def start_update(self) -> None:
+        """
+        Adds the missing 'global_template_ids' ([]) and 'selectable_as_parent' (True) to each type
+
+        Both fields are added in a single bulk update each, targeting only the types that do not yet
+        have the respective property.
+        """
         try:
-            collection = CmdbType.COLLECTION
-            all_types: list[dict] = []
+            self.types_manager.update_many_raw(
+                filter_query={'global_template_ids': {'$exists': False}},
+                update={'$set': {'global_template_ids': []}},
+            )
 
-            all_types = self.dbm.find_all(collection, self.db_name)
-
-            for cur_type in all_types:
-                #Check if the type already has the 'global_template_ids' property, else create it
-                cur_public_id: int = cur_type['public_id']
-                global_template_ids: str = 'global_template_ids'
-                selectable_as_parent: str = 'selectable_as_parent'
-
-                if not global_template_ids in cur_type.keys():
-                    cur_type[global_template_ids] = []
-                    self.dbm.update(collection=collection,
-                                    db_name=self.db_name,
-                                    criteria={'public_id':cur_public_id},
-                                    data=cur_type)
-                    LOGGER.info("Updated 'global_template_ids' for type ID: %s", cur_public_id)
-
-                if not selectable_as_parent in cur_type.keys():
-                    cur_type[selectable_as_parent] = True
-                    self.dbm.update(collection=collection,
-                                    db_name=self.db_name,
-                                    criteria={'public_id':cur_public_id},
-                                    data=cur_type)
-                    LOGGER.info("Updated 'selectable_as_parent' for type ID: %s", cur_public_id)
+            self.types_manager.update_many_raw(
+                filter_query={'selectable_as_parent': {'$exists': False}},
+                update={'$set': {'selectable_as_parent': True}},
+            )
 
             self.increase_updater_version(self.creation_date())
         except Exception as err:

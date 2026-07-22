@@ -21,6 +21,7 @@ from typing import Any
 
 from flask import abort, request, current_app
 from werkzeug import Response
+from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcLicenseManager
 
@@ -30,9 +31,7 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access, h
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 
-from cmdb.errors.open_celium.template import (
-    OcTemplateGetError,
-)
+from cmdb.errors.open_celium.license import OcLicenseGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -64,7 +63,9 @@ def get_oc_license_activation(request_user: CmdbUser) -> Response:
         oc_license: Any = oc_license_manager.get_license_activation()
 
         return DefaultResponse(oc_license).make_response()
-    except OcTemplateGetError as err:
+    except HTTPException as http_err:
+        raise http_err
+    except OcLicenseGetError as err:
         LOGGER.error("[get_oc_license_activation] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium License activation!")
 
@@ -84,10 +85,10 @@ def get_oc_license_info(request_user: CmdbUser) -> Response:
         dict[str, Any]: The license info
     """
     try:
-        params: dict[str, str] = request.args.to_dict()
-
-        page = int(params.get('page', 0))
-        size = int(params.get('size', 5))
+        # request.args type=int returns the default for a non-numeric value instead of raising,
+        # so a bad ?page= / ?size= no longer crashes into a generic 500
+        page: int = request.args.get('page', default=0, type=int)
+        size: int = request.args.get('size', default=5, type=int)
 
         oc_license_manager: OcLicenseManager = OcLicenseManager(
             current_app.database_manager,
@@ -100,6 +101,8 @@ def get_oc_license_info(request_user: CmdbUser) -> Response:
         }
 
         return DefaultResponse(license_data).make_response()
-    except OcTemplateGetError as err:
+    except HTTPException as http_err:
+        raise http_err
+    except OcLicenseGetError as err:
         LOGGER.error("[get_oc_license_info] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to retrieve OpenCelium License info!")

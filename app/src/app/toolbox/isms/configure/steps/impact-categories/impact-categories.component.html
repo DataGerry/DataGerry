@@ -10,31 +10,40 @@
   <hr />
 
   <!--  Warning Alert -->
-  <app-warning-alert *ngIf="this.impactCategories.length < 1" iconClass="fas fa-info-circle warning-icon"
+  @if (this.impactCategories.length < 1) { <app-warning-alert iconClass="fas fa-info-circle warning-icon"
     title="Insufficient Impact Categories:" message="You need to define at least 1 impact Category to proceed.">
-  </app-warning-alert>
+    </app-warning-alert>
+    }
 
-  <!--  table component -->
-  <cmdb-table [items]="impactCategories" [columns]="columns" [totalItems]="totalImpactCategories" [pageSize]="limit"
-    [page]="page" [loading]="loading" [draggableEnabled]="true" [searchEnabled]="true" [infoEnabled]="false"
-    [pageSizeEnabled]="false" [searchEnabled]="false" [paginationEnabled]="false" (pageChange)="onPageChange($event)"
-    (pageSizeChange)="onPageSizeChange($event)" (orderChange)="onOrderChange($event)"
-    (searchChange)="onSearchChange($event)">
-  </cmdb-table>
+    <!--  table component -->
+    <cmdb-table [items]="impactCategories" [columns]="columns" [totalItems]="totalImpactCategories" [pageSize]="limit"
+      [page]="page" [loading]="loading" [draggableEnabled]="true" [searchEnabled]="true" [infoEnabled]="false"
+      [pageSizeEnabled]="false" [searchEnabled]="false" [paginationEnabled]="false" (pageChange)="onPageChange($event)"
+      (pageSizeChange)="onPageSizeChange($event)" (orderChange)="onOrderChange($event)"
+      (searchChange)="onSearchChange($event)">
+    </cmdb-table>
 </div>
 
 <!-- Impact Descriptions Template -->
 <ng-template #impactDescriptionsTemplate let-item="item">
   <div class="impact-descriptions-container">
     <div>
-      <ng-container *ngIf="item.impact_descriptions?.length > 0; else noDescs">
-        <div *ngFor="let desc of item.impact_descriptions" class="impact-description-line">
-          <div class="impact-label-value">
-            <strong>{{ getImpactName(desc.impact_id) }}:</strong>
-            <span> {{ desc.value || '-' }}</span>
-          </div>
+      @if (item.impact_descriptions?.length > 0) {
+
+      @for (desc of item.impact_descriptions; track desc) {
+      <div class="impact-description-line">
+        <div class="impact-label-value">
+          <strong>{{ getImpactName(desc.impact_id) }}:</strong>
+          <span> {{ desc.value || '-' }}</span>
         </div>
-      </ng-container>
+      </div>
+      }
+
+      } @else {
+
+      <em class="no-desc">No impact descriptions.</em>
+
+      }
     </div>
     <ng-template #noDescs>
       <em class="no-desc">No impact descriptions.</em>
