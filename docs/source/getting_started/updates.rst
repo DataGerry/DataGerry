@@ -42,7 +42,7 @@ straightforward and safe.
 Update process:
     1. Download and install the new DataGerry release from the official package source:  
        `BuildKite <https://buildkite.com/organizations/becon-gmbh/packages>`_ or from  
-       Docker: `Docker <https://hub.docker.com/r/becongmbh/datagerry>`_
+       Docker: `Docker <https://github.com/DataGerry/DataGerry-docker.git>`_
     2. Restart the DataGerry service or application
 
 During startup, DataGerry will:
