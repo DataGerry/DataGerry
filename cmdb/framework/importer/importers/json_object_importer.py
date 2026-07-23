@@ -22,13 +22,19 @@ from datetime import datetime, timezone
 from cmdb.manager import ObjectsManager
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.framework.importer.parser.json_object_parser import JsonObjectParser
 from cmdb.framework.importer.content_types import JSONContent
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
+from cmdb.framework.importer.importer_constants import DEFAULT_OBJECT_VERSION, JsonMappingKey
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
 from cmdb.framework.importer.helper.improve_object import ImproveObject
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 from cmdb.framework.importer.configs.json_object_importer_config import JsonObjectImporterConfig
+
+from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -41,10 +47,20 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
 
     def __init__(self,
                  file=None,
-                 config: JsonObjectImporterConfig = None,
-                 parser: JsonObjectParser = None,
-                 objects_manager: ObjectsManager = None,
-                 request_user: CmdbUser = None):
+                 config: JsonObjectImporterConfig | None = None,
+                 parser: JsonObjectParser | None = None,
+                 objects_manager: ObjectsManager | None = None,
+                 request_user: CmdbUser | None = None) -> None:
+        """
+        Initialize the JsonObjectImporter
+
+        Args:
+            file: The JSON file to import
+            config (JsonObjectImporterConfig | None): Configuration defining the mapping and import rules
+            parser (JsonObjectParser | None): Parser instance handling the JSON parsing
+            objects_manager (ObjectsManager | None): Manager used to read/insert/delete CmdbObjects
+            request_user (CmdbUser | None): The user initiating the import request
+        """
         super().__init__(
             file=file,
             file_type=self.FILE_TYPE,
@@ -56,54 +72,84 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
 
 
     def generate_object(self, entry: dict, *args, **kwargs) -> dict:
-        """create the native cmdb object from parsed content"""
+        """
+        Creates a native CmdbObject dict from a parsed JSON entry
+
+        Args:
+            entry (dict): A single parsed object from the JSON file
+
+        Keyword Args:
+            fields (list[dict]): The target type's field definitions (used to validate/coerce fields)
+
+        Returns:
+            dict: The generated object dict ready for import
+        """
         possible_fields: list[dict] = kwargs['fields']
-        mapping: dict = self.config.get_mapping()
+        map_properties: dict = self.config.get_mapping().get(JsonMappingKey.PROPERTIES.value)
 
         working_object: dict = {
-            'type_id': self.config.get_type_id(),
-            'fields': [],
-            'author_id': self.request_user.get_public_id(),
-            'version': '1.0.0',
-            'creation_time': datetime.now(timezone.utc)
+            CmdbObjectKey.TYPE_ID.value: self.config.get_type_id(),
+            CmdbObjectKey.FIELDS.value: [],
+            CmdbObjectKey.AUTHOR_ID.value: self.request_user.get_public_id(),
+            CmdbObjectKey.VERSION.value: DEFAULT_OBJECT_VERSION,
+            CmdbObjectKey.CREATION_TIME.value: datetime.now(timezone.utc),
         }
 
-        if 'multi_data_sections' in entry:
-            working_object['multi_data_sections'] = entry['multi_data_sections']
-
-        map_properties = mapping.get('properties')
+        if CmdbObjectKey.MULTI_DATA_SECTIONS.value in entry:
+            working_object[CmdbObjectKey.MULTI_DATA_SECTIONS.value] = entry[CmdbObjectKey.MULTI_DATA_SECTIONS.value]
 
         for prop in map_properties:
-            working_object = self._map_element(prop, entry, working_object)
+            working_object = self._map_element(prop, entry, working_object, map_properties)
 
-        for entry_field in entry.get('fields'):
-            field_exists = next((item for item in possible_fields if item["name"] == entry_field['name']), None)
+        for entry_field in entry.get(CmdbObjectKey.FIELDS.value):
+            field_exists = next(
+                (field for field in possible_fields
+                 if field[FieldKey.NAME.value] == entry_field[CmdbObjectFieldKey.NAME.value]),
+                None,
+            )
+
             if field_exists:
-                if 'checkbox' == field_exists['type']:
-                    entry_field['value'] = ImproveObject.improve_boolean(entry_field['value'])
-                entry_field['value'] = ImproveObject.improve_date(entry_field['value'])
-                working_object.get('fields').append(entry_field)
+                if field_exists[FieldKey.TYPE.value] == FieldType.CHECKBOX.value:
+                    entry_field[CmdbObjectFieldKey.VALUE.value] = ImproveObject.improve_boolean(
+                        entry_field[CmdbObjectFieldKey.VALUE.value]
+                    )
+
+                entry_field[CmdbObjectFieldKey.VALUE.value] = ImproveObject.improve_date(
+                    entry_field[CmdbObjectFieldKey.VALUE.value]
+                )
+                working_object[CmdbObjectKey.FIELDS.value].append(entry_field)
 
         return working_object
 
 
-    def _map_element(self, prop, entry: dict, working: dict):
-        mapping: dict = self.config.get_mapping()
-        map_ident: dict = mapping.get('properties')
+    def _map_element(self, prop: str, entry: dict, working: dict, map_properties: dict) -> dict:
+        """
+        Copies one mapped property value from the entry onto the working object
 
-        if map_ident:
-            idx_ident = map_ident.get(prop)
-            if idx_ident:
-                value = entry.get(idx_ident)
+        Args:
+            prop (str): The target property name on the object
+            entry (dict): The parsed source entry
+            working (dict): The object being built (mutated in place)
+            map_properties (dict): The property mapping (target property -> source key)
+
+        Returns:
+            dict: The working object
+        """
+        if map_properties:
+            source_key = map_properties.get(prop)
+
+            if source_key:
+                value = entry.get(source_key)
+
                 if value is not None:
-                    working.update({prop: value})
+                    working[prop] = value
 
         return working
 
 
     def start_import(self) -> ImporterObjectResponse:
         """
-        Starts the import process by parsing the file, generating objects based on the parsed data, 
+        Starts the import process by parsing the file, generating objects based on the parsed data,
         and importing those objects into the system
 
         The method performs the following steps:
@@ -114,11 +160,22 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
 
         Returns:
             ImporterObjectResponse: The response after importing the objects, containing status and data
+
+        Raises:
+            ImportRuntimeError: If parsing or importing fails
         """
-        parsed_response: JsonObjectParserResponse = self.parser.parse(self.file)
-        type_instance_fields: list = self.objects_manager.get_object_type(self.config.get_type_id()).get_fields()
+        try:
+            parsed_response: JsonObjectParserResponse = self.parser.parse(self.file)
+            type_instance_fields: list = self.objects_manager.get_object_type(
+                self.config.get_type_id()
+            ).get_fields()
 
-        import_objects: list[dict] = self._generate_objects(parsed_response, fields=type_instance_fields)
-        import_result: ImporterObjectResponse = self._import(import_objects)
+            import_objects: list[dict] = self._generate_objects(parsed_response, fields=type_instance_fields)
 
-        return import_result
+            return self._import(import_objects)
+        except ParserRuntimeError as err:
+            LOGGER.error("[start_import] Parsing error: %s", err, exc_info=True)
+            raise ImportRuntimeError(f"Parsing failed: {err}") from err
+        except Exception as err:
+            LOGGER.error("[start_import] Unexpected error: %s. Type: %s", err, type(err), exc_info=True)
+            raise ImportRuntimeError(f"Unexpected error: {err}") from err

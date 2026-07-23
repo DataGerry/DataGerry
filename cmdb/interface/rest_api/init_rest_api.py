@@ -209,6 +209,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs import logs_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.setting_routes import settings_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.import_routes import importer_blueprint
+    from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes import importer_object_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_routes import (
         docapi_blueprint,
         docs_blueprint,
@@ -285,6 +286,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(logs_blueprint, url_prefix='/logs')
     app.register_blueprint(settings_blueprint)
     app.register_blueprint(importer_blueprint)
+    app.register_blueprint(importer_object_blueprint, url_prefix='/import/object')
     app.register_blueprint(docapi_blueprint)
     app.register_blueprint(docs_blueprint, url_prefix='/docs')
     app.register_blueprint(media_file_blueprint)

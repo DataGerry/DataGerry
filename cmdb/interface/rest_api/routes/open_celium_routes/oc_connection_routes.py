@@ -30,13 +30,15 @@ from cmdb.manager import (
     CachedUserManager,
 )
 
-from cmdb.open_celium import map_oc_name, unmap_oc_name, CachedOcIdType
+from cmdb.open_celium import map_oc_name, unmap_oc_name
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import connection_in_subscription
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey
 
 from cmdb.errors.open_celium.connection import (
     OcConnectionCreateError,
@@ -75,12 +77,12 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
         )
 
         params: dict[str, Any] = request.json
-        conn_title: str = params["title"]
+        conn_title: str = params[OcResponseKey.TITLE.value]
 
         # Map title in cloud mode
         if current_app.cloud_mode and not current_app.local_mode:
             mapped_title = map_oc_name(request_user.database, conn_title)
-            params["title"] = mapped_title
+            params[OcResponseKey.TITLE.value] = mapped_title
         else:
             mapped_title = conn_title
 
@@ -93,7 +95,7 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 
         # Create in OpenCelium
         created_oc_connection: dict[str, Any] = oc_connection_manager.create_connection(params)
-        connection_id = int(created_oc_connection["connectionId"])
+        connection_id = int(created_oc_connection[OcResponseKey.CONNECTION_ID.value])
 
         # ------------------------------------------------------
         # Cloud mode: invalidate cache + save ID in Service Portal
@@ -111,7 +113,9 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
             )
 
             # Unmap title for frontend
-            created_oc_connection["title"] = unmap_oc_name(created_oc_connection["title"])
+            created_oc_connection[OcResponseKey.TITLE.value] = unmap_oc_name(
+                created_oc_connection[OcResponseKey.TITLE.value]
+            )
 
         return DefaultResponse(created_oc_connection).make_response()
     except HTTPException as http_err:
@@ -151,7 +155,7 @@ def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
     except HTTPException as http_err:
         raise http_err
     except OcConnectionTestError as err:
-        LOGGER.error("[create_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
+        LOGGER.error("[test_oc_connection] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to test the OpenCelium Connection!")
 
 
@@ -224,23 +228,7 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
             dg_sp_manager = DgServicePortalManager()
             cached_user_manager = CachedUserManager(current_app.database_manager)
 
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-            if cached_user:
-                is_valid = cached_user_manager.oc_id_exists(
-                    cached_user,
-                    request_user.database,
-                    CachedOcIdType.CONNECTIONS,
-                    connection_id
-                )
-            else:
-                is_valid = dg_sp_manager.check_connection_in_sub(
-                    connection_id,
-                    request_user.email,
-                    request_user.database
-                )
-
-            if not is_valid:
+            if not connection_in_subscription(request_user, connection_id, cached_user_manager, dg_sp_manager):
                 abort(400, f"The target Connection with ID:{connection_id} was not found!")
 
         # ---------------------------
@@ -250,7 +238,7 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
 
         # Unmap title for cloud mode
         if connection and current_app.cloud_mode and not current_app.local_mode:
-            connection["title"] = unmap_oc_name(connection["title"])
+            connection[OcResponseKey.TITLE.value] = unmap_oc_name(connection[OcResponseKey.TITLE.value])
 
         return DefaultResponse(connection).make_response()
     except HTTPException as http_err:
@@ -297,28 +285,14 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
             dg_sp_manager = DgServicePortalManager()
             cached_user_manager = CachedUserManager(current_app.database_manager)
 
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-            if cached_user:
-                is_valid = cached_user_manager.oc_id_exists(
-                    cached_user,
-                    request_user.database,
-                    CachedOcIdType.CONNECTIONS,
-                    connection_id
-                )
-            else:
-                is_valid = dg_sp_manager.check_connection_in_sub(
-                    connection_id,
-                    request_user.email,
-                    request_user.database
-                )
-
-            if not is_valid:
+            if not connection_in_subscription(request_user, connection_id, cached_user_manager, dg_sp_manager):
                 abort(400, f"The target Connection with ID:{connection_id} was not found!")
 
             # Map title for tenant
-            if "title" in params:
-                params["title"] = map_oc_name(request_user.database, params["title"])
+            if OcResponseKey.TITLE.value in params:
+                params[OcResponseKey.TITLE.value] = map_oc_name(
+                    request_user.database, params[OcResponseKey.TITLE.value]
+                )
 
         # ------------------------------------------------------
         # Update connection in OpenCelium
@@ -330,8 +304,10 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
             cached_user_manager.delete_cached_user(request_user.email)
 
             # Unmap title for frontend
-            if "title" in updated_oc_connection:
-                updated_oc_connection["title"] = unmap_oc_name(updated_oc_connection["title"])
+            if OcResponseKey.TITLE.value in updated_oc_connection:
+                updated_oc_connection[OcResponseKey.TITLE.value] = unmap_oc_name(
+                    updated_oc_connection[OcResponseKey.TITLE.value]
+                )
 
         return DefaultResponse(updated_oc_connection).make_response()
     except HTTPException as http_err:

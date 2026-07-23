@@ -23,9 +23,16 @@ from cmdb.manager import ObjectsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.framework.importer.parser.json_object_parser import JsonObjectParser
 from cmdb.framework.importer.content_types import CSVContent
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
+from cmdb.framework.importer.importer_constants import (
+    DEFAULT_OBJECT_VERSION,
+    MapEntryOptionKey,
+    MapEntryType,
+)
 from cmdb.framework.importer.mapper.map_entry import MapEntry
 from cmdb.framework.importer.configs.csv_object_importer_config import CsvObjectImporterConfig
 from cmdb.framework.importer.responses.csv_object_parser_response import CsvObjectParserResponse
@@ -35,6 +42,10 @@ from cmdb.framework.importer.responses.importer_object_response import ImporterO
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Mongo operators used in the reference-lookup query
+MONGO_ELEM_MATCH: str = '$elemMatch'
+MONGO_AND: str = '$and'
 
 LOGGER: Logger = getLogger(__name__)
 
@@ -79,7 +90,6 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         )
 
 
-    #pylint: disable=R0914
     def generate_object(self, entry: dict, *args, **kwargs) -> dict:
         """
         Generate an object dictionary from a CSV entry based on the import configuration
@@ -100,70 +110,129 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         except (KeyError, IndexError, ValueError) as err:
             raise ImportRuntimeError(f"[generate_object] can't import objects: {err}") from err
 
+        mapping = self.get_config().get_mapping()
+        property_entries: list[MapEntry] = mapping.get_entries_with_option(
+            query={MapEntryOptionKey.TYPE.value: MapEntryType.PROPERTY.value}
+        )
+        field_entries: list[MapEntry] = mapping.get_entries_with_option(
+            query={MapEntryOptionKey.TYPE.value: MapEntryType.FIELD.value}
+        )
+        foreign_entries: list[MapEntry] = mapping.get_entries_with_option(
+            query={MapEntryOptionKey.TYPE.value: MapEntryType.REFERENCE.value}
+        )
+
+        # Coerce the raw cell values to their target types before building the object
+        entry = ImproveObject(entry, property_entries, field_entries, possible_fields).improve_entry()
+        object_fields = self._build_object_fields(field_entries, foreign_entries, entry, possible_fields)
+
         working_object: dict = {
-            'active': True,
-            'type_id': self.get_config().get_type_id(),
-            'fields': [],
-            'author_id': self.request_user.get_public_id(),
-            'version': '1.0.0',
-            'creation_time': datetime.now(timezone.utc)
+            CmdbObjectKey.ACTIVE.value: True,
+            CmdbObjectKey.TYPE_ID.value: self.get_config().get_type_id(),
+            CmdbObjectKey.FIELDS.value: object_fields,
+            CmdbObjectKey.AUTHOR_ID.value: self.request_user.get_public_id(),
+            CmdbObjectKey.VERSION.value: DEFAULT_OBJECT_VERSION,
+            CmdbObjectKey.CREATION_TIME.value: datetime.now(timezone.utc),
         }
-        current_mapping = self.get_config().get_mapping()
-        property_entries: list[MapEntry] = current_mapping.get_entries_with_option(query={'type': 'property'})
-        field_entries: list[MapEntry] = current_mapping.get_entries_with_option(query={'type': 'field'})
-        foreign_entries: list[MapEntry] = current_mapping.get_entries_with_option(query={'type': 'ref'})
 
-        # field/properties improvement
-        improve_object = ImproveObject(entry, property_entries, field_entries, possible_fields)
-        entry = improve_object.improve_entry()
-
-        # Insert properties
+        # Mapped properties are written directly onto the object (e.g. active, public_id)
         for property_entry in property_entries:
-            working_object.update({property_entry.get_name(): entry.get(property_entry.get_value())})
-
-        # Validate insert fields
-        for entry_field in field_entries:
-            field_exists = next((item for item in possible_fields if item["name"] == entry_field.get_name()), None)
-            if field_exists:
-                working_object['fields'].append(
-                    {'name': entry_field.get_name(),
-                     'value': entry.get(entry_field.get_value())
-                     })
-
-        for foreign_entry in foreign_entries:
-            try:
-                working_type_id = foreign_entry.get_options()['type_id']
-            except (KeyError, IndexError):
-                continue
-
-            try:
-                query: dict = {
-                    'type_id': working_type_id,
-                    'fields': {
-                        '$elemMatch': {
-                            '$and': [
-                                {'name': foreign_entry.get_options()['ref_name']},
-                                {'value': entry.get(foreign_entry.get_value())},
-                            ]
-                        }
-                    }
-                }
-
-                founded_objects: list[CmdbObject] = self.objects_manager.get_objects_by(**query)
-
-                if len(founded_objects) != 1:
-                    continue
-
-                working_object['fields'].append({
-                    'name': foreign_entry.get_name(),
-                    'value': founded_objects[0].get_public_id()
-                })
-
-            except (ObjectsManagerGetError, Exception) as err:
-                LOGGER.error('[CSV] Error while loading ref object %s', err)
-                continue
+            working_object[property_entry.get_name()] = entry.get(property_entry.get_value())
 
         return working_object
+
+
+    def _build_object_fields(
+            self,
+            field_entries: list[MapEntry],
+            foreign_entries: list[MapEntry],
+            entry: dict,
+            possible_fields: list[dict],
+        ) -> list[dict]:
+        """
+        Builds the object's ``fields`` list from the mapped regular fields and resolved references
+
+        Only mapped fields that exist on the target type are included; each reference entry is
+        resolved to the referenced object's public_id (unresolvable references are skipped)
+
+        Args:
+            field_entries (list[MapEntry]): Mapping entries for regular fields
+            foreign_entries (list[MapEntry]): Mapping entries for object references
+            entry (dict): The (already coerced) source row
+            possible_fields (list[dict]): The target type's field definitions
+
+        Returns:
+            list[dict]: The {name, value} field dicts for the object
+        """
+        fields: list[dict] = []
+
+        for entry_field in field_entries:
+            field_exists = any(
+                field[FieldKey.NAME.value] == entry_field.get_name() for field in possible_fields
+            )
+
+            if field_exists:
+                fields.append({
+                    CmdbObjectFieldKey.NAME.value: entry_field.get_name(),
+                    CmdbObjectFieldKey.VALUE.value: entry.get(entry_field.get_value()),
+                })
+
+        for foreign_entry in foreign_entries:
+            reference_field = self._resolve_reference_field(foreign_entry, entry)
+
+            if reference_field:
+                fields.append(reference_field)
+
+        return fields
+
+
+    def _resolve_reference_field(self, foreign_entry: MapEntry, entry: dict) -> dict | None:
+        """
+        Resolves a reference mapping entry to a {name, value} field pointing at another object
+
+        Looks up the single object of the referenced type whose ``ref_name`` field matches the source
+        value. Returns None (skipping the reference) when its options are incomplete or the reference
+        cannot be resolved to exactly one object
+
+        Args:
+            foreign_entry (MapEntry): The mapping entry describing the reference
+            entry (dict): The current source row
+
+        Returns:
+            dict | None: The reference field dict, or None if it could not be resolved
+        """
+        options: dict = foreign_entry.get_options()
+
+        try:
+            working_type_id = options[MapEntryOptionKey.TYPE_ID.value]
+            ref_name = options[MapEntryOptionKey.REF_NAME.value]
+        except KeyError:
+            return None
+
+        query: dict = {
+            CmdbObjectKey.TYPE_ID.value: working_type_id,
+            CmdbObjectKey.FIELDS.value: {
+                MONGO_ELEM_MATCH: {
+                    MONGO_AND: [
+                        {CmdbObjectFieldKey.NAME.value: ref_name},
+                        {CmdbObjectFieldKey.VALUE.value: entry.get(foreign_entry.get_value())},
+                    ]
+                }
+            }
+        }
+
+        try:
+            found_objects: list[CmdbObject] = self.objects_manager.get_objects_by(**query)
+        except ObjectsManagerGetError as err:
+            LOGGER.error('[CSV] Error while loading ref object %s', err)
+            return None
+
+        if len(found_objects) != 1:
+            return None
+
+        return {
+            CmdbObjectFieldKey.NAME.value: foreign_entry.get_name(),
+            CmdbObjectFieldKey.VALUE.value: found_objects[0].get_public_id(),
+        }
 
 
     def start_import(self) -> ImporterObjectResponse:

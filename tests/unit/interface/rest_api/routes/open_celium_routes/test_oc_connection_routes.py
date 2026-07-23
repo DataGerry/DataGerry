@@ -60,6 +60,11 @@ CONNECTION_TITLE: str = 'my-connection'
 
 REQUEST_USER: SimpleNamespace = SimpleNamespace(database='db_test', email='user@test.com', public_id=1)
 
+# Cloud fixtures use an underscore-free database name (as real cloud DBs are) so map/unmap round-trips
+CLOUD_DB: str = 'gfSKkjoRzAxJwC'
+CLOUD_USER: SimpleNamespace = SimpleNamespace(database=CLOUD_DB, email='user@test.com', public_id=1)
+MAPPED_TITLE: str = f'{CLOUD_DB}_{CONNECTION_TITLE}'
+
 
 def _unwrap(func: Callable[..., Any]) -> Callable[..., Any]:
     """Strips the decorator chain (handle_oc_errors / insert_request_user / verify_api_access / protect)."""
@@ -176,6 +181,17 @@ class TestTestOcConnection:
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
 
+    def test_httpexception_propagates(
+        self, flask_app: BaseCmdbApp, oc_manager: MagicMock, patched_managers: Any,
+    ) -> None:
+        """An HTTPException from the manager is re-raised unchanged (not remapped)."""
+        del patched_managers
+        oc_manager.test_connection.side_effect = HTTPException()
+
+        with flask_app.test_request_context(json={'data': 1}):
+            with pytest.raises(HTTPException):
+                _unwrap(run_test_oc_connection)(request_user=REQUEST_USER, channel_id=CHANNEL_ID)
+
 
 # -------------------------------------------------- oc_send_to_remote_api ------------------------------------------- #
 
@@ -207,6 +223,17 @@ class TestOcSendToRemoteApi:
                 _unwrap(oc_send_to_remote_api)(request_user=REQUEST_USER)
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_httpexception_propagates(
+        self, flask_app: BaseCmdbApp, oc_manager: MagicMock, patched_managers: Any,
+    ) -> None:
+        """An HTTPException from the manager is re-raised unchanged (not remapped)."""
+        del patched_managers
+        oc_manager.send_to_remote_api.side_effect = HTTPException()
+
+        with flask_app.test_request_context(json={'payload': 1}):
+            with pytest.raises(HTTPException):
+                _unwrap(oc_send_to_remote_api)(request_user=REQUEST_USER)
 
 
 # ----------------------------------------------------- get_oc_connection -------------------------------------------- #
@@ -271,3 +298,154 @@ class TestUpdateOcConnection:
                 _unwrap(update_oc_connection)(request_user=REQUEST_USER, connection_id=CONNECTION_ID)
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+
+# ==================================================== CLOUD MODE ==================================================== #
+# In cloud mode the handlers map/unmap the tenant title, validate the connection belongs to the user's
+# subscription (cache first, Service Portal fallback) and invalidate the user cache on writes.
+
+@pytest.fixture(name='cloud_app')
+def fixture_cloud_app() -> BaseCmdbApp:
+    """A cloud BaseCmdbApp (cloud_mode=True, local_mode=False) with a stub database_manager."""
+    app = BaseCmdbApp(__name__)
+    app.database_manager = MagicMock()
+    app.cloud_mode = True
+    app.local_mode = False
+
+    return app
+
+
+@pytest.fixture(name='cloud_managers')
+def fixture_cloud_managers(oc_manager: MagicMock) -> Any:
+    """Patches the managers in cloud mode; yields the cached-user + service-portal mocks to configure."""
+    cached = MagicMock()
+    dg_sp = MagicMock()
+    with patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=oc_manager), \
+         patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=dg_sp), \
+         patch(f'{ROUTE_PATH}.CachedUserManager', return_value=cached):
+        yield SimpleNamespace(cached=cached, dg_sp=dg_sp)
+
+
+class TestCreateOcConnectionCloud:
+    """In cloud mode create maps the title, invalidates the cache and saves the id in the portal."""
+
+    def test_maps_creates_and_syncs(
+        self, cloud_app: BaseCmdbApp, oc_manager: MagicMock, cloud_managers: Any,
+    ) -> None:
+        """The title is tenant-mapped before create, then the cache is invalidated and the id saved."""
+        oc_manager.check_connection_name_exists.return_value = False
+        oc_manager.create_connection.return_value = {'connectionId': str(CONNECTION_ID), 'title': MAPPED_TITLE}
+
+        with cloud_app.test_request_context(json={'title': CONNECTION_TITLE}):
+            response = _unwrap(create_oc_connection)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        assert oc_manager.create_connection.call_args.args[0]['title'] == MAPPED_TITLE
+        cloud_managers.cached.delete_cached_user.assert_called_once_with(CLOUD_USER.email)
+        cloud_managers.dg_sp.save_connection_id.assert_called_once()
+
+    def test_duplicate_title_unmaps_and_returns_400(
+        self, cloud_app: BaseCmdbApp, oc_manager: MagicMock, cloud_managers: Any,
+    ) -> None:
+        """A duplicate title is reported with its unmapped (tenant-free) name and a 400."""
+        del cloud_managers
+        oc_manager.check_connection_name_exists.return_value = True
+
+        with cloud_app.test_request_context(json={'title': CONNECTION_TITLE}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(create_oc_connection)(request_user=CLOUD_USER)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+
+class TestGetOcConnectionCloud:
+    """In cloud mode get validates the connection is in the user's subscription before returning it."""
+
+    def test_valid_via_cache(
+        self, cloud_app: BaseCmdbApp, oc_manager: MagicMock, cloud_managers: Any,
+    ) -> None:
+        """A cached user validates via oc_id_exists without hitting the Service Portal."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.get_connection.return_value = {'connectionId': CONNECTION_ID, 'title': MAPPED_TITLE}
+
+        with cloud_app.test_request_context():
+            response = _unwrap(get_oc_connection)(request_user=CLOUD_USER, connection_id=CONNECTION_ID)
+
+        assert response.status_code == HTTPStatus.OK
+        cloud_managers.dg_sp.check_connection_in_sub.assert_not_called()
+
+    def test_valid_via_portal_fallback(
+        self, cloud_app: BaseCmdbApp, oc_manager: MagicMock, cloud_managers: Any,
+    ) -> None:
+        """An uncached user falls back to the Service Portal check."""
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.check_connection_in_sub.return_value = True
+        oc_manager.get_connection.return_value = {'connectionId': CONNECTION_ID, 'title': MAPPED_TITLE}
+
+        with cloud_app.test_request_context():
+            response = _unwrap(get_oc_connection)(request_user=CLOUD_USER, connection_id=CONNECTION_ID)
+
+        assert response.status_code == HTTPStatus.OK
+        cloud_managers.dg_sp.check_connection_in_sub.assert_called_once()
+
+    def test_not_in_subscription_returns_400(
+        self, cloud_app: BaseCmdbApp, oc_manager: MagicMock, cloud_managers: Any,
+    ) -> None:
+        """A connection outside the user's subscription aborts with 400 before any OpenCelium read."""
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.check_connection_in_sub.return_value = False
+
+        with cloud_app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_oc_connection)(request_user=CLOUD_USER, connection_id=CONNECTION_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.get_connection.assert_not_called()
+
+
+class TestUpdateOcConnectionCloud:
+    """In cloud mode update validates the subscription, maps the title and invalidates the cache."""
+
+    def test_valid_maps_and_invalidates_cache(
+        self, cloud_app: BaseCmdbApp, oc_manager: MagicMock, cloud_managers: Any,
+    ) -> None:
+        """A valid update maps the title for the tenant and invalidates the user cache afterwards."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.update_connection.return_value = {'connectionId': CONNECTION_ID, 'title': f'{CLOUD_DB}_renamed'}
+
+        with cloud_app.test_request_context(json={'title': 'renamed'}):
+            response = _unwrap(update_oc_connection)(request_user=CLOUD_USER, connection_id=CONNECTION_ID)
+
+        assert response.status_code == HTTPStatus.OK
+        assert oc_manager.update_connection.call_args.args[0]['title'] == f'{CLOUD_DB}_renamed'
+        cloud_managers.cached.delete_cached_user.assert_called_once_with(CLOUD_USER.email)
+
+    def test_not_in_subscription_returns_400(
+        self, cloud_app: BaseCmdbApp, oc_manager: MagicMock, cloud_managers: Any,
+    ) -> None:
+        """An update to a connection outside the user's subscription aborts with 400."""
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.check_connection_in_sub.return_value = False
+
+        with cloud_app.test_request_context(json={'title': 'renamed'}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(update_oc_connection)(request_user=CLOUD_USER, connection_id=CONNECTION_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.update_connection.assert_not_called()
+
+    def test_valid_without_title_skips_mapping(
+        self, cloud_app: BaseCmdbApp, oc_manager: MagicMock, cloud_managers: Any,
+    ) -> None:
+        """A cloud update whose payload carries no title skips the title map/unmap steps."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.update_connection.return_value = {'connectionId': CONNECTION_ID}  # no title returned
+
+        with cloud_app.test_request_context(json={'active': True}):  # no title in the payload
+            response = _unwrap(update_oc_connection)(request_user=CLOUD_USER, connection_id=CONNECTION_ID)
+
+        assert response.status_code == HTTPStatus.OK
+        cloud_managers.cached.delete_cached_user.assert_called_once_with(CLOUD_USER.email)

@@ -51,8 +51,10 @@ exporter_blueprint = APIBlueprint('exporter', __name__)
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @exporter_blueprint.route('/extensions', methods=['GET'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_export_file_types() -> Response:
+@exporter_blueprint.protect(auth=True, right='base.export.object.*')
+def get_export_file_types(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
     Endpoint to retrieve the supported export file types/extensions.
 
@@ -73,7 +75,7 @@ def get_export_file_types() -> Response:
 @exporter_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@exporter_blueprint.protect(auth=True, right='base.framework.object.view')
+@exporter_blueprint.protect(auth=True, right='base.export.object.*')
 @exporter_blueprint.parse_collection_parameters(view='native')
 def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """

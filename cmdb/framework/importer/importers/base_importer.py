@@ -17,6 +17,7 @@
 Module of basic importers
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.framework.importer.configs.base_importer_config import BaseImporterConfig
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
@@ -32,7 +33,7 @@ class BaseImporter:
     Base class for all importers
     """
 
-    def __init__(self, file, file_type: str, config: BaseImporterConfig = None):
+    def __init__(self, file: Any, file_type: str, config: BaseImporterConfig | None = None) -> None:
         """
         Init constructor for importer classes
         Args:
@@ -40,9 +41,9 @@ class BaseImporter:
             file_type: file type - used with content-type
             config: importer configuration
         """
-        self.file = file
+        self.file: Any = file
         self.file_type: str = file_type
-        self.config = config
+        self.config: BaseImporterConfig | None = config
 
 
     def get_file_type(self) -> str:
@@ -50,7 +51,7 @@ class BaseImporter:
         return self.file_type
 
 
-    def get_file(self):
+    def get_file(self) -> Any:
         """Get the loaded file"""
         return self.file
 
@@ -67,4 +68,4 @@ class BaseImporter:
 
     def start_import(self) -> ImporterObjectResponse:
         """Starting the import process"""
-        raise NotImplementedError
+        raise NotImplementedError("Subclasses must implement the `start_import` method!")

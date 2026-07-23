@@ -15,120 +15,161 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of ImproveObject
+
+Coerces raw imported values (from CSV/JSON) into the types the CMDB expects: booleans for the
+``active`` property, ``datetime`` for date-typed fields, and ``str`` for text-typed fields.
 """
-from logging import Logger, getLogger
 import datetime
+from logging import Logger, getLogger
 from typing import Any
+
+from cmdb.framework.importer.mapper.map_entry import MapEntry
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.field_type_enum import FieldType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Mongo extended-JSON key carrying an epoch timestamp in milliseconds (e.g. {'$date': 1700000000000})
+MONGO_DATE_KEY: str = '$date'
+MILLISECONDS_PER_SECOND: int = 1000
+
+# Recognised string representations for boolean coercion (compared case-insensitively, stripped)
+TRUTHY_STRINGS: frozenset[str] = frozenset({'true', '1', 'yes'})
+FALSY_STRINGS: frozenset[str] = frozenset({'false', '0', 'no'})
+
+# Date/datetime string formats attempted (in order) when coercing a date-typed field value
+DATE_FORMATS: tuple[str, ...] = (
+    '%Y/%m/%d', '%Y-%m-%d', '%Y.%m.%d', '%Y,%m,%d',
+    '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%d,%m,%Y',
+    '%d.%m.%y %H:%M', '%d.%m.%y %H:%M:%S', '%y.%m.%d %H:%M', '%y.%m.%d %H:%M:%S',
+    '%d.%m.%Y %H:%M', '%d.%m.%Y %H:%M:%S', '%Y.%m.%d %H:%M', '%Y.%m.%d %H:%M:%S',
+    '%d-%m-%y %H:%M', '%d-%m-%y %H:%M:%S', '%y-%m-%d %H:%M', '%y-%m-%d %H:%M:%S',
+    '%d-%m-%Y %H:%M', '%d-%m-%Y %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S',
+)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ImproveObject - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class ImproveObject:
     """
-    Base class for improving object imports by converting field values to appropriate types
+    Coerces the raw values of a single imported entry into the types expected by the CMDB
     """
 
-    def __init__(self, entry: dict, property_entries: list, field_entries: list, possible_fields: list):
+    def __init__(
+            self,
+            entry: dict,
+            property_entries: list[MapEntry],
+            field_entries: list[MapEntry],
+            possible_fields: list[dict],
+        ) -> None:
         """
         Initializes the ImproveObject
 
         Args:
-            entry (dict): Dictionary containing field values
-            property_entries (list): Object properties
-            field_entries (list): Field attributes
-            possible_fields (list): List of field types and their mappings
+            entry (dict): The raw imported entry keyed by source column/value identifier
+            property_entries (list[MapEntry]): Mappings for object properties (e.g. 'active')
+            field_entries (list[MapEntry]): Mappings for object fields
+            possible_fields (list[dict]): The target type's field definitions (each with 'name'/'type')
         """
         self.entry = entry
         self.property_entries = property_entries
         self.field_entries = field_entries
         self.possible_fields = possible_fields
-        self.value = None
 
 
     def improve_entry(self) -> dict:
         """
-        Converts field values to their appropriate types
+        Converts the entry's property and field values to their appropriate types
+
+        Booleans are coerced for the ``active`` property; date-typed fields are parsed into
+        ``datetime`` objects; text-typed fields are stringified when not already strings.
 
         Returns:
-            dict: The updated entry with improved values
+            dict: The same entry, with improved values
         """
-        # improve properties
+        # Improve properties
         for property_entry in self.property_entries:
-            self.value = self.entry.get(property_entry.get_value())
-            if property_entry.get_name() == "active":
-                self.entry[property_entry.get_value()] = self.improve_boolean(self.value)
+            if property_entry.get_name() == CmdbObjectKey.ACTIVE.value:
+                value = self.entry.get(property_entry.get_value())
+                self.entry[property_entry.get_value()] = self.improve_boolean(value)
 
-        # improve fields
+        # Improve fields
         for entry_field in self.field_entries:
-            self.value = self.entry.get(entry_field.get_value())
-            matching_field = next((item for item in self.possible_fields if
-                                   item["name"] == entry_field.get_name()), None)
+            matching_field = next(
+                (field for field in self.possible_fields
+                 if field[FieldKey.NAME.value] == entry_field.get_name()),
+                None,
+            )
 
-            if matching_field:
-                if matching_field['type'] == 'date':
-                    self.entry[entry_field.get_value()] = self.improve_date(self.value)
-                elif matching_field['type'] == 'text' and not isinstance(self.value, str):
-                    self.entry[entry_field.get_value()] = str(self.value)
+            if not matching_field:
+                continue
+
+            value = self.entry.get(entry_field.get_value())
+            field_type = matching_field[FieldKey.TYPE.value]
+
+            if field_type == FieldType.DATE.value:
+                self.entry[entry_field.get_value()] = self.improve_date(value)
+            elif field_type == FieldType.TEXT.value and not isinstance(value, str):
+                self.entry[entry_field.get_value()] = str(value)
 
         return self.entry
 
 
     @staticmethod
-    def improve_boolean(value: Any) -> bool | Any:
+    def improve_boolean(value: Any) -> Any:
         """
-        Converts a string representation of a boolean into a boolean type.
+        Converts a string representation of a boolean into a boolean
+
+        The comparison is case-insensitive and whitespace-tolerant. Non-string values, and strings
+        that match neither set, are returned unchanged.
 
         Args:
-            value (str): The value to be converted.
+            value (Any): The value to coerce
 
         Returns:
-            bool: True if the value represents a truthy string, False otherwise.
+            Any: True/False for a recognised truthy/falsy string, otherwise the original value
         """
-        truthy_values: set[str] = {'True', 'true', 'TRUE', '1'}
-        falsy_values: set[str] = {'False', 'false', 'FALSE', '0', 'no'}
-
         if isinstance(value, str):
-            if value in falsy_values:
-                return False
-            if value in truthy_values:
+            normalized = value.strip().lower()
+
+            if normalized in TRUTHY_STRINGS:
                 return True
+            if normalized in FALSY_STRINGS:
+                return False
 
         return value
 
 
     @staticmethod
-    def improve_date(value: str | dict) -> datetime.datetime | str | dict:
+    def improve_date(value: Any) -> datetime.datetime | Any:
         """
-        Converts various date formats into a standardized datetime object.
+        Converts various date representations into a ``datetime`` object
+
+        Accepts a Mongo extended-JSON dict (``{'$date': <epoch_millis>}``, interpreted as UTC) or a
+        string in one of the supported formats. Any unrecognised value is returned unchanged.
 
         Args:
-            value (str | dict): The date value to be converted.
-                                      It can be a string or a dictionary containing a timestamp
+            value (Any): The date value to convert (a ``{'$date': ...}`` dict or a date string)
 
         Returns:
-            datetime.datetime | str | dict: Parsed datetime object if successful,
-                                                 otherwise returns the original value.
+            datetime.datetime | Any: The parsed datetime if successful, otherwise the original value
         """
-        try:
-            if isinstance(value, dict) and value.get('$date'):
-                return datetime.datetime.fromtimestamp(value["$date"] / 1000)
-        except Exception:
-            pass
+        if isinstance(value, dict):
+            timestamp = value.get(MONGO_DATE_KEY)
+
+            if timestamp is not None:
+                try:
+                    return datetime.datetime.fromtimestamp(
+                        timestamp / MILLISECONDS_PER_SECOND,
+                        tz=datetime.timezone.utc,
+                    )
+                except (TypeError, ValueError, OSError) as err:
+                    LOGGER.debug("[improve_date] Could not convert %s value %s: %s", MONGO_DATE_KEY, value, err)
 
         if isinstance(value, str):
-            dt_formats = (
-                '%Y/%m/%d', '%Y-%m-%d', '%Y.%m.%d', '%Y,%m,%d',
-                '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%d,%m,%Y',
-                '%d.%m.%y %H:%M', '%d.%m.%y %H:%M:%S', '%y.%m.%d %H:%M', '%y.%m.%d %H:%M:%S',
-                '%d.%m.%Y %H:%M', '%d.%m.%Y %H:%M:%S', '%Y.%m.%d %H:%M', '%Y.%m.%d %H:%M:%S',
-                '%d-%m-%y %H:%M', '%d-%m-%y %H:%M:%S', '%y-%m-%d %H:%M', '%y-%m-%d %H:%M:%S',
-                '%d-%m-%Y %H:%M', '%d-%m-%Y %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S'
-            )
-
-            for fmt in dt_formats:
+            for fmt in DATE_FORMATS:
                 try:
                     return datetime.datetime.strptime(value, fmt)
                 except ValueError:

@@ -19,36 +19,40 @@ This file contains all helper methods for OpenCelium
 
 def map_oc_name(map_name: str, input_str: str) -> str:
     """
-    map the 'input_str' with the given 'map_name'
+    Prefixes `input_str` with `map_name` so OpenCelium names are scoped to a tenant
 
     Args:
-        map_name (str): the name with which the input should be mapped
+        map_name (str): the prefix the input is scoped with (e.g. the tenant database name)
         input_str (str): the original string
 
     Returns:
-        str: the mappen string in format <map_name>_<input_str>
+        str: the mapped string in the format `<map_name>_<input_str>`
     """
     return f"{map_name}_{input_str}"
 
 
 def unmap_oc_name(mapped_str: str, strict: bool = True) -> str:
     """
-    Unmaps a given string which was mapped with the 'map_oc_name' function
+    Reverses `map_oc_name`, stripping the leading `<map_name>_` prefix
+
+    Only the first underscore is split on, so a value that itself contains underscores is restored
+    intact (`'db_a_b'` -> `'a_b'`). This assumes the prefix carries no underscore.
 
     Args:
-        mapped_str (str): the string which should be unmapped
+        mapped_str (str): the previously mapped string to unmap
+        strict (bool): when True a string without an underscore is rejected; when False such a
+            string is returned unchanged. Defaults to True
 
     Raises:
-        ValueError: if the mapped_str does not contain an underscore "_"
+        ValueError: if `strict` is True and `mapped_str` contains no underscore "_"
 
     Returns:
-        str: the unmapped string
+        str: the unmapped string (the part after the first underscore)
     """
-    if "_" not in mapped_str and strict:
-        raise ValueError(f"Invalid mapped string: {mapped_str!r}. It contains no underscore.")
-    elif "_" not in mapped_str and not strict:
+    if "_" not in mapped_str:
+        if strict:
+            raise ValueError(f"Invalid mapped string: {mapped_str!r}. It contains no underscore.")
+
         return mapped_str
 
-    parts: list[str] = mapped_str.split("_", 1)
-
-    return parts[1]
+    return mapped_str.split("_", 1)[1]

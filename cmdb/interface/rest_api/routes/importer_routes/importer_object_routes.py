@@ -42,23 +42,22 @@ from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
+from cmdb.framework.importer.importers.object_importer import ObjectImporter
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 from cmdb.framework.importer.helper.importer_helper import (
     load_parser_class,
     load_importer_class,
     load_importer_config_class,
-    __OBJECT_IMPORTER__,
-    __OBJECT_PARSER__,
-    __OBJECT_IMPORTER_CONFIG__,
+    OBJECT_IMPORTER_REGISTRY,
+    OBJECT_PARSER_REGISTRY,
+    OBJECT_IMPORTER_CONFIG_REGISTRY,
 )
-from cmdb.interface.rest_api.routes.importer_routes.import_routes import importer_blueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.route_utils import (
     insert_request_user,
-    right_required,
     verify_api_access,
 )
-from cmdb.interface.blueprints import NestedBlueprint
+from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import enforce_special_type_license
 from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import (
@@ -81,14 +80,14 @@ from cmdb.errors.importer import ImportRuntimeError, ImporterLoadError, ParserLo
 
 LOGGER: Logger = getLogger(__name__)
 
-importer_object_blueprint = NestedBlueprint(importer_blueprint, url_prefix='/object')
+importer_object_blueprint = APIBlueprint('importer_object', __name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#TODO: ROUTE-FIX (Remove one route)
 @importer_object_blueprint.route('/importer/', methods=['GET'])
-@importer_object_blueprint.route('/importer', methods=['GET'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_object_importer() -> Response:
+@importer_object_blueprint.protect(auth=True, right='base.import.object.*')
+def get_object_importer(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
     Retrieve a list of available object importers with their metadata.
 
@@ -106,11 +105,11 @@ def get_object_importer() -> Response:
     try:
         importer_response = []
 
-        for importer in __OBJECT_IMPORTER__:
+        for importer in OBJECT_IMPORTER_REGISTRY:
             importer_response.append({
-                'name': __OBJECT_IMPORTER__.get(importer).FILE_TYPE,
-                'content_type': __OBJECT_IMPORTER__.get(importer).CONTENT_TYPE,
-                'icon': __OBJECT_IMPORTER__.get(importer).ICON
+                'name': OBJECT_IMPORTER_REGISTRY.get(importer).FILE_TYPE,
+                'content_type': OBJECT_IMPORTER_REGISTRY.get(importer).CONTENT_TYPE,
+                'icon': OBJECT_IMPORTER_REGISTRY.get(importer).ICON
             })
 
         return DefaultResponse(importer_response).make_response()
@@ -119,11 +118,13 @@ def get_object_importer() -> Response:
         abort(500, "An internal server error occurred while retrieving the ObjectImporter!")
 
 
-#TODO: ROUTE-FIX (Remove one route)
 @importer_object_blueprint.route('/importer/config/<string:importer_type>/', methods=['GET'])
-@importer_object_blueprint.route('/importer/config/<string:importer_type>', methods=['GET'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_default_object_importer_config(importer_type: str) -> Response:
+@importer_object_blueprint.protect(auth=True, right='base.import.object.*')
+def get_default_object_importer_config(  # pylint: disable=unused-argument
+        importer_type: str,
+        request_user: CmdbUser) -> Response:
     """
     Retrieve the default configuration for a specific object importer type.
 
@@ -139,7 +140,7 @@ def get_default_object_importer_config(importer_type: str) -> Response:
     """
     try:
         try:
-            importer: ObjectImporterConfig = __OBJECT_IMPORTER_CONFIG__[importer_type]
+            importer: ObjectImporterConfig = OBJECT_IMPORTER_CONFIG_REGISTRY[importer_type]
         except KeyError:
             abort(404, f"ObjectImporter config with Type: {importer_type} not found!")
 
@@ -151,35 +152,13 @@ def get_default_object_importer_config(importer_type: str) -> Response:
         abort(500, "An internal server error occurred while retrieving the ObjectImporter config!")
 
 
-#TODO: ROUTE-FIX (Remove one route)
-@importer_object_blueprint.route('/parser/', methods=['GET'])
-@importer_object_blueprint.route('/parser', methods=['GET'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_object_parser() -> Response:
-    """
-    Retrieve a list of available object parsers.
-
-    This endpoint returns a list of all registered object parsers. These parsers are used
-    to interpret or convert raw data into structured objects based on supported formats.
-
-    Returns:
-        Response: A Flask Response object containing a JSON array of parser identifiers.
-                  Each item in the list represents a supported object parser.
-    """
-    try:
-        parser = list(__OBJECT_PARSER__)
-
-        return DefaultResponse(parser).make_response()
-    except Exception as err:
-        LOGGER.error("[get_object_parser] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occurred while retrieving the ObjectParsers!")
-
-
-#TODO: ROUTE-FIX (Remove one route)
-@importer_object_blueprint.route('/parser/default/<string:parser_type>', methods=['GET'])
 @importer_object_blueprint.route('/parser/default/<string:parser_type>/', methods=['GET'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_default_object_parser_config(parser_type: str) -> Response:
+@importer_object_blueprint.protect(auth=True, right='base.import.object.*')
+def get_default_object_parser_config(  # pylint: disable=unused-argument
+        parser_type: str,
+        request_user: CmdbUser) -> Response:
     """
     Retrieve the default configuration for a specific object parser.
 
@@ -195,7 +174,7 @@ def get_default_object_parser_config(parser_type: str) -> Response:
     """
     try:
         try:
-            parser: BaseObjectParser = __OBJECT_PARSER__[parser_type]
+            parser: BaseObjectParser = OBJECT_PARSER_REGISTRY[parser_type]
         except KeyError:
             abort(404, f"ObjectParser config with Type: {parser_type} not found!")
 
@@ -207,11 +186,11 @@ def get_default_object_parser_config(parser_type: str) -> Response:
         abort(500, "An internal server error occurred while retrieving the default ObjectParser config!")
 
 
-#TODO: ROUTE-FIX (Remove one route)
 @importer_object_blueprint.route('/parse/', methods=['POST'])
-@importer_object_blueprint.route('/parse', methods=['POST'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def parse_objects() -> Response:
+@importer_object_blueprint.protect(auth=True, right='base.import.object.*')
+def parse_objects(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
     Parse uploaded object data using the specified parser configuration.
 
@@ -254,11 +233,10 @@ def parse_objects() -> Response:
         abort(500, "An internal server error occurred while parsing Objects!")
 
 
-#TODO: REFACTOR-FIX (reduce complexity)
 @importer_object_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required('base.import.object.*')
+@importer_object_blueprint.protect(auth=True, right='base.import.object.*')
 def import_objects(request_user: CmdbUser) -> Response:
     """
     Handle the full import of objects into the CMDB system using an uploaded file.
@@ -318,69 +296,18 @@ def import_objects(request_user: CmdbUser) -> Response:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
         # Resolve + authorise the target type
-        try:
-            type_id = importer_config_request.get(ImporterConfigKey.TYPE_ID.value)
-            type_ = types_manager.get_type(type_id)
-
-            if not type_:
-                abort(404, f"Type with public_id {type_id} not found!")
-
-            type_ = CmdbType.from_data(type_)
-
-            if not type_.active:
-                raise AccessDeniedError(f'Objects cannot be created because type `{type_.name}` is deactivated.')
-            verify_import_access(request_user, type_, types_manager)
-        except HTTPException:
-            raise
-        except AccessDeniedError:
-            LOGGER.error("[import_objects] Access denied while importing objects")
-            abort(403, "Access denied for importing objects!")
-        except Exception as error:
-            LOGGER.error("[import_objects] Exception: %s. Type: %s", error, type(error), exc_info=True)
-            abort(400, "Could not import objects!")
+        type_: CmdbType = _resolve_import_type(importer_config_request, request_user, types_manager)
 
         # Importing objects of an IPAM special type requires a valid IPAM license
         enforce_special_type_license(request_user, bool(type_ and type_.special_type))
 
-        # Load parser
-        try:
-            parser_class = load_parser_class(IMPORTER_KIND_OBJECT, file_format)
-        except ParserLoadError as err:
-            LOGGER.error("[import_objects] ParserLoadError: %s", err, exc_info=True)
-            abort(500, "Failed to load ObjectParser class!")
+        # Load + build the parser / config / importer for the file format
+        importer: ObjectImporter = _build_object_importer(
+            file_format, working_file, parser_config, importer_config_request, objects_manager, request_user,
+        )
 
-        parser = parser_class(parser_config)
-
-        # Load importer config
-        try:
-            importer_config_class = load_importer_config_class(IMPORTER_KIND_OBJECT, file_format)
-        except ImporterLoadError as err:
-            LOGGER.error("[import_objects] ImporterLoadError: %s", err, exc_info=True)
-            abort(500, "Failed to load ObjectImporter config!")
-
-        importer_config = importer_config_class(**importer_config_request)
-
-        # Load importer
-        try:
-            importer_class = load_importer_class(IMPORTER_KIND_OBJECT, file_format)
-        except ImporterLoadError as err:
-            LOGGER.error("[import_objects] ImporterLoadError: %s", err, exc_info=True)
-            abort(500, f"Failed to load ObjectImporter for file format: {file_format}!")
-
-        importer = importer_class(working_file, importer_config, parser, objects_manager, request_user)
-
-        try:
-            import_response: ImporterObjectResponse = importer.start_import()
-        except ImportRuntimeError as err:
-            LOGGER.error("[import_objects] ImportRuntimeError: %s", err, exc_info=True)
-            abort(500, "Failed to import Objects!")
-        except AccessDeniedError as err:
-            LOGGER.error("[import_objects] AccessDeniedError: %s", err)
-            abort(403, "No permission to import Objects!")
-        except Exception as err:
-            LOGGER.error("[import_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-            abort(500, "Unexpected error occurred while importing Objects!")
-
+        # Run the import and log the successfully imported objects (best-effort)
+        import_response: ImporterObjectResponse = _run_object_import(importer)
         _log_imported_objects(import_response.success_imports, objects_manager, logs_manager, request_user)
 
         return DefaultResponse(import_response).make_response()
@@ -393,6 +320,125 @@ def import_objects(request_user: CmdbUser) -> Response:
         if request_file is not None:
             request_file.close()
         _remove_temp_file(working_file)
+
+
+def _resolve_import_type(
+        importer_config_request: dict,
+        request_user: CmdbUser,
+        types_manager: TypesManager) -> CmdbType:
+    """
+    Resolves and authorises the target CmdbType for an import
+
+    Args:
+        importer_config_request (dict): The importer config payload (must carry a valid 'type_id')
+        request_user (CmdbUser): The user performing the import
+        types_manager (TypesManager): Manager used to resolve the type
+
+    Returns:
+        CmdbType: The resolved, active, access-verified target type
+
+    Raises:
+        HTTPException: 404 if the type is missing, 403 if it is deactivated or the user lacks import
+            access, 400 for any other resolution error
+    """
+    try:
+        type_id = importer_config_request.get(ImporterConfigKey.TYPE_ID.value)
+        type_ = types_manager.get_type(type_id)
+
+        if not type_:
+            abort(404, f"Type with public_id {type_id} not found!")
+
+        type_ = CmdbType.from_data(type_)
+
+        if not type_.active:
+            raise AccessDeniedError(f'Objects cannot be created because type `{type_.name}` is deactivated.')
+
+        verify_import_access(request_user, type_, types_manager)
+
+        return type_
+    except HTTPException:
+        raise
+    except AccessDeniedError:
+        LOGGER.error("[import_objects] Access denied while importing objects")
+        abort(403, "Access denied for importing objects!")
+    except Exception as error:
+        LOGGER.error("[import_objects] Exception: %s. Type: %s", error, type(error), exc_info=True)
+        abort(400, "Could not import objects!")
+
+
+def _build_object_importer(
+        file_format: str,
+        working_file: str,
+        parser_config: dict,
+        importer_config_request: dict,
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser) -> ObjectImporter:
+    """
+    Loads and instantiates the parser, importer config and importer for the given file format
+
+    Args:
+        file_format (str): The uploaded file's format (e.g. 'csv', 'json')
+        working_file (str): Path to the saved import file
+        parser_config (dict): Parser configuration
+        importer_config_request (dict): Importer configuration payload
+        objects_manager (ObjectsManager): Manager used by the importer to read/insert objects
+        request_user (CmdbUser): The user performing the import
+
+    Returns:
+        ObjectImporter: The ready-to-run importer
+
+    Raises:
+        HTTPException: 500 if any parser/importer class fails to load
+    """
+    try:
+        parser_class = load_parser_class(IMPORTER_KIND_OBJECT, file_format)
+    except ParserLoadError as err:
+        LOGGER.error("[import_objects] ParserLoadError: %s", err, exc_info=True)
+        abort(500, "Failed to load ObjectParser class!")
+
+    parser = parser_class(parser_config)
+
+    try:
+        importer_config_class = load_importer_config_class(IMPORTER_KIND_OBJECT, file_format)
+    except ImporterLoadError as err:
+        LOGGER.error("[import_objects] ImporterLoadError: %s", err, exc_info=True)
+        abort(500, "Failed to load ObjectImporter config!")
+
+    importer_config = importer_config_class(**importer_config_request)
+
+    try:
+        importer_class = load_importer_class(IMPORTER_KIND_OBJECT, file_format)
+    except ImporterLoadError as err:
+        LOGGER.error("[import_objects] ImporterLoadError: %s", err, exc_info=True)
+        abort(500, f"Failed to load ObjectImporter for file format: {file_format}!")
+
+    return importer_class(working_file, importer_config, parser, objects_manager, request_user)
+
+
+def _run_object_import(importer: ObjectImporter) -> ImporterObjectResponse:
+    """
+    Runs the import, mapping importer errors to HTTP responses
+
+    Args:
+        importer (ObjectImporter): The importer to run
+
+    Returns:
+        ImporterObjectResponse: The import result (success/failure messages)
+
+    Raises:
+        HTTPException: 500 on an import runtime / unexpected error, 403 on access denial
+    """
+    try:
+        return importer.start_import()
+    except ImportRuntimeError as err:
+        LOGGER.error("[import_objects] ImportRuntimeError: %s", err, exc_info=True)
+        abort(500, "Failed to import Objects!")
+    except AccessDeniedError as err:
+        LOGGER.error("[import_objects] AccessDeniedError: %s", err)
+        abort(403, "No permission to import Objects!")
+    except Exception as err:
+        LOGGER.error("[import_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "Unexpected error occurred while importing Objects!")
 
 
 def _save_import_file_to_temp(request_file: FileStorage) -> str:

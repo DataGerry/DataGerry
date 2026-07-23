@@ -16,14 +16,11 @@
 """
 Implementation of JsonObjectImporterConfig
 """
-from logging import Logger, getLogger
-
 from cmdb.framework.importer.content_types import JSONContent
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
-from cmdb.framework.importer.mapper.mapping import Mapping
+from cmdb.framework.importer.importer_constants import JsonMappingKey
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           JsonObjectImporterConfig - CLASS                                           #
@@ -32,32 +29,19 @@ class JsonObjectImporterConfig(ObjectImporterConfig, JSONContent):
     """
     Importer configuration for JSON files
 
+    JSON imports use a fixed mapping (``MANUALLY_MAPPING = False``), so ``DEFAULT_MAPPING`` is a
+    plain dict describing the property/field mapping consumed by the JSON importer, and no mapping is
+    supplied by the client. The constructor is inherited from ObjectImporterConfig.
+
     Extends: ObjectImporterConfig, JSONContent
     """
 
     DEFAULT_MAPPING = {
-        'properties': {
-            'public_id': 'public_id',
-            'active': 'active',
+        JsonMappingKey.PROPERTIES.value: {
+            CmdbObjectKey.PUBLIC_ID.value: CmdbObjectKey.PUBLIC_ID.value,
+            CmdbObjectKey.ACTIVE.value: CmdbObjectKey.ACTIVE.value,
         },
-        'fields': {
-        }
+        JsonMappingKey.FIELDS.value: {}
     }
 
     MANUALLY_MAPPING = False
-
-    def __init__(self,
-                 type_id: int,
-                 mapping: Mapping | None = None,
-                 start_element: int = 0,
-                 max_elements: int = 0,
-                 overwrite_public: bool = True,
-                 *args,
-                 **kwargs):
-        super().__init__(
-            type_id=type_id,
-            mapping=mapping,
-            start_element=start_element,
-            max_elements=max_elements,
-            overwrite_public=overwrite_public
-        )

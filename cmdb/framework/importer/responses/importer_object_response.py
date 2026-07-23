@@ -22,12 +22,23 @@ from cmdb.framework.importer.messages.import_failed_message import ImportFailedM
 
 class ImporterObjectResponse:
     """
-    Response of an bulk object import
+    Response of a bulk object import
     """
 
-    def __init__(self, message: str, success_imports: list = None, failed_imports: list = None):
-        self.message = message
+    def __init__(
+            self,
+            message: str,
+            success_imports: list | None = None,
+            failed_imports: list | None = None,
+        ) -> None:
+        """
+        Initializes the ImporterObjectResponse for a bulk object import
+
+        Args:
+            message (str): A human-readable summary of the import result
+            success_imports (list | None): The ImportSuccessMessage entries. Defaults to an empty list
+            failed_imports (list | None): The ImportFailedMessage entries. Defaults to an empty list
+        """
+        self.message: str = message
         self.success_imports: list[ImportSuccessMessage] = success_imports or []
         self.failed_imports: list[ImportFailedMessage] = failed_imports or []
-
-        super().__init__()

@@ -14,10 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of helper functions for the importer workflows
+Registries and lookup helpers that resolve the importer, importer-config and parser classes
+for a given import kind (e.g. ``object``) and file format (e.g. ``json`` / ``csv``)
 """
 from typing import Any
 
+from cmdb.framework.importer.importer_constants import IMPORTER_KIND_OBJECT, ImporterFileFormat
 from cmdb.framework.importer.parser.csv_object_parser import CsvObjectParser
 from cmdb.framework.importer.parser.json_object_parser import JsonObjectParser
 from cmdb.framework.importer.importers.csv_object_importer import CsvObjectImporter
@@ -25,138 +27,131 @@ from cmdb.framework.importer.configs.csv_object_importer_config import CsvObject
 from cmdb.framework.importer.importers.json_object_importer import JsonObjectImporter
 from cmdb.framework.importer.configs.json_object_importer_config import JsonObjectImporterConfig
 
-from cmdb.errors.importer import ImporterLoadError, ParserLoadError
+from cmdb.errors.importer import ImporterError, ImporterLoadError, ParserLoadError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__OBJECT_IMPORTER__: dict[str, Any] = {
-    'json': JsonObjectImporter,
-    'csv': CsvObjectImporter
+OBJECT_IMPORTER_REGISTRY: dict[str, Any] = {
+    ImporterFileFormat.JSON: JsonObjectImporter,
+    ImporterFileFormat.CSV: CsvObjectImporter,
 }
 
-__OBJECT_IMPORTER_CONFIG__: dict[str, Any] = {
-    'json': JsonObjectImporterConfig,
-    'csv': CsvObjectImporterConfig
+OBJECT_IMPORTER_CONFIG_REGISTRY: dict[str, Any] = {
+    ImporterFileFormat.JSON: JsonObjectImporterConfig,
+    ImporterFileFormat.CSV: CsvObjectImporterConfig,
 }
 
-__OBJECT_PARSER__: dict[str, Any] = {
-    'json': JsonObjectParser,
-    'csv': CsvObjectParser
+OBJECT_PARSER_REGISTRY: dict[str, Any] = {
+    ImporterFileFormat.JSON: JsonObjectParser,
+    ImporterFileFormat.CSV: CsvObjectParser,
 }
 
 
-def load_importer_class(importer_type: str, importer_name: str) -> JsonObjectImporter | CsvObjectImporter:
+def _resolve_registered_class(
+        kind: str,
+        name: str,
+        registries: dict[str, dict[str, Any]],
+        error_cls: type[ImporterError],
+        label: str,
+    ) -> Any:
     """
-    Loads the importer class based on the provided importer type and name
-    
+    Resolve a registered class from a per-kind registry, raising a consistent error on any miss
+
     Args:
-        importer_type (str): The type of the importer (e.g., 'object')
-        importer_name (str): The name of the specific importer class to load
-        
+        kind (str): The import kind selecting the registry (e.g. 'object')
+        name (str): The file format selecting the class within the registry (e.g. 'json' / 'csv')
+        registries (dict[str, dict[str, Any]]): Mapping of kind to its {format: class} registry
+        error_cls (type[ImporterError]): The error class to raise when resolution fails
+        label (str): Human-readable label used in the raised error messages (e.g. 'importer')
+
     Returns:
-        'JsonObjectImporter' | 'CsvObjectImporter': The corresponding importer class
-        
+        Any: The resolved class (not an instance)
+
     Raises:
-        ImporterLoadError: If the importer type or name is invalid, or the importer class cannot be found
+        ImporterError: (as ``error_cls``) if the kind or name is unknown, or the entry is falsy
     """
-    # Define a mapping of importer types to configuration objects
-    importer_config_mapping: dict[str, dict[str, Any]] = {
-        'object': __OBJECT_IMPORTER__
-    }
+    if kind not in registries:
+        raise error_cls(f"Invalid {label} type: {kind}")
 
-    # Check if the importer type is valid
-    if importer_type not in importer_config_mapping:
-        raise ImporterLoadError(f"Invalid importer type: {importer_type}")
+    registry: dict[str, Any] = registries[kind]
 
-    # Retrieve the importer configuration for the given type
-    importer_config: dict[str, Any] = importer_config_mapping[importer_type]
+    if name not in registry:
+        raise error_cls(f"Invalid {label} name: {name} for type {kind}")
 
-    # Check if the importer name exists in the configuration
-    if importer_name not in importer_config:
-        raise ImporterLoadError(f"Invalid importer name: {importer_name} for type {importer_type}")
+    resolved: Any = registry[name]
 
-    # Retrieve the importer class
-    importer_class: Any = importer_config[importer_name]
+    if not resolved:
+        raise error_cls(f"[{kind} - {name}]: No {label} class found!")
 
-    # Ensure the importer class is valid
-    if not importer_class:
-        raise ImporterLoadError(f"[{importer_type} - {importer_name}]: No importer class found!")
+    return resolved
 
-    return importer_class
+
+def load_importer_class(importer_type: str, importer_name: str) -> type[JsonObjectImporter | CsvObjectImporter]:
+    """
+    Load the importer class for the given import kind and file format
+
+    Args:
+        importer_type (str): The import kind (e.g. 'object')
+        importer_name (str): The file format of the importer to load (e.g. 'json' / 'csv')
+
+    Returns:
+        type[JsonObjectImporter | CsvObjectImporter]: The corresponding importer class
+
+    Raises:
+        ImporterLoadError: If the import kind or file format is unknown, or no class is registered
+    """
+    return _resolve_registered_class(
+        importer_type,
+        importer_name,
+        {IMPORTER_KIND_OBJECT: OBJECT_IMPORTER_REGISTRY},
+        ImporterLoadError,
+        'importer',
+    )
 
 
 def load_importer_config_class(
         importer_type: str,
-        importer_name: str
-    ) -> JsonObjectImporterConfig | CsvObjectImporterConfig:
+        importer_name: str,
+    ) -> type[JsonObjectImporterConfig | CsvObjectImporterConfig]:
     """
-    Loads the importer configuration class based on the provided importer type and name
-    
+    Load the importer configuration class for the given import kind and file format
+
     Args:
-        importer_type (str): The type of the importer (e.g., 'object')
-        importer_name (str): The name of the specific importer configuration to load
-        
+        importer_type (str): The import kind (e.g. 'object')
+        importer_name (str): The file format of the importer config to load (e.g. 'json' / 'csv')
+
     Returns:
-        'JsonObjectImporterConfig' | 'CsvObjectImporterConfig': The corresponding importer configuration class
-        
+        type[JsonObjectImporterConfig | CsvObjectImporterConfig]: The corresponding importer config class
+
     Raises:
-        ImporterLoadError: If the importer type or name is invalid, or the importer configuration cannot be found
+        ImporterLoadError: If the import kind or file format is unknown, or no class is registered
     """
-    importer_config_mapping = {
-        'object': __OBJECT_IMPORTER_CONFIG__
-    }
-
-    # Retrieve the importer configuration for the given type
-    importer_config = importer_config_mapping[importer_type]
-
-    # Check if the importer name exists in the configuration
-    if importer_name not in importer_config:
-        raise ImporterLoadError(f"Invalid importer name: {importer_name} for type {importer_type}")
-
-    # Retrieve the importer configuration class
-    importer_config_class = importer_config[importer_name]
-
-    # Ensure the configuration class is valid
-    if not importer_config_class:
-        raise ImporterLoadError(f"[{importer_type} - {importer_name}]: No importer_config_class found!")
-
-    return importer_config_class
+    return _resolve_registered_class(
+        importer_type,
+        importer_name,
+        {IMPORTER_KIND_OBJECT: OBJECT_IMPORTER_CONFIG_REGISTRY},
+        ImporterLoadError,
+        'importer config',
+    )
 
 
-def load_parser_class(parser_type: str, parser_name: str) -> JsonObjectParser | CsvObjectParser:
+def load_parser_class(parser_type: str, parser_name: str) -> type[JsonObjectParser | CsvObjectParser]:
     """
-    Loads the parser class based on the provided parser type and name
-    
+    Load the parser class for the given parser kind and file format
+
     Args:
-        parser_type (str): The type of the parser (e.g., 'object')
-        parser_name (str): The name of the specific parser class to load
-        
+        parser_type (str): The parser kind (e.g. 'object')
+        parser_name (str): The file format of the parser to load (e.g. 'json' / 'csv')
+
     Returns:
-        'JsonObjectParser' | 'CsvObjectParser': The corresponding parser class
-        
+        type[JsonObjectParser | CsvObjectParser]: The corresponding parser class
+
     Raises:
-        ParserLoadError: If the parser type or name is invalid, or the parser class cannot be found
+        ParserLoadError: If the parser kind or file format is unknown, or no class is registered
     """
-    # Define a mapping of parser types to configuration objects
-    parser_config_mapping = {
-        'object': __OBJECT_PARSER__
-    }
-
-    # Check if the parser type is valid
-    if parser_type not in parser_config_mapping:
-        raise ParserLoadError(f"Invalid parser type: {parser_type}")
-
-    # Retrieve the parser configuration for the given type
-    parser_config = parser_config_mapping[parser_type]
-
-    # Check if the parser name exists in the configuration
-    if parser_name not in parser_config:
-        raise ParserLoadError(f"Invalid parser name: {parser_name} for type {parser_type}")
-
-    # Retrieve the parser class
-    parser_class = parser_config[parser_name]
-
-    # Ensure the parser class is valid
-    if not parser_class:
-        raise ParserLoadError(f"[{parser_type} - {parser_name}]: No parser class found!")
-
-    return parser_class
+    return _resolve_registered_class(
+        parser_type,
+        parser_name,
+        {IMPORTER_KIND_OBJECT: OBJECT_PARSER_REGISTRY},
+        ParserLoadError,
+        'parser',
+    )
