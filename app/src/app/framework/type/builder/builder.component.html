@@ -1,4 +1,4 @@
-<div class="row">
+<div class="row" [class.builder-empty]="sections?.length === 0">
     <div id="builder-controls" class="col-3">
         <div id="controlWrapper" ui-block [blocked]="!valid">
             <div class="accordion" id="controlsPanel">
@@ -132,7 +132,7 @@
                     </div>
                 </div>
             </div>
-            <div 
+            <div
                 id="builder-controls-action"
                 role="group"
                 aria-label="Controls helper buttons"
@@ -160,7 +160,7 @@
             [dndDropzone]="['sections']"
             (dndDrop)="onSectionDrop($event)"
         >
-            <div style="border: 3px green solid; border-radius: 5px; padding: 15px;" dndPlaceholderRef>
+            <div class="dnd-placeholder" dndPlaceholderRef>
                 Drop control here
             </div>
             <section 

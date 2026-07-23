@@ -1,0 +1,102 @@
+@import "src/scss/variables";
+
+
+$tb-accent: $primary;
+$tb-accent-soft-2: rgba(233, 77, 24, 0.14);
+$tb-done: #15925a;
+$tb-done-line: #83cca4;
+$tb-line: #ece8e4;
+$tb-ink: #211d1a;
+$tb-ink-2: #4a443f;
+$tb-ink-3: #726b64;
+$tb-marker: 2.5rem;
+$tb-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+#type-builder {
+
+  aw-wizard-navigation-bar.horizontal ul.steps-indicator {
+    padding: calc(#{$tb-marker} + 0.95rem) 0 0.25rem 0;
+
+    li {
+
+      // Connector between markers; the completed segment reads as a progress fill.
+      &:not(:last-child):before {
+        top: calc(#{$tb-marker} / -2);
+        left: calc(50% + #{$tb-marker} / 2);
+        width: calc(100% - #{$tb-marker});
+        height: 2px;
+        border-radius: 2px;
+        background-color: $tb-line;
+        transition: background-color 300ms $tb-ease;
+      }
+
+      &.done:not(:last-child):before,
+      &.completed:not(:last-child):before {
+        background-color: $tb-done-line;
+      }
+
+      .step-indicator {
+        top: calc(#{$tb-marker} * -1);
+        left: calc(50% - #{$tb-marker} / 2);
+        width: $tb-marker;
+        height: $tb-marker;
+        line-height: calc(#{$tb-marker} - 4px);
+        font-size: 0.95rem;
+        border: 2px solid $tb-line;
+        background-color: #fff;
+        color: #a49c94;
+        box-shadow: 0 1px 2px rgba(28, 25, 23, 0.06), 0 1px 3px rgba(28, 25, 23, 0.04);
+        transition: transform 200ms $tb-ease, border-color 200ms $tb-ease,
+          background-color 200ms $tb-ease, color 200ms $tb-ease, box-shadow 200ms $tb-ease;
+      }
+
+      a .label {
+        color: $tb-ink-3;
+        font-size: 0.9rem;
+        font-weight: 500;
+        line-height: 1.2;
+        text-transform: none;
+        padding-top: 0.7rem;
+      }
+
+      // Completed steps.
+      &.done .step-indicator,
+      &.completed .step-indicator {
+        border-color: $tb-done;
+        background-color: $tb-done;
+        color: #fff;
+        box-shadow: 0 12px 26px -14px rgba(21, 146, 90, 0.6);
+      }
+
+      &.done a .label,
+      &.completed a .label {
+        color: $tb-ink-2;
+      }
+
+      // Active step.
+      &.current .step-indicator {
+        border-color: $tb-accent;
+        background-color: #fff;
+        color: $tb-accent;
+        box-shadow: 0 0 0 4px $tb-accent-soft-2, 0 12px 26px -12px rgba(233, 77, 24, 0.55);
+      }
+
+      &.current a .label {
+        color: $tb-ink;
+        font-weight: 650;
+      }
+
+      // Revisitable step hover affordance.
+      &.navigable:not(.current) a:hover .step-indicator {
+        border-color: darken($tb-line, 14%);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px -8px rgba(28, 25, 23, 0.16), 0 2px 6px -3px rgba(28, 25, 23, 0.08);
+      }
+
+      &.navigable a:focus-visible .step-indicator {
+        outline: none;
+        box-shadow: 0 0 0 0.2rem rgba(233, 77, 24, 0.35);
+      }
+    }
+  }
+}

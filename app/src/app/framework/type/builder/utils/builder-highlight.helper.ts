@@ -22,10 +22,7 @@ import { BuilderInteractionPolicy } from './builder-interaction-policy';
 
 /**
  * Owns the builder's highlight / validation-presentation logic: which sections and fields must be
- * flagged as invalid, whether interactions should be locked, and the derived CSS class maps.
- *
- * State is read/written through the shared BuilderContext and permission questions are delegated to
- * the BuilderInteractionPolicy, so the behaviour is identical to the original component methods.
+ * flagged as invalid, whether interactions should be locked, and the derived CSS 
  */
 export class BuilderHighlightHelper {
     constructor(
