@@ -40,7 +40,7 @@ const routes: Routes = [
         canActivate: [PermissionGuard],
         data: {
             breadcrumb: 'Objects',
-            right: 'base.export.type.*'
+            right: 'base.export.object.*'
         },
         component: ExportObjectsComponent
     },
