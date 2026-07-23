@@ -1,4 +1,11 @@
-<div id="type-builder" class="row">
+<div
+    id="type-builder"
+    class="row"
+    [class.step-basic-invalid]="!basicValid"
+    [class.step-content-invalid]="!contentValid"
+    [class.step-meta-invalid]="!metaValid"
+    [class.step-access-invalid]="!accessValid"
+>
     <div class="col-md-9">
         <aw-wizard
             [defaultStepIndex]="stepIndex"

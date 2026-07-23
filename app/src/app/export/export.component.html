@@ -1,5 +1,5 @@
-<div *permissionLink="['base.export.type.*', 'base.export.object.*']" class="row g-3">
-    <div class="col-md-6">
+<div class="row g-3">
+    <div class="col-md-6" *permissionLink="'base.export.object.*'">
       <div class="card h-100">
         <a routerLink="/export/objects/" class="text-decoration-none">
           <div class="dash-card primary">
@@ -10,7 +10,7 @@
       </div>
     </div>
   
-    <div class="col-md-6">
+    <div class="col-md-6" *permissionLink="'base.export.type.*'">
       <div class="card h-100">
         <a routerLink="/export/types/" class="text-decoration-none">
           <div class="dash-card primary">

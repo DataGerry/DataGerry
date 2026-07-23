@@ -1,4 +1,4 @@
-<div class="row">
+<div class="row" [class.builder-empty]="sections?.length === 0">
     <div id="builder-controls" class="col-3">
         <div id="controlWrapper" ui-block [blocked]="!valid">
             <div class="accordion" id="controlsPanel">
@@ -132,7 +132,7 @@
                     </div>
                 </div>
             </div>
-            <div 
+            <div
                 id="builder-controls-action"
                 role="group"
                 aria-label="Controls helper buttons"
@@ -160,7 +160,7 @@
             [dndDropzone]="['sections']"
             (dndDrop)="onSectionDrop($event)"
         >
-            <div style="border: 3px green solid; border-radius: 5px; padding: 15px;" dndPlaceholderRef>
+            <div class="dnd-placeholder" dndPlaceholderRef>
                 Drop control here
             </div>
             <section 
@@ -197,9 +197,9 @@
                                 </color-chrome>
                             </div> -->
                             
-                            <button class="btn btn-link me-1" type="button" dndHandle 
+                            <button class="btn btn-link me-1" type="button" dndHandle
                             (dragstart)="preventSectionDrag($event, section)"
-                            [class.disabled]="!canMoveSection(section)">
+                            [class.disabled]="!canMoveSection(section) || isAnySectionHighlighted() || disableFields">
                                 <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                             </button>
                             <button class="btn btn-link" type="button"
@@ -237,9 +237,9 @@
                                         Drop field here
                                     </div>
                                     <ng-container *ngFor="let field of section.fields; let y = index">
-                                        <div 
+                                        <div
                                             [dndEffectAllowed]="getDnDEffectAllowedForField(field, section)"
-                                            dndType="inputs"
+                                            [dndType]="field?.type === 'location' ? 'location' : 'inputs'"
                                             [dndDraggable]="field"
                                             (dndStart)="onFieldDragStart(field, section, y)"
                                         >
@@ -264,7 +264,7 @@
                                                         </button>
                                                         <button class="btn btn-link me-1" type="button" dndHandle
                                                         (dragstart)="preventDragForAllFields($event, section)"
-                                                        [class.disabled]="isLocked() || disableFields || !canMoveField(field)"
+                                                        [class.disabled]="isLocked() || disableFields || isAnySectionHighlighted() || !canMoveField(field)"
                                                          >    
                                                             <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                                                         </button>

@@ -60,8 +60,8 @@
 
 
  <div class="container">
-    <div class="row" *permissionLink="['base.import.type.*', 'base.import.object.*']">
-      <div class="col-md-4">
+    <div class="row">
+      <div class="col-md-4" *permissionLink="'base.import.object.*'">
         <div class="card">
           <a routerLink="/import/object/" [ngbTooltip]="getButtonTooltip(calculatePercentage())">
             <div class="dash-card primary" [ngClass]="getButtonClass(calculatePercentage())">
@@ -72,7 +72,7 @@
         </div>
       </div>
       
-      <div class="col-md-4">
+      <div class="col-md-4" *permissionLink="'base.import.type.*'">
         <div class="card">
           <a routerLink="/import/type/">
             <div class="dash-card primary">
