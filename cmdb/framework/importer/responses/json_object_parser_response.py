@@ -14,14 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-JsonObjectParserResponse
+Implementation of JsonObjectParserResponse
 """
-from logging import Logger, getLogger
-
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           JsonObjectParserResponse - CLASS                                           #
@@ -30,15 +26,8 @@ class JsonObjectParserResponse(ObjectParserResponse):
     """
     A response class that represents the result of parsing a JSON file
 
+    Inherits the ``count`` / ``entries`` handling and ``output()`` from ObjectParserResponse; exists
+    as a distinct return type for the JSON parser.
+
     Extends: ObjectParserResponse
     """
-
-    def __init__(self, count: int, entries: list) -> None:
-        """
-        Initializes the JsonObjectParserResponse instance with the provided count and entries
-
-        Args:
-            count (int): The number of entries in the parsed data
-            entries (list): The parsed data (usually a list or dictionary) from the JSON file
-        """
-        super().__init__(count=count, entries=entries)

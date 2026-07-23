@@ -17,13 +17,15 @@
 Helper methods shared by the OpenCelium Scheduler (Automation) REST routes
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from flask import abort, current_app
 
 from cmdb.manager import DgServicePortalManager, CachedUserManager
-from cmdb.open_celium import CachedOcIdType
+from cmdb.open_celium import CachedOcIdType, unmap_oc_name
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -68,3 +70,54 @@ def assert_scheduler_access(request_user: CmdbUser, scheduler_id: int) -> None:
 
     if not is_valid:
         abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
+
+
+def get_accessible_scheduler_ids(request_user: CmdbUser) -> list[int] | None:
+    """
+    Returns the OpenCelium scheduler ids visible to the requesting user (cloud mode)
+
+    Reads the ids from the user's cache first and falls back to the DataGerry Service Portal only on a
+    cache miss. Consolidates the cache-first id-list lookup the scheduler list / running-list routes
+    each performed inline.
+
+    Args:
+        request_user (CmdbUser): The user whose accessible scheduler ids are resolved
+
+    Returns:
+        list[int] | None: The accessible scheduler ids, or None/empty when the user has none
+    """
+    cached_user_manager = CachedUserManager(current_app.database_manager)
+    dg_sp_manager = DgServicePortalManager()
+
+    cached_user = cached_user_manager.get_cached_user(request_user.email)
+
+    if cached_user:
+        return cached_user_manager.get_oc_ids(
+            cached_user,
+            request_user.database,
+            CachedOcIdType.SCHEDULERS,
+        )
+
+    return dg_sp_manager.get_scheduler_ids(request_user.email, request_user.database)
+
+
+def unmap_scheduler_titles(scheduler: dict[str, Any]) -> None:
+    """
+    Strips the tenant prefix from a scheduler's title and its connection/connector titles (in place)
+
+    Shared by the scheduler read-list and update routes, which return the same nested shape
+    (`scheduler.title`, `scheduler.connection.title` and the two connector titles).
+
+    Args:
+        scheduler (dict[str, Any]): A scheduler dict with a nested `connection` and its connectors
+    """
+    scheduler[OcResponseKey.TITLE.value] = unmap_oc_name(scheduler[OcResponseKey.TITLE.value])
+
+    connection = scheduler[OcResponseKey.CONNECTION.value]
+    connection[OcResponseKey.TITLE.value] = unmap_oc_name(connection[OcResponseKey.TITLE.value])
+
+    from_connector = connection[OcResponseKey.FROM_CONNECTOR.value]
+    from_connector[OcResponseKey.TITLE.value] = unmap_oc_name(from_connector[OcResponseKey.TITLE.value])
+
+    to_connector = connection[OcResponseKey.TO_CONNECTOR.value]
+    to_connector[OcResponseKey.TITLE.value] = unmap_oc_name(to_connector[OcResponseKey.TITLE.value])

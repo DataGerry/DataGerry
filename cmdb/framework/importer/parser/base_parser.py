@@ -31,20 +31,21 @@ class BaseParser:
     A base class for parsers that handle file parsing with configurable settings
 
     Attributes:
-        DEFAULT_CONFIG (dict): Default configuration settings for the parser
+        DEFAULT_CONFIG (dict): Default configuration settings, merged under any caller-supplied config
     """
-    DEFAULT_CONFIG = {}
+    DEFAULT_CONFIG: dict = {}
 
-    def __init__(self, parser_config: dict = None):
+    def __init__(self, parser_config: dict | None = None) -> None:
         """
         Initializes the BaseParser with a given configuration
 
+        The effective configuration is DEFAULT_CONFIG overlaid with the caller-supplied values, so
+        omitted keys keep their defaults.
+
         Args:
-            parser_config (dict, optional): A dictionary containing parser-specific settings.
-                                            If not provided, DEFAULT_CONFIG is used
+            parser_config (dict | None): Parser-specific settings. If None, only DEFAULT_CONFIG is used
         """
-        _parser_config = parser_config or self.DEFAULT_CONFIG
-        self.parser_config: dict = {**self.DEFAULT_CONFIG, **_parser_config}
+        self.parser_config: dict = {**self.DEFAULT_CONFIG, **(parser_config or {})}
 
 
     def get_config(self) -> dict:
@@ -52,18 +53,17 @@ class BaseParser:
         Retrieves the current parser configuration
 
         Returns:
-            dict: The parser's configuration settings
+            dict: The parser's effective configuration settings
         """
         return self.parser_config
 
 
-    #TODO: ANNOTATION-FIX (add type annotation for "file")
-    def parse(self, file) -> BaseParserResponse:
+    def parse(self, file: str) -> BaseParserResponse:
         """
         Parses the given file
 
         Args:
-            file: The file to be parsed
+            file (str): Path to the file to be parsed
 
         Returns:
             BaseParserResponse: The result of the parsing process

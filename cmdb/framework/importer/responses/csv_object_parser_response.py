@@ -16,12 +16,8 @@
 """
 Implementation of CsvObjectParserResponse
 """
-from logging import Logger, getLogger
-
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            CsvObjectParserResponse - CLASS                                           #
@@ -32,7 +28,7 @@ class CsvObjectParserResponse(ObjectParserResponse):
 
     Extends: ObjectParserResponse
     """
-    def __init__(self, count: int, entries: list, entry_length: int, header: dict = None):
+    def __init__(self, count: int, entries: list, entry_length: int, header: list | None = None) -> None:
         """
         Initializes a CsvObjectParserResponse instance
 
@@ -40,10 +36,10 @@ class CsvObjectParserResponse(ObjectParserResponse):
             count (int): The total number of parsed entries
             entries (list): A list of parsed entries
             entry_length (int): The number of fields in each entry
-            header (dict, optional): A dictionary representing the CSV header mapping. Defaults to an empty dictionary
+            header (list | None): The CSV header row as a list of column names. Defaults to an empty list
         """
         self.entry_length: int = entry_length
-        self.header: dict = header or {}
+        self.header: list = header or []
         super().__init__(count=count, entries=entries)
 
 
@@ -57,11 +53,11 @@ class CsvObjectParserResponse(ObjectParserResponse):
         return self.entry_length
 
 
-    def get_header_list(self) -> dict:
+    def get_header_list(self) -> list:
         """
-        Retrieves the header mapping
+        Retrieves the header row
 
         Returns:
-            dict: The CSV header as a dictionary
+            list: The CSV header as a list of column names (empty when no header was parsed)
         """
         return self.header

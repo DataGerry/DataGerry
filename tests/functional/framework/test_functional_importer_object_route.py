@@ -76,7 +76,7 @@ def _import_form(type_id: int) -> dict[str, Any]:
 
 
 class TestImporterMetadata:
-    """The importer / parser metadata GET routes return their catalogues (both URL variants)."""
+    """The importer / parser metadata GET routes return their catalogues (trailing-slash canonical)."""
 
     def test_get_importers_trailing_slash(self, rest_api) -> None:
         """GET /importer/ lists the registered object importers."""
@@ -86,9 +86,11 @@ class TestImporterMetadata:
         names = [item['name'] for item in response.get_json()]
         assert 'csv' in names
 
-    def test_get_importers_no_slash(self, rest_api) -> None:
-        """GET /importer (no trailing slash) resolves to the same route."""
-        assert rest_api.get(f'{BASE_URL}/importer').status_code == HTTPStatus.OK
+    def test_no_slash_variant_redirects_to_canonical(self, rest_api) -> None:
+        """The no-slash form is not a separate route; strict_slashes redirects it (308) to the slash form."""
+        response = rest_api.get(f'{BASE_URL}/importer')
+
+        assert response.status_code in (HTTPStatus.MOVED_PERMANENTLY, HTTPStatus.PERMANENT_REDIRECT)
 
     def test_get_importer_config(self, rest_api) -> None:
         """GET /importer/config/<type>/ returns the manual-mapping flag."""
@@ -97,28 +99,21 @@ class TestImporterMetadata:
         assert response.status_code == HTTPStatus.OK
         assert 'manually_mapping' in response.get_json()
 
-    def test_get_importer_config_no_slash(self, rest_api) -> None:
-        """GET /importer/config/<type> (no slash) resolves after the typo fix."""
-        assert rest_api.get(f'{BASE_URL}/importer/config/csv').status_code == HTTPStatus.OK
-
     def test_get_importer_config_unknown_type_returns_404(self, rest_api) -> None:
         """An unknown importer type returns 404 (was 500 before the IndexError->KeyError fix)."""
         assert rest_api.get(f'{BASE_URL}/importer/config/nope/').status_code == HTTPStatus.NOT_FOUND
 
-    def test_get_parsers(self, rest_api) -> None:
-        """GET /parser/ lists the registered object parsers."""
-        response = rest_api.get(f'{BASE_URL}/parser/')
-
-        assert response.status_code == HTTPStatus.OK
-        assert 'csv' in response.get_json()
+    def test_parser_list_route_removed(self, rest_api) -> None:
+        """The unused GET /parser/ list route was removed -> 404."""
+        assert rest_api.get(f'{BASE_URL}/parser/').status_code == HTTPStatus.NOT_FOUND
 
     def test_get_parser_config(self, rest_api) -> None:
-        """GET /parser/default/<type> returns the parser's default config."""
-        assert rest_api.get(f'{BASE_URL}/parser/default/csv').status_code == HTTPStatus.OK
+        """GET /parser/default/<type>/ returns the parser's default config."""
+        assert rest_api.get(f'{BASE_URL}/parser/default/csv/').status_code == HTTPStatus.OK
 
     def test_get_parser_config_unknown_type_returns_404(self, rest_api) -> None:
         """An unknown parser type returns 404 (was 500 before the IndexError->KeyError fix)."""
-        assert rest_api.get(f'{BASE_URL}/parser/default/nope').status_code == HTTPStatus.NOT_FOUND
+        assert rest_api.get(f'{BASE_URL}/parser/default/nope/').status_code == HTTPStatus.NOT_FOUND
 
 
 class TestParseObjects:
@@ -209,6 +204,19 @@ class TestImportObjects:
         )
 
         assert response.status_code == HTTPStatus.OK
+
+    def test_unexpected_type_resolution_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while resolving the target type is a client error -> 400."""
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError('unexpected')
+
+        monkeypatch.setattr(f'{_OBJECT_ROUTES}.CmdbType.from_data', _boom)
+
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_import_form(ACTIVE_TYPE_ID), content_type='multipart/form-data'
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_unknown_file_format_returns_500(self, rest_api) -> None:
         """An import whose file_format has no parser fails to load the parser -> 500."""

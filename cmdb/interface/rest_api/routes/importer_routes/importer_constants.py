@@ -17,10 +17,11 @@
 Shared constants for the CmdbObject import REST routes
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.framework.importer.importer_constants import IMPORTER_KIND_OBJECT
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# Importer/parser kind resolved by the importer helper registry (only 'object' imports exist today)
-IMPORTER_KIND_OBJECT: str = 'object'
+# Re-exported from the framework layer so the route and the importer registry share one source of truth
+__all__: list[str] = ['IMPORTER_KIND_OBJECT', 'ImporterFormField', 'ImporterConfigKey']
 
 
 class ImporterFormField(BaseStrEnum):

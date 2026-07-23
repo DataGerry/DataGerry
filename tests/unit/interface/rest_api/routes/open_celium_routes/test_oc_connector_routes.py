@@ -628,3 +628,480 @@ class TestGetInternalOcConnector:
                 _unwrap(get_internal_oc_connector)(request_user=REQUEST_USER)
 
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# ==================================================== CLOUD MODE ==================================================== #
+# In cloud mode the connector handlers map/unmap tenant titles, validate connector access + master
+# password (cache-first, Service Portal fallback via the helpers) and keep the Service Portal ids in sync.
+
+CONN_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_connector_helper'
+
+CLOUD_DB: str = 'gfSKkjoRzAxJwC'
+CLOUD_USER: SimpleNamespace = SimpleNamespace(database=CLOUD_DB, email='user@test.com', public_id=1)
+MASTER_PW_HDR: dict[str, str] = {MASTER_PW_HEADER: MASTER_PW}
+
+
+@pytest.fixture(name='cloud_app')
+def fixture_cloud_app() -> BaseCmdbApp:
+    """A cloud BaseCmdbApp (cloud_mode=True, local_mode=False) with a stub database_manager."""
+    app = BaseCmdbApp(__name__)
+    app.database_manager = MagicMock()
+    app.cloud_mode = True
+    app.local_mode = False
+
+    return app
+
+
+@pytest.fixture(name='cloud_managers')
+def fixture_cloud_managers(oc_manager: MagicMock) -> Any:
+    """Patches the managers at the route AND helper module paths; yields the cached + portal mocks.
+
+    The connector access helpers build their own CachedUserManager / DgServicePortalManager, so those are
+    patched at the helper module path too - all returning the same mocks the test configures.
+    """
+    cached = MagicMock()
+    dg_sp = MagicMock()
+    with patch(f'{ROUTE_PATH}.OcConnectorManager', return_value=oc_manager), \
+         patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=dg_sp), \
+         patch(f'{ROUTE_PATH}.CachedUserManager', return_value=cached), \
+         patch(f'{CONN_HELPER}.DgServicePortalManager', return_value=dg_sp), \
+         patch(f'{CONN_HELPER}.CachedUserManager', return_value=cached):
+        yield SimpleNamespace(cached=cached, dg_sp=dg_sp)
+
+
+class TestCreateOcConnectorCloud:
+    """Cloud create maps the title, saves the connector id and invalidates the cache."""
+
+    def test_maps_creates_and_syncs(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """The title is tenant-mapped, created, the id saved and the cache invalidated; title unmapped."""
+        oc_manager.create_connector.return_value = {'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_c'}
+
+        with cloud_app.test_request_context(json={'title': 'c'}):
+            response = _unwrap(create_oc_connector)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        assert oc_manager.create_connector.call_args.args[0]['title'] == f'{CLOUD_DB}_c'
+        cloud_managers.dg_sp.save_connector_id.assert_called_once()
+        cloud_managers.cached.delete_cached_user.assert_called_once_with(CLOUD_USER.email)
+
+    def test_reserved_mapped_name_returns_400(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """The tenant-mapped reserved internal name is refused with 400."""
+        del cloud_managers
+        reserved = f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}'
+
+        with cloud_app.test_request_context(json={'title': reserved}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(create_oc_connector)(request_user=CLOUD_USER)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.create_connector.assert_not_called()
+
+
+class TestCheckOcConnectorMasterPwCloud:
+    """Cloud master-pw check validates via cache/portal and optionally returns the connector."""
+
+    def test_valid_no_connector_id_returns_true(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A valid password with no connectorId returns True (cache path)."""
+        del oc_manager
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.check_cached_master_password.return_value = True
+
+        with cloud_app.test_request_context(json={'password': MASTER_PW}):
+            response = _unwrap(check_oc_connector_master_pw)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_invalid_password_via_portal_returns_403(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """An invalid password (portal fallback) aborts 403."""
+        del oc_manager
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.check_master_pw.return_value = False
+
+        with cloud_app.test_request_context(json={'password': MASTER_PW}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(check_oc_connector_master_pw)(request_user=CLOUD_USER)
+
+        assert exc_info.value.code == HTTPStatus.FORBIDDEN
+
+    def test_valid_with_connector_id_returns_connector(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A valid password + a connectorId in the subscription returns the (unmapped) connector."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.check_cached_master_password.return_value = True
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.get_connector.return_value = {'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_c'}
+
+        with cloud_app.test_request_context(json={'password': MASTER_PW, 'connectorId': CONNECTOR_ID}):
+            response = _unwrap(check_oc_connector_master_pw)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_connector_not_in_subscription_returns_400(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A valid password but a connectorId outside the subscription aborts 400."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.check_cached_master_password.return_value = True
+        cloud_managers.cached.oc_id_exists.return_value = False
+
+        with cloud_app.test_request_context(json={'password': MASTER_PW, 'connectorId': CONNECTOR_ID}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(check_oc_connector_master_pw)(request_user=CLOUD_USER)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.get_connector.assert_not_called()
+
+
+class TestGetOcConnectorCloud:
+    """Cloud get validates access + optional master password, then unmaps the title."""
+
+    def test_valid_without_password(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A connector in the subscription is returned (no master password)."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.get_connector.return_value = {'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_c'}
+
+        with cloud_app.test_request_context():
+            response = _unwrap(get_oc_connector)(request_user=CLOUD_USER, connector_id=CONNECTOR_ID)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_with_valid_password_via_portal(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """An uncached user with a valid master password (portal) returns the connector."""
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.check_connector_in_sub.return_value = True
+        cloud_managers.dg_sp.check_master_pw.return_value = True
+        oc_manager.get_connector.return_value = {'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_c'}
+
+        with cloud_app.test_request_context(headers=MASTER_PW_HDR):
+            response = _unwrap(get_oc_connector)(request_user=CLOUD_USER, connector_id=CONNECTOR_ID)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_invalid_password_returns_403(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """An invalid master password aborts 403."""
+        del oc_manager
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        cloud_managers.cached.check_cached_master_password.return_value = False
+
+        with cloud_app.test_request_context(headers=MASTER_PW_HDR):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_oc_connector)(request_user=CLOUD_USER, connector_id=CONNECTOR_ID)
+
+        assert exc_info.value.code == HTTPStatus.FORBIDDEN
+
+    def test_not_in_subscription_returns_400(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A connector outside the subscription aborts 400."""
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.check_connector_in_sub.return_value = False
+
+        with cloud_app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_oc_connector)(request_user=CLOUD_USER, connector_id=CONNECTOR_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.get_connector.assert_not_called()
+
+
+class TestGetAllOcConnectorsCloud:
+    """Cloud get-all resolves accessible ids (cache-first) and unmaps each connector."""
+
+    def test_via_cache(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """Ids come from the cache; each returned connector is unmapped."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.get_oc_ids.return_value = [CONNECTOR_ID]
+        oc_manager.get_connectors_by_ids.return_value = [{'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_c'}]
+
+        with cloud_app.test_request_context():
+            response = _unwrap(get_all_oc_connectors)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        cloud_managers.dg_sp.get_connector_ids.assert_not_called()
+
+    def test_via_portal_fallback(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """An uncached user resolves ids from the Service Portal."""
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.get_connector_ids.return_value = [CONNECTOR_ID]
+        oc_manager.get_connectors_by_ids.return_value = [{'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_c'}]
+
+        with cloud_app.test_request_context():
+            response = _unwrap(get_all_oc_connectors)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        cloud_managers.dg_sp.get_connector_ids.assert_called_once()
+
+    def test_no_ids(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """No accessible ids skips the by-ids fetch."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.get_oc_ids.return_value = []
+
+        with cloud_app.test_request_context():
+            response = _unwrap(get_all_oc_connectors)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        oc_manager.get_connectors_by_ids.assert_not_called()
+
+
+class TestCheckOcConnectorExistsCloud:
+    """Cloud exists maps the title before the lookup."""
+
+    def test_maps_title(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """The title is tenant-mapped before the existence check."""
+        del cloud_managers
+        oc_manager.connector_exists.return_value = True
+
+        with cloud_app.test_request_context():
+            response = _unwrap(check_oc_connector_exists)(request_user=CLOUD_USER, title='c')
+
+        assert response.status_code == HTTPStatus.OK
+        oc_manager.connector_exists.assert_called_once_with(f'{CLOUD_DB}_c')
+
+
+class TestUpdateOcConnectorCloud:
+    """Cloud update validates access, maps the title and unmaps the response."""
+
+    def test_valid_maps_and_unmaps(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A valid update maps the title and unmaps the response title."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.update_connector.return_value = {'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_renamed'}
+
+        with cloud_app.test_request_context(json={'title': 'renamed'}):
+            response = _unwrap(update_oc_connector)(request_user=CLOUD_USER, connector_id=CONNECTOR_ID)
+
+        assert response.status_code == HTTPStatus.OK
+        assert oc_manager.update_connector.call_args.args[0]['title'] == f'{CLOUD_DB}_renamed'
+
+    def test_not_in_subscription_returns_400(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """An update to a connector outside the subscription aborts 400."""
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.check_connector_in_sub.return_value = False
+
+        with cloud_app.test_request_context(json={'title': 'renamed'}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(update_oc_connector)(request_user=CLOUD_USER, connector_id=CONNECTOR_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.update_connector.assert_not_called()
+
+
+class TestDeleteOcConnectorCloud:
+    """Cloud delete validates access, deletes and invalidates the cache."""
+
+    def test_valid_deletes_and_invalidates(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A valid delete removes the connector and invalidates the user cache."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.delete_connector.return_value = True
+
+        with cloud_app.test_request_context():
+            response = _unwrap(delete_oc_connector)(request_user=CLOUD_USER, connector_id=CONNECTOR_ID)
+
+        assert response.status_code == HTTPStatus.OK
+        oc_manager.delete_connector.assert_called_once_with(CONNECTOR_ID)
+        cloud_managers.cached.delete_cached_user.assert_called_once_with(CLOUD_USER.email)
+
+    def test_not_in_subscription_returns_400(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A delete of a connector outside the subscription aborts 400."""
+        cloud_managers.cached.get_cached_user.return_value = None
+        cloud_managers.dg_sp.check_connector_in_sub.return_value = False
+
+        with cloud_app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(delete_oc_connector)(request_user=CLOUD_USER, connector_id=CONNECTOR_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.delete_connector.assert_not_called()
+
+
+class TestCreateOcInternalConnectorCloud:
+    """Cloud internal-create maps the reserved name, saves the id and invalidates the cache."""
+
+    def test_maps_creates_and_syncs(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """The internal title is tenant-mapped, created, the id saved and the cache invalidated."""
+        oc_manager.create_connector.return_value = {
+            'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}',
+        }
+
+        with cloud_app.test_request_context(json={}):
+            response = _unwrap(create_oc_internal_connector)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        assert oc_manager.create_connector.call_args.args[0]['title'] == f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}'
+        cloud_managers.dg_sp.save_connector_id.assert_called_once()
+        cloud_managers.cached.delete_cached_user.assert_called_once_with(CLOUD_USER.email)
+
+
+class TestUpdateInternalOcConnectorCloud:
+    """Cloud internal-update locates the mapped connector and unmaps the response."""
+
+    def test_valid_maps_and_unmaps(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """The internal connector is located by its mapped name and updated."""
+        del cloud_managers
+        oc_manager.get_connector_by_name.return_value = {'connectorId': CONNECTOR_ID}
+        oc_manager.update_connector.return_value = {
+            'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}',
+        }
+
+        with cloud_app.test_request_context(json={}):
+            response = _unwrap(update_internal_oc_connector)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        oc_manager.get_connector_by_name.assert_called_once_with(f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}')
+
+
+class TestGetInternalOcConnectorCloud:
+    """Cloud internal-get maps the name, validates the master password and reuses the cached user."""
+
+    def test_without_password_returns_located_connector(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """With no password the located connector is returned, title unmapped."""
+        del cloud_managers
+        oc_manager.get_connector_by_name.return_value = {
+            'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}',
+        }
+
+        with cloud_app.test_request_context(json={}):
+            response = _unwrap(get_internal_oc_connector)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_with_valid_password_reuses_cached_user(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """B1: with a password, the cached user is read once and reused for the id check."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.check_cached_master_password.return_value = True
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.get_connector_by_name.return_value = {
+            'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}',
+        }
+        oc_manager.get_connector.return_value = {
+            'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}',
+        }
+
+        with cloud_app.test_request_context(json={'password': MASTER_PW}):
+            response = _unwrap(get_internal_oc_connector)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        # cached user resolved exactly once despite both the pw check and the id check needing it (B1)
+        cloud_managers.cached.get_cached_user.assert_called_once_with(CLOUD_USER.email)
+
+    def test_invalid_password_returns_403(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """An invalid master password aborts 403."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.check_cached_master_password.return_value = False
+        oc_manager.get_connector_by_name.return_value = {
+            'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}',
+        }
+
+        with cloud_app.test_request_context(json={'password': MASTER_PW}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_internal_oc_connector)(request_user=CLOUD_USER)
+
+        assert exc_info.value.code == HTTPStatus.FORBIDDEN
+
+
+# ------------------------------- remaining branch / error-handler coverage ------------------------------------------ #
+
+class TestConnectorBranchCoverage:
+    """Remaining error-handler / branch paths not covered by the happy-path suites."""
+
+    def test_check_master_pw_connector_data_none(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """A valid connectorId whose OC fetch returns None responds with None (no unmap)."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.check_cached_master_password.return_value = True
+        cloud_managers.cached.oc_id_exists.return_value = True
+        oc_manager.get_connector.return_value = None
+
+        with cloud_app.test_request_context(json={'password': MASTER_PW, 'connectorId': CONNECTOR_ID}):
+            response = _unwrap(check_oc_connector_master_pw)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_check_master_password_httpexception_propagates(
+        self, flask_app, oc_manager, patched_managers,
+    ) -> None:
+        """An HTTPException from the manager is re-raised unchanged by check_master_password."""
+        del patched_managers
+        oc_manager.check_master_pw.side_effect = HTTPException()
+
+        with flask_app.test_request_context(headers={MASTER_PW_HEADER: MASTER_PW}):
+            with pytest.raises(HTTPException):
+                _unwrap(check_master_password)(request_user=REQUEST_USER)
+
+    def test_get_all_httpexception_propagates(self, flask_app, oc_manager, patched_managers) -> None:
+        """An HTTPException from the manager is re-raised unchanged by get-all."""
+        del patched_managers
+        oc_manager.get_all_connectors.side_effect = HTTPException()
+
+        with flask_app.test_request_context():
+            with pytest.raises(HTTPException):
+                _unwrap(get_all_oc_connectors)(request_user=REQUEST_USER)
+
+    def test_check_exists_httpexception_propagates(self, flask_app, oc_manager, patched_managers) -> None:
+        """An HTTPException from the manager is re-raised unchanged by check_exists."""
+        del patched_managers
+        oc_manager.connector_exists.side_effect = HTTPException()
+
+        with flask_app.test_request_context():
+            with pytest.raises(HTTPException):
+                _unwrap(check_oc_connector_exists)(request_user=REQUEST_USER, title='c')
+
+    def test_check_exists_get_error_returns_500(self, flask_app, oc_manager, patched_managers) -> None:
+        """An OcConnectorGetError from check_exists maps to 500."""
+        del patched_managers
+        oc_manager.connector_exists.side_effect = OcConnectorGetError('boom')
+
+        with flask_app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(check_oc_connector_exists)(request_user=REQUEST_USER, title='c')
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_create_internal_httpexception_propagates(self, flask_app, oc_manager, patched_managers) -> None:
+        """An HTTPException from the manager is re-raised unchanged by internal-create."""
+        del patched_managers
+        oc_manager.create_connector.side_effect = HTTPException()
+
+        with flask_app.test_request_context(json={}):
+            with pytest.raises(HTTPException):
+                _unwrap(create_oc_internal_connector)(request_user=REQUEST_USER)
+
+    def test_update_internal_missing_connector_returns_400(
+        self, flask_app, oc_manager, patched_managers,
+    ) -> None:
+        """Updating the internal connector when none exists aborts 400."""
+        del patched_managers
+        oc_manager.get_connector_by_name.return_value = None
+
+        with flask_app.test_request_context(json={}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(update_internal_oc_connector)(request_user=REQUEST_USER)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.update_connector.assert_not_called()
+
+    def test_check_master_password_exists_httpexception_propagates(
+        self, flask_app, oc_manager, patched_managers,
+    ) -> None:
+        """An HTTPException from the manager is re-raised unchanged by check_master_password_exists."""
+        del patched_managers
+        oc_manager.check_master_pw_exists.side_effect = HTTPException()
+
+        with flask_app.test_request_context():
+            with pytest.raises(HTTPException):
+                _unwrap(check_master_password_exists)(request_user=REQUEST_USER)
+
+    def test_get_internal_connector_not_in_subscription_returns_400(
+        self, cloud_app, oc_manager, cloud_managers,
+    ) -> None:
+        """A valid master password but a connector outside the subscription aborts 400."""
+        cloud_managers.cached.get_cached_user.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.check_cached_master_password.return_value = True
+        cloud_managers.cached.oc_id_exists.return_value = False
+        oc_manager.get_connector_by_name.return_value = {
+            'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_{OC_INTERNAL_CONNECTOR_NAME}',
+        }
+
+        with cloud_app.test_request_context(json={'password': MASTER_PW}):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(get_internal_oc_connector)(request_user=CLOUD_USER)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        oc_manager.get_connector.assert_not_called()

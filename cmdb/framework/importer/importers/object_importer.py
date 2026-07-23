@@ -24,6 +24,7 @@ from flask import current_app
 from cmdb.manager import ObjectsManager
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.framework.importer.importers.base_importer import BaseImporter
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
@@ -65,6 +66,7 @@ class ObjectImporter(BaseImporter):
             file_type: file type - used with content-type
             config: importer configuration
             parser: the parser instance based on content-type
+            objects_manager: manager used to read/insert/delete CmdbObjects
             request_user: the instance of the started user
         """
         self.parser: BaseObjectParser | None = parser
@@ -74,9 +76,19 @@ class ObjectImporter(BaseImporter):
         super().__init__(file=file, file_type=file_type, config=config)
 
 
-    def _generate_objects(self, parsed: ObjectParserResponse, *args, **kwargs) -> list:
-        """Generate a list of all data from the parser.
-        The implementation of the object generation should be written in the sub class"""
+    def _generate_objects(self, parsed: ObjectParserResponse, *args, **kwargs) -> list[dict]:
+        """
+        Generates the object dicts from the parser response
+
+        Delegates the per-entry generation to ``generate_object`` (implemented by the subclass);
+        any extra positional/keyword arguments (e.g. the target type's ``fields``) are forwarded
+
+        Args:
+            parsed (ObjectParserResponse): The parser response holding the raw entries
+
+        Returns:
+            list[dict]: One generated object dict per parsed entry
+        """
         object_instance_list: list[dict] = []
 
         for entry in parsed.entries:
@@ -85,99 +97,72 @@ class ObjectImporter(BaseImporter):
         return object_instance_list
 
 
-    def generate_object(self, entry, *args, **kwargs) -> dict:
-        """Generation of the CMDB-Objects based on the parser response
-        and the imported fields"""
+    def generate_object(self, entry: dict, *args, **kwargs) -> dict:
+        """
+        Generates a single CmdbObject dict from one parsed entry (implemented by the subclass)
+
+        Args:
+            entry (dict): A single parsed entry from the parser response
+
+        Raises:
+            NotImplementedError: This method must be implemented in a subclass
+
+        Returns:
+            dict: The generated object dict ready for import
+        """
         raise NotImplementedError
 
 
     def _import(self, import_objects: list) -> ImporterObjectResponse:
-        """Basic import wrapper - starting the import process
+        """
+        Imports the generated objects, recording per-object success/failure
+
+        Iterates from ``start_element`` for at most ``max_elements`` objects (0 = no limit). Each
+        object is inserted (overwriting an existing object of the same public_id when
+        ``overwrite_public`` is set); an object that already has a public_id while overwrite is
+        disabled, or any object whose write fails, is recorded as a failed import. In cloud mode the
+        ConfigItem count is reported once after the batch, only if anything was written
+
         Args:
-            import_objects: list of all objects for import - or output of _generate_objects()
+            import_objects (list): The generated objects to import (output of ``_generate_objects``)
+
+        Returns:
+            ImporterObjectResponse: The success and failure messages for the batch
         """
         run_config = self.get_config()
 
         success_imports: list[ImportSuccessMessage] = []
         failed_imports: list[ImportFailedMessage] = []
-        # Whether any object was inserted or deleted, so the ConfigItem count is synced once at the
-        # end (cloud mode) only when the batch actually changed the total
+        # Whether any object was written, so the ConfigItem count is synced once at the end
+        # (cloud mode) only when the batch actually changed the total
         did_write: bool = False
 
-        current_import_index = run_config.start_element
-        import_objects_length: int = len(import_objects)
+        # ``offset`` is relative to start_element, so it doubles as the count of processed objects
+        for offset, current_import_object in enumerate(import_objects[run_config.start_element:]):
+            if run_config.max_elements > 0 and offset >= run_config.max_elements:
+                break
 
-        while current_import_index < import_objects_length:
-            current_import_object: dict = import_objects[current_import_index]
-            current_public_id: int = current_import_object.get('public_id')
-            # Object has PublicID and can not overwrite
+            current_public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
+
+            # Object already has a public_id but overwriting is disabled -> reject
             if current_public_id is not None and not run_config.overwrite_public:
                 failed_imports.append(ImportFailedMessage(
                     error_message='Object import for object - has PublicID but not overwrite setting',
-                    obj=current_import_object))
-                current_import_index += 1
+                    obj=current_import_object,
+                ))
                 continue
 
-            # Object has no PublicID <- assign new
-            if not current_public_id:
-                current_public_id = self.objects_manager.get_new_object_public_id()
-                current_import_object.update({'public_id': current_public_id})
-            # else assign given PublicID
-            else:
-                current_public_id = current_import_object.get('public_id')
-
-            # Insert data
             try:
-                existing = self.objects_manager.get_object(current_public_id)
-
-                if existing:
-                    current_import_object['creation_time'] = existing['creation_time']
-
-                current_import_object['last_edit_time'] = datetime.now(timezone.utc)
-            except ObjectsManagerGetError as err:
-                try:
-                    if current_app.cloud_mode:
-                        if self.check_config_item_limit_reached(self.request_user):
-                            raise ObjectsManagerInsertError("Config item limit reached!") from err
-
-                    self.objects_manager.insert_object(current_import_object)
-                    did_write = True
-                except ObjectsManagerInsertError as error:
-                    failed_imports.append(ImportFailedMessage(error_message=error, obj=current_import_object))
-                    current_import_index += 1
-                    continue
-                else:
-                    success_imports.append(ImportSuccessMessage(public_id=current_public_id, obj=current_import_object))
+                imported_public_id = self._import_single_object(current_import_object)
+            except (ObjectsManagerGetError, ObjectsManagerDeleteError, ObjectsManagerInsertError) as err:
+                LOGGER.error("[_import] Could not import object: %s", err, exc_info=True)
+                failed_imports.append(ImportFailedMessage(error_message=err, obj=current_import_object))
             else:
-                try:
-                    #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
-                    self.objects_manager.delete_with_follow_up(current_public_id, self.request_user)
-                except ObjectsManagerDeleteError as err:
-                    LOGGER.error("[_import] ObjectsManagerDeleteError: %s", err, exc_info=True)
-                    failed_imports.append(ImportFailedMessage(error_message=err, obj=current_import_object))
-                    current_import_index += 1
-                    continue
-                else:
-                    did_write = True
-                    try:
-                        if current_app.cloud_mode:
-                            if self.check_config_item_limit_reached(self.request_user):
-                                raise ObjectsManagerInsertError("Config item limit reached")
-
-                        self.objects_manager.insert_object(current_import_object)
-                    except ObjectsManagerInsertError as err:
-                        LOGGER.error("[_import] ObjectsManagerInsertError: %s", err, exc_info=True)
-                        failed_imports.append(ImportFailedMessage(error_message=err, obj=current_import_object))
-                        current_import_index += 1
-                        continue
-                    else:
-                        success_imports.append(
-                            ImportSuccessMessage(public_id=current_public_id, obj=current_import_object))
-
-            # check if still import valid
-            current_import_index += 1
-            if run_config.max_elements > 0 and (current_import_index >= run_config.max_elements):
-                break
+                did_write = True
+                success_imports.append(ImportSuccessMessage(
+                    public_id=imported_public_id,
+                    obj=current_import_object,
+                ))
 
         # Sync the ConfigItem count to the Service Portal ONCE after the whole batch (cloud mode),
         # not per object - the count is a full recount so a single report reflects every change
@@ -187,8 +172,51 @@ class ObjectImporter(BaseImporter):
         return ImporterObjectResponse(
             message=f'Import of {len(success_imports)} objects',
             success_imports=success_imports,
-            failed_imports=failed_imports
+            failed_imports=failed_imports,
         )
+
+
+    def _import_single_object(self, current_import_object: dict) -> int:
+        """
+        Inserts a single object, replacing an existing object with the same public_id
+
+        A public_id that already exists is overwritten (its creation time is preserved and the old
+        object deleted first); an object without a public_id is assigned a fresh one. In cloud mode
+        the ConfigItem limit is enforced before the insert. The object dict is mutated in place with
+        its resolved public_id / creation_time / last_edit_time
+
+        Args:
+            current_import_object (dict): The object to insert
+
+        Raises:
+            ObjectsManagerGetError: If the existing-object lookup fails
+            ObjectsManagerDeleteError: If deleting the object being overwritten fails
+            ObjectsManagerInsertError: If the insert fails or the ConfigItem limit is reached
+
+        Returns:
+            int: The public_id the object was imported under
+        """
+        public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
+        existing = self.objects_manager.get_object(public_id) if public_id else None
+
+        if existing:
+            # Overwrite: preserve the original creation time, then remove the old object before re-insert
+            current_import_object[CmdbObjectKey.CREATION_TIME.value] = existing[CmdbObjectKey.CREATION_TIME.value]
+            #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
+            self.objects_manager.delete_with_follow_up(public_id, self.request_user)
+        elif not public_id:
+            # New object without an id -> assign a fresh public_id
+            public_id = self.objects_manager.get_new_object_public_id()
+            current_import_object[CmdbObjectKey.PUBLIC_ID.value] = public_id
+
+        current_import_object[CmdbObjectKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
+
+        if current_app.cloud_mode and self.check_config_item_limit_reached(self.request_user):
+            raise ObjectsManagerInsertError("Config item limit reached!")
+
+        self.objects_manager.insert_object(current_import_object)
+
+        return public_id
 
 
     def start_import(self) -> ImporterObjectResponse:
@@ -217,7 +245,6 @@ class ObjectImporter(BaseImporter):
 
         Args:
             request_user (CmdbUser): User requesting this operation
-            objects_manager (ObjectsManager): Manager for CmdbObjects
 
         Returns:
             bool: True if the limit has been reached, else False
