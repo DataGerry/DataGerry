@@ -52,8 +52,27 @@ def _run_config(start_element: int = 0, max_elements: int = 0, overwrite_public:
 #                                                     _import                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def _candidates(count: int) -> list:
+    """A list of (provided, generated) candidate pairs of empty objects (pass validation as-is)."""
+    return [({}, {}) for _ in range(count)]
+
+
+class TestToProvidedJson:
+    """The base provided-data snapshot (used by JSON, whose entry is already the object)."""
+
+    def test_deep_copies_the_entry(self) -> None:
+        """It returns a deep copy so later coercion of the entry can't mutate the report snapshot."""
+        entry = {'active': True, 'fields': [{'name': 'f', 'value': 'v'}]}
+
+        result = ObjectImporter._to_provided_json(MagicMock(), entry)  # pylint: disable=protected-access
+
+        assert result == entry
+        assert result is not entry
+        assert result['fields'] is not entry['fields']
+
+
 class TestImportBatch:
-    """The batch loop routes objects to success/failure and syncs the count once."""
+    """The batch loop normalizes+validates, routes objects to success/failure and syncs once."""
 
     def test_message_and_success_count(self) -> None:
         """Three importable objects yield three successes and 'Import of 3 objects'."""
@@ -63,7 +82,7 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, [{}, {}, {}])  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, _candidates(3), None)  # pylint: disable=protected-access
 
         assert len(result.success_imports) == 3
         assert not result.failed_imports
@@ -77,23 +96,40 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = True
-            ObjectImporter._import(mock_self, [{}, {}, {}])  # pylint: disable=protected-access
+            ObjectImporter._import(mock_self, _candidates(3), None)  # pylint: disable=protected-access
 
         mock_self._sync_config_item_count.assert_called_once()  # pylint: disable=protected-access
 
-    def test_no_write_does_not_sync(self) -> None:
-        """A batch that writes nothing (rejected id) never contacts the portal."""
+    def test_invalid_object_is_rejected_without_writing(self) -> None:
+        """A validation error (invalid active) rejects the object; nothing is written."""
+        mock_self = MagicMock()
+        mock_self.get_config.return_value = _run_config()
+
+        with patch(f'{PATH}.current_app') as current_app:
+            current_app.cloud_mode = True
+            result = ObjectImporter._import(  # pylint: disable=protected-access
+                mock_self, [({'active': 'maybe'}, {'active': 'maybe'})], None)
+
+        mock_self._import_single_object.assert_not_called()  # pylint: disable=protected-access
+        mock_self._sync_config_item_count.assert_not_called()  # pylint: disable=protected-access
+        assert len(result.failed_imports) == 1
+        assert result.failed_imports[0].failed_object == {'active': 'maybe'}
+        assert result.failed_imports[0].errors == ["Invalid value for 'active': 'maybe'"]
+
+    def test_public_id_without_overwrite_is_rejected(self) -> None:
+        """A public_id present with overwrite disabled is rejected before any write."""
         mock_self = MagicMock()
         mock_self.get_config.return_value = _run_config(overwrite_public=False)
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = True
-            # public_id present but overwrite disabled -> rejected before any write
-            result = ObjectImporter._import(mock_self, [{'public_id': 5}])  # pylint: disable=protected-access
+            result = ObjectImporter._import(  # pylint: disable=protected-access
+                mock_self, [({'public_id': 5}, {'public_id': 5})], None)
 
         mock_self._sync_config_item_count.assert_not_called()  # pylint: disable=protected-access
         mock_self._import_single_object.assert_not_called()  # pylint: disable=protected-access
         assert len(result.failed_imports) == 1
+        assert 'overwrit' in result.failed_imports[0].errors[0]
 
     def test_write_failure_is_recorded_as_failed(self) -> None:
         """An ObjectsManager* error from the per-object write becomes a failed import."""
@@ -103,10 +139,12 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, [{}])  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, [({'x': 1}, {})], None)  # pylint: disable=protected-access
 
         assert not result.success_imports
         assert len(result.failed_imports) == 1
+        assert result.failed_imports[0].failed_object == {'x': 1}
+        assert result.failed_imports[0].errors == ['boom']
         mock_self._sync_config_item_count.assert_not_called()  # pylint: disable=protected-access
 
     def test_start_element_skips_leading_objects(self) -> None:
@@ -117,7 +155,7 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, [{}, {}, {}])  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, _candidates(3), None)  # pylint: disable=protected-access
 
         # Only the 3rd object is processed
         assert len(result.success_imports) == 1
@@ -131,7 +169,7 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, [{}, {}, {}, {}, {}])  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, _candidates(5), None)  # pylint: disable=protected-access
 
         # From index 1, at most 2 objects -> exactly 2 processed
         assert len(result.success_imports) == 2
@@ -157,13 +195,12 @@ class TestImportSingleObject:
 
         assert result == 500
         assert obj['public_id'] == 500
-        assert 'last_edit_time' in obj
         # A new object never probes for an existing one
         mock_self.objects_manager.get_object.assert_not_called()
         mock_self.objects_manager.insert_object.assert_called_once_with(obj)
 
-    def test_existing_object_is_overwritten_preserving_creation_time(self) -> None:
-        """An object with an existing public_id is deleted (creation time kept) then re-inserted."""
+    def test_existing_object_is_overwritten(self) -> None:
+        """An object with an existing public_id is deleted then re-inserted (lifecycle fields owned upstream)."""
         mock_self = MagicMock()
         mock_self.objects_manager.get_object.return_value = {'creation_time': 'ORIGINAL'}
         obj: dict = {'public_id': 7}
@@ -173,7 +210,8 @@ class TestImportSingleObject:
             result = ObjectImporter._import_single_object(mock_self, obj)  # pylint: disable=protected-access
 
         assert result == 7
-        assert obj['creation_time'] == 'ORIGINAL'
+        # creation_time is forced by the normalization step, not preserved here
+        assert 'creation_time' not in obj
         mock_self.objects_manager.delete_with_follow_up.assert_called_once_with(7, mock_self.request_user)
         mock_self.objects_manager.get_new_object_public_id.assert_not_called()
         mock_self.objects_manager.insert_object.assert_called_once_with(obj)

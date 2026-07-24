@@ -166,13 +166,11 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
         """
         try:
             parsed_response: JsonObjectParserResponse = self.parser.parse(self.file)
-            type_instance_fields: list = self.objects_manager.get_object_type(
-                self.config.get_type_id()
-            ).get_fields()
+            type_instance = self.objects_manager.get_object_type(self.config.get_type_id())
 
-            import_objects: list[dict] = self._generate_objects(parsed_response, fields=type_instance_fields)
+            candidates = self._generate_objects(parsed_response, fields=type_instance.get_fields())
 
-            return self._import(import_objects)
+            return self._import(candidates, type_instance.special_type)
         except ParserRuntimeError as err:
             LOGGER.error("[start_import] Parsing error: %s", err, exc_info=True)
             raise ImportRuntimeError(f"Parsing failed: {err}") from err

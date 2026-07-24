@@ -52,21 +52,20 @@ class TestImportSuccessMessage:
 
 
 class TestImportFailedMessage:
-    """The failure message carries the reason and the failed object."""
+    """The failure message carries the provided object and the list of reasons it failed."""
 
-    def test_string_error_message_is_kept(self) -> None:
-        """A string reason is stored as-is."""
-        message = ImportFailedMessage(error_message='bad row', obj={'x': 1})
+    def test_stores_failed_object_and_errors(self) -> None:
+        """The provided object and its error list are stored (serialize to {failed_object, errors})."""
+        message = ImportFailedMessage(failed_object={'x': 1}, errors=['bad row', 'and another'])
 
-        assert message.error_message == 'bad row'
-        assert message.obj == {'x': 1}
+        assert message.failed_object == {'x': 1}
+        assert message.errors == ['bad row', 'and another']
 
-    def test_exception_error_message_is_coerced_to_text(self) -> None:
-        """An exception reason is coerced to its string text (not an empty object) — B1."""
-        message = ImportFailedMessage(error_message=ValueError('boom!'))
+    def test_serializes_to_failed_object_and_errors(self) -> None:
+        """Its __dict__ (how it is JSON-encoded) is exactly {failed_object, errors}."""
+        message = ImportFailedMessage(failed_object={'public_id': 5}, errors=["Invalid value for 'active'"])
 
-        assert message.error_message == 'boom!'
-        assert isinstance(message.error_message, str)
+        assert message.__dict__ == {'failed_object': {'public_id': 5}, 'errors': ["Invalid value for 'active'"]}
 
 
 class TestResponseFailedMessage:

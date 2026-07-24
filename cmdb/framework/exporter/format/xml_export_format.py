@@ -21,7 +21,11 @@ from typing import Any
 import xml.dom.minidom
 import xml.etree.ElementTree as ET
 
-from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.models.object_model.cmdb_object_key_enum import (
+    CmdbObjectKey,
+    CmdbObjectMdsKey,
+    CmdbObjectMdsRowKey,
+)
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
@@ -45,6 +49,12 @@ XML_META_TAG: str = 'meta'
 XML_FIELDS_TAG: str = 'fields'
 XML_FIELD_TAG: str = 'field'
 XML_TYPE_TAG: str = 'type'  # the <type> meta element emitted for the 'type_label' header entry
+
+# Multi-data-section tags: <multi_data_sections> -> <section> -> <row> -> <field> (row data reuses
+# the <field name= value=/> element from the regular fields block)
+XML_MDS_TAG: str = 'multi_data_sections'
+XML_SECTION_TAG: str = 'section'
+XML_ROW_TAG: str = 'row'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                XmlExportFormat - CLASS                                               #
@@ -176,6 +186,7 @@ class XmlExportFormat(BaseExporterFormat):
             cmdb_object = ET.SubElement(cmdb_object_list, XML_OBJECT_TAG)
             self._add_meta_data(cmdb_object, obj, header)
             self._add_field_data(cmdb_object, obj_fields_dict, columns)
+            self._add_multi_data_sections(cmdb_object, obj)
 
         return cmdb_object_list
 
@@ -240,3 +251,40 @@ class XmlExportFormat(BaseExporterFormat):
                 FieldKey.VALUE.value: str(obj_fields_dict.get(field, ''))
             }
             ET.SubElement(cmdb_object_fields, XML_FIELD_TAG, field_attribs)
+
+
+    def _add_multi_data_sections(self, cmdb_object: ET.Element, obj: RenderResult) -> None:
+        """
+        Adds the object's multi-data sections as a nested `<multi_data_sections>` block
+
+        The block is added only when the object actually has MDS. It is built from the shared
+        `serialize_multi_data_sections` shape and rendered as `<section>` -> `<row>` -> `<field>`
+        (each row's data reuses the same `<field name= value=/>` element as the regular fields block).
+
+        Args:
+            cmdb_object (ET.Element): The parent `<object>` element
+            obj (RenderResult): The object whose multi-data sections are serialized
+        """
+        sections = BaseExporterFormat.serialize_multi_data_sections(obj.multi_data_sections)
+
+        if not sections:
+            return
+
+        mds_element = ET.SubElement(cmdb_object, XML_MDS_TAG)
+
+        for section in sections:
+            section_element = ET.SubElement(mds_element, XML_SECTION_TAG, {
+                CmdbObjectMdsKey.SECTION_ID.value: str(section.get(CmdbObjectMdsKey.SECTION_ID.value, '')),
+                CmdbObjectMdsKey.HIGHEST_ID.value: str(section.get(CmdbObjectMdsKey.HIGHEST_ID.value, '')),
+            })
+
+            for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
+                row_element = ET.SubElement(section_element, XML_ROW_TAG, {
+                    CmdbObjectMdsRowKey.MULTI_DATA_ID.value: str(row.get(CmdbObjectMdsRowKey.MULTI_DATA_ID.value, '')),
+                })
+
+                for entry in row.get(CmdbObjectMdsRowKey.DATA.value, []):
+                    ET.SubElement(row_element, XML_FIELD_TAG, {
+                        FieldKey.NAME.value: str(entry.get(FieldKey.NAME.value, '')),
+                        FieldKey.VALUE.value: str(entry.get(FieldKey.VALUE.value, '')),
+                    })

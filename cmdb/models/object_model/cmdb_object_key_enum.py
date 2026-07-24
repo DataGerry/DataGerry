@@ -45,6 +45,9 @@ class CmdbObjectKey(BaseStrEnum):
     LAST_EDIT_TIME = 'last_edit_time'
     AUTHOR_ID = 'author_id'
     VERSION = 'version'
+    EDITOR_ID = 'editor_id'
+    SPECIAL_TYPE = 'special_type'
+    CI_EXPLORER_TOOLTIP = 'ci_explorer_tooltip'
 
 
 class CmdbObjectFieldKey(BaseStrEnum):

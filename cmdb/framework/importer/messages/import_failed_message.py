@@ -16,22 +16,24 @@
 """
 Implementation of ImportFailedMessage
 """
-from typing import Any
-
-from cmdb.framework.importer.messages.import_message import ImportMessage
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ImportFailedMessage(ImportMessage):
-    """Message wrapper for failed imported objects"""
+class ImportFailedMessage:
+    """
+    Report entry for a single rejected/failed imported object
 
-    def __init__(self, error_message: Any, obj: dict | None = None) -> None:
+    Serializes (via ``__dict__``) to ``{failed_object, errors}``: the object exactly as the user
+    provided it, plus every reason it could not be imported.
+    """
+
+    def __init__(self, failed_object: dict, errors: list[str]) -> None:
         """
         Initialises the ImportFailedMessage
 
         Args:
-            error_message (Any): The failure reason (an exception or string); coerced to str so it
-                serializes as readable text rather than an empty object
-            obj (dict | None): The object dict that failed to import
+            failed_object (dict): The object as provided by the user (a JSON entry, or a CSV row
+                transformed to a JSON object)
+            errors (list[str]): The reasons the object was rejected or failed to import
         """
-        self.error_message: str = str(error_message)
-        super().__init__(obj=obj)
+        self.failed_object: dict = failed_object
+        self.errors: list[str] = errors

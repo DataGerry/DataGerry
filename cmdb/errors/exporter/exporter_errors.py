@@ -34,3 +34,13 @@ class ExporterCSVTypeError(ExporterError):
     """
     Raised when the Exporter trys to export Objects of different CmdbTypes
     """
+
+
+class ExporterColumnError(ExporterError):
+    """
+    Raised when a tabular export (CSV / XLSX) would produce duplicate column names
+
+    A field name is expected to be unique within a CmdbType (across its regular fields and all
+    multi-data-section fields). If two fields resolve to the same column name the exported columns
+    would collide, so the export is refused instead of silently overwriting a value
+    """

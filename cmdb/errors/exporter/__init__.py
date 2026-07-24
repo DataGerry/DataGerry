@@ -19,10 +19,12 @@ This module provides all errors for the Exporter routes
 from .exporter_errors import (
     ExporterError,
     ExporterCSVTypeError,
+    ExporterColumnError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'ExporterError',
     'ExporterCSVTypeError',
+    'ExporterColumnError',
 ]

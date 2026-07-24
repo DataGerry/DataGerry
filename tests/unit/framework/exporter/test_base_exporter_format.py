@@ -100,3 +100,124 @@ class TestResolveExportView:
         view, metadata = BaseExporterFormat.resolve_export_view(args)
         assert view == 'render'
         assert metadata == {'header': ['public_id'], 'columns': ['name']}
+
+
+class TestSerializeMultiDataSections:
+    """serialize_multi_data_sections normalizes MDS to the shared {name,value} shape."""
+
+    def test_none_and_empty_yield_empty_list(self) -> None:
+        """None or an empty section list serialize to an empty list."""
+        assert not BaseExporterFormat.serialize_multi_data_sections(None)
+        assert not BaseExporterFormat.serialize_multi_data_sections([])
+
+    def test_serializes_sections_rows_and_drops_field_type(self) -> None:
+        """Each section/row is kept; each data entry is reduced to {name, value} (type dropped)."""
+        mds = [{
+            'section_id': 's1',
+            'highest_id': 2,
+            'values': [
+                {'multi_data_id': 1, 'data': [{'name': 'f', 'value': 'v', 'type': 'text'}]},
+                {'multi_data_id': 2, 'data': [{'name': 'f', 'value': 'w', 'type': 'text'}]},
+            ],
+        }]
+
+        result = BaseExporterFormat.serialize_multi_data_sections(mds)
+
+        assert result == [{
+            'section_id': 's1',
+            'highest_id': 2,
+            'values': [
+                {'multi_data_id': 1, 'data': [{'name': 'f', 'value': 'v'}]},
+                {'multi_data_id': 2, 'data': [{'name': 'f', 'value': 'w'}]},
+            ],
+        }]
+
+    def test_missing_keys_default_gracefully(self) -> None:
+        """Absent section keys default (None / empty), never raising."""
+        result = BaseExporterFormat.serialize_multi_data_sections([{}])
+
+        assert result == [{'section_id': None, 'highest_id': None, 'values': []}]
+
+
+class TestIsHumanReadable:
+    """is_human_readable parses the human_readable option truthily."""
+
+    @pytest.mark.parametrize('value', [True, 'true', 'True', '1', 'yes', 'YES'])
+    def test_truthy_values(self, value) -> None:
+        """Recognised truthy representations enable the presentation export."""
+        assert BaseExporterFormat.is_human_readable({'human_readable': value}) is True
+
+    @pytest.mark.parametrize('options', [None, {}, {'human_readable': False}, {'human_readable': 'false'},
+                                         {'human_readable': '0'}, {'human_readable': 'off'}])
+    def test_falsy_or_absent(self, options) -> None:
+        """Absent / falsy values keep the default (raw) export."""
+        assert BaseExporterFormat.is_human_readable(options) is False
+
+
+class TestResolveExportValue:
+    """resolve_export_value resolves ref / ref-section / location values when human_readable."""
+
+    def test_non_human_readable_falls_back_to_summary_renderer(self) -> None:
+        """Without the flag it returns the raw value (native summary_renderer)."""
+        field = {'type': 'ref', 'value': 3, 'reference': {'object_id': 3, 'type_label': 'Server'}}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native') == 3
+
+    def test_reference_resolves_to_summary_line(self) -> None:
+        """A reference field resolves to the referenced object's summary line."""
+        field = {'type': 'ref', 'value': 3,
+                 'reference': {'object_id': 3, 'type_label': 'Server',
+                               'summaries': [{'value': 'web01'}, {'value': 'prod'}]}}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == 'Server #3 | web01 | prod'
+
+    def test_empty_reference_returns_empty(self) -> None:
+        """A reference with no resolved object yields an empty cell."""
+        field = {'type': 'ref', 'value': '', 'reference': {}}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == ''
+
+    def test_ref_section_resolves_to_constructed_summary_line(self) -> None:
+        """A ref-section resolves to '<type_label> #<ref_id> | <pulled field values>'."""
+        field = {'type': 'ref-section-field', 'value': 7,
+                 'references': {'type_label': 'Rack', 'fields': [{'value': 'R-12'}, {'value': 'DC1'}]}}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == 'Rack #7 | R-12 | DC1'
+
+    def test_location_resolves_to_name(self) -> None:
+        """A location field resolves its public_id to the location's tree name."""
+        field = {'type': 'location', 'value': 42}
+        result = BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True, {42: 'Berlin/Room-1'})
+        assert result == 'Berlin/Room-1'
+
+    def test_location_without_map_entry_falls_back_to_id(self) -> None:
+        """An unresolved location id degrades to the raw id (never crashes)."""
+        field = {'type': 'location', 'value': 42}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True, {}) == '42'
+
+    def test_empty_location_returns_empty(self) -> None:
+        """An empty location value yields an empty cell."""
+        field = {'type': 'location', 'value': ''}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True, {}) == ''
+
+
+class TestHeaderLabels:
+    """build_field_label_map / label_for_column / relabel_header handle the human-readable header."""
+
+    @staticmethod
+    def _data():
+        return [SimpleNamespace(fields=[
+            {'name': 'dg-name', 'type': 'text', 'label': 'Hostname'},
+            {'name': 'nolabel', 'type': 'text'},
+        ])]
+
+    def test_build_field_label_map_falls_back_to_name(self) -> None:
+        """Fields without a label fall back to their own name."""
+        assert BaseExporterFormat.build_field_label_map(self._data()) == {'dg-name': 'Hostname', 'nolabel': 'nolabel'}
+
+    def test_identity_columns_get_friendly_labels(self) -> None:
+        """public_id / active map to their friendly labels."""
+        assert BaseExporterFormat.label_for_column('public_id', {}) == 'Public ID'
+        assert BaseExporterFormat.label_for_column('active', {}) == 'Active'
+
+    def test_relabel_header_maps_identity_and_fields(self) -> None:
+        """relabel_header swaps identity + field names for their labels, unknown names pass through."""
+        header = ['public_id', 'active', 'dg-name', 'nolabel']
+        assert BaseExporterFormat.relabel_header(header, self._data()) == \
+            ['Public ID', 'Active', 'Hostname', 'nolabel']
