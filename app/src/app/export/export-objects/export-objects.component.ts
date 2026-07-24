@@ -43,6 +43,9 @@ export class ExportObjectsComponent implements OnInit {
     public isVisible: boolean;
     public isLoading$ = this.loaderService.isLoading$;
 
+    /** Export formats (class names) for which a human-readable export is supported by the backend. */
+    private readonly humanReadableFormats: string[] = ['CsvExportFormat', 'XlsxExportFormat'];
+
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
@@ -56,7 +59,8 @@ export class ExportObjectsComponent implements OnInit {
     ) {
         this.formExport = new UntypedFormGroup({
             type: new UntypedFormControl(null, Validators.required),
-            format: new UntypedFormControl(null, Validators.required)
+            format: new UntypedFormControl(null, Validators.required),
+            humanReadable: new UntypedFormControl(false)
         });
     }
 
@@ -83,6 +87,16 @@ export class ExportObjectsComponent implements OnInit {
         return this.formExport.get('format');
     }
 
+
+    get humanReadable() {
+        return this.formExport.get('humanReadable');
+    }
+
+
+    get isHumanReadableFormat(): boolean {
+        return this.humanReadableFormats.includes(this.format?.value);
+    }
+
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
     private resetForm() {
@@ -101,13 +115,19 @@ export class ExportObjectsComponent implements OnInit {
 
         const typeID = this.formExport.get('type').value;
         const fileExtension: any = this.formExport.get('format').value;
+        const humanReadable = this.isHumanReadableFormat && this.formExport.get('humanReadable').value;
 
         // Reset FormGroup
         this.resetForm();
 
         if (fileExtension != null && typeID != null) {
             const filter = { type_id: typeID };
-            const optional = { classname: fileExtension, zip: false };
+            const optional: any = { classname: fileExtension, zip: false };
+
+            if (humanReadable) {
+                optional.human_readable = true;
+            }
+
             const exportAPI: CollectionParameters = { filter, optional, order: 1, sort: 'public_id' };
 
             this.loaderService.show();

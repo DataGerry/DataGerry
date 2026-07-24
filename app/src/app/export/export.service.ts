@@ -55,10 +55,14 @@ export class FileService {
         }
 
         if (params.optional !== undefined) {
-            const {classname, zip, metadata} = (params.optional as any);
+            const {classname, zip, metadata, human_readable} = (params.optional as any);
             httpParams = httpParams.set('classname', classname);
             httpParams = httpParams.set('zip', zip);
             httpParams = httpParams.set('metadata', JSON.stringify(metadata));
+
+            if (human_readable) {
+                httpParams = httpParams.set('human_readable', 'true');
+            }
         }
 
         httpParams = httpParams.set('sort', params.sort);

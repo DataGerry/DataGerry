@@ -8,15 +8,8 @@
                     Select Object Type <span class="required">*</span>
                 </label>
 
-                <ng-select
-                    id="typeChooser"
-                    [items]="typeList"
-                    required
-                    bindLabel="label"
-                    bindValue="public_id"
-                    placeholder="Choose your option"
-                    formControlName="type"
-                >
+                <ng-select id="typeChooser" [items]="typeList" required bindLabel="label" bindValue="public_id"
+                    placeholder="Choose your option" formControlName="type">
                     <ng-template ng-label-tmp let-item="item">
                         <i class="{{item?.render_meta?.icon}}"></i> {{item?.label}} #{{item?.public_id}}
                     </ng-template>
@@ -31,22 +24,15 @@
                     Please enter type
                 </div>
                 }
-                </div>
+            </div>
 
             <div class="mb-3">
                 <label for="formatChooser" class="mb-2">
                     Output format <span class="required">*</span>
                 </label>
 
-                <ng-select
-                    id="formatChooser"
-                    [items]="formatList"
-                    required
-                    bindLabel="label"
-                    bindValue="extension"
-                    placeholder="Choose your option"
-                    formControlName="format"
-                >
+                <ng-select id="formatChooser" [items]="formatList" required bindLabel="label" bindValue="extension"
+                    placeholder="Choose your option" formControlName="format">
                     <ng-template ng-label-tmp let-item="item">
                         <fa-icon icon="{{item.icon}}"></fa-icon> {{item.label}}
                     </ng-template>
@@ -57,21 +43,36 @@
 
                 <!-- error block -->
                 @if (isVisible && format.errors?.required) {
-<div
-                   
-                    class="cross-validation-error-message alert alert-danger"
-                >
+                <div class="cross-validation-error-message alert alert-danger">
                     Please enter format
                 </div>
-}
+                }
             </div>
 
-            <button
-                type="button"
-                class="btn btn-success text-end"
-                [disabled]="!formExport.valid"
-                (click)="this.exportObjectByTypeID()"
-            >
+            @if (isHumanReadableFormat) {
+            <div class="mb-3 human-readable">
+                <div class="form-check human-readable__check">
+                    <input type="checkbox" class="form-check-input" id="humanReadable" formControlName="humanReadable"
+                        aria-describedby="humanReadableHint" />
+                    <label class="form-check-label" for="humanReadable">
+                        Human readable
+                    </label>
+                </div>
+
+                @if (humanReadable?.value) {
+                <div id="humanReadableHint" class="human-readable__note" role="note">
+                    <fa-icon icon="info-circle" class="human-readable__note-icon"></fa-icon>
+                    <span>
+                        <strong>Report-only export</strong> &ndash; the generated file can&rsquo;t be
+                        used to re-import objects.
+                    </span>
+                </div>
+                }
+            </div>
+            }
+
+            <button type="button" class="btn btn-success text-end" [disabled]="!formExport.valid"
+                (click)="this.exportObjectByTypeID()">
                 Go!
             </button>
         </div>
@@ -79,7 +80,4 @@
 </form>
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
