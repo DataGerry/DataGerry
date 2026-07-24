@@ -61,19 +61,26 @@ class JsonObjectParser(BaseObjectParser, JSONContent):
 
         Returns:
             JsonObjectParserResponse: A structured response containing:
-                - count: The number of entries in the parsed JSON data
-                - entries: The actual parsed JSON data (usually a list of objects)
+                - count: The number of objects in the parsed JSON list
+                - entries: The parsed objects (the top-level JSON list)
 
         Raises:
-            ParserRuntimeError: If the file cannot be read or contains invalid JSON
+            ParserRuntimeError: If the file cannot be read/parsed, or its top level is not a JSON list
         """
         run_config = self.get_config()
 
         try:
             with open(file, 'r', encoding=run_config.get(JsonParserConfigKey.ENCODING.value)) as json_file:
                 parsed = json.load(json_file)
-
-            return JsonObjectParserResponse(count=len(parsed), entries=parsed)
         except Exception as err:
             LOGGER.error("Error parsing JSON file: %s", err)
             raise ParserRuntimeError(f"[{self.__class__.__name__}]: An error occurred: {err}") from err
+
+        # The import shape is a list of objects; require it so ``count`` is the object count (a dict would
+        # otherwise count its keys, a scalar would fail on len())
+        if not isinstance(parsed, list):
+            raise ParserRuntimeError(
+                f"[{self.__class__.__name__}]: expected a JSON list of objects at the top level"
+            )
+
+        return JsonObjectParserResponse(count=len(parsed), entries=parsed)

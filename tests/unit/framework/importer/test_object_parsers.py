@@ -64,6 +64,13 @@ class TestJsonObjectParser:
         with pytest.raises(ParserRuntimeError):
             JsonObjectParser().parse(path)
 
+    def test_non_list_top_level_raises_parser_runtime_error(self, tmp_path: Path) -> None:
+        """A top-level JSON object (not a list) is rejected so count stays the object count."""
+        path = _write(tmp_path, 'dict.json', '{"x": 1}')
+
+        with pytest.raises(ParserRuntimeError):
+            JsonObjectParser().parse(path)
+
     def test_missing_file_raises_parser_runtime_error(self, tmp_path: Path) -> None:
         """A missing file is wrapped in ParserRuntimeError rather than a raw OSError."""
         with pytest.raises(ParserRuntimeError):

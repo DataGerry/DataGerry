@@ -23,8 +23,6 @@ from cmdb.manager import ObjectsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey, CmdbObjectFieldKey
-from cmdb.models.type_model.field_key_enum import FieldKey
-from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.framework.importer.parser.json_object_parser import JsonObjectParser
 from cmdb.framework.importer.content_types import JSONContent
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
@@ -78,13 +76,9 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
         Args:
             entry (dict): A single parsed object from the JSON file
 
-        Keyword Args:
-            fields (list[dict]): The target type's field definitions (used to validate/coerce fields)
-
         Returns:
             dict: The generated object dict ready for import
         """
-        possible_fields: list[dict] = kwargs['fields']
         map_properties: dict = self.config.get_mapping().get(JsonMappingKey.PROPERTIES.value)
 
         working_object: dict = {
@@ -101,23 +95,13 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
         for prop in map_properties:
             working_object = self._map_element(prop, entry, working_object, map_properties)
 
+        # Every provided field is kept (an unknown field is rejected later by normalization, not dropped);
+        # only date coercion happens here - value-type validation/coercion is the import validator's job
         for entry_field in entry.get(CmdbObjectKey.FIELDS.value):
-            field_exists = next(
-                (field for field in possible_fields
-                 if field[FieldKey.NAME.value] == entry_field[CmdbObjectFieldKey.NAME.value]),
-                None,
+            entry_field[CmdbObjectFieldKey.VALUE.value] = ImproveObject.improve_date(
+                entry_field[CmdbObjectFieldKey.VALUE.value]
             )
-
-            if field_exists:
-                if field_exists[FieldKey.TYPE.value] == FieldType.CHECKBOX.value:
-                    entry_field[CmdbObjectFieldKey.VALUE.value] = ImproveObject.improve_boolean(
-                        entry_field[CmdbObjectFieldKey.VALUE.value]
-                    )
-
-                entry_field[CmdbObjectFieldKey.VALUE.value] = ImproveObject.improve_date(
-                    entry_field[CmdbObjectFieldKey.VALUE.value]
-                )
-                working_object[CmdbObjectKey.FIELDS.value].append(entry_field)
+            working_object[CmdbObjectKey.FIELDS.value].append(entry_field)
 
         return working_object
 
@@ -167,10 +151,11 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
         try:
             parsed_response: JsonObjectParserResponse = self.parser.parse(self.file)
             type_instance = self.objects_manager.get_object_type(self.config.get_type_id())
+            type_fields = type_instance.get_fields()
 
-            candidates = self._generate_objects(parsed_response, fields=type_instance.get_fields())
+            candidates = self._generate_objects(parsed_response, fields=type_fields)
 
-            return self._import(candidates, type_instance.special_type)
+            return self._import_for_type(candidates, type_instance)
         except ParserRuntimeError as err:
             LOGGER.error("[start_import] Parsing error: %s", err, exc_info=True)
             raise ImportRuntimeError(f"Parsing failed: {err}") from err

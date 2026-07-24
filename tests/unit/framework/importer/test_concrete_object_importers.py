@@ -28,7 +28,6 @@ import pytest
 from cmdb.framework.importer.importers.json_object_importer import JsonObjectImporter
 from cmdb.framework.importer.importers.csv_object_importer import CsvObjectImporter
 from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 # The suite drives the class-under-test's methods directly on a MagicMock ``self`` (unbound calls)
 # pylint: disable=protected-access,no-value-for-parameter
@@ -87,20 +86,21 @@ class TestJsonGenerateObject:
 
         assert result['multi_data_sections'] == [{'section_id': 's1'}]
 
-    def test_only_known_fields_are_kept_and_checkbox_coerced(self) -> None:
-        """A field present on the type is kept; a checkbox value is coerced to bool."""
+    def test_all_fields_kept_without_value_coercion(self) -> None:
+        """Every field is kept as-is (unknown ones included); value coercion is the validator's job."""
         mock_self = _mock_json_self({'properties': {}})
         entry = {'fields': [
             {'name': 'flag', 'value': 'true'},
             {'name': 'ghost', 'value': 'x'},
         ]}
-        possible = [{'name': 'flag', 'type': 'checkbox'}]
 
-        result = JsonObjectImporter.generate_object(mock_self, entry, fields=possible)
+        result = JsonObjectImporter.generate_object(mock_self, entry, fields=[{'name': 'flag', 'type': 'checkbox'}])
 
-        assert len(result['fields']) == 1
-        assert result['fields'][0]['name'] == 'flag'
-        assert result['fields'][0]['value'] is True
+        # both fields kept (unknown 'ghost' is rejected later by normalization, not dropped here);
+        # 'flag' is NOT bool-coerced here - Rule 7 does that in the validator
+        assert [field['name'] for field in result['fields']] == ['flag', 'ghost']
+        flag = next(field for field in result['fields'] if field['name'] == 'flag')
+        assert flag['value'] == 'true'
 
     def test_non_checkbox_known_field_is_kept_without_bool_coercion(self) -> None:
         """A non-checkbox field present on the type is kept as-is (only date coercion applies)."""
@@ -166,19 +166,18 @@ class TestJsonGenerateObject:
             JsonObjectImporter.start_import(mock_self)
 
     def test_start_import_wires_parse_generate_import(self) -> None:
-        """start_import parses, generates from the type fields, and imports with the type's special_type."""
+        """start_import parses, generates from the type fields, and delegates to _import_for_type."""
         mock_self = MagicMock()
         mock_self.parser.parse.return_value = 'PARSED'
         type_instance = mock_self.objects_manager.get_object_type.return_value
         type_instance.get_fields.return_value = ['f']
-        type_instance.special_type = 'SUBNET'
         mock_self._generate_objects.return_value = ['cand']
-        mock_self._import.return_value = 'RESULT'
+        mock_self._import_for_type.return_value = 'RESULT'
 
         result = JsonObjectImporter.start_import(mock_self)
 
         mock_self._generate_objects.assert_called_once_with('PARSED', fields=['f'])
-        mock_self._import.assert_called_once_with(['cand'], 'SUBNET')
+        mock_self._import_for_type.assert_called_once_with(['cand'], type_instance)
         assert result == 'RESULT'
 
 
@@ -228,7 +227,6 @@ class TestCsvGenerateObject:
             field_entries=[_map_entry('label', 'col_label')],
         )
         mock_self._build_object_fields = CsvObjectImporter._build_object_fields.__get__(mock_self)
-        mock_self._resolve_reference_field.return_value = None
         entry = {'col_active': True, 'col_label': 'hello'}
         possible = [{'name': 'label', 'type': 'text'}]
 
@@ -240,46 +238,34 @@ class TestCsvGenerateObject:
         assert result['active'] is True
         assert result['fields'] == [{'name': 'label', 'value': 'hello'}]
 
-    def test_unknown_field_is_skipped(self) -> None:
-        """A mapped field that is not defined on the type is not added."""
+    def test_unknown_field_is_kept_for_validation(self) -> None:
+        """A mapped field is added regardless of the type; unknown fields are rejected in validation."""
         entry = {'col_ghost': 'x'}
-        possible: list = [{'name': 'real', 'type': 'text'}]
         field_entries = [_map_entry('ghost', 'col_ghost')]
 
-        result = CsvObjectImporter._build_object_fields(MagicMock(), field_entries, [], entry, possible, set())
+        result = CsvObjectImporter._build_object_fields(MagicMock(), field_entries, [], entry, set())
 
-        assert not result
+        assert result == [{'name': 'ghost', 'value': 'x'}]
 
     def test_mds_field_is_skipped_from_flat_fields(self) -> None:
         """A mapped field whose name belongs to an MDS section is not added as a flat field."""
         entry = {'col_nic': 'eth0'}
-        possible: list = [{'name': 'nic_name', 'type': 'text'}]
         field_entries = [_map_entry('nic_name', 'col_nic')]
 
-        result = CsvObjectImporter._build_object_fields(
-            MagicMock(), field_entries, [], entry, possible, {'nic_name'})
+        result = CsvObjectImporter._build_object_fields(MagicMock(), field_entries, [], entry, {'nic_name'})
 
         assert not result
 
-    def test_resolved_reference_is_appended(self) -> None:
-        """A reference entry that resolves is appended to the object's fields."""
+    def test_reference_field_is_appended_cleared(self) -> None:
+        """A reference mapping entry is added with a cleared (None) value - no ref_name lookup."""
         mock_self = MagicMock()
-        mock_self._resolve_reference_field.return_value = {'name': 'owner', 'value': 42}
         foreign = _map_entry('owner', 'col_owner', type_id=2, ref_name='name')
 
-        result = CsvObjectImporter._build_object_fields(mock_self, [], [foreign], {}, [], set())
+        result = CsvObjectImporter._build_object_fields(mock_self, [], [foreign], {'col_owner': 'bob'}, set())
 
-        assert result == [{'name': 'owner', 'value': 42}]
-
-    def test_unresolved_reference_is_not_appended(self) -> None:
-        """A reference entry that does not resolve is skipped."""
-        mock_self = MagicMock()
-        mock_self._resolve_reference_field.return_value = None
-        foreign = _map_entry('owner', 'col_owner', type_id=2, ref_name='name')
-
-        result = CsvObjectImporter._build_object_fields(mock_self, [], [foreign], {}, [], set())
-
-        assert not result
+        assert result == [{'name': 'owner', 'value': None}]
+        # the retired ref_name lookup must not touch the database
+        mock_self.objects_manager.get_objects_by.assert_not_called()
 
     def test_construction_sets_file_type(self) -> None:
         """Constructing the importer wires the CSV file type via the content-type mixin."""
@@ -452,59 +438,19 @@ class TestCsvMultiDataSectionsImport:
         assert CsvObjectImporter._build_multi_data_sections(groups[0], header, layout) == mds
 
 
-class TestCsvResolveReferenceField:
-    """Resolving a reference mapping entry to a {name, value} field."""
-
-    def test_incomplete_options_return_none(self) -> None:
-        """Missing ref options (type_id/ref_name) skip the reference."""
-        mock_self = MagicMock()
-        foreign = _map_entry('ref_field', 'col_ref')  # no options
-
-        assert CsvObjectImporter._resolve_reference_field(mock_self, foreign, {}) is None
-
-    def test_unique_match_returns_reference_field(self) -> None:
-        """A single matching object yields a reference field with its public_id."""
-        mock_self = MagicMock()
-        found = MagicMock()
-        found.get_public_id.return_value = 42
-        mock_self.objects_manager.get_objects_by.return_value = [found]
-        foreign = _map_entry('owner', 'col_owner', type_id=2, ref_name='name')
-
-        result = CsvObjectImporter._resolve_reference_field(mock_self, foreign, {'col_owner': 'bob'})
-
-        assert result == {'name': 'owner', 'value': 42}
-
-    def test_non_unique_match_returns_none(self) -> None:
-        """A reference that resolves to more than one object is skipped."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_objects_by.return_value = [MagicMock(), MagicMock()]
-        foreign = _map_entry('owner', 'col_owner', type_id=2, ref_name='name')
-
-        assert CsvObjectImporter._resolve_reference_field(mock_self, foreign, {'col_owner': 'bob'}) is None
-
-    def test_lookup_error_returns_none(self) -> None:
-        """A get error while resolving the reference is logged and skipped."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.get_objects_by.side_effect = ObjectsManagerGetError("db down")
-        foreign = _map_entry('owner', 'col_owner', type_id=2, ref_name='name')
-
-        assert CsvObjectImporter._resolve_reference_field(mock_self, foreign, {'col_owner': 'bob'}) is None
-
-
 class TestCsvStartImport:
     """The CSV import wiring and error contract."""
 
     def test_wires_parse_generate_import(self) -> None:
-        """start_import parses, builds the MDS layout, generates, and imports with the type's special_type."""
+        """start_import parses, builds the MDS layout, generates, and delegates to _import_for_type."""
         parsed = MagicMock()
         mock_self = MagicMock()
         mock_self.parser.parse.return_value = parsed
         type_instance = mock_self.objects_manager.get_object_type.return_value
         type_instance.get_fields.return_value = ['f']
-        type_instance.special_type = 'VLAN'
         mock_self._build_mds_layout.return_value = [('nics', ['nic_name'])]
         mock_self._generate_objects.return_value = ['cand']
-        mock_self._import.return_value = 'RESULT'
+        mock_self._import_for_type.return_value = 'RESULT'
 
         result = CsvObjectImporter.start_import(mock_self)
 
@@ -512,7 +458,7 @@ class TestCsvStartImport:
         mock_self._build_mds_layout.assert_called_once_with(type_instance)
         mock_self._generate_objects.assert_called_once_with(
             parsed, fields=['f'], header=header, mds_layout=[('nics', ['nic_name'])])
-        mock_self._import.assert_called_once_with(['cand'], 'VLAN')
+        mock_self._import_for_type.assert_called_once_with(['cand'], type_instance)
         assert result == 'RESULT'
 
     def test_parser_error_becomes_import_runtime_error(self) -> None:
