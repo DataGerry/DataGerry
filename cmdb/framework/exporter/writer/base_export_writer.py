@@ -23,15 +23,20 @@ from flask import Response
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import ObjectsManager
+from cmdb.manager.locations_manager import LocationsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.exporter.config.exporter_config import ExporterConfig
 from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
-from cmdb.framework.exporter.exporter_constants import EXPORT_FILENAME_TIMESTAMP_FMT
+from cmdb.framework.exporter.exporter_constants import EXPORT_FILENAME_TIMESTAMP_FMT, ExporterOptionKey
+
+from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -56,6 +61,10 @@ class BaseExportWriter:
         self.export_format: BaseExporterFormat = export_format
         self.export_config: ExporterConfig = export_config
         self.data: list[RenderResult] = [] #Storage for exportable data
+        # Kept from `from_database` so a human-readable export can resolve location names (the format
+        # classes have no database access)
+        self._dbm: MongoDatabaseManager | None = None
+        self._db_name: str | None = None
 
 
     def from_database(
@@ -77,6 +86,9 @@ class BaseExportWriter:
             permission (AccessControlPermission): The access permission enforced while fetching objects
             db_name (str | None): Target database name (cloud mode); None uses the default database
         """
+        self._dbm = dbm
+        self._db_name = db_name
+
         objects_manager = ObjectsManager(dbm, db_name)
         export_params = self.export_config.parameters
 
@@ -103,6 +115,12 @@ class BaseExportWriter:
         conf_option = self.export_config.options
         timestamp = datetime.datetime.now().strftime(EXPORT_FILENAME_TIMESTAMP_FMT)
 
+        # A human-readable export needs location field values resolved to names; the format classes have
+        # no database access, so resolve the {public_id: name} map here and pass it through the options
+        if BaseExporterFormat.is_human_readable(conf_option):
+            conf_option = {**(conf_option or {}),
+                           ExporterOptionKey.LOCATION_NAMES.value: self._resolve_location_names()}
+
         # Generate the export content
         export_content = self.export_format.export(self.data, conf_option)
 
@@ -116,3 +134,36 @@ class BaseExportWriter:
                 "Content-Disposition": f"attachment; filename={timestamp}.{file_extension}"
             }
         )
+
+
+    def _resolve_location_names(self) -> dict:
+        """
+        Resolves the names of every location referenced by a location field across the export data
+
+        Collects the location public_ids from all location-typed fields and looks up their
+        ``CmdbLocation.name`` (the label shown in the location tree) in a single query. A lookup
+        failure is logged and degrades to an empty map so it never fails the export.
+
+        Returns:
+            dict: A `{location public_id: location name}` map (empty when there are no locations)
+        """
+        location_ids = {
+            field.get(FieldKey.VALUE.value)
+            for obj in self.data
+            for field in obj.fields
+            if field.get(FieldKey.TYPE.value) == FieldType.LOCATION.value
+            and field.get(FieldKey.VALUE.value) not in (None, '')
+        }
+
+        if not location_ids:
+            return {}
+
+        try:
+            locations_manager = LocationsManager(self._dbm, self._db_name)
+            locations = locations_manager.get_locations_by(public_id={'$in': list(location_ids)})
+
+            return {location.public_id: location.name for location in locations}
+        except LocationsManagerGetError as err:
+            LOGGER.error("[_resolve_location_names] Could not resolve location names: %s", err)
+
+            return {}

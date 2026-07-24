@@ -24,10 +24,11 @@ from cmdb.framework.exporter.format.xml_export_format import XmlExportFormat
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def _obj(object_id: int, type_id: int = 5, type_label: str = 'Server', fields=None) -> SimpleNamespace:
-    """A stand-in RenderResult with the given fields (defaulting to one text field)."""
+def _obj(object_id: int, type_id: int = 5, type_label: str = 'Server', fields=None, mds=None) -> SimpleNamespace:
+    """A stand-in RenderResult with the given fields (defaulting to one text field) and optional MDS."""
     return SimpleNamespace(
         fields=fields if fields is not None else [{'name': 'dg-name', 'type': 'text', 'value': 'host-1'}],
+        multi_data_sections=mds or [],
         object_information={'object_id': object_id, 'active': True},
         type_information={'type_id': type_id, 'type_label': type_label},
     )
@@ -89,6 +90,32 @@ class TestXmlExport:
 
         assert first_fields == {'dg-name': 'host-1', 'ip': ''}
         assert second_fields == {'dg-name': '', 'ip': '10.0.0.1'}
+
+    def test_no_mds_block_when_object_has_no_mds(self) -> None:
+        """An object without MDS gets no <multi_data_sections> element."""
+        root = _export([_obj(10)])
+
+        assert root.find('object/multi_data_sections') is None
+
+    def test_mds_exported_as_nested_elements(self) -> None:
+        """An object with MDS gets a nested <multi_data_sections>/<section>/<row>/<field> block."""
+        mds = [{
+            'section_id': 's1',
+            'highest_id': 2,
+            'values': [
+                {'multi_data_id': 1, 'data': [{'name': 'f', 'value': 'v', 'type': 'text'}]},
+                {'multi_data_id': 2, 'data': [{'name': 'f', 'value': 'w', 'type': 'text'}]},
+            ],
+        }]
+
+        section = _export([_obj(10, mds=mds)]).find('object/multi_data_sections/section')
+
+        assert section.attrib == {'section_id': 's1', 'highest_id': '2'}
+        rows = section.findall('row')
+        assert [row.attrib['multi_data_id'] for row in rows] == ['1', '2']
+        # Row data reuses the <field name= value=/> element (field type dropped, re-derived on read)
+        assert rows[0].find('field').attrib == {'name': 'f', 'value': 'v'}
+        assert rows[1].find('field').attrib == {'name': 'f', 'value': 'w'}
 
     def test_declares_xml_mime_type(self) -> None:
         """XML declares the text/xml mime type (matching the previous writer text/<ext> fallback)."""

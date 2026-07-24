@@ -18,6 +18,7 @@ Implementation of XlsxExportFormat
 """
 from logging import Logger, getLogger
 from io import BytesIO
+from collections import namedtuple
 import re
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -28,10 +29,9 @@ from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
     TYPE_INFO_ID_KEY,
     TYPE_INFO_LABEL_KEY,
-    OBJECT_INFO_ID_KEY,
 )
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
-from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey
+from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey, ExporterOptionKey
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -44,6 +44,11 @@ DEFAULT_HEADER: list[str] = [CmdbObjectKey.PUBLIC_ID.value, CmdbObjectKey.ACTIVE
 INVALID_SHEET_TITLE_CHARS: str = r'[\\*?:/\[\]]'
 MAX_SHEET_TITLE_LENGTH: int = 31
 
+# Per-export settings shared by every worksheet (bundled to keep method signatures small)
+_SheetSettings = namedtuple(
+    '_SheetSettings', ['header', 'metadata_columns', 'view', 'human_readable', 'location_names']
+)
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               XlsxExportFormat - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -52,7 +57,9 @@ class XlsxExportFormat(BaseExporterFormat):
     The XLSX export format class for exporting data to Excel (.xlsx) files
 
     Objects are grouped onto one worksheet per type (sorted by type id); each worksheet carries the
-    identity header columns followed by that type's field columns.
+    identity header columns, that type's regular field columns, and one column per multi-data-section
+    (MDS) field. MDS entries are spread over consecutive rows the same way the CSV export does (see
+    `BaseExporterFormat.build_object_rows`).
 
     Extends: BaseExporterFormat
     """
@@ -103,54 +110,146 @@ class XlsxExportFormat(BaseExporterFormat):
         workbook = Workbook()
         workbook.remove(workbook.active)  # drop the empty default sheet openpyxl creates
 
-        view, header, metadata_columns = self._resolve_settings(args)
+        settings = self._resolve_settings(args)
+
         sorted_data = sorted(data, key=lambda obj: obj.type_information[TYPE_INFO_ID_KEY])
-
-        current_type_id = None
-        sheet: Worksheet | None = None
-        columns: list[str] = []
-        row_index = 1
-
-        for obj in sorted_data:
-            type_id = obj.type_information[TYPE_INFO_ID_KEY]
-
-            # A new type starts a new worksheet with its own header row and (native view) its own columns
-            if current_type_id != type_id:
-                current_type_id = type_id
-                columns = metadata_columns if metadata_columns is not None else self._field_names(obj)
-                title = self._normalize_sheet_title(obj.type_information[TYPE_INFO_LABEL_KEY])
-                sheet = workbook.create_sheet(title=title)
-                self._write_header_row(sheet, header, columns)
-                row_index = 2  # data rows start below the header
-
-            self._write_object_row(sheet, obj, row_index, header, columns, view)
-            row_index += 1
+        self._write_type_worksheets(workbook, sorted_data, settings)
 
         # openpyxl refuses to save a workbook with no visible sheet, so an empty export gets a header-only one
         if not workbook.sheetnames:
-            self._write_header_row(workbook.create_sheet(), header, [])
+            self._write_row(workbook.create_sheet(), 1, list(settings.header))
 
         return workbook
 
 
-    def _resolve_settings(self, args: tuple) -> tuple[str, list[str], list[str] | None]:
+    def _write_type_worksheets(
+            self,
+            workbook: Workbook,
+            sorted_data: list[RenderResult],
+            settings: '_SheetSettings') -> None:
         """
-        Resolves the view, identity header and (optional) fixed column selection from the export args
+        Writes one worksheet per type into the workbook
+
+        `sorted_data` must be sorted by type id; each contiguous run of one type becomes a worksheet.
+
+        Args:
+            workbook (Workbook): The workbook to write worksheets into
+            sorted_data (list[RenderResult]): The objects to export, sorted by type id
+            settings (_SheetSettings): The shared per-export settings
+        """
+        for type_objects in self._group_by_type(sorted_data):
+            self._write_type_sheet(workbook, type_objects, settings)
+
+
+    @staticmethod
+    def _group_by_type(sorted_data: list[RenderResult]) -> list[list[RenderResult]]:
+        """
+        Groups type-id-sorted objects into contiguous per-type blocks
+
+        Args:
+            sorted_data (list[RenderResult]): The objects, sorted by type id
+
+        Returns:
+            list[list[RenderResult]]: One list of objects per type, in type-id order
+        """
+        groups: list[list[RenderResult]] = []
+        current_type_id = None
+
+        for obj in sorted_data:
+            type_id = obj.type_information[TYPE_INFO_ID_KEY]
+
+            if current_type_id != type_id or not groups:
+                current_type_id = type_id
+                groups.append([])
+
+            groups[-1].append(obj)
+
+        return groups
+
+
+    def _write_type_sheet(
+            self,
+            workbook: Workbook,
+            type_objects: list[RenderResult],
+            settings: '_SheetSettings') -> None:
+        """
+        Writes one type's objects onto a dedicated worksheet
+
+        The worksheet header is the identity columns, the type's regular field columns and one column per
+        MDS field; each object then contributes one or more rows (its MDS entries spread over rows). In a
+        HUMAN_READABLE export the header cells are relabelled (field labels) as the last step.
+
+        Args:
+            workbook (Workbook): The workbook to add the worksheet to
+            type_objects (list[RenderResult]): The objects of a single type
+            settings (_SheetSettings): The shared per-export settings
+
+        Raises:
+            ExporterColumnError: If two fields resolve to the same column name
+        """
+        first = type_objects[0]
+        regular_columns, mds_layout, mds_columns = self._resolve_columns(first, settings.metadata_columns)
+
+        titles: list[str] = [*settings.header, *regular_columns, *mds_columns]
+        # The duplicate guard runs on the unique field NAMES, before any human-readable relabel
+        self.assert_unique_columns(titles)
+
+        sheet = workbook.create_sheet(title=self._normalize_sheet_title(first.type_information[TYPE_INFO_LABEL_KEY]))
+        self._write_row(sheet, 1, self.relabel_header(titles, type_objects) if settings.human_readable else titles)
+
+        row_index = 2  # data rows start below the header
+        for obj in type_objects:
+            for row in self.build_object_rows(obj, settings.header, regular_columns, mds_layout,
+                                              settings.view, settings.human_readable, settings.location_names):
+                self._write_row(sheet, row_index, row)
+                row_index += 1
+
+
+    def _resolve_columns(
+            self,
+            first: RenderResult,
+            metadata_columns: list[str] | None) -> tuple[list[str], list[tuple[str, list[str]]], list[str]]:
+        """
+        Resolves a worksheet's regular field columns, MDS layout and MDS columns for a type
+
+        Args:
+            first (RenderResult): The first object of the type (its sections/fields define the columns)
+            metadata_columns (list[str] | None): Fixed field columns, or None for the type's own fields
+
+        Returns:
+            tuple[list[str], list[tuple[str, list[str]]], list[str]]:
+                - regular_columns: the regular (non-MDS) field columns, in output order
+                - mds_layout: the `(section_id, field_names)` layout of the type
+                - mds_columns: the flattened MDS field columns, in layout order
+        """
+        mds_layout = self.extract_mds_layout(first.sections)
+        mds_columns: list[str] = [name for _, field_names in mds_layout for name in field_names]
+        mds_column_set: set[str] = set(mds_columns)
+
+        base_columns = metadata_columns if metadata_columns is not None else self._field_names(first)
+        # MDS fields also appear (default-valued) in the flat field list; emit each once as its MDS column
+        regular_columns = [name for name in base_columns if name not in mds_column_set]
+
+        return regular_columns, mds_layout, mds_columns
+
+
+    def _resolve_settings(self, args: tuple) -> '_SheetSettings':
+        """
+        Resolves the shared per-export settings from the export args
 
         A render-view `metadata` override supplies the header and the fixed columns used for every
         worksheet; without such an override the export is forced to the NATIVE view and the columns are
-        derived per worksheet from each type's fields (signalled by returning `None` for the columns).
+        derived per worksheet from each type's fields (`metadata_columns` is None). The HUMAN_READABLE
+        flag and the resolved location-name map are read from the options too.
 
         Args:
             args (tuple): The positional export args; `args[0]` (if present) is the options dict
 
         Returns:
-            tuple[str, list[str], list[str] | None]:
-                - view (str): The resolved view type (`'native'` or `'render'`)
-                - header (list[str]): The identity columns to include per object
-                - metadata_columns (list[str] | None): The fixed field columns, or None for per-type columns
+            _SheetSettings: The bundled (header, metadata_columns, view, human_readable, location_names)
         """
         view, metadata = BaseExporterFormat.resolve_export_view(args)
+        options = args[0] if args else {}
 
         header: list[str] = list(DEFAULT_HEADER)
         metadata_columns: list[str] | None = None
@@ -162,7 +261,13 @@ class XlsxExportFormat(BaseExporterFormat):
             # XLSX renders in the render view only when metadata explicitly selects the columns
             view = ExporterConfigType.NATIVE.value
 
-        return view, header, metadata_columns
+        return _SheetSettings(
+            header=header,
+            metadata_columns=metadata_columns,
+            view=view,
+            human_readable=self.is_human_readable(options),
+            location_names=options.get(ExporterOptionKey.LOCATION_NAMES.value) or {},
+        )
 
 
     @staticmethod
@@ -179,49 +284,18 @@ class XlsxExportFormat(BaseExporterFormat):
         return [field[FieldKey.NAME.value] for field in obj.fields]
 
 
-    def _write_header_row(self, sheet: Worksheet, header: list[str], columns: list[str]) -> None:
+    @staticmethod
+    def _write_row(sheet: Worksheet, row_index: int, values: list[str]) -> None:
         """
-        Writes the header row (identity columns followed by field columns) into a worksheet
+        Writes a single row of pre-stringified cell values into a worksheet
 
         Args:
             sheet (Worksheet): The worksheet to write into
-            header (list[str]): The identity column titles
-            columns (list[str]): The field column titles
+            row_index (int): The 1-based row number to write on
+            values (list[str]): The ordered cell values for the row
         """
-        for col_index, title in enumerate([*header, *columns], start=1):
-            sheet.cell(row=1, column=col_index).value = title
-
-
-    def _write_object_row(
-            self,
-            sheet: Worksheet,
-            obj: RenderResult,
-            row_index: int,
-            header: list[str],
-            columns: list[str],
-            view: str) -> None:
-        """
-        Writes one object as a single worksheet row (identity cells followed by field cells)
-
-        Args:
-            sheet (Worksheet): The worksheet to write into
-            obj (RenderResult): The object to serialize
-            row_index (int): The 1-based row number to write the object on
-            header (list[str]): The identity columns (from object_information; `public_id` -> `object_id`)
-            columns (list[str]): The field names to serialize
-            view (str): The export view passed to the field summary renderer
-        """
-        obj_fields: dict = {
-            field[FieldKey.NAME.value]: BaseExporterFormat.summary_renderer(obj, field, view)
-            for field in obj.fields
-        }
-
-        for col_index, head in enumerate(header, start=1):
-            info_key = OBJECT_INFO_ID_KEY if head == CmdbObjectKey.PUBLIC_ID.value else head
-            sheet.cell(row=row_index, column=col_index).value = str(obj.object_information.get(info_key, ""))
-
-        for col_index, name in enumerate(columns, start=len(header) + 1):
-            sheet.cell(row=row_index, column=col_index).value = str(obj_fields.get(name, ""))
+        for col_index, value in enumerate(values, start=1):
+            sheet.cell(row=row_index, column=col_index).value = value
 
 
     @staticmethod

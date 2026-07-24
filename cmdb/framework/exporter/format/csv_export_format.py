@@ -22,13 +22,9 @@ from io import StringIO
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.field_key_enum import FieldKey
-from cmdb.framework.exporter.format.base_exporter_format import (
-    BaseExporterFormat,
-    TYPE_INFO_ID_KEY,
-    OBJECT_INFO_ID_KEY,
-)
+from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat, TYPE_INFO_ID_KEY
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
-from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey
+from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey, ExporterOptionKey
 from cmdb.framework.rendering.render_result import RenderResult
 
 from cmdb.errors.exporter import ExporterCSVTypeError
@@ -61,9 +57,11 @@ class CsvExportFormat(BaseExporterFormat):
         """
         Exports the objects as a CSV file
 
-        The header is `public_id, active` plus the type's field names; in the RENDER view a supplied
-        `metadata` override selects the header/columns instead. All objects must share one type (CSV has
-        no multi-type support). An empty object list yields a valid CSV with only the header row.
+        The header is `public_id, active` plus the type's regular field names, followed by one column
+        per multi-data-section (MDS) field (see `BaseExporterFormat.build_object_rows` for the row
+        layout). In the RENDER view a supplied `metadata` override selects the identity header + regular
+        columns instead. All objects must share one type (CSV has no multi-type support). An empty object
+        list yields a valid CSV with only the header row.
 
         Args:
             data (list[RenderResult]): The objects to export
@@ -74,17 +72,17 @@ class CsvExportFormat(BaseExporterFormat):
 
         Raises:
             ExporterCSVTypeError: If objects of different types are detected
+            ExporterColumnError: If two fields resolve to the same CSV column name
         """
-        header: list[str] = list(DEFAULT_HEADER)
-        columns: list[str] = [field[FieldKey.NAME.value] for field in data[0].fields] if data else []
+        options = args[0] if args else {}
+        human_readable = self.is_human_readable(options)
+        location_names = options.get(ExporterOptionKey.LOCATION_NAMES.value) or {}
 
-        view, metadata = BaseExporterFormat.resolve_export_view(args)
-        if metadata:
-            header = metadata.get(ExporterMetadataKey.HEADER.value, header)
-            columns = metadata.get(ExporterMetadataKey.COLUMNS.value, columns)
-        else:
-            # CSV renders in the render view only when metadata explicitly selects the columns
-            view = ExporterConfigType.NATIVE.value
+        header, regular_columns, mds_layout, mds_columns, view = self._resolve_columns(data, args)
+
+        full_header: list[str] = [*header, *regular_columns, *mds_columns]
+        # The duplicate guard runs on the unique field NAMES, before any human-readable relabel
+        self.assert_unique_columns(full_header)
 
         current_type_id = data[0].type_information[TYPE_INFO_ID_KEY] if data else None
         rows: list[list[str]] = []
@@ -94,39 +92,53 @@ class CsvExportFormat(BaseExporterFormat):
             if current_type_id != obj.type_information[TYPE_INFO_ID_KEY]:
                 raise ExporterCSVTypeError('CSV can export only Objects of the same Type')
 
-            rows.append(self._build_row(obj, header, columns, view))
+            rows.extend(
+                self.build_object_rows(obj, header, regular_columns, mds_layout, view, human_readable, location_names)
+            )
 
-        return self.csv_writer([*header, *columns], rows)
+        # Human-readable: relabel the finished header (names -> labels) as the last step
+        if human_readable:
+            full_header = self.relabel_header(full_header, data)
+
+        return self.csv_writer(full_header, rows)
 
 
-    def _build_row(self, obj: RenderResult, header: list[str], columns: list[str], view: str) -> list[str]:
+    def _resolve_columns(
+            self,
+            data: list[RenderResult],
+            args: tuple) -> tuple[list[str], list[str], list[tuple[str, list[str]]], list[str], str]:
         """
-        Builds a single CSV row for one object
+        Resolves the identity header, regular columns, MDS layout/columns and view for the export
 
         Args:
-            obj (RenderResult): The object to serialize
-            header (list[str]): The identity columns (from object_information; `public_id` -> `object_id`)
-            columns (list[str]): The field names to serialize (from the type / metadata override)
-            view (str): The export view passed to the field summary renderer
+            data (list[RenderResult]): The objects to export
+            args (tuple): The positional export args; `args[0]` (if present) is the options dict
 
         Returns:
-            list[str]: The stringified cell values, in `header` then `columns` order
+            tuple: `(header, regular_columns, mds_layout, mds_columns, view)` where `mds_layout` is the
+                   `(section_id, field_names)` list and `mds_columns` the flattened MDS field names
         """
-        obj_fields: dict = {
-            field[FieldKey.NAME.value]: BaseExporterFormat.summary_renderer(obj, field, view)
-            for field in obj.fields
-        }
+        header: list[str] = list(DEFAULT_HEADER)
 
-        row: list[str] = []
+        # The MDS layout is derived from the (single, shared) type's rendered sections
+        mds_layout = self.extract_mds_layout(data[0].sections) if data else []
+        mds_columns: list[str] = [name for _, field_names in mds_layout for name in field_names]
 
-        for head in header:
-            info_key = OBJECT_INFO_ID_KEY if head == CmdbObjectKey.PUBLIC_ID.value else head
-            row.append(str(obj.object_information[info_key]))
+        view, metadata = BaseExporterFormat.resolve_export_view(args)
+        if metadata:
+            header = metadata.get(ExporterMetadataKey.HEADER.value, header)
+            regular_columns = metadata.get(ExporterMetadataKey.COLUMNS.value, [])
+        else:
+            # CSV renders in the render view only when metadata explicitly selects the columns
+            view = ExporterConfigType.NATIVE.value
+            regular_columns = [field[FieldKey.NAME.value] for field in data[0].fields] if data else []
 
-        for name in columns:
-            row.append(str(obj_fields.get(name)))
+        # MDS fields also appear (default-valued) in the flat field list; keep them out of the regular
+        # columns so each one is emitted exactly once, as its row-expanded MDS column
+        mds_column_set: set[str] = set(mds_columns)
+        regular_columns = [name for name in regular_columns if name not in mds_column_set]
 
-        return row
+        return header, regular_columns, mds_layout, mds_columns, view
 
 
     def csv_writer(self, header: list[str], rows: list[list], dialect=csv.excel) -> StringIO:

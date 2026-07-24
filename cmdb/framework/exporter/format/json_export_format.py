@@ -20,11 +20,7 @@ from logging import Logger, getLogger
 import json
 
 from cmdb.database.database_utils import default
-from cmdb.models.object_model.cmdb_object_key_enum import (
-    CmdbObjectKey,
-    CmdbObjectMdsKey,
-    CmdbObjectMdsRowKey,
-)
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
@@ -96,7 +92,7 @@ class JsonExportFormat(BaseExporterFormat):
             multi_data_sections = obj.multi_data_sections if obj.multi_data_sections else []
             if multi_data_sections:
                 key = CmdbObjectKey.MULTI_DATA_SECTIONS.value
-                output_element[key] = self._get_multi_data_sections(multi_data_sections)
+                output_element[key] = BaseExporterFormat.serialize_multi_data_sections(multi_data_sections)
 
             output.append(output_element)
 
@@ -149,65 +145,3 @@ class JsonExportFormat(BaseExporterFormat):
             })
 
         return fields
-
-
-    def _get_multi_data_sections(self, multi_data_sections: list[dict]) -> list[dict]:
-        """
-        Serializes the object's multi-data sections
-
-        Args:
-            multi_data_sections (list[dict]): The MDS sections to serialize
-
-        Returns:
-            list[dict]: One dict per section (`section_id`, `highest_id`, `values`)
-        """
-        sections = []
-
-        for mds in multi_data_sections:
-            sections.append({
-                CmdbObjectMdsKey.SECTION_ID.value: mds.get(CmdbObjectMdsKey.SECTION_ID.value),
-                CmdbObjectMdsKey.HIGHEST_ID.value: mds.get(CmdbObjectMdsKey.HIGHEST_ID.value),
-                CmdbObjectMdsKey.VALUES.value: self._get_multi_data_values(
-                    mds.get(CmdbObjectMdsKey.VALUES.value, [])
-                )
-            })
-
-        return sections
-
-
-    def _get_multi_data_values(self, values: list[dict]) -> list[dict]:
-        """
-        Serializes the rows within one multi-data section
-
-        Args:
-            values (list[dict]): The section's rows
-
-        Returns:
-            list[dict]: One dict per row (`multi_data_id`, `data`)
-        """
-        value_list = []
-
-        for value in values:
-            value_list.append({
-                CmdbObjectMdsRowKey.MULTI_DATA_ID.value: value.get(CmdbObjectMdsRowKey.MULTI_DATA_ID.value),
-                CmdbObjectMdsRowKey.DATA.value: self._get_data(value.get(CmdbObjectMdsRowKey.DATA.value, []))
-            })
-
-        return value_list
-
-
-    def _get_data(self, data: list[dict]) -> list[dict]:
-        """
-        Serializes the field entries within one multi-data row
-
-        Args:
-            data (list[dict]): The row's field entries
-
-        Returns:
-            list[dict]: One `{name, value}` dict per field entry
-        """
-        return [
-            {FieldKey.NAME.value: data_set.get(FieldKey.NAME.value),
-             FieldKey.VALUE.value: data_set.get(FieldKey.VALUE.value)}
-            for data_set in data
-        ]

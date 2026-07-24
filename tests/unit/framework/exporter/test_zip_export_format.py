@@ -27,6 +27,7 @@ def _obj(object_id: int, type_id: int, type_name: str, value: str = 'host-1') ->
     """A stand-in RenderResult with one text field."""
     return SimpleNamespace(
         fields=[{'name': 'dg-name', 'type': 'text', 'value': value}],
+        sections=[],
         multi_data_sections=[],
         object_information={'object_id': object_id, 'active': True},
         type_information={'type_id': type_id, 'type_name': type_name, 'type_label': type_name.title()},

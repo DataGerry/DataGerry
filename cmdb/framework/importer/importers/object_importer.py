@@ -16,7 +16,7 @@
 """
 Implementation of ObjectImporter
 """
-from datetime import datetime, timezone
+import copy
 from logging import Logger, getLogger
 
 from flask import current_app
@@ -25,8 +25,10 @@ from cmdb.manager import ObjectsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.importer.importers.base_importer import BaseImporter
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
+from cmdb.framework.importer.helper.object_import_validator import normalize_and_validate_object
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 from cmdb.framework.importer.messages.import_failed_message import ImportFailedMessage
 from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
@@ -76,25 +78,45 @@ class ObjectImporter(BaseImporter):
         super().__init__(file=file, file_type=file_type, config=config)
 
 
-    def _generate_objects(self, parsed: ObjectParserResponse, *args, **kwargs) -> list[dict]:
+    def _generate_objects(self, parsed: ObjectParserResponse, *args, **kwargs) -> list[tuple[dict, dict]]:
         """
-        Generates the object dicts from the parser response
+        Generates ``(provided_data, generated_object)`` candidates from the parser response
 
-        Delegates the per-entry generation to ``generate_object`` (implemented by the subclass);
-        any extra positional/keyword arguments (e.g. the target type's ``fields``) are forwarded
+        For each entry it snapshots what the user provided (via ``_to_provided_json``, captured before
+        ``generate_object`` may coerce the entry) and the object to import. The provided snapshot is
+        carried through so a rejected/failed object can be reported back exactly as submitted.
 
         Args:
             parsed (ObjectParserResponse): The parser response holding the raw entries
 
         Returns:
-            list[dict]: One generated object dict per parsed entry
+            list[tuple[dict, dict]]: One (provided_data, generated_object) pair per parsed entry
         """
-        object_instance_list: list[dict] = []
+        candidates: list[tuple[dict, dict]] = []
 
         for entry in parsed.entries:
-            object_instance_list.append(self.generate_object(entry, *args, **kwargs))
+            provided = self._to_provided_json(entry, **kwargs)
+            generated = self.generate_object(entry, *args, **kwargs)
+            candidates.append((provided, generated))
 
-        return object_instance_list
+        return candidates
+
+
+    def _to_provided_json(self, entry: dict, **kwargs) -> dict:  # pylint: disable=unused-argument
+        """
+        Returns the entry as the user provided it, for the failure report
+
+        The default is a deep copy of the parsed entry (correct for JSON, whose entry is already the
+        provided object). Formats whose entry is not a user-facing object (e.g. CSV's index-keyed row)
+        override this to reconstruct the provided object.
+
+        Args:
+            entry (dict): The parsed entry
+
+        Returns:
+            dict: The provided object snapshot
+        """
+        return copy.deepcopy(entry)
 
 
     def generate_object(self, entry: dict, *args, **kwargs) -> dict:
@@ -113,18 +135,23 @@ class ObjectImporter(BaseImporter):
         raise NotImplementedError
 
 
-    def _import(self, import_objects: list) -> ImporterObjectResponse:
+    def _import(
+            self,
+            candidates: list[tuple[dict, dict]],
+            special_type: SpecialType | None) -> ImporterObjectResponse:
         """
-        Imports the generated objects, recording per-object success/failure
+        Normalizes, validates and imports the candidate objects, recording per-object success/failure
 
-        Iterates from ``start_element`` for at most ``max_elements`` objects (0 = no limit). Each
-        object is inserted (overwriting an existing object of the same public_id when
-        ``overwrite_public`` is set); an object that already has a public_id while overwrite is
-        disabled, or any object whose write fails, is recorded as a failed import. In cloud mode the
-        ConfigItem count is reported once after the batch, only if anything was written
+        Iterates from ``start_element`` for at most ``max_elements`` candidates (0 = no limit). Each
+        object is normalized + validated (rejects go straight to the report), then inserted
+        (overwriting an existing object of the same public_id when ``overwrite_public`` is set). An
+        object that already has a public_id while overwrite is disabled, or any object whose write
+        fails, is reported as failed (with the data the user provided). In cloud mode the ConfigItem
+        count is reported once after the batch, only if anything was written.
 
         Args:
-            import_objects (list): The generated objects to import (output of ``_generate_objects``)
+            candidates (list[tuple[dict, dict]]): (provided_data, generated_object) pairs to import
+            special_type (SpecialType | None): The target type's special type, assigned to each object
 
         Returns:
             ImporterObjectResponse: The success and failure messages for the batch
@@ -138,17 +165,23 @@ class ObjectImporter(BaseImporter):
         did_write: bool = False
 
         # ``offset`` is relative to start_element, so it doubles as the count of processed objects
-        for offset, current_import_object in enumerate(import_objects[run_config.start_element:]):
+        for offset, (provided, current_import_object) in enumerate(candidates[run_config.start_element:]):
             if run_config.max_elements > 0 and offset >= run_config.max_elements:
                 break
+
+            # Normalize the server-owned fields and validate; a rejected object is reported and skipped
+            errors = normalize_and_validate_object(current_import_object, special_type)
+            if errors:
+                failed_imports.append(ImportFailedMessage(failed_object=provided, errors=errors))
+                continue
 
             current_public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
 
             # Object already has a public_id but overwriting is disabled -> reject
             if current_public_id is not None and not run_config.overwrite_public:
                 failed_imports.append(ImportFailedMessage(
-                    error_message='Object import for object - has PublicID but not overwrite setting',
-                    obj=current_import_object,
+                    failed_object=provided,
+                    errors=['Object has a public_id but overwriting is disabled'],
                 ))
                 continue
 
@@ -156,7 +189,7 @@ class ObjectImporter(BaseImporter):
                 imported_public_id = self._import_single_object(current_import_object)
             except (ObjectsManagerGetError, ObjectsManagerDeleteError, ObjectsManagerInsertError) as err:
                 LOGGER.error("[_import] Could not import object: %s", err, exc_info=True)
-                failed_imports.append(ImportFailedMessage(error_message=err, obj=current_import_object))
+                failed_imports.append(ImportFailedMessage(failed_object=provided, errors=[str(err)]))
             else:
                 did_write = True
                 success_imports.append(ImportSuccessMessage(
@@ -178,12 +211,12 @@ class ObjectImporter(BaseImporter):
 
     def _import_single_object(self, current_import_object: dict) -> int:
         """
-        Inserts a single object, replacing an existing object with the same public_id
+        Inserts a single (already normalized/validated) object, replacing an existing one of the same id
 
-        A public_id that already exists is overwritten (its creation time is preserved and the old
-        object deleted first); an object without a public_id is assigned a fresh one. In cloud mode
-        the ConfigItem limit is enforced before the insert. The object dict is mutated in place with
-        its resolved public_id / creation_time / last_edit_time
+        A public_id that already exists is overwritten (the old object is deleted first); an object
+        without a public_id is assigned a fresh one. In cloud mode the ConfigItem limit is enforced
+        before the insert. The lifecycle fields (creation_time, last_edit_time, ...) are already set
+        by the normalization step, so this method does not touch them.
 
         Args:
             current_import_object (dict): The object to insert
@@ -200,16 +233,12 @@ class ObjectImporter(BaseImporter):
         existing = self.objects_manager.get_object(public_id) if public_id else None
 
         if existing:
-            # Overwrite: preserve the original creation time, then remove the old object before re-insert
-            current_import_object[CmdbObjectKey.CREATION_TIME.value] = existing[CmdbObjectKey.CREATION_TIME.value]
             #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
             self.objects_manager.delete_with_follow_up(public_id, self.request_user)
         elif not public_id:
             # New object without an id -> assign a fresh public_id
             public_id = self.objects_manager.get_new_object_public_id()
             current_import_object[CmdbObjectKey.PUBLIC_ID.value] = public_id
-
-        current_import_object[CmdbObjectKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
 
         if current_app.cloud_mode and self.check_config_item_limit_reached(self.request_user):
             raise ObjectsManagerInsertError("Config item limit reached!")

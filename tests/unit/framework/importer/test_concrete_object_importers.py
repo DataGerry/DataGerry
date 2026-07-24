@@ -166,17 +166,19 @@ class TestJsonGenerateObject:
             JsonObjectImporter.start_import(mock_self)
 
     def test_start_import_wires_parse_generate_import(self) -> None:
-        """start_import parses, generates from the type fields, and imports."""
+        """start_import parses, generates from the type fields, and imports with the type's special_type."""
         mock_self = MagicMock()
         mock_self.parser.parse.return_value = 'PARSED'
-        mock_self.objects_manager.get_object_type.return_value.get_fields.return_value = ['f']
-        mock_self._generate_objects.return_value = ['obj']
+        type_instance = mock_self.objects_manager.get_object_type.return_value
+        type_instance.get_fields.return_value = ['f']
+        type_instance.special_type = 'SUBNET'
+        mock_self._generate_objects.return_value = ['cand']
         mock_self._import.return_value = 'RESULT'
 
         result = JsonObjectImporter.start_import(mock_self)
 
         mock_self._generate_objects.assert_called_once_with('PARSED', fields=['f'])
-        mock_self._import.assert_called_once_with(['obj'])
+        mock_self._import.assert_called_once_with(['cand'], 'SUBNET')
         assert result == 'RESULT'
 
 
@@ -244,7 +246,18 @@ class TestCsvGenerateObject:
         possible: list = [{'name': 'real', 'type': 'text'}]
         field_entries = [_map_entry('ghost', 'col_ghost')]
 
-        result = CsvObjectImporter._build_object_fields(MagicMock(), field_entries, [], entry, possible)
+        result = CsvObjectImporter._build_object_fields(MagicMock(), field_entries, [], entry, possible, set())
+
+        assert not result
+
+    def test_mds_field_is_skipped_from_flat_fields(self) -> None:
+        """A mapped field whose name belongs to an MDS section is not added as a flat field."""
+        entry = {'col_nic': 'eth0'}
+        possible: list = [{'name': 'nic_name', 'type': 'text'}]
+        field_entries = [_map_entry('nic_name', 'col_nic')]
+
+        result = CsvObjectImporter._build_object_fields(
+            MagicMock(), field_entries, [], entry, possible, {'nic_name'})
 
         assert not result
 
@@ -254,7 +267,7 @@ class TestCsvGenerateObject:
         mock_self._resolve_reference_field.return_value = {'name': 'owner', 'value': 42}
         foreign = _map_entry('owner', 'col_owner', type_id=2, ref_name='name')
 
-        result = CsvObjectImporter._build_object_fields(mock_self, [], [foreign], {}, [])
+        result = CsvObjectImporter._build_object_fields(mock_self, [], [foreign], {}, [], set())
 
         assert result == [{'name': 'owner', 'value': 42}]
 
@@ -264,7 +277,7 @@ class TestCsvGenerateObject:
         mock_self._resolve_reference_field.return_value = None
         foreign = _map_entry('owner', 'col_owner', type_id=2, ref_name='name')
 
-        result = CsvObjectImporter._build_object_fields(mock_self, [], [foreign], {}, [])
+        result = CsvObjectImporter._build_object_fields(mock_self, [], [foreign], {}, [], set())
 
         assert not result
 
@@ -274,6 +287,169 @@ class TestCsvGenerateObject:
 
         assert importer.get_file_type() == 'csv'
         assert importer.get_config() is None
+
+
+class TestCsvMultiDataSectionsImport:
+    """CSV import reassembles multi-data sections from the flattened multi-row layout."""
+
+    def test_is_blank(self) -> None:
+        """A cell is blank only when it is None or an empty string (0/False are values)."""
+        assert CsvObjectImporter._is_blank('') is True
+        assert CsvObjectImporter._is_blank(None) is True
+        assert CsvObjectImporter._is_blank(0) is False
+        assert CsvObjectImporter._is_blank(False) is False
+        assert CsvObjectImporter._is_blank('eth0') is False
+
+    def test_build_mds_layout_extracts_only_mds_sections(self) -> None:
+        """Only multi-data-sections contribute to the layout, in type order, with their field names."""
+        regular = MagicMock()
+        regular.type = 'section'
+        mds = MagicMock()
+        mds.type = 'multi-data-section'
+        mds.name = 'nics'
+        mds.get_fields.return_value = ['nic_name', 'mac']
+        type_instance = MagicMock()
+        type_instance.get_sections.return_value = [regular, mds]
+
+        assert CsvObjectImporter._build_mds_layout(type_instance) == [('nics', ['nic_name', 'mac'])]
+
+    def test_group_rows_by_public_id(self) -> None:
+        """A blank public_id continues the previous object; a set public_id starts a new one."""
+        header = ['public_id', 'active', 'nic_name']
+        rows = [{0: 10, 1: True, 2: 'eth0'}, {0: '', 1: '', 2: 'eth1'}, {0: 11, 1: True, 2: 'eth0'}]
+
+        groups = CsvObjectImporter._group_rows(rows, header)
+
+        assert groups == [[rows[0], rows[1]], [rows[2]]]
+
+    def test_group_rows_without_public_id_column_is_one_object_per_row(self) -> None:
+        """With no public_id column there is no grouping signal, so each row is its own object."""
+        header = ['active', 'nic_name']
+        rows = [{0: True, 1: 'eth0'}, {0: '', 1: 'eth1'}]
+
+        assert CsvObjectImporter._group_rows(rows, header) == [[rows[0]], [rows[1]]]
+
+    def test_build_multi_data_sections_single_section_multi_row(self) -> None:
+        """Each MDS field is read from its column; rows become 1-based, ordered entries."""
+        header = ['public_id', 'active', 'nic_name', 'mac']
+        layout = [('nics', ['nic_name', 'mac'])]
+        group = [{0: 10, 1: True, 2: 'eth0', 3: 'm0'}, {0: '', 1: '', 2: 'eth1', 3: 'm1'}]
+
+        result = CsvObjectImporter._build_multi_data_sections(group, header, layout)
+
+        assert result == [{
+            'section_id': 'nics',
+            'highest_id': 2,
+            'values': [
+                {'multi_data_id': 1, 'data': [{'name': 'nic_name', 'value': 'eth0'},
+                                              {'name': 'mac', 'value': 'm0'}]},
+                {'multi_data_id': 2, 'data': [{'name': 'nic_name', 'value': 'eth1'},
+                                              {'name': 'mac', 'value': 'm1'}]},
+            ],
+        }]
+
+    def test_build_multi_data_sections_unequal_counts(self) -> None:
+        """A section with fewer entries stops where its columns go blank (the 3-vs-2 case)."""
+        header = ['public_id', 'nic_name', 'mac', 'disk_label', 'size_gb']
+        layout = [('nics', ['nic_name', 'mac']), ('disks', ['disk_label', 'size_gb'])]
+        group = [
+            {0: 10, 1: 'eth0', 2: 'm0', 3: 'root', 4: 100},
+            {0: '', 1: 'eth1', 2: 'm1', 3: 'data', 4: 500},
+            {0: '', 1: 'eth2', 2: 'm2', 3: '', 4: ''},
+        ]
+
+        result = CsvObjectImporter._build_multi_data_sections(group, header, layout)
+        by_id = {section['section_id']: section for section in result}
+
+        assert by_id['nics']['highest_id'] == 3 and len(by_id['nics']['values']) == 3
+        assert by_id['disks']['highest_id'] == 2 and len(by_id['disks']['values']) == 2
+
+    def test_build_multi_data_sections_skips_section_without_columns(self) -> None:
+        """A section whose fields are not columns in the CSV cannot be restored (skipped)."""
+        header = ['public_id']
+        layout = [('nics', ['nic_name'])]
+
+        assert not CsvObjectImporter._build_multi_data_sections([{0: 10}], header, layout)
+
+    def test_build_multi_data_sections_object_with_no_entries(self) -> None:
+        """A type with an MDS section but an object with only blank MDS cells yields no section."""
+        header = ['public_id', 'nic_name']
+        layout = [('nics', ['nic_name'])]
+
+        assert not CsvObjectImporter._build_multi_data_sections([{0: 10, 1: ''}], header, layout)
+
+    def test_generate_objects_groups_rows_into_one_object_with_mds(self) -> None:
+        """_generate_objects groups continuation rows and attaches the reassembled MDS."""
+        mock_self = MagicMock()
+        mock_self._group_rows = CsvObjectImporter._group_rows
+        mock_self._build_multi_data_sections = CsvObjectImporter._build_multi_data_sections
+        mock_self._to_provided_json.return_value = {'provided': True}
+        mock_self.generate_object.return_value = {'fields': []}
+        parsed = MagicMock()
+        parsed.entries = [{0: 10, 1: 'eth0'}, {0: '', 1: 'eth1'}]
+
+        result = CsvObjectImporter._generate_objects(
+            mock_self, parsed, fields=[], header=['public_id', 'nic_name'], mds_layout=[('nics', ['nic_name'])])
+
+        assert len(result) == 1  # two CSV rows collapsed into one object
+        _, generated = result[0]
+        assert generated['multi_data_sections'][0]['section_id'] == 'nics'
+        assert len(generated['multi_data_sections'][0]['values']) == 2
+
+    def test_generate_objects_without_mds_omits_the_key(self) -> None:
+        """When no MDS is reconstructed the object has no multi_data_sections key."""
+        mock_self = MagicMock()
+        mock_self._group_rows = CsvObjectImporter._group_rows
+        mock_self._build_multi_data_sections = CsvObjectImporter._build_multi_data_sections
+        mock_self._to_provided_json.return_value = {}
+        mock_self.generate_object.return_value = {'fields': []}
+        parsed = MagicMock()
+        parsed.entries = [{0: 10, 1: 'host'}]
+
+        result = CsvObjectImporter._generate_objects(
+            mock_self, parsed, fields=[], header=['public_id', 'dg-name'], mds_layout=[])
+
+        _, generated = result[0]
+        assert 'multi_data_sections' not in generated
+
+    def test_export_import_roundtrip_via_new_layout(self) -> None:
+        """A CSV MDS export parses back (index-keyed + auto_cast) into the same section entries."""
+        # pylint: disable=import-outside-toplevel
+        import csv as _csv
+        from io import StringIO
+        from types import SimpleNamespace
+        from cmdb.utils.cast import auto_cast
+        from cmdb.framework.exporter.format.csv_export_format import CsvExportFormat
+
+        sections = [{'type': 'multi-data-section', 'name': 'nics', 'label': 'nics',
+                     'fields': ['nic_name', 'mac']}]
+        mds = [{'section_id': 'nics', 'highest_id': 2, 'values': [
+            {'multi_data_id': 1, 'data': [{'name': 'nic_name', 'value': 'eth0'},
+                                          {'name': 'mac', 'value': 'm0'}]},
+            {'multi_data_id': 2, 'data': [{'name': 'nic_name', 'value': 'eth1'},
+                                          {'name': 'mac', 'value': 'm1'}]},
+        ]}]
+        obj = SimpleNamespace(
+            fields=[{'name': 'dg-name', 'type': 'text', 'value': 'host-1'}],
+            sections=sections,
+            multi_data_sections=mds,
+            object_information={'object_id': 10, 'active': True},
+            type_information={'type_id': 5, 'type_label': 'Server'},
+        )
+
+        # Export to CSV, then parse it back the way CsvObjectParser does (index-keyed rows + auto_cast)
+        parsed_rows = list(_csv.reader(StringIO(CsvExportFormat().export([obj]).getvalue())))
+        header = parsed_rows[0]
+        rows = [dict(enumerate([auto_cast(cell) for cell in row])) for row in parsed_rows[1:]]
+
+        type_instance = SimpleNamespace(get_sections=lambda: [
+            SimpleNamespace(type='multi-data-section', name='nics', get_fields=lambda: ['nic_name', 'mac'])
+        ])
+        layout = CsvObjectImporter._build_mds_layout(type_instance)
+        groups = CsvObjectImporter._group_rows(rows, header)
+
+        assert len(groups) == 1  # the two exported rows are one object again
+        assert CsvObjectImporter._build_multi_data_sections(groups[0], header, layout) == mds
 
 
 class TestCsvResolveReferenceField:
@@ -319,16 +495,24 @@ class TestCsvStartImport:
     """The CSV import wiring and error contract."""
 
     def test_wires_parse_generate_import(self) -> None:
-        """start_import parses, generates from the type fields, and imports."""
+        """start_import parses, builds the MDS layout, generates, and imports with the type's special_type."""
+        parsed = MagicMock()
         mock_self = MagicMock()
-        mock_self.parser.parse.return_value = 'PARSED'
-        mock_self.objects_manager.get_object_type.return_value.get_fields.return_value = ['f']
-        mock_self._generate_objects.return_value = ['obj']
+        mock_self.parser.parse.return_value = parsed
+        type_instance = mock_self.objects_manager.get_object_type.return_value
+        type_instance.get_fields.return_value = ['f']
+        type_instance.special_type = 'VLAN'
+        mock_self._build_mds_layout.return_value = [('nics', ['nic_name'])]
+        mock_self._generate_objects.return_value = ['cand']
         mock_self._import.return_value = 'RESULT'
 
         result = CsvObjectImporter.start_import(mock_self)
 
-        mock_self._generate_objects.assert_called_once_with('PARSED', fields=['f'])
+        header = parsed.get_header_list.return_value
+        mock_self._build_mds_layout.assert_called_once_with(type_instance)
+        mock_self._generate_objects.assert_called_once_with(
+            parsed, fields=['f'], header=header, mds_layout=[('nics', ['nic_name'])])
+        mock_self._import.assert_called_once_with(['cand'], 'VLAN')
         assert result == 'RESULT'
 
     def test_parser_error_becomes_import_runtime_error(self) -> None:
@@ -346,3 +530,20 @@ class TestCsvStartImport:
 
         with pytest.raises(ImportRuntimeError):
             CsvObjectImporter.start_import(mock_self)
+
+
+class TestCsvProvidedJson:
+    """The CSV row -> provided-object (header-keyed JSON) transform used for the failure report."""
+
+    def test_maps_row_to_header_keyed_dict(self) -> None:
+        """An index-keyed row is mapped to a {column: value} object via the header."""
+        entry = {0: 10, 1: True, 2: 'host'}
+
+        result = CsvObjectImporter._to_provided_json(
+            MagicMock(), entry, header=['public_id', 'active', 'dg-name'])
+
+        assert result == {'public_id': 10, 'active': True, 'dg-name': 'host'}
+
+    def test_empty_without_header(self) -> None:
+        """With no header there is nothing to key by, so the provided object is empty."""
+        assert CsvObjectImporter._to_provided_json(MagicMock(), {0: 'x'}) == {}

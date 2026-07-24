@@ -41,6 +41,12 @@ class ExporterOptionKey(BaseStrEnum):
     VIEW = 'view'
     METADATA = 'metadata'
     CLASSNAME = 'classname'  # the inner format the ZIP wrapper packs
+    # Presentation ("human readable") export: replace column headers with field labels and resolve
+    # reference / ref-section fields to their summary line and location fields to the location name
+    HUMAN_READABLE = 'human_readable'
+    # Resolved {location public_id -> location name} map the writer injects for HUMAN_READABLE exports
+    # (the format classes have no database access, so the writer resolves the names and passes them in)
+    LOCATION_NAMES = 'location_names'
 
 
 class ExporterMetadataKey(BaseStrEnum):

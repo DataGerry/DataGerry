@@ -25,6 +25,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from cmdb.framework.exporter.writer.base_export_writer import BaseExportWriter
+from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.framework.exporter.writer.base_export_writer'
@@ -119,3 +120,60 @@ class TestFromDatabase:
             writer.from_database(dbm, MagicMock(), MagicMock())
 
         objects_manager_cls.assert_called_once_with(dbm, None)
+
+
+class TestHumanReadableLocationResolution:
+    """A human_readable export resolves location field ids to names and injects them into the options."""
+    # pylint: disable=protected-access
+
+    def test_injects_resolved_location_names_into_options(self) -> None:
+        """With the flag, export() resolves location names and passes them via the options."""
+        fmt = _FakeFormat()
+        writer = BaseExportWriter(fmt, SimpleNamespace(options={'human_readable': 'true'}))
+        writer._dbm = MagicMock()
+        writer._db_name = None
+        writer.data = [SimpleNamespace(fields=[{'type': 'location', 'value': 42}])]
+
+        with patch(f'{MODULE_PATH}.LocationsManager') as locations_manager_cls:
+            locations_manager_cls.return_value.get_locations_by.return_value = [
+                SimpleNamespace(public_id=42, name='Berlin/Room-1')
+            ]
+            writer.export()
+
+        _, options = fmt.called_with
+        assert options['location_names'] == {42: 'Berlin/Room-1'}
+        assert options['human_readable'] == 'true'  # the original options are preserved
+        locations_manager_cls.return_value.get_locations_by.assert_called_once_with(public_id={'$in': [42]})
+
+    def test_without_flag_no_location_resolution(self) -> None:
+        """Without the flag no LocationsManager is built and no location_names are injected."""
+        fmt = _FakeFormat()
+        writer = BaseExportWriter(fmt, SimpleNamespace(options={'view': 'native'}))
+        writer.data = [SimpleNamespace(fields=[{'type': 'location', 'value': 42}])]
+
+        with patch(f'{MODULE_PATH}.LocationsManager') as locations_manager_cls:
+            writer.export()
+
+        locations_manager_cls.assert_not_called()
+        assert 'location_names' not in fmt.called_with[1]
+
+    def test_resolve_location_names_without_locations_returns_empty(self) -> None:
+        """No location fields -> empty map and no database lookup."""
+        writer = BaseExportWriter(_FakeFormat(), SimpleNamespace(options={}))
+        writer.data = [SimpleNamespace(fields=[{'type': 'text', 'value': 'x'}])]
+
+        with patch(f'{MODULE_PATH}.LocationsManager') as locations_manager_cls:
+            assert writer._resolve_location_names() == {}
+
+        locations_manager_cls.assert_not_called()
+
+    def test_resolve_location_names_lookup_error_degrades_to_empty(self) -> None:
+        """A LocationsManagerGetError is logged and degrades to an empty map (never fails the export)."""
+        writer = BaseExportWriter(_FakeFormat(), SimpleNamespace(options={}))
+        writer._dbm = MagicMock()
+        writer._db_name = None
+        writer.data = [SimpleNamespace(fields=[{'type': 'location', 'value': 42}])]
+
+        with patch(f'{MODULE_PATH}.LocationsManager') as locations_manager_cls:
+            locations_manager_cls.return_value.get_locations_by.side_effect = LocationsManagerGetError('boom')
+            assert writer._resolve_location_names() == {}
