@@ -24,7 +24,6 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.framework.importer.mapper.map_entry import MapEntry
-from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -34,10 +33,6 @@ LOGGER: Logger = getLogger(__name__)
 # Mongo extended-JSON key carrying an epoch timestamp in milliseconds (e.g. {'$date': 1700000000000})
 MONGO_DATE_KEY: str = '$date'
 MILLISECONDS_PER_SECOND: int = 1000
-
-# Recognised string representations for boolean coercion (compared case-insensitively, stripped)
-TRUTHY_STRINGS: frozenset[str] = frozenset({'true', '1', 'yes'})
-FALSY_STRINGS: frozenset[str] = frozenset({'false', '0', 'no'})
 
 # Date/datetime string formats attempted (in order) when coercing a date-typed field value
 DATE_FORMATS: tuple[str, ...] = (
@@ -60,7 +55,6 @@ class ImproveObject:
     def __init__(
             self,
             entry: dict,
-            property_entries: list[MapEntry],
             field_entries: list[MapEntry],
             possible_fields: list[dict],
         ) -> None:
@@ -69,33 +63,25 @@ class ImproveObject:
 
         Args:
             entry (dict): The raw imported entry keyed by source column/value identifier
-            property_entries (list[MapEntry]): Mappings for object properties (e.g. 'active')
             field_entries (list[MapEntry]): Mappings for object fields
             possible_fields (list[dict]): The target type's field definitions (each with 'name'/'type')
         """
         self.entry = entry
-        self.property_entries = property_entries
         self.field_entries = field_entries
         self.possible_fields = possible_fields
 
 
     def improve_entry(self) -> dict:
         """
-        Converts the entry's property and field values to their appropriate types
+        Converts the entry's field values to their appropriate types
 
-        Booleans are coerced for the ``active`` property; date-typed fields are parsed into
-        ``datetime`` objects; text-typed fields are stringified when not already strings.
+        Date-typed fields are parsed into ``datetime`` objects and text-typed fields are stringified when
+        not already strings. Boolean coercion (for ``active`` and checkbox fields) is done by the import
+        validator (``parse_import_bool``), not here.
 
         Returns:
             dict: The same entry, with improved values
         """
-        # Improve properties
-        for property_entry in self.property_entries:
-            if property_entry.get_name() == CmdbObjectKey.ACTIVE.value:
-                value = self.entry.get(property_entry.get_value())
-                self.entry[property_entry.get_value()] = self.improve_boolean(value)
-
-        # Improve fields
         for entry_field in self.field_entries:
             matching_field = next(
                 (field for field in self.possible_fields
@@ -115,31 +101,6 @@ class ImproveObject:
                 self.entry[entry_field.get_value()] = str(value)
 
         return self.entry
-
-
-    @staticmethod
-    def improve_boolean(value: Any) -> Any:
-        """
-        Converts a string representation of a boolean into a boolean
-
-        The comparison is case-insensitive and whitespace-tolerant. Non-string values, and strings
-        that match neither set, are returned unchanged.
-
-        Args:
-            value (Any): The value to coerce
-
-        Returns:
-            Any: True/False for a recognised truthy/falsy string, otherwise the original value
-        """
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-
-            if normalized in TRUTHY_STRINGS:
-                return True
-            if normalized in FALSY_STRINGS:
-                return False
-
-        return value
 
 
     @staticmethod

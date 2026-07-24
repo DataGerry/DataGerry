@@ -49,24 +49,28 @@ class TestSummaryRenderer:
         field = {'type': 'text', 'value': 'host-1'}
         assert BaseExporterFormat.summary_renderer(_obj(), field, 'render') == 'host-1'
 
-    def test_render_view_reference_builds_summary_line(self) -> None:
-        """A reference field renders to '<type_label> #<type_id> | <summary values>'."""
-        field = {'type': 'ref', 'value': 3, 'reference': {'summaries': [{'value': 'web01'}, {'value': 'prod'}]}}
-        assert BaseExporterFormat.summary_renderer(_obj(), field, 'render') == 'Server #5 | web01 | prod'
+    def test_render_view_reference_uses_the_referenced_objects_info(self) -> None:
+        """A reference renders the REFERENCED object's '<type_label> #<object_id> | <summary values>'."""
+        field = {'type': 'ref', 'value': 3,
+                 'reference': {'object_id': 3, 'type_label': 'User',
+                               'summaries': [{'value': 'web01'}, {'value': 'prod'}]}}
+        # the referenced object's type/id (User #3), NOT the exporting object's (Server #5)
+        assert BaseExporterFormat.summary_renderer(_obj(), field, 'render') == 'User #3 | web01 | prod'
 
     def test_render_view_reference_without_summaries(self) -> None:
-        """A reference field with no reference block renders just the type header."""
-        assert BaseExporterFormat.summary_renderer(_obj(), {'type': 'ref', 'reference': None}, 'render') == 'Server #5'
+        """A reference with no summaries renders just the referenced type header."""
+        field = {'type': 'ref', 'value': 3, 'reference': {'object_id': 3, 'type_label': 'User'}}
+        assert BaseExporterFormat.summary_renderer(_obj(), field, 'render') == 'User #3'
 
-    def test_render_view_reference_empty_summaries(self) -> None:
-        """A reference field with an empty summaries list renders just the type header."""
-        field = {'type': 'ref', 'reference': {'summaries': []}}
-        assert BaseExporterFormat.summary_renderer(_obj(), field, 'render') == 'Server #5'
+    def test_render_view_unresolved_reference_returns_empty(self) -> None:
+        """A reference with no resolved object (empty reference) yields an empty string."""
+        assert BaseExporterFormat.summary_renderer(_obj(), {'type': 'ref', 'reference': None}, 'render') == ''
 
     def test_view_is_case_insensitive(self) -> None:
         """The view comparison is case-insensitive (RENDER == render)."""
-        field = {'type': 'ref', 'reference': {'summaries': [{'value': 'x'}]}}
-        assert BaseExporterFormat.summary_renderer(_obj(), field, 'RENDER') == 'Server #5 | x'
+        field = {'type': 'ref', 'value': 3, 'reference': {'object_id': 3, 'type_label': 'User',
+                                                          'summaries': [{'value': 'x'}]}}
+        assert BaseExporterFormat.summary_renderer(_obj(), field, 'RENDER') == 'User #3 | x'
 
 
 class TestExport:
@@ -180,6 +184,16 @@ class TestResolveExportValue:
                  'references': {'type_label': 'Rack', 'fields': [{'value': 'R-12'}, {'value': 'DC1'}]}}
         assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == 'Rack #7 | R-12 | DC1'
 
+    def test_ref_section_empty_value_returns_empty(self) -> None:
+        """A ref-section with no value yields an empty cell."""
+        field = {'type': 'ref-section-field', 'value': ''}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == ''
+
+    def test_ref_section_without_pulled_values(self) -> None:
+        """A ref-section whose pulled fields are all empty renders just the type header."""
+        field = {'type': 'ref-section-field', 'value': 7, 'references': {'type_label': 'Rack', 'fields': []}}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == 'Rack #7'
+
     def test_location_resolves_to_name(self) -> None:
         """A location field resolves its public_id to the location's tree name."""
         field = {'type': 'location', 'value': 42}
@@ -210,6 +224,10 @@ class TestHeaderLabels:
     def test_build_field_label_map_falls_back_to_name(self) -> None:
         """Fields without a label fall back to their own name."""
         assert BaseExporterFormat.build_field_label_map(self._data()) == {'dg-name': 'Hostname', 'nolabel': 'nolabel'}
+
+    def test_build_field_label_map_empty_data(self) -> None:
+        """An empty export yields an empty label map."""
+        assert BaseExporterFormat.build_field_label_map([]) == {}
 
     def test_identity_columns_get_friendly_labels(self) -> None:
         """public_id / active map to their friendly labels."""

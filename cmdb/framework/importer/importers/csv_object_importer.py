@@ -22,14 +22,13 @@ from datetime import datetime, timezone
 from cmdb.manager import ObjectsManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectKey,
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
-from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.framework.importer.parser.json_object_parser import JsonObjectParser
 from cmdb.framework.importer.content_types import CSVContent
@@ -45,13 +44,8 @@ from cmdb.framework.importer.responses.csv_object_parser_response import CsvObje
 from cmdb.framework.importer.helper.improve_object import ImproveObject
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
-
-# Mongo operators used in the reference-lookup query
-MONGO_ELEM_MATCH: str = '$elemMatch'
-MONGO_AND: str = '$and'
 
 # The first multi-data-section row id handed out on import (the section's highest_id counter is 0-based,
 # so ids run 1..n and highest_id ends at the row count) - mirrors the object-edit MDS row assignment
@@ -241,7 +235,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
 
 
     @staticmethod
-    def _build_mds_layout(type_instance: CmdbObject) -> list[tuple[str, list[str]]]:
+    def _build_mds_layout(type_instance: CmdbType) -> list[tuple[str, list[str]]]:
         """
         Extracts the ordered multi-data-section layout from a type definition
 
@@ -315,10 +309,8 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         )
 
         # Coerce the raw cell values to their target types before building the object
-        entry = ImproveObject(entry, property_entries, field_entries, possible_fields).improve_entry()
-        object_fields = self._build_object_fields(
-            field_entries, foreign_entries, entry, possible_fields, mds_field_names
-        )
+        entry = ImproveObject(entry, field_entries, possible_fields).improve_entry()
+        object_fields = self._build_object_fields(field_entries, foreign_entries, entry, mds_field_names)
 
         working_object: dict = {
             CmdbObjectKey.ACTIVE.value: True,
@@ -362,21 +354,20 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             field_entries: list[MapEntry],
             foreign_entries: list[MapEntry],
             entry: dict,
-            possible_fields: list[dict],
             mds_field_names: set[str],
         ) -> list[dict]:
         """
-        Builds the object's ``fields`` list from the mapped regular fields and resolved references
+        Builds the object's ``fields`` list from the mapped regular fields and reference fields
 
-        Only mapped fields that exist on the target type and are not multi-data-section fields are
-        included; each reference entry is resolved to the referenced object's public_id (unresolvable
-        references are skipped)
+        Every mapped regular field (except multi-data-section fields, restored separately) is included,
+        and each reference field is added with a cleared (``None``) value - no ref_name lookup is done,
+        since reference values cannot be resolved on import. Field validity against the target type
+        (including rejecting unknown fields) and type-stamping happen during normalization.
 
         Args:
             field_entries (list[MapEntry]): Mapping entries for regular fields
             foreign_entries (list[MapEntry]): Mapping entries for object references
             entry (dict): The (already coerced) source row
-            possible_fields (list[dict]): The target type's field definitions
             mds_field_names (set[str]): Field names that belong to a multi-data-section (excluded here)
 
         Returns:
@@ -389,73 +380,19 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             if entry_field.get_name() in mds_field_names:
                 continue
 
-            field_exists = any(
-                field[FieldKey.NAME.value] == entry_field.get_name() for field in possible_fields
-            )
+            fields.append({
+                CmdbObjectFieldKey.NAME.value: entry_field.get_name(),
+                CmdbObjectFieldKey.VALUE.value: entry.get(entry_field.get_value()),
+            })
 
-            if field_exists:
-                fields.append({
-                    CmdbObjectFieldKey.NAME.value: entry_field.get_name(),
-                    CmdbObjectFieldKey.VALUE.value: entry.get(entry_field.get_value()),
-                })
-
+        # Reference fields are kept but cleared (unresolvable on import); no ref_name lookup is done
         for foreign_entry in foreign_entries:
-            reference_field = self._resolve_reference_field(foreign_entry, entry)
-
-            if reference_field:
-                fields.append(reference_field)
+            fields.append({
+                CmdbObjectFieldKey.NAME.value: foreign_entry.get_name(),
+                CmdbObjectFieldKey.VALUE.value: None,
+            })
 
         return fields
-
-
-    def _resolve_reference_field(self, foreign_entry: MapEntry, entry: dict) -> dict | None:
-        """
-        Resolves a reference mapping entry to a {name, value} field pointing at another object
-
-        Looks up the single object of the referenced type whose ``ref_name`` field matches the source
-        value. Returns None (skipping the reference) when its options are incomplete or the reference
-        cannot be resolved to exactly one object
-
-        Args:
-            foreign_entry (MapEntry): The mapping entry describing the reference
-            entry (dict): The current source row
-
-        Returns:
-            dict | None: The reference field dict, or None if it could not be resolved
-        """
-        options: dict = foreign_entry.get_options()
-
-        try:
-            working_type_id = options[MapEntryOptionKey.TYPE_ID.value]
-            ref_name = options[MapEntryOptionKey.REF_NAME.value]
-        except KeyError:
-            return None
-
-        query: dict = {
-            CmdbObjectKey.TYPE_ID.value: working_type_id,
-            CmdbObjectKey.FIELDS.value: {
-                MONGO_ELEM_MATCH: {
-                    MONGO_AND: [
-                        {CmdbObjectFieldKey.NAME.value: ref_name},
-                        {CmdbObjectFieldKey.VALUE.value: entry.get(foreign_entry.get_value())},
-                    ]
-                }
-            }
-        }
-
-        try:
-            found_objects: list[CmdbObject] = self.objects_manager.get_objects_by(**query)
-        except ObjectsManagerGetError as err:
-            LOGGER.error('[CSV] Error while loading ref object %s', err)
-            return None
-
-        if len(found_objects) != 1:
-            return None
-
-        return {
-            CmdbObjectFieldKey.NAME.value: foreign_entry.get_name(),
-            CmdbObjectFieldKey.VALUE.value: found_objects[0].get_public_id(),
-        }
 
 
     def start_import(self) -> ImporterObjectResponse:
@@ -472,15 +409,16 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         try:
             parsed_response: CsvObjectParserResponse = self.parser.parse(self.file)
             type_instance = self.objects_manager.get_object_type(self.config.get_type_id())
+            type_fields = type_instance.get_fields()
 
             header = parsed_response.get_header_list() or []
             mds_layout = self._build_mds_layout(type_instance)
 
             candidates = self._generate_objects(
-                parsed_response, fields=type_instance.get_fields(), header=header, mds_layout=mds_layout
+                parsed_response, fields=type_fields, header=header, mds_layout=mds_layout
             )
 
-            return self._import(candidates, type_instance.special_type)
+            return self._import_for_type(candidates, type_instance)
         except ParserRuntimeError as err:
             LOGGER.error("[start_import] Parsing error: %s", err, exc_info=True)
             raise ImportRuntimeError(f"Parsing failed: {err}") from err

@@ -16,10 +16,10 @@
 """
 Unit tests for cmdb.framework.importer.helper.improve_object
 
-DB-free: exercises the value coercion used during CSV/JSON object import. Focus: boolean strings
-are normalised symmetrically and case-insensitively, Mongo ``$date`` timestamps are converted as
-UTC (including epoch 0), unparseable / unknown values pass through untouched, and ``improve_entry``
-coerces only the mapped active property + the date/text fields present on the target type.
+DB-free: exercises the value coercion used during CSV/JSON object import. Focus: Mongo ``$date``
+timestamps are converted as UTC (including epoch 0), unparseable / unknown values pass through
+untouched, and ``improve_entry`` coerces the date/text fields present on the target type. (Boolean
+coercion moved to the import validator's ``parse_import_bool``.)
 """
 import datetime
 
@@ -28,33 +28,6 @@ from cmdb.framework.importer.mapper.map_entry import MapEntry
 # -------------------------------------------------------------------------------------------------------------------- #
 
 UTC = datetime.timezone.utc
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                  improve_boolean                                                    #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-class TestImproveBoolean:
-    """Coercing string representations of booleans."""
-
-    def test_truthy_strings_return_true(self) -> None:
-        """Every recognised truthy spelling (case/whitespace insensitive) becomes True."""
-        for raw in ('true', 'TRUE', 'True', '1', 'yes', 'YES', ' Yes '):
-            assert ImproveObject.improve_boolean(raw) is True
-
-    def test_falsy_strings_return_false(self) -> None:
-        """Every recognised falsy spelling (case/whitespace insensitive) becomes False."""
-        for raw in ('false', 'FALSE', 'False', '0', 'no', 'NO', ' no '):
-            assert ImproveObject.improve_boolean(raw) is False
-
-    def test_unrecognised_string_is_returned_unchanged(self) -> None:
-        """A string that matches neither set is returned verbatim."""
-        assert ImproveObject.improve_boolean('maybe') == 'maybe'
-
-    def test_non_string_is_returned_unchanged(self) -> None:
-        """Non-string values pass through untouched."""
-        assert ImproveObject.improve_boolean(5) == 5
-        assert ImproveObject.improve_boolean(None) is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -115,25 +88,7 @@ class TestImproveDate:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class TestImproveEntry:
-    """The full CSV-path coercion over an entry's properties and fields."""
-
-    def test_active_property_is_coerced_to_boolean(self) -> None:
-        """The mapped 'active' property value is turned into a boolean."""
-        entry = {'col_active': 'true'}
-        properties = [MapEntry('active', 'col_active')]
-
-        result = ImproveObject(entry, properties, [], []).improve_entry()
-
-        assert result['col_active'] is True
-
-    def test_non_active_property_is_left_untouched(self) -> None:
-        """A property other than 'active' is not boolean-coerced."""
-        entry = {'col_author': 'true'}
-        properties = [MapEntry('author_id', 'col_author')]
-
-        result = ImproveObject(entry, properties, [], []).improve_entry()
-
-        assert result['col_author'] == 'true'
+    """The full CSV-path field coercion over an entry (date + text; booleans are the validator's job)."""
 
     def test_date_field_is_converted(self) -> None:
         """A field whose target type is 'date' has its value parsed to a datetime."""
@@ -141,7 +96,7 @@ class TestImproveEntry:
         fields = [MapEntry('birthday', 'col_bd')]
         possible = [{'name': 'birthday', 'type': 'date'}]
 
-        result = ImproveObject(entry, [], fields, possible).improve_entry()
+        result = ImproveObject(entry, fields, possible).improve_entry()
 
         assert result['col_bd'] == datetime.datetime(2024, 1, 15)
 
@@ -151,7 +106,7 @@ class TestImproveEntry:
         fields = [MapEntry('label', 'col_num')]
         possible = [{'name': 'label', 'type': 'text'}]
 
-        result = ImproveObject(entry, [], fields, possible).improve_entry()
+        result = ImproveObject(entry, fields, possible).improve_entry()
 
         assert result['col_num'] == '123'
 
@@ -161,7 +116,7 @@ class TestImproveEntry:
         fields = [MapEntry('label', 'col_name')]
         possible = [{'name': 'label', 'type': 'text'}]
 
-        result = ImproveObject(entry, [], fields, possible).improve_entry()
+        result = ImproveObject(entry, fields, possible).improve_entry()
 
         assert result['col_name'] == 'alice'
 
@@ -171,16 +126,15 @@ class TestImproveEntry:
         fields = [MapEntry('unknown', 'col_x')]
         possible = [{'name': 'other', 'type': 'date'}]
 
-        result = ImproveObject(entry, [], fields, possible).improve_entry()
+        result = ImproveObject(entry, fields, possible).improve_entry()
 
         assert result['col_x'] == '2024-01-15'
 
     def test_returns_the_same_entry_instance(self) -> None:
         """improve_entry mutates and returns the same dict it was given."""
-        entry = {'col_active': 'no'}
-        improver = ImproveObject(entry, [MapEntry('active', 'col_active')], [], [])
+        entry = {'col_bd': '2024-01-15'}
+        improver = ImproveObject(entry, [MapEntry('birthday', 'col_bd')], [{'name': 'birthday', 'type': 'date'}])
 
         result = improver.improve_entry()
 
         assert result is entry
-        assert result['col_active'] is False

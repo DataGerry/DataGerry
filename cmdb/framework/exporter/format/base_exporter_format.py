@@ -169,16 +169,17 @@ class BaseExporterFormat:
 
 
     @staticmethod
-    def summary_renderer(obj, field: dict, view: str = 'native') -> Any:
+    def summary_renderer(obj, field: dict, view: str = 'native') -> Any:  # pylint: disable=unused-argument
         """
         Resolves the exported value of a single field for the given view
 
         In the NATIVE view (the default) the field's raw stored value is returned. In the RENDER view a
-        reference field is rendered to a human-readable summary line
-        (`<type_label> #<type_id> | <summary values…>`); all other fields still return their raw value.
+        reference field is rendered to the referenced object's summary line
+        (`<referenced type_label> #<referenced object_id> | <summary values…>`); all other fields still
+        return their raw value. (`obj` is kept for the shared format-callback signature; it is not used.)
 
         Args:
-            obj: The rendered object providing `type_information` (used for reference fields)
+            obj: The rendered object (unused; kept for the shared callback signature)
             field (dict): The field to resolve
             view (str): The view type, `'native'` or `'render'`. Defaults to `'native'`
 
@@ -188,22 +189,11 @@ class BaseExporterFormat:
         if not isinstance(field, dict):
             return ""
 
-        # In the RENDER view a reference field is shown as its resolved summary line
+        # In the RENDER view a reference field is shown as the REFERENCED object's summary line
         is_render_view = view.upper() == ExporterConfigType.RENDER.value
 
         if is_render_view and field.get(FieldKey.TYPE.value) == FieldType.REFERENCE.value:
-            type_info = obj.type_information
-            summary_line = f'{type_info[TYPE_INFO_LABEL_KEY]} #{type_info[TYPE_INFO_ID_KEY]}'
-
-            reference = field.get(REFERENCE_KEY)
-            summaries = reference.get(REFERENCE_SUMMARIES_KEY, []) if reference else []
-
-            summary_values = [line[FieldKey.VALUE.value] for line in summaries]
-
-            if summary_values:
-                summary_line += f' | {" | ".join(summary_values)}'
-
-            return summary_line
+            return BaseExporterFormat._reference_summary_line(field)
 
         return field.get(FieldKey.VALUE.value, None)
 
