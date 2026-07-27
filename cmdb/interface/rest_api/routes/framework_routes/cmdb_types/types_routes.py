@@ -61,6 +61,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     special_type_is_unchanged,
     build_location_usage_payload,
     get_type_or_404,
+    get_type_instance_or_404,
     guard_location_field_removal,
     guard_selectable_as_parent_change,
     compute_removed_global_templates,
@@ -350,7 +351,7 @@ def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        target_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
+        target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
 
         return DefaultResponse(build_location_usage_payload(request_user, target_type)).make_response()
     except HTTPException as http_err:
@@ -393,7 +394,7 @@ def get_selectable_as_parent_usage_of_cmdb_type(public_id: int, request_user: Cm
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        target_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
+        target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
 
         return DefaultResponse(build_location_usage_payload(request_user, target_type)).make_response()
     except HTTPException as http_err:
@@ -437,7 +438,7 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        old_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
+        old_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
 
         # Editing an IPAM special type (existing or attempted) requires a valid IPAM license
         enforce_special_type_license(request_user, bool(old_type.special_type or data.get(TypeSchemaKey.SPECIAL_TYPE)))
@@ -467,7 +468,7 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # Update the target CmdbType
         types_manager.update_type(public_id, CmdbType.to_json(new_type))
 
-        updated_type: CmdbType | None = types_manager.get_type(public_id, as_dict=False)
+        updated_type: CmdbType | None = types_manager.get_type_instance(public_id)
 
         if not updated_type:
             abort(404, f"The updated Type with ID:{public_id} was not found!")

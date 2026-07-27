@@ -36,6 +36,8 @@ from cmdb.database.predefined_data.predefined_data_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeOverviewKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    get_type_or_404,
+    get_type_instance_or_404,
     guard_location_field_removal,
     guard_selectable_as_parent_change,
     build_location_usage_payload,
@@ -69,6 +71,43 @@ def _type_with_location(has_location: bool) -> SimpleNamespace:
         fields.append({FieldKey.NAME.value: 'loc', FieldKey.TYPE.value: FieldType.LOCATION.value})
 
     return SimpleNamespace(get_fields=lambda: fields)
+
+
+# ------------------------------------------ get_type_or_404 / get_type_instance_or_404 ------------------------------ #
+
+def test_get_type_or_404_returns_the_document() -> None:
+    """An existing type is returned as the raw document from the dict-mode lookup."""
+    types_manager = MagicMock()
+    types_manager.get_type.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    assert get_type_or_404(types_manager, 1) == {TypeSchemaKey.PUBLIC_ID.value: 1}
+    types_manager.get_type.assert_called_once_with(1)
+
+
+def test_get_type_instance_or_404_returns_the_instance() -> None:
+    """An existing type is returned hydrated from the instance-mode lookup."""
+    types_manager = MagicMock()
+    types_manager.get_type_instance.return_value = 'hydrated'
+
+    assert get_type_instance_or_404(types_manager, 1) == 'hydrated'
+    types_manager.get_type_instance.assert_called_once_with(1)
+
+
+@pytest.mark.parametrize(
+    'helper, manager_method',
+    [(get_type_or_404, 'get_type'), (get_type_instance_or_404, 'get_type_instance')],
+    ids=['dict', 'instance'],
+)
+def test_missing_type_aborts_404_in_both_modes(helper: Any, manager_method: str) -> None:
+    """Both helpers abort 404 with the same message when the type does not exist."""
+    types_manager = MagicMock()
+    getattr(types_manager, manager_method).return_value = None
+
+    with pytest.raises(HTTPException) as exc:
+        helper(types_manager, 4711)
+
+    assert exc.value.code == 404
+    assert '4711' in exc.value.description
 
 
 # ------------------------------------------------- guard_location_field_removal ------------------------------------- #

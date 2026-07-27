@@ -750,7 +750,7 @@ class SectionTemplatesManager(BaseManager):
                 'expected_field_names' so cleanup routes correctly. Defaults to None
         """
         # --- 1. Load type ---
-        a_type: CmdbType = self.types_manager.get_type(type_id, as_dict=False)
+        a_type: CmdbType = self.types_manager.get_type_instance(type_id)
 
         if not a_type:
             return

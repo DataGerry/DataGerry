@@ -84,7 +84,6 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
         working_object: dict = {
             CmdbObjectKey.TYPE_ID.value: self.config.get_type_id(),
             CmdbObjectKey.FIELDS.value: [],
-            CmdbObjectKey.AUTHOR_ID.value: self.request_user.get_public_id(),
             CmdbObjectKey.VERSION.value: DEFAULT_OBJECT_VERSION,
             CmdbObjectKey.CREATION_TIME.value: datetime.now(timezone.utc),
         }

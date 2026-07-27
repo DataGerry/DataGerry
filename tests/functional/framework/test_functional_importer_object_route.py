@@ -50,6 +50,8 @@ ALL_TYPE_IDS: list[int] = [ACTIVE_TYPE_ID, INACTIVE_TYPE_ID]
 
 CSV_BODY: bytes = b'dg-name\nhost-1\n'
 
+ADMIN_PUBLIC_ID: int = 1  # the user the rest_api fixture authenticates as
+
 
 @pytest.fixture(autouse=True)
 def _seed_types(database_manager: MongoDatabaseManager, database_name: str):
@@ -168,6 +170,22 @@ class TestImportObjects:
         response = rest_api.post(f'{BASE_URL}/', data={}, content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_imported_object_is_authored_by_the_importer(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """An upload that carries no author_id imports fine and is attributed to the importing user."""
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_import_form(ACTIVE_TYPE_ID), content_type='multipart/form-data'
+        )
+
+        assert response.status_code == HTTPStatus.OK
+        stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .find_one({'type_id': ACTIVE_TYPE_ID})
+        assert stored is not None
+        assert stored['author_id'] == ADMIN_PUBLIC_ID
+        assert stored['editor_id'] is None
+        assert stored['last_edit_time'] is None
 
     def test_no_importer_config_returns_400(self, rest_api) -> None:
         """An import with a file but no importer_config is rejected with 400."""

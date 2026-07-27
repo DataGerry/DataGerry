@@ -16,7 +16,8 @@
 """
 Functional coverage for the /export/type routes
 
-Covers exporting all types (JSON attachment envelope), exporting by comma-separated public_ids, the
+Covers exporting all types (JSON attachment envelope), exporting by comma-separated public_ids
+(single, multiple and duplicated), the ascending-public_id ordering both routes guarantee, the
 invalid-id-format -> 400 guard, and the manager-error -> 400 mappings (TypesManagerGetError on both
 the all-types and by-ids routes).
 """
@@ -25,6 +26,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import TypesManager
@@ -35,16 +37,20 @@ from tests.utils.ipam_doc_builders import make_type_doc
 
 EXPORT_ALL_URL: str = '/export/type/'
 TYPE_ID: int = 47601
+SECOND_TYPE_ID: int = 47602
+THIRD_TYPE_ID: int = 47603
+
+SEEDED_TYPE_IDS: list[int] = [TYPE_ID, SECOND_TYPE_ID, THIRD_TYPE_ID]
 
 
 @pytest.fixture(autouse=True)
-def _seed_type(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds one exportable type, cleaning it up after each test."""
+def _seed_types(database_manager: MongoDatabaseManager, database_name: str):
+    """Seeds three exportable types, cleaning them up after each test."""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-    types.delete_many({'public_id': TYPE_ID})
-    types.insert_one(make_type_doc(TYPE_ID, 'export-type'))
+    types.delete_many({'public_id': {'$in': SEEDED_TYPE_IDS}})
+    types.insert_many([make_type_doc(type_id, f'export-type-{type_id}') for type_id in SEEDED_TYPE_IDS])
     yield
-    types.delete_many({'public_id': TYPE_ID})
+    types.delete_many({'public_id': {'$in': SEEDED_TYPE_IDS}})
 
 
 def _raiser(exc: Exception):
@@ -70,6 +76,12 @@ class TestExportAllTypes:
         assert 'attachment' in response.headers['Content-Disposition']
         assert TYPE_ID in _ids_of(response)
 
+    def test_export_is_ascending_by_public_id(self, rest_api) -> None:
+        """The catalogue is emitted oldest-first so two exports of a system diff cleanly."""
+        exported_ids = _ids_of(rest_api.post(EXPORT_ALL_URL))
+
+        assert exported_ids == sorted(exported_ids)
+
     def test_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A TypesManagerGetError while fetching types surfaces as 400."""
         monkeypatch.setattr(TypesManager, 'get_all_types', _raiser(TypesManagerGetError('boom')))
@@ -82,6 +94,12 @@ class TestExportAllTypes:
 
         assert rest_api.post(EXPORT_ALL_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
+    def test_http_exception_is_passed_through(self, rest_api, monkeypatch) -> None:
+        """An HTTPException raised while exporting keeps its own status instead of becoming a 500."""
+        monkeypatch.setattr(TypesManager, 'get_all_types', _raiser(NotFound()))
+
+        assert rest_api.post(EXPORT_ALL_URL).status_code == HTTPStatus.NOT_FOUND
+
 
 class TestExportTypesByIds:
     """POST /export/type/<ids> returns the selected types."""
@@ -89,6 +107,27 @@ class TestExportTypesByIds:
     def test_exports_selected_type(self, rest_api) -> None:
         """Exporting by a single public_id returns that type."""
         response = rest_api.post(f'/export/type/{TYPE_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert _ids_of(response) == [TYPE_ID]
+
+    def test_exports_multiple_selected_types_in_ascending_order(self, rest_api) -> None:
+        """A multi-id selection returns every requested type, ordered by public_id not by request."""
+        response = rest_api.post(f'/export/type/{THIRD_TYPE_ID},{TYPE_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert _ids_of(response) == [TYPE_ID, THIRD_TYPE_ID]
+
+    def test_duplicate_ids_export_the_type_once(self, rest_api) -> None:
+        """A repeated public_id does not duplicate the type in the export."""
+        response = rest_api.post(f'/export/type/{TYPE_ID},{TYPE_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert _ids_of(response) == [TYPE_ID]
+
+    def test_partially_unknown_selection_exports_the_known_types(self, rest_api) -> None:
+        """An unknown public_id in the selection is skipped rather than failing the export."""
+        response = rest_api.post(f'/export/type/{TYPE_ID},99999999')
 
         assert response.status_code == HTTPStatus.OK
         assert _ids_of(response) == [TYPE_ID]

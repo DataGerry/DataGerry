@@ -78,7 +78,7 @@ class TestJsonObjectParser:
 
     def test_default_config_keys(self) -> None:
         """The default config exposes the FE-facing indent/encoding keys."""
-        assert JsonObjectParser().get_config() == {'indent': 2, 'encoding': 'UTF-8'}
+        assert JsonObjectParser().get_config() == {'encoding': 'UTF-8'}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

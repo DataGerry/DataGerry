@@ -316,7 +316,6 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             CmdbObjectKey.ACTIVE.value: True,
             CmdbObjectKey.TYPE_ID.value: self.get_config().get_type_id(),
             CmdbObjectKey.FIELDS.value: object_fields,
-            CmdbObjectKey.AUTHOR_ID.value: self.request_user.get_public_id(),
             CmdbObjectKey.VERSION.value: DEFAULT_OBJECT_VERSION,
             CmdbObjectKey.CREATION_TIME.value: datetime.now(timezone.utc),
         }

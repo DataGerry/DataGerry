@@ -390,7 +390,7 @@ class TestLocationFieldUsage:
         """The in_use flag, count and object public_ids are returned via DefaultResponse."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
              patch(f'{ROUTE_PATH}.build_location_usage_payload',
                    return_value={'in_use': True, 'count': 2, 'object_public_ids': [1, 2]}), \
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
@@ -405,7 +405,7 @@ class TestLocationFieldUsage:
         """An ObjectsManagerGetError maps to HTTP 400."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
              patch(f'{ROUTE_PATH}.build_location_usage_payload', side_effect=ObjectsManagerGetError('x')), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app)
@@ -430,7 +430,7 @@ class TestSelectableAsParentUsage:
         """The in_use flag, count and object public_ids are returned via DefaultResponse."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
              patch(f'{ROUTE_PATH}.build_location_usage_payload',
                    return_value={'in_use': True, 'count': 2, 'object_public_ids': [1, 2]}), \
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
@@ -445,7 +445,7 @@ class TestSelectableAsParentUsage:
         """An ObjectsManagerGetError maps to HTTP 400."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=MagicMock()), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
              patch(f'{ROUTE_PATH}.build_location_usage_payload', side_effect=ObjectsManagerGetError('x')), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app)
@@ -470,7 +470,7 @@ class TestUpdateCmdbType:
     def _patches() -> Any:
         """Patches the helper chain the happy path runs through; returns the patch context managers."""
         return [
-            patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type=None)),
+            patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)),
             patch(f'{ROUTE_PATH}.CmdbType'),
             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True),
             patch(f'{ROUTE_PATH}.guard_location_field_removal'),
@@ -483,7 +483,9 @@ class TestUpdateCmdbType:
         """After the update, the re-read final document is handed to UpdateSingleResponse."""
         del patched_manager_provider
         final_doc = {**SAMPLE_TYPE_DICT, 'label': 'updated'}
-        mgr.get_type.side_effect = [SimpleNamespace(special_type=None, public_id=TYPE_PUBLIC_ID), final_doc]
+        # the post-update re-reads: the hydrated type for the side effects, then the final document
+        mgr.get_type_instance.return_value = SimpleNamespace(special_type=None, public_id=TYPE_PUBLIC_ID)
+        mgr.get_type.return_value = final_doc
 
         with patch(f'{ROUTE_PATH}.UpdateSingleResponse') as response_ctor:
             for ctx in self._patches():
@@ -501,7 +503,9 @@ class TestUpdateCmdbType:
         """A forged body public_id is overwritten with the URL id before the type is persisted."""
         del patched_manager_provider
         final_doc = {**SAMPLE_TYPE_DICT, 'label': 'updated'}
-        mgr.get_type.side_effect = [SimpleNamespace(special_type=None, public_id=TYPE_PUBLIC_ID), final_doc]
+        # the post-update re-reads: the hydrated type for the side effects, then the final document
+        mgr.get_type_instance.return_value = SimpleNamespace(special_type=None, public_id=TYPE_PUBLIC_ID)
+        mgr.get_type.return_value = final_doc
         forged_payload: dict[str, Any] = {**SAMPLE_TYPE_DICT, 'public_id': 999}
 
         with patch(f'{ROUTE_PATH}.UpdateSingleResponse'):
@@ -521,7 +525,7 @@ class TestUpdateCmdbType:
         """Changing the special_type property aborts 400 before the update."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type='OLD')), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type='OLD')), \
              patch(f'{ROUTE_PATH}.enforce_special_type_license'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=False), \
@@ -537,7 +541,7 @@ class TestUpdateCmdbType:
         """A 400 from guard_location_field_removal propagates and no update runs."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type=None)), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal', side_effect=BadRequest()), \
@@ -553,7 +557,7 @@ class TestUpdateCmdbType:
         """A 400 from guard_selectable_as_parent_change propagates and no update runs."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type=None)), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
@@ -569,7 +573,7 @@ class TestUpdateCmdbType:
         del patched_manager_provider
         mgr.update_type.side_effect = TypesManagerUpdateError('x')
 
-        with patch(f'{ROUTE_PATH}.get_type_or_404', return_value=SimpleNamespace(special_type=None)), \
+        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \

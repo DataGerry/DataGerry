@@ -488,7 +488,7 @@ class CmdbMultiRender:
                     )
                     type_id = obj.get_type_id()
                     if type_id not in fallback_types:
-                        fallback_types[type_id] = self.types_manager.get_type(type_id, False)
+                        fallback_types[type_id] = self.types_manager.get_type_instance(type_id)
                     type_instance: CmdbType | None = fallback_types[type_id]
 
                     if not type_instance:

@@ -22,6 +22,10 @@ so the route helpers build that response from one set of named keys instead of r
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Message returned when a CmdbType lookup by public_id finds nothing (HTTP 404). Shared by every
+# "look it up or 404" helper so a missing type reads the same wherever it is reported
+TYPE_NOT_FOUND_MESSAGE: str = 'The Type with ID:{public_id} was not found!'
+
 
 class TypeOverviewKey(BaseStrEnum):
     """

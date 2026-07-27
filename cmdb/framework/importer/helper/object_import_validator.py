@@ -124,21 +124,27 @@ def parse_import_bool(value: Any) -> bool | None:
 def normalize_and_validate_object(
         working_object: dict,
         special_type: SpecialType | None,
+        author_id: int,
         type_context: ImportTypeContext | None = None) -> list[str]:
     """
     Normalizes an imported object's schema fields in place and validates the ones with rules
 
-    Forces the server-owned fields (``version``, ``creation_time``, ``last_edit_time``, ``editor_id``)
-    regardless of any provided value, derives ``special_type`` from the target type (user input
-    ignored), defaults ``ci_explorer_tooltip`` and ``active`` when absent, and validates ``active`` +
-    the location placement + field-name uniqueness. When a ``type_context`` is given it additionally
-    stamps each field's ``type`` (rejecting fields the type does not define), rejects a required field
-    left without a value, and clears the values of reference / ref-section / location fields (their
-    foreign ids cannot be resolved on import yet).
+    Forces the server-owned fields (``author_id``, ``version``, ``creation_time``, ``last_edit_time``,
+    ``editor_id``) regardless of any provided value, derives ``special_type`` from the target type
+    (user input ignored), defaults ``ci_explorer_tooltip`` and ``active`` when absent, and validates
+    ``active`` + the location placement + field-name uniqueness. When a ``type_context`` is given it
+    additionally stamps each field's ``type`` (rejecting fields the type does not define), rejects a
+    required field left without a value, and clears the values of reference / ref-section / location
+    fields (their foreign ids cannot be resolved on import yet).
+
+    ``author_id`` is never something the import file has to carry: it is neither required of nor read
+    from the upload, and a value that reaches this point - including one a property mapping wrote onto
+    the object - is replaced by the importing user
 
     Args:
         working_object (dict): The generated object to normalize (mutated in place)
         special_type (SpecialType | None): The target type's special type (assigned to the object)
+        author_id (int): public_id of the CmdbUser performing the import, forced onto every object
         type_context (ImportTypeContext | None): The target type's derived inputs (see
                                                  ``build_import_type_context``); None skips the
                                                  type-driven stamping / required / clearing steps
@@ -149,6 +155,7 @@ def normalize_and_validate_object(
     errors: list[str] = []
 
     # Server-owned lifecycle fields are always forced, ignoring any provided value
+    working_object[CmdbObjectKey.AUTHOR_ID.value] = author_id
     working_object[CmdbObjectKey.VERSION.value] = DEFAULT_OBJECT_VERSION
     working_object[CmdbObjectKey.CREATION_TIME.value] = datetime.now(timezone.utc)
     working_object[CmdbObjectKey.LAST_EDIT_TIME.value] = None

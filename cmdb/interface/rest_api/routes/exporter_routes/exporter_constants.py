@@ -15,19 +15,20 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Shared constants for the CmdbObject export REST routes
+
+Covers only the object export, which is driven by the export engine in `cmdb/framework/exporter`. The
+CmdbType export has its own module, `exporter_type_constants`
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = ['ZIP_EXPORT_FORMAT', 'DEFAULT_EXPORT_FORMAT', 'ExporterQueryParam']
 
 # The 'zip' export packs an underlying format, so its class is a valid dynamic-load target too
 ZIP_EXPORT_FORMAT: str = 'ZipExportFormat'
 
 # Export format used when the request does not specify a 'classname'
 DEFAULT_EXPORT_FORMAT: str = 'JsonExportFormat'
-
-# Mimetype + file extension of the CmdbType export (JSON only)
-TYPE_EXPORT_MIMETYPE: str = 'application/json'
-TYPE_EXPORT_FILE_EXTENSION: str = 'json'
 
 
 class ExporterQueryParam(BaseStrEnum):

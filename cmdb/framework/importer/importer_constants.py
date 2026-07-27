@@ -60,7 +60,6 @@ class ImporterFileFormat(BaseStrEnum):
 
 class JsonParserConfigKey(BaseStrEnum):
     """Keys of the JSON parser configuration (also the FE-facing default-config payload)"""
-    INDENT = 'indent'
     ENCODING = 'encoding'
 
 
