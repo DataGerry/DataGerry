@@ -16,10 +16,11 @@
 """
 Unit tests for the concrete object importers (JsonObjectImporter / CsvObjectImporter)
 
-DB-free: the ``generate_object`` / mapping helpers run on a MagicMock-typed ``self`` (config,
-objects_manager, request_user mocked); ``start_import`` wiring and the CSV reference lookup are
-exercised through the mocked ObjectsManager. Focus: object dicts are built with the right keys,
-type-field validation/coercion, CSV reference resolution, and the ImportRuntimeError contract.
+DB-free: the ``generate_object`` / mapping helpers run on a MagicMock-typed ``self`` (config and
+objects_manager mocked); ``start_import`` wiring and the CSV reference lookup are exercised through
+the mocked ObjectsManager. Focus: object dicts are built with the right keys, type-field
+validation/coercion, CSV reference resolution, and the ImportRuntimeError contract. Authorship is not
+built here - ``normalize_and_validate_object`` forces author_id after generation.
 """
 from unittest.mock import MagicMock, patch
 
@@ -36,12 +37,11 @@ JSON_PATH: str = 'cmdb.framework.importer.importers.json_object_importer'
 CSV_PATH: str = 'cmdb.framework.importer.importers.csv_object_importer'
 
 
-def _mock_json_self(mapping: dict, type_id: int = 1, author_id: int = 7) -> MagicMock:
-    """A MagicMock JsonObjectImporter self with config/request_user wired."""
+def _mock_json_self(mapping: dict, type_id: int = 1) -> MagicMock:
+    """A MagicMock JsonObjectImporter self with its config wired."""
     mock_self = MagicMock()
     mock_self.config.get_mapping.return_value = mapping
     mock_self.config.get_type_id.return_value = type_id
-    mock_self.request_user.get_public_id.return_value = author_id
     return mock_self
 
 
@@ -53,7 +53,7 @@ class TestJsonGenerateObject:
     """Building a CmdbObject dict from a parsed JSON entry."""
 
     def test_builds_object_with_core_keys(self) -> None:
-        """The generated object carries the type/author/version/creation-time metadata."""
+        """The generated object carries the type/version/creation-time metadata."""
         mock_self = _mock_json_self({'properties': {}})
         entry = {'fields': []}
 
@@ -62,10 +62,17 @@ class TestJsonGenerateObject:
             result = JsonObjectImporter.generate_object(mock_self, entry, fields=[])
 
         assert result['type_id'] == 1
-        assert result['author_id'] == 7
         assert result['version'] == '1.0.0'
         assert result['creation_time'] == 'NOW'
         assert result['fields'] == []
+
+    def test_author_id_is_left_to_the_validator(self) -> None:
+        """The importer no longer stamps author_id - normalize_and_validate_object forces it later."""
+        mock_self = _mock_json_self({'properties': {}})
+
+        result = JsonObjectImporter.generate_object(mock_self, {'fields': []}, fields=[])
+
+        assert 'author_id' not in result
 
     def test_mapped_property_is_copied_from_entry(self) -> None:
         """A mapped property (e.g. active) is copied from the source entry onto the object."""
@@ -186,11 +193,10 @@ class TestJsonGenerateObject:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def _mock_csv_self(property_entries=None, field_entries=None, foreign_entries=None,
-                   type_id: int = 1, author_id: int = 7) -> MagicMock:
+                   type_id: int = 1) -> MagicMock:
     """A MagicMock CsvObjectImporter self whose mapping returns the given entry lists by type."""
     mock_self = MagicMock()
     mock_self.get_config.return_value.get_type_id.return_value = type_id
-    mock_self.request_user.get_public_id.return_value = author_id
 
     lists = {
         'property': property_entries or [],

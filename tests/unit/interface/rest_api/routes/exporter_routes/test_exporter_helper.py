@@ -17,12 +17,16 @@
 Unit tests for cmdb.interface.rest_api.routes.exporter_routes.exporter_helper
 """
 import json
+from datetime import datetime, timezone
 from http import HTTPStatus
 from unittest.mock import patch
 
 import pytest
+from bson import ObjectId
 from werkzeug.exceptions import HTTPException
 
+from cmdb.errors.models.cmdb_type import CmdbTypeToJsonError
+from cmdb.framework.exporter.exporter_constants import EXPORT_FILENAME_TIMESTAMP_FMT
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import (
     resolve_export_format,
     build_types_json_export_response,
@@ -31,8 +35,11 @@ from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import (
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (
     ZIP_EXPORT_FORMAT,
     DEFAULT_EXPORT_FORMAT,
+)
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_constants import (
     TYPE_EXPORT_MIMETYPE,
     TYPE_EXPORT_FILE_EXTENSION,
+    TYPE_EXPORT_JSON_INDENT,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -113,3 +120,46 @@ class TestBuildTypesJsonExportResponse:
 
         assert response.status_code == HTTPStatus.OK
         assert json.loads(response.get_data(as_text=True)) == []
+
+    def test_body_is_indented_for_reading_and_diffing(self) -> None:
+        """The export is pretty-printed, not minified - a regression to indent=None would show here."""
+        with patch(f'{MODULE_PATH}.CmdbType') as cmdb_type:
+            cmdb_type.to_json.side_effect = lambda type_: {'public_id': type_}
+            response = build_types_json_export_response([1])
+
+        body = response.get_data(as_text=True)
+
+        # the key sits two levels in (list -> object), so it carries two indent steps
+        assert '\n' in body
+        assert f'\n{" " * (2 * TYPE_EXPORT_JSON_INDENT)}"public_id"' in body
+
+    def test_filename_carries_the_shared_export_timestamp(self) -> None:
+        """The attachment name is the shared export timestamp, so it parses with that format."""
+        response = build_types_json_export_response([])
+
+        filename = response.headers['Content-Disposition'].split('filename=')[1]
+        stamp = filename.removesuffix(f'.{TYPE_EXPORT_FILE_EXTENSION}')
+
+        assert datetime.strptime(stamp, EXPORT_FILENAME_TIMESTAMP_FMT)
+
+    def test_bson_values_are_encoded_by_the_default_hook(self) -> None:
+        """ObjectId / datetime values that plain json cannot encode are converted, not raised on."""
+        object_id = ObjectId()
+        created = datetime(2026, 7, 27, 12, 0, tzinfo=timezone.utc)
+
+        with patch(f'{MODULE_PATH}.CmdbType') as cmdb_type:
+            cmdb_type.to_json.side_effect = lambda _type: {'_id': object_id, 'creation_time': created}
+            response = build_types_json_export_response([1])
+
+        (entry,) = json.loads(response.get_data(as_text=True))
+
+        assert entry['_id'] == {'$oid': str(object_id)}
+        assert entry['creation_time']
+
+    def test_unserializable_type_fails_the_whole_export(self) -> None:
+        """A type that cannot be converted raises instead of being silently dropped from the export."""
+        with patch(f'{MODULE_PATH}.CmdbType') as cmdb_type:
+            cmdb_type.to_json.side_effect = CmdbTypeToJsonError('broken type')
+
+            with pytest.raises(CmdbTypeToJsonError):
+                build_types_json_export_response([1])

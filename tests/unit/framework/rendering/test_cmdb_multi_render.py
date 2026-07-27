@@ -429,13 +429,13 @@ class TestLinkedLookups:
         obj = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [{'name': REF_FIELD, 'value': REF_OBJ_ID}])
         render = _render(managers, [], types_cache={}, ref_render=True)
         render.to_render_objects = [obj]
-        render.types_manager.get_type.return_value = _main_type()
+        render.types_manager.get_type_instance.return_value = _main_type()
         render.objects_manager.get_objects_lookup.return_value = {REF_OBJ_ID: _ref_obj()}
 
         linked = render.get_all_linked_objects()
 
         assert REF_OBJ_ID in linked
-        render.types_manager.get_type.assert_called_once()
+        render.types_manager.get_type_instance.assert_called_once()
 
     def test_linked_objects_lookup_error_returns_empty(self, managers) -> None:
         """An error fetching referenced objects degrades to an empty lookup."""
@@ -891,6 +891,6 @@ class TestLinkedObjectsFallback:
         obj = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [{'name': REF_FIELD, 'value': REF_OBJ_ID}])
         render = _render(managers, [], types_cache={}, ref_render=True)
         render.to_render_objects = [obj]
-        render.types_manager.get_type.return_value = None
+        render.types_manager.get_type_instance.return_value = None
 
         assert render.get_all_linked_objects() == {}

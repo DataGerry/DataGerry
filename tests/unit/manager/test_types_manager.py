@@ -31,6 +31,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model import CmdbType, FieldKey, FieldType, SectionType, SectionKey, TypeSchemaKey
 from cmdb.models.object_model import CmdbObjectMdsKey, CmdbObjectFieldKey, CmdbObjectMdsRowKey
 from cmdb.manager.types_manager import TypesManager
@@ -285,6 +286,49 @@ def test_get_all_types_hydrates_each_raw_row() -> None:
     assert result == [('hydrated', 1), ('hydrated', 2)]
 
 
+def test_get_all_types_defaults_to_descending() -> None:
+    """Without an explicit direction the BaseManager default (-1) is forwarded."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.return_value = []
+
+    TypesManager.get_all_types(mgr)
+
+    mgr.get_many.assert_called_once_with(direction=CmdbDAO.DAO_DESCENDING)
+
+
+def test_get_all_types_forwards_the_requested_direction() -> None:
+    """An explicit ascending direction reaches get_many (used by the type export)."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.return_value = []
+
+    TypesManager.get_all_types(mgr, direction=CmdbDAO.DAO_ASCENDING)
+
+    mgr.get_many.assert_called_once_with(direction=CmdbDAO.DAO_ASCENDING)
+
+
+def test_get_types_by_forwards_sort_direction_and_filter() -> None:
+    """direction binds to the sort order instead of being swallowed as a query filter field."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.return_value = []
+    criteria = {'public_id': {'$in': [1, 2]}}  # the shape the type-export route sends
+
+    TypesManager.get_types_by(mgr, sort='public_id', direction=CmdbDAO.DAO_ASCENDING, **criteria)
+
+    mgr.get_many.assert_called_once_with(
+        sort='public_id', direction=CmdbDAO.DAO_ASCENDING, **criteria
+    )
+
+
+def test_get_types_by_defaults_to_descending() -> None:
+    """Without an explicit direction the BaseManager default (-1) is forwarded."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_many.return_value = []
+
+    TypesManager.get_types_by(mgr)
+
+    mgr.get_many.assert_called_once_with(sort='public_id', direction=CmdbDAO.DAO_DESCENDING)
+
+
 # ----------------------------------------------------- error wrapping ----------------------------------------------- #
 
 def test_insert_type_wraps_unexpected_error() -> None:
@@ -303,6 +347,28 @@ def test_update_type_wraps_unexpected_error() -> None:
 
     with pytest.raises(TypesManagerUpdateError):
         TypesManager.update_type(mgr, 1, {TypeSchemaKey.NAME.value: 'x'})
+
+
+def test_update_type_pins_the_document_identity() -> None:
+    """A payload carrying a different public_id cannot rewrite the stored id."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._as_stored_type_dict.return_value = {TypeSchemaKey.PUBLIC_ID.value: 99, TypeSchemaKey.NAME.value: 'x'}
+
+    TypesManager.update_type(mgr, 7, {TypeSchemaKey.PUBLIC_ID.value: 99})
+
+    _, kwargs = mgr.update.call_args
+    assert kwargs['criteria'] == {TypeSchemaKey.PUBLIC_ID.value: 7}
+    assert kwargs['data'][TypeSchemaKey.PUBLIC_ID.value] == 7
+
+
+def test_update_type_returns_the_update_result() -> None:
+    """The UpdateResult is passed through so callers can read matched_count."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr._as_stored_type_dict.return_value = {TypeSchemaKey.NAME.value: 'x'}
+    update_result = SimpleNamespace(matched_count=0, modified_count=0)
+    mgr.update.return_value = update_result
+
+    assert TypesManager.update_type(mgr, 7, {}) is update_result
 
 
 def test_find_types_wraps_unexpected_error() -> None:
@@ -388,6 +454,46 @@ def test_get_type_wraps_get_error() -> None:
 
     with pytest.raises(TypesManagerGetError):
         TypesManager.get_type(mgr, 1)
+
+
+def test_get_type_returns_the_raw_document() -> None:
+    """get_type hands back the stored document untouched, without hydrating it."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    assert TypesManager.get_type(mgr, 1) == {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+
+def test_get_type_instance_hydrates_the_document() -> None:
+    """get_type_instance maps the stored document through CmdbType.from_data."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    with patch(f'{MGR_PATH}.CmdbType') as cmdb_type:
+        cmdb_type.from_data.return_value = 'hydrated'
+
+        assert TypesManager.get_type_instance(mgr, 1) == 'hydrated'
+
+
+@pytest.mark.parametrize('method', ['get_type', 'get_type_instance'], ids=['dict', 'instance'])
+def test_missing_type_is_none_in_both_modes(method: str) -> None:
+    """An unknown public_id is reported as None by both read methods, never as an error."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.return_value = None
+
+    assert getattr(TypesManager, method)(mgr, 9999) is None
+
+
+def test_get_type_instance_wraps_hydration_error() -> None:
+    """A CmdbType.from_data failure surfaces as TypesManagerGetError, not as the raw model error."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_one.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    with patch(f'{MGR_PATH}.CmdbType') as cmdb_type:
+        cmdb_type.from_data.side_effect = RuntimeError('broken document')
+
+        with pytest.raises(TypesManagerGetError):
+            TypesManager.get_type_instance(mgr, 1)
 
 
 def test_delete_type_wraps_delete_error() -> None:

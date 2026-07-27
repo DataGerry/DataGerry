@@ -57,6 +57,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     clean_type_reports,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TYPE_NOT_FOUND_MESSAGE,
     TypeUserDataKey,
     TypeOverviewKey,
 )
@@ -84,29 +85,53 @@ def enforce_special_type_license(request_user: CmdbUser, is_special_type: bool) 
         abort_if_feature_locked(LicenseFeature.IPAM, request_user)
 
 
-def get_type_or_404(
-    types_manager: TypesManager,
-    public_id: int,
-    as_dict: bool = True,
-) -> dict[str, Any] | CmdbType:
+def get_type_or_404(types_manager: TypesManager, public_id: int) -> dict[str, Any]:
     """
-    Fetches a CmdbType by public_id, aborting the request with HTTP 404 when it does not exist
+    Fetches a CmdbType document by public_id, aborting the request with HTTP 404 when it does not exist
 
     Centralizes the "look it up or 404" pattern shared by the CmdbType read / update routes so
-    the lookup and its not-found message stay identical across them
+    the lookup and its not-found message stay identical across them. Use
+    `get_type_instance_or_404` when a CmdbType object is needed instead
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         public_id (int): public_id of the CmdbType to fetch
-        as_dict (bool): When True returns the raw document, otherwise a CmdbType instance
+
+    Raises:
+        HTTPException: 404 if no CmdbType has that public_id
 
     Returns:
-        dict[str, Any] | CmdbType: The requested CmdbType (never None - aborts 404 instead)
+        dict[str, Any]: The requested CmdbType document (never None - aborts 404 instead)
     """
-    target_type: dict[str, Any] | CmdbType | None = types_manager.get_type(public_id, as_dict=as_dict)
+    target_type: dict[str, Any] | None = types_manager.get_type(public_id)
 
     if not target_type:
-        abort(404, f"The Type with ID:{public_id} was not found!")
+        abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
+
+    return target_type
+
+
+def get_type_instance_or_404(types_manager: TypesManager, public_id: int) -> CmdbType:
+    """
+    Fetches a CmdbType by public_id as a hydrated CmdbType, aborting with HTTP 404 when it is missing
+
+    The CmdbType counterpart of `get_type_or_404`, sharing its not-found message so the two are
+    indistinguishable to the caller
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the CmdbType to fetch
+
+    Raises:
+        HTTPException: 404 if no CmdbType has that public_id
+
+    Returns:
+        CmdbType: The requested CmdbType (never None - aborts 404 instead)
+    """
+    target_type: CmdbType | None = types_manager.get_type_instance(public_id)
+
+    if not target_type:
+        abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
     return target_type
 
@@ -454,7 +479,7 @@ def verify_type_deletable(
     reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
     if not to_delete_type:
-        abort(404, f"The Type with ID:{public_id} was not found!")
+        abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
     objects_count = objects_manager.count_documents({CmdbObjectKey.TYPE_ID: public_id})
 

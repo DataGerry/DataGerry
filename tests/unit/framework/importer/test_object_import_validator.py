@@ -36,6 +36,15 @@ from cmdb.framework.importer.helper.object_import_validator import (
     ImportTypeContext,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+
+
+IMPORTER_ID: int = 7  # the importing user these tests run as; author_id is forced from it
+
+
+def _normalize(working_object, special_type, type_context=None) -> list:
+    """Calls the validator as a fixed importing user - the author id is not what these tests vary."""
+    return normalize_and_validate_object(working_object, special_type, IMPORTER_ID, type_context)
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -80,7 +89,7 @@ class TestNormalizeAndValidateObject:
         """version/creation_time/last_edit_time/editor_id are forced, ignoring provided values."""
         obj = {'version': '9.9', 'last_edit_time': 'x', 'editor_id': 42, 'creation_time': 'old'}
 
-        errors = normalize_and_validate_object(obj, None)
+        errors = _normalize(obj, None)
 
         assert not errors
         assert obj['version'] == '1.0.0'
@@ -88,11 +97,29 @@ class TestNormalizeAndValidateObject:
         assert obj['editor_id'] is None
         assert isinstance(obj['creation_time'], datetime)
 
+    def test_author_id_is_not_required_from_the_import(self) -> None:
+        """An object carrying no author_id is valid - the importing user supplies it."""
+        obj: dict = {'fields': []}
+
+        errors = _normalize(obj, None)
+
+        assert not errors
+        assert obj['author_id'] == IMPORTER_ID
+
+    def test_provided_author_id_is_ignored(self) -> None:
+        """An author_id that reached the object (e.g. via a property mapping) is overwritten."""
+        obj = {'fields': [], 'author_id': 999}
+
+        errors = _normalize(obj, None)
+
+        assert not errors
+        assert obj['author_id'] == IMPORTER_ID
+
     def test_special_type_is_taken_from_the_type(self) -> None:
         """special_type is set from the target type, ignoring any provided value."""
         obj = {'special_type': 'SUPERNET'}
 
-        normalize_and_validate_object(obj, SpecialType.SUBNET)
+        _normalize(obj, SpecialType.SUBNET)
 
         assert obj['special_type'] == SpecialType.SUBNET
 
@@ -100,7 +127,7 @@ class TestNormalizeAndValidateObject:
         """special_type defaults to None when the type has no special type."""
         obj: dict = {}
 
-        normalize_and_validate_object(obj, None)
+        _normalize(obj, None)
 
         assert obj['special_type'] is None
 
@@ -109,8 +136,8 @@ class TestNormalizeAndValidateObject:
         provided = {'ci_explorer_tooltip': 'hover me'}
         absent: dict = {}
 
-        normalize_and_validate_object(provided, None)
-        normalize_and_validate_object(absent, None)
+        _normalize(provided, None)
+        _normalize(absent, None)
 
         assert provided['ci_explorer_tooltip'] == 'hover me'
         assert absent['ci_explorer_tooltip'] is None
@@ -118,21 +145,21 @@ class TestNormalizeAndValidateObject:
     def test_active_defaults_true_when_absent_or_empty(self) -> None:
         """active defaults to True when absent, None, or an empty string."""
         for obj in ({}, {'active': None}, {'active': ''}):
-            assert not normalize_and_validate_object(obj, None)
+            assert not _normalize(obj, None)
             assert obj['active'] is True
 
     def test_active_valid_value_is_coerced(self) -> None:
         """A recognised active value is coerced to a real bool."""
         obj = {'active': 'no'}
 
-        assert not normalize_and_validate_object(obj, None)
+        assert not _normalize(obj, None)
         assert obj['active'] is False
 
     def test_active_invalid_value_is_rejected(self) -> None:
         """An unrecognised active value produces an error (and the object is a reject)."""
         obj = {'active': 'maybe'}
 
-        errors = normalize_and_validate_object(obj, None)
+        errors = _normalize(obj, None)
 
         assert errors == ["Invalid value for 'active': 'maybe'"]
 
@@ -144,13 +171,13 @@ class TestLocationFieldRule:
         """A single dg_location top-level field is accepted."""
         obj = {'fields': [{'name': 'dg_location', 'value': 3}, {'name': 'dg-name', 'value': 'h'}]}
 
-        assert not normalize_and_validate_object(obj, None)
+        assert not _normalize(obj, None)
 
     def test_location_assigned_twice_is_rejected(self) -> None:
         """dg_location appearing twice in the top-level fields is rejected."""
         obj = {'fields': [{'name': 'dg_location', 'value': 3}, {'name': 'dg_location', 'value': 4}]}
 
-        errors = normalize_and_validate_object(obj, None)
+        errors = _normalize(obj, None)
 
         assert "The location field 'dg_location' can only be assigned once" in errors
 
@@ -163,7 +190,7 @@ class TestLocationFieldRule:
             ],
         }
 
-        errors = normalize_and_validate_object(obj, None)
+        errors = _normalize(obj, None)
 
         assert "The location field 'dg_location' is not allowed inside a multi-data section" in errors
 
@@ -171,7 +198,7 @@ class TestLocationFieldRule:
         """An object without any location field passes the location rule."""
         obj = {'fields': [{'name': 'dg-name', 'value': 'h'}]}
 
-        assert not normalize_and_validate_object(obj, None)
+        assert not _normalize(obj, None)
 
 
 class TestUniqueFieldNamesRule:
@@ -181,13 +208,13 @@ class TestUniqueFieldNamesRule:
         """Distinct top-level field names are accepted."""
         obj = {'fields': [{'name': 'a', 'value': 1}, {'name': 'b', 'value': 2}]}
 
-        assert not normalize_and_validate_object(obj, None)
+        assert not _normalize(obj, None)
 
     def test_duplicate_top_level_field_is_rejected(self) -> None:
         """A repeated top-level field name is rejected."""
         obj = {'fields': [{'name': 'a', 'value': 1}, {'name': 'a', 'value': 2}]}
 
-        errors = normalize_and_validate_object(obj, None)
+        errors = _normalize(obj, None)
 
         assert "Duplicate field name(s) in the object fields: ['a']" in errors
 
@@ -201,7 +228,7 @@ class TestUniqueFieldNamesRule:
             ],
         }
 
-        errors = normalize_and_validate_object(obj, None)
+        errors = _normalize(obj, None)
 
         assert "Duplicate field name(s) in multi-data section 's1': ['x']" in errors
 
@@ -217,7 +244,7 @@ class TestUniqueFieldNamesRule:
             ],
         }
 
-        assert not normalize_and_validate_object(obj, None)
+        assert not _normalize(obj, None)
 
 
 class TestReferenceFieldNames:
@@ -273,7 +300,7 @@ class TestClearReferenceValues:
         """normalize_and_validate_object clears the context's reference fields end-to-end."""
         obj = {'fields': [{'name': 'owner', 'value': 3}, {'name': 'dg_location', 'value': 42}]}
 
-        errors = normalize_and_validate_object(obj, None, _ctx(clearable={'owner', 'dg_location'}))
+        errors = _normalize(obj, None, _ctx(clearable={'owner', 'dg_location'}))
 
         assert not errors
         assert obj['fields'] == [{'name': 'owner', 'value': None}, {'name': 'dg_location', 'value': None}]
@@ -296,7 +323,7 @@ class TestFieldTypeStamping:
                 {'section_id': 's1', 'values': [{'multi_data_id': 1, 'data': [{'name': 'nic', 'value': 'eth0'}]}]}
             ],
         }
-        errors = normalize_and_validate_object(obj, None, _ctx(type_map={'host': 'text', 'nic': 'text'}))
+        errors = _normalize(obj, None, _ctx(type_map={'host': 'text', 'nic': 'text'}))
 
         assert not errors
         assert obj['fields'][0]['type'] == 'text'  # overwrote 'WRONG'
@@ -306,7 +333,7 @@ class TestFieldTypeStamping:
         """A top-level field not defined on the type rejects the object."""
         obj = {'fields': [{'name': 'ghost', 'value': 'x'}]}
 
-        errors = normalize_and_validate_object(obj, None, _ctx(type_map={'host': 'text'}))
+        errors = _normalize(obj, None, _ctx(type_map={'host': 'text'}))
 
         assert "Field name(s) not defined on the type: ['ghost']" in errors
 
@@ -314,7 +341,7 @@ class TestFieldTypeStamping:
         """The same unknown field name appearing twice is reported once (deduplicated)."""
         obj = {'fields': [{'name': 'ghost', 'value': 'x'}, {'name': 'ghost', 'value': 'y'}]}
 
-        errors = normalize_and_validate_object(obj, None, _ctx(type_map={'host': 'text'}))
+        errors = _normalize(obj, None, _ctx(type_map={'host': 'text'}))
 
         assert errors.count("Field name(s) not defined on the type: ['ghost']") == 1
 
@@ -327,7 +354,7 @@ class TestFieldTypeStamping:
             ],
         }
 
-        errors = normalize_and_validate_object(obj, None, _ctx(type_map={'host': 'text'}))
+        errors = _normalize(obj, None, _ctx(type_map={'host': 'text'}))
 
         assert "Field name(s) not defined on the type: ['ghost']" in errors
 
@@ -335,7 +362,7 @@ class TestFieldTypeStamping:
         """Without a type_context, types are not stamped and unknown fields are not rejected."""
         obj = {'fields': [{'name': 'ghost', 'value': 'x'}]}
 
-        errors = normalize_and_validate_object(obj, None)
+        errors = _normalize(obj, None)
 
         assert not errors
         assert 'type' not in obj['fields'][0]
@@ -404,19 +431,19 @@ class TestValueSuitabilityRule:
         """A numeric string in a number field is coerced; the coerced value is written back."""
         obj = {'fields': [{'name': 'port', 'value': '42'}]}
 
-        assert not normalize_and_validate_object(obj, None, _ctx(type_map={'port': 'number'}))
+        assert not _normalize(obj, None, _ctx(type_map={'port': 'number'}))
         assert obj['fields'][0]['value'] == 42
 
     def test_number_rejects_non_numeric(self) -> None:
         """A non-numeric value in a number field rejects the object."""
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'port', 'value': 'abc'}]}, None, _ctx(type_map={'port': 'number'}))
 
         assert any("not a valid number" in error for error in errors)
 
     def test_reference_rejects_non_integer(self) -> None:
         """A non-integer reference value rejects the object (validated before it is cleared)."""
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'owner', 'value': 'abc'}]}, None,
             _ctx(type_map={'owner': 'ref'}, clearable={'owner'}))
 
@@ -426,20 +453,20 @@ class TestValueSuitabilityRule:
         """A valid integer reference passes the check and is then cleared to None."""
         obj = {'fields': [{'name': 'owner', 'value': '7'}]}
 
-        assert not normalize_and_validate_object(
+        assert not _normalize(
             obj, None, _ctx(type_map={'owner': 'ref'}, clearable={'owner'}))
         assert obj['fields'][0]['value'] is None  # cleared after validation
 
     def test_date_rejects_unparseable(self) -> None:
         """An unparseable date value rejects the object."""
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'when', 'value': 'not-a-date'}]}, None, _ctx(type_map={'when': 'date'}))
 
         assert any("not a valid date" in error for error in errors)
 
     def test_radio_rejects_unknown_option(self) -> None:
         """An unknown radio value rejects the object; options are not extended."""
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'mode', 'value': 'off'}]}, None,
             _ctx(type_map={'mode': 'radio'}, field_options={'mode': {'on'}}))
 
@@ -451,7 +478,7 @@ class TestValueSuitabilityRule:
         new_options: dict = {}
         obj = {'fields': [{'name': 'kind', 'value': 'c'}]}
 
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             obj, None, _ctx(type_map={'kind': 'select'}, field_options=options, new_select_options=new_options))
 
         assert not errors
@@ -462,18 +489,18 @@ class TestValueSuitabilityRule:
         """An empty value is skipped by the suitability check (handled by the required rule)."""
         obj = {'fields': [{'name': 'port', 'value': ''}]}
 
-        assert not normalize_and_validate_object(obj, None, _ctx(type_map={'port': 'number'}))
+        assert not _normalize(obj, None, _ctx(type_map={'port': 'number'}))
 
     def test_number_rejects_non_scalar_value(self) -> None:
         """A non-scalar (e.g. list) value in a number field is rejected."""
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'port', 'value': [1, 2]}]}, None, _ctx(type_map={'port': 'number'}))
 
         assert any("not a valid number" in error for error in errors)
 
     def test_reference_rejects_float(self) -> None:
         """A non-integer (float) reference value is rejected (ids must be integers)."""
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'owner', 'value': 3.14}]}, None,
             _ctx(type_map={'owner': 'ref'}, clearable={'owner'}))
 
@@ -481,14 +508,14 @@ class TestValueSuitabilityRule:
 
     def test_number_rejects_boolean(self) -> None:
         """A boolean is not a valid number (bool is excluded)."""
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'port', 'value': True}]}, None, _ctx(type_map={'port': 'number'}))
 
         assert any("not a valid number" in error for error in errors)
 
     def test_reference_rejects_boolean(self) -> None:
         """A boolean is not a valid reference id (bool is excluded)."""
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'owner', 'value': True}]}, None,
             _ctx(type_map={'owner': 'ref'}, clearable={'owner'}))
 
@@ -498,7 +525,7 @@ class TestValueSuitabilityRule:
         """An integer (not string) reference value is valid and then cleared."""
         obj = {'fields': [{'name': 'owner', 'value': 7}]}
 
-        assert not normalize_and_validate_object(
+        assert not _normalize(
             obj, None, _ctx(type_map={'owner': 'ref'}, clearable={'owner'}))
         assert obj['fields'][0]['value'] is None
 
@@ -506,16 +533,16 @@ class TestValueSuitabilityRule:
         """A text field's value passes the suitability check unchanged."""
         obj = {'fields': [{'name': 'label', 'value': 'hello'}]}
 
-        assert not normalize_and_validate_object(obj, None, _ctx(type_map={'label': 'text'}))
+        assert not _normalize(obj, None, _ctx(type_map={'label': 'text'}))
         assert obj['fields'][0]['value'] == 'hello'
 
     def test_checkbox_coerced_and_invalid_rejected(self) -> None:
         """A checkbox value is coerced to bool; an unrecognised one is rejected."""
         obj = {'fields': [{'name': 'flag', 'value': 'yes'}]}
-        assert not normalize_and_validate_object(obj, None, _ctx(type_map={'flag': 'checkbox'}))
+        assert not _normalize(obj, None, _ctx(type_map={'flag': 'checkbox'}))
         assert obj['fields'][0]['value'] is True
 
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             {'fields': [{'name': 'flag', 'value': 'maybe'}]}, None, _ctx(type_map={'flag': 'checkbox'}))
         assert any("not a valid boolean" in error for error in errors)
 
@@ -525,7 +552,7 @@ class TestValueSuitabilityRule:
         new_options: dict = {}
         obj = {'fields': [{'name': 'kind', 'value': 'a'}]}
 
-        assert not normalize_and_validate_object(
+        assert not _normalize(
             obj, None, _ctx(type_map={'kind': 'select'}, field_options=options, new_select_options=new_options))
         assert not new_options  # nothing new to persist
 
@@ -533,7 +560,7 @@ class TestValueSuitabilityRule:
         """A radio value that matches an option is accepted."""
         obj = {'fields': [{'name': 'mode', 'value': 'on'}]}
 
-        assert not normalize_and_validate_object(
+        assert not _normalize(
             obj, None, _ctx(type_map={'mode': 'radio'}, field_options={'mode': {'on', 'off'}}))
 
 
@@ -562,7 +589,7 @@ class TestBackfillFromType:
         obj = {'fields': [{'name': 'host', 'value': 'h'}]}
         context = _ctx(type_map={'host': 'text', 'note': 'text'}, top_defaults={'host': '', 'note': 'n/a'})
 
-        assert not normalize_and_validate_object(obj, None, context)
+        assert not _normalize(obj, None, context)
         by_name = {field['name']: field for field in obj['fields']}
         assert by_name['note']['value'] == 'n/a'      # backfilled from the default
         assert by_name['note']['type'] == 'text'      # and its type was stamped
@@ -576,7 +603,7 @@ class TestBackfillFromType:
         context = _ctx(type_map={'nic': 'text', 'speed': 'text'},
                        mds_defaults={'nics': {'nic': None, 'speed': '1G'}})
 
-        assert not normalize_and_validate_object(obj, None, context)
+        assert not _normalize(obj, None, context)
         row = {entry['name']: entry['value'] for entry in obj['multi_data_sections'][0]['values'][0]['data']}
         assert row == {'nic': 'eth0', 'speed': '1G'}
 
@@ -584,7 +611,7 @@ class TestBackfillFromType:
         """A required field not provided and backfilled with an empty default fails the required check."""
         context = _ctx(type_map={'host': 'text'}, required_top={'host'}, top_defaults={'host': ''})
 
-        errors = normalize_and_validate_object({'fields': []}, None, context)
+        errors = _normalize({'fields': []}, None, context)
 
         assert "Missing value for required field(s): ['host']" in errors
 
@@ -592,7 +619,7 @@ class TestBackfillFromType:
         """A required field not provided but with a non-empty type default is satisfied by the backfill."""
         context = _ctx(type_map={'host': 'text'}, required_top={'host'}, top_defaults={'host': 'default-host'})
 
-        assert not normalize_and_validate_object({'fields': []}, None, context)
+        assert not _normalize({'fields': []}, None, context)
 
 
 class TestRequiredFieldsRule:
@@ -602,13 +629,13 @@ class TestRequiredFieldsRule:
         """A required top-level field with an empty value is rejected."""
         obj = {'fields': [{'name': 'host', 'value': ''}]}
 
-        errors = normalize_and_validate_object(obj, None, _ctx(type_map={'host': 'text'}, required_top={'host'}))
+        errors = _normalize(obj, None, _ctx(type_map={'host': 'text'}, required_top={'host'}))
 
         assert "Missing value for required field(s): ['host']" in errors
 
     def test_absent_top_level_required_field_is_rejected(self) -> None:
         """A required top-level field not present at all is rejected."""
-        errors = normalize_and_validate_object({'fields': []}, None, _ctx(required_top={'host'}))
+        errors = _normalize({'fields': []}, None, _ctx(required_top={'host'}))
 
         assert "Missing value for required field(s): ['host']" in errors
 
@@ -617,7 +644,7 @@ class TestRequiredFieldsRule:
         obj = {'fields': [{'name': 'host', 'value': 'h'}, {'name': 'port', 'value': 0}]}
         context = _ctx(type_map={'host': 'text', 'port': 'number'}, required_top={'host', 'port'})
 
-        assert not normalize_and_validate_object(obj, None, context)
+        assert not _normalize(obj, None, context)
 
     def test_missing_required_mds_value_in_a_row_is_rejected(self) -> None:
         """An empty required field in any MDS row rejects the object."""
@@ -628,7 +655,7 @@ class TestRequiredFieldsRule:
             ]},
         ]}
 
-        errors = normalize_and_validate_object(
+        errors = _normalize(
             obj, None, _ctx(type_map={'nic': 'text'}, required_mds={'nics': {'nic'}}))
 
         assert "Missing value for required field(s) ['nic'] in multi-data section 'nics'" in errors
@@ -641,5 +668,5 @@ class TestRequiredFieldsRule:
             ]},
         ]}
 
-        assert not normalize_and_validate_object(
+        assert not _normalize(
             obj, None, _ctx(type_map={'nic': 'text'}, required_mds={'nics': {'nic'}}))

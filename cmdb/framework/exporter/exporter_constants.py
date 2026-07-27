@@ -19,7 +19,8 @@ Shared constants for the export engine (framework layer)
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# strftime format for the timestamp used in exported-file names, e.g. 2026_07_21-13_05_00
+# strftime format for the timestamp used in exported-file names, e.g. 2026_07_21-13_05_00. The stamp is
+# taken in UTC (see export_filename_helper.build_export_filename_timestamp) and carries no timezone marker
 EXPORT_FILENAME_TIMESTAMP_FMT: str = '%Y_%m_%d-%H_%M_%S'
 
 # Import path prefix of the export format classes (dynamically loaded by class name via load_class)

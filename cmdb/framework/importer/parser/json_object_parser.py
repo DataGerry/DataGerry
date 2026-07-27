@@ -41,11 +41,9 @@ class JsonObjectParser(BaseObjectParser, JSONContent):
 
     Attributes:
         DEFAULT_CONFIG (dict): The default configuration for the parser. Includes:
-            - indent: The number of spaces to use for indentation in the output (default 2)
             - encoding: The file encoding used when reading the file (default 'UTF-8')
     """
     DEFAULT_CONFIG: dict[str, Any] = {
-        JsonParserConfigKey.INDENT.value: 2,
         JsonParserConfigKey.ENCODING.value: 'UTF-8',
     }
 

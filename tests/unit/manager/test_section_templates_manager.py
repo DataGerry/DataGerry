@@ -521,7 +521,7 @@ def test_cleanup_global_section_from_type_uses_the_live_section_when_present() -
     mock_self = MagicMock()
     section = _FakeSection(SECTION_NAME, ['f1'], SectionType.MDS_SECTION.value)
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [{FieldKey.NAME.value: 'f1'}], ['f1'], sections=[section])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 
@@ -537,7 +537,7 @@ def test_cleanup_global_section_from_type_falls_back_to_snapshot_hints() -> None
     """When the section is already gone, the caller's snapshot hints drive the object cleanup"""
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [{FieldKey.NAME.value: 'f1'}], ['f1'], sections=[])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(
         mock_self, TYPE_ID, SECTION_NAME,
@@ -553,7 +553,7 @@ def test_cleanup_global_section_from_type_noops_when_section_gone_and_no_hints()
     """No live section and no snapshot hints means nothing is persisted or cleaned"""
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 
@@ -564,7 +564,7 @@ def test_cleanup_global_section_from_type_noops_when_section_gone_and_no_hints()
 def test_cleanup_global_section_from_type_noops_when_type_missing() -> None:
     """A type that does not exist short-circuits without any further work"""
     mock_self = MagicMock()
-    mock_self.types_manager.get_type.return_value = None
+    mock_self.types_manager.get_type_instance.return_value = None
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 

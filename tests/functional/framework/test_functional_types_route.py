@@ -488,7 +488,7 @@ class TestTypeErrorMapping:
 
     def test_location_field_usage_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A TypesManagerGetError while resolving the type maps the usage route to 400."""
-        monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
+        monkeypatch.setattr(TypesManager, 'get_type_instance', _raiser(TypesManagerGetError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/location_field_usage/{MISSING_TYPE_ID}').status_code \
             == HTTPStatus.BAD_REQUEST
@@ -496,7 +496,7 @@ class TestTypeErrorMapping:
     # ---- UPDATE ---- #
     def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A TypesManagerGetError from the update lookup maps PUT to 400."""
-        monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
+        monkeypatch.setattr(TypesManager, 'get_type_instance', _raiser(TypesManagerGetError('boom')))
 
         response = rest_api.put(f'{ROUTE_URL}/{MISSING_TYPE_ID}', json=_type_payload(MISSING_TYPE_ID, UPDATED_LABEL))
 

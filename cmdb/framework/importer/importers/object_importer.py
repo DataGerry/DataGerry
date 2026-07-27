@@ -268,7 +268,9 @@ class ObjectImporter(BaseImporter):
         # the overwrite-compatibility check compares these against the existing object's type
         provided_field_names = self._provided_field_names(current_import_object)
 
-        errors = normalize_and_validate_object(current_import_object, special_type, type_context)
+        errors = normalize_and_validate_object(
+            current_import_object, special_type, self.request_user.get_public_id(), type_context,
+        )
         if errors:
             return None, ImportFailedMessage(failed_object=provided, errors=errors)
 

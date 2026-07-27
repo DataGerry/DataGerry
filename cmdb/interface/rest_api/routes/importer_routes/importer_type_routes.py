@@ -15,12 +15,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for Type Imports
+
+The blueprint is mounted by init_rest_api at `/import/type`, so this module is self-contained: it can
+be imported without an application context and without a parent import blueprint
+
+Both routes take the same multipart upload (a JSON list of exported CmdbTypes) and follow the same
+partial-report contract: every entry is processed independently and the response body is a mapping of
+the failed entries to their error message, so a single bad entry never discards the rest of the batch.
+An empty mapping therefore means the whole upload was applied. The per-entry work lives in
+importer_type_helper
 """
-import json
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime, timezone
-from bson import json_util
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -29,15 +35,21 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.type_model import CmdbType
-from cmdb.interface.rest_api.routes.importer_routes.import_routes import importer_blueprint
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import (
+    parse_uploaded_types,
+    resolve_error_key,
+    create_type_from_entry,
+    update_type_from_entry,
+)
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.blueprints import NestedBlueprint
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
+from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-importer_type_blueprint = NestedBlueprint(importer_blueprint, url_prefix='/type')
+importer_type_blueprint = APIBlueprint('importer_type', __name__)
 
 LOGGER: Logger = getLogger(__name__)
 
@@ -46,43 +58,39 @@ LOGGER: Logger = getLogger(__name__)
 @importer_type_blueprint.route('/create/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@importer_type_blueprint.protect(auth=True, right='base.import.type.*')
 def add_type(request_user: CmdbUser) -> Response:
     """
-    Adds new CmdbTypes based on uploaded JSON data. Generates new public IDs and creation timestamps for 
-    each imported type, and inserts them into the database
+    Adds new CmdbTypes based on uploaded JSON data
+
+    A fresh public_id and creation timestamp are assigned to each imported type, so any public_id in
+    the upload is ignored, and the requesting user becomes the author. Entries that cannot be
+    imported are collected instead of aborting the request; the remaining entries are still inserted
 
     Args:
-        request_user (CmdbUser): The user making the request, used for permission validation.
+        request_user (CmdbUser): The user making the request, used for permission validation
+
+    Raises:
+        HTTPException: 400 if no upload file was provided, 500 on an unexpected error
 
     Returns:
-        Response: A Flask Response object containing an error collection dictionary.
-                  The dictionary maps any type public_id to an error message if the insertion failed.
+        Response: A Flask Response object containing the error collection dictionary. The dictionary
+                  maps each failed type (by its assigned public_id, else by its position in the
+                  upload) to an error message. An empty dictionary means every type was imported
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
+        new_type_list = parse_uploaded_types(request)
         error_collection: dict[str, Any] = {}
-        upload = request.form.get('uploadFile')
+        # The licence state is per request, not per entry - resolve it once for the whole batch
+        ipam_locked: bool = feature_locked(LicenseFeature.IPAM, request_user)
 
-        if not upload:
-            abort(400, "No upload file was provided!")
+        for index, new_type_data in enumerate(new_type_list):
+            import_error = create_type_from_entry(new_type_data, types_manager, request_user.public_id, ipam_locked)
 
-        new_type_list = json.loads(upload, object_hook=json_util.object_hook)
-
-        for new_type_data in new_type_list:
-            try:
-                new_type_data['public_id'] = types_manager.get_new_type_public_id()
-                new_type_data['creation_time'] = datetime.now(timezone.utc)
-            except Exception as err:
-                LOGGER.error("[add_type] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-                abort(400)
-
-            try:
-                type_instance = CmdbType.from_data(new_type_data)
-                types_manager.insert_type(type_instance)
-            except Exception as err:
-                LOGGER.error("[add_type] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-                error_collection[str(new_type_data['public_id'])] = "Failed to import this Type."
+            if import_error:
+                error_collection[resolve_error_key(new_type_data, index)] = import_error
 
         return DefaultResponse(error_collection).make_response()
     except HTTPException as http_err:
@@ -91,45 +99,45 @@ def add_type(request_user: CmdbUser) -> Response:
         LOGGER.error("[add_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while creating Types from imported data!")
 
+# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @importer_type_blueprint.route('/update/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@importer_type_blueprint.protect(auth=True, right='base.import.type.*')
 def update_type(request_user: CmdbUser) -> Response:
     """
-    Updates existing CmdbTypes based on uploaded JSON data. Each type must already exist 
-    otherwise, an error will be recorded. Updates are applied by public ID.
+    Updates existing CmdbTypes based on uploaded JSON data
+
+    Updates are applied by public_id. Each type must already exist, otherwise an error is recorded for
+    it. The requesting user is recorded as the editor of every type it replaces, while the stored
+    author and creation time are left untouched. Entries that cannot be updated are collected instead
+    of aborting the request; the remaining entries are still updated
 
     Args:
         request_user (CmdbUser): The user making the request, used for permission and context
 
+    Raises:
+        HTTPException: 400 if no upload file was provided, 500 on an unexpected error
+
     Returns:
-        Response: A Flask Response object containing an error collection dictionary.
-                  The dictionary maps public_ids to error messages if the update failed.
+        Response: A Flask Response object containing the error collection dictionary. The dictionary
+                  maps each failed type (by its public_id, else by its position in the upload) to an
+                  error message. An empty dictionary means every type was updated
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
+        update_type_list = parse_uploaded_types(request)
         error_collection: dict[str, Any] = {}
-        upload = request.form.get('uploadFile')
+        # The licence state is per request, not per entry - resolve it once for the whole batch
+        ipam_locked: bool = feature_locked(LicenseFeature.IPAM, request_user)
 
-        if not upload:
-            abort(400, "No upload file was provided!")
+        for index, update_type_data in enumerate(update_type_list):
+            update_error = update_type_from_entry(update_type_data, types_manager, request_user.public_id, ipam_locked)
 
-        data_dump = json.loads(upload, object_hook=json_util.object_hook)
-
-        for add_data_dump in data_dump:
-            try:
-                update_type_instance = CmdbType.from_data(add_data_dump)
-            except Exception as err:
-                LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-                abort(400, "Failed to create a Type instance from the provided data!")
-            try:
-                types_manager.get_type(update_type_instance.public_id)
-                types_manager.update_type(update_type_instance.public_id, update_type_instance)
-            except Exception as err:
-                LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-                error_collection[str(add_data_dump['public_id'])] = "Failed to update this Type."
+            if update_error:
+                error_collection[resolve_error_key(update_type_data, index)] = update_error
 
         return DefaultResponse(error_collection).make_response()
     except HTTPException as http_err:

@@ -17,7 +17,6 @@
 Implementation of BaseExportWriter
 """
 from logging import Logger, getLogger
-import datetime
 from flask import Response
 
 from cmdb.database import MongoDatabaseManager
@@ -34,7 +33,8 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.exporter.config.exporter_config import ExporterConfig
 from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
-from cmdb.framework.exporter.exporter_constants import EXPORT_FILENAME_TIMESTAMP_FMT, ExporterOptionKey
+from cmdb.framework.exporter.exporter_constants import ExporterOptionKey
+from cmdb.framework.exporter.export_filename_helper import build_export_filename_timestamp
 
 from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -113,7 +113,7 @@ class BaseExportWriter:
             Response: A Flask Response object containing the exported data
         """
         conf_option = self.export_config.options
-        timestamp = datetime.datetime.now().strftime(EXPORT_FILENAME_TIMESTAMP_FMT)
+        timestamp: str = build_export_filename_timestamp()
 
         # A human-readable export needs location field values resolved to names; the format classes have
         # no database access, so resolve the {public_id: name} map here and pass it through the options

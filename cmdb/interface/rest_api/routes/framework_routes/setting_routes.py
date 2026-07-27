@@ -15,9 +15,12 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for Settings
+
+Defines the `/settings` root blueprint and mounts the nested system routes on it. The side-effect
+import at the bottom must stay below the blueprint definition - the imported module reads
+`settings_blueprint` back out of this one to build its NestedBlueprint
 """
 from logging import Logger, getLogger
-from flask import current_app
 
 from cmdb.interface.blueprints import RootBlueprint
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -28,6 +31,5 @@ settings_blueprint = RootBlueprint('settings_rest', __name__, url_prefix='/setti
 
 # Side-effect import: loading the system routes module registers its routes on settings_blueprint
 # (its NestedBlueprint delegates every @route(...) back to this parent blueprint)
-with current_app.app_context():
-    # pylint: disable=unused-import
-    from cmdb.interface.rest_api.routes.settings_routes import system_routes  # noqa: F401
+# pylint: disable=unused-import,wrong-import-position
+from cmdb.interface.rest_api.routes.settings_routes import system_routes  # noqa: E402,F401

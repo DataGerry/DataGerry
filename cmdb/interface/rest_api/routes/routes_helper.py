@@ -84,7 +84,23 @@ def fetch_only_active_objects() -> bool:
 
 
 def extract_public_ids(public_ids: str) -> list[int]:
-    """TODO: document"""
+    """
+    Parses a comma-separated public_id path segment into a list of integers
+
+    Shared by every route that addresses a set of documents through the URL (bulk delete, export by
+    ids) so they all reject a malformed selection the same way. Values are not stripped, so a segment
+    with surrounding whitespace is rejected; duplicates and ordering are preserved for the caller to
+    handle
+
+    Args:
+        public_ids (str): The raw path segment, e.g. `'1,2,3'`
+
+    Raises:
+        HTTPException: 400 naming the first value that is not an integer
+
+    Returns:
+        list[int]: The parsed public_ids, in the order they were given
+    """
     extracted_ids: list[int] = []
 
     for v in public_ids.split(","):
