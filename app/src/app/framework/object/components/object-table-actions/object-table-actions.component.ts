@@ -122,7 +122,11 @@ export class ObjectTableActionsComponent implements OnDestroy {
 
 
     public deleteObject(publicID: number) {
-        this.modalRef = this.modalService.open(ObjectDeleteModalComponent, { size: 'lg' });
+        this.modalRef = this.modalService.open(ObjectDeleteModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.publicID = this.result.object_information.object_id;
 
         this.modalRef.result.then((response: any) => {
