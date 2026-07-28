@@ -38,6 +38,7 @@ from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import build_types_json_export_response
 
+from cmdb.errors.models.cmdb_type import CmdbTypeToJsonError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -58,11 +59,18 @@ def export_cmdb_types(request_user: CmdbUser) -> Response:
     The whole catalogue is serialized into a formatted JSON attachment, ordered by ascending
     public_id
 
+    NOTE this route also answers a by-ids export whose id list came out EMPTY: `/export/type/` is
+    what `/export/type/<public_ids>` collapses to when the caller joins an empty selection into the
+    URL (the frontend builds it that way). The two requests are byte-identical, so "export nothing"
+    cannot be told apart from "export everything" here - a caller that must not export the whole
+    catalogue has to refuse an empty selection before it sends the request
+
     Args:
         request_user (CmdbUser): The user initiating the export request
 
     Raises:
-        HTTPException: 400 if the types could not be retrieved, 500 on an unexpected error
+        HTTPException: 400 if the types could not be retrieved, 500 if a Type could not be serialized
+                       or on an unexpected error
 
     Returns:
         Response: A Flask response object containing the exported types as a JSON attachment
@@ -77,6 +85,11 @@ def export_cmdb_types(request_user: CmdbUser) -> Response:
     except TypesManagerGetError as err:
         LOGGER.error("[export_cmdb_types] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Types to export!")
+    except CmdbTypeToJsonError as err:
+        # A stored Type that cannot be serialized is a data-integrity problem, not a bad request -
+        # and the whole export fails rather than silently shipping a short file
+        LOGGER.error("[export_cmdb_types] CmdbTypeToJsonError: %s", err, exc_info=True)
+        abort(500, "A Type could not be serialized, so the export was not produced!")
     except Exception as err:
         LOGGER.error("[export_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while exporting Types!")
@@ -94,13 +107,17 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
     public_id. public_ids that do not exist are skipped rather than reported, so a selection of
     unknown ids exports an empty list
 
+    Every id must be a plain positive number (`extract_public_ids`); an EMPTY selection never reaches
+    this route at all - the URL then collapses onto the whole-catalogue export, see
+    `export_cmdb_types`
+
     Args:
         public_ids (str): A comma-separated string of CmdbType public_ids to export
         request_user (CmdbUser): The user initiating the export request
 
     Raises:
-        HTTPException: 400 if an id is not an integer or the types could not be retrieved, 500 on an
-                       unexpected error
+        HTTPException: 400 if an id is not a plain positive number or the types could not be
+                       retrieved, 500 if a Type could not be serialized or on an unexpected error
 
     Returns:
         Response: A Flask response object containing the exported types as a JSON attachment
@@ -121,6 +138,11 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
     except TypesManagerGetError as err:
         LOGGER.error("[export_cmdb_types_by_ids] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Types to export!")
+    except CmdbTypeToJsonError as err:
+        # A stored Type that cannot be serialized is a data-integrity problem, not a bad request -
+        # and the whole export fails rather than silently shipping a short file
+        LOGGER.error("[export_cmdb_types_by_ids] CmdbTypeToJsonError: %s", err, exc_info=True)
+        abort(500, "A Type could not be serialized, so the export was not produced!")
     except Exception as err:
         LOGGER.error("[export_cmdb_types_by_ids] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while exporting Types by IDs!")

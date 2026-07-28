@@ -25,6 +25,11 @@ IMPORTER_KIND_OBJECT: str = 'object'
 # Version stamped onto every freshly generated imported object
 DEFAULT_OBJECT_VERSION: str = '1.0.0'
 
+# Reported for an object whose import failed with an error the import itself did not anticipate. The
+# batch keeps running and the object lands in failed_imports like any other rejection, so a defect in
+# one object's data can never discard the objects around it
+UNEXPECTED_OBJECT_IMPORT_ERROR: str = 'Unexpected error while importing this object: {detail}'
+
 
 class JsonMappingKey(BaseStrEnum):
     """Top-level keys of the JSON importer's fixed mapping (``JsonObjectImporterConfig.DEFAULT_MAPPING``)"""
@@ -32,10 +37,23 @@ class JsonMappingKey(BaseStrEnum):
     FIELDS = 'fields'
 
 
+# Human-readable summary line of a bulk object import (``ImporterObjectResponse.message``). Both
+# counts are always present - including the zeroes - so the outcome of any batch can be read off one
+# line without comparing it against the request. It is a log / API-consumer convenience only: the
+# frontend renders its own counts from success_imports and failed_imports, so this string is never
+# parsed. A partially or fully failed import is still HTTP 200
+IMPORT_SUMMARY_MESSAGE: str = 'Imported {success} of {total} {noun}, {failed} failed'
+
+
 class MapEntryOptionKey(BaseStrEnum):
-    """Option keys carried by a mapping ``MapEntry`` (CSV import)"""
+    """
+    Option keys the import reads off a mapping ``MapEntry`` (CSV import)
+
+    A ``MapEntry`` keeps every option it is handed, so a payload may carry more keys than these - they
+    are simply never read. ``ref_name`` is one such key: it belonged to the retired CSV reference
+    lookup (references are cleared on import now, see ``csv_object_importer._build_object_fields``)
+    """
     TYPE = 'type'
-    REF_NAME = 'ref_name'
     TYPE_ID = 'type_id'
 
 

@@ -20,6 +20,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from cmdb.errors.exporter import ExporterMetadataError
+
 from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -239,3 +241,61 @@ class TestHeaderLabels:
         header = ['public_id', 'active', 'dg-name', 'nolabel']
         assert BaseExporterFormat.relabel_header(header, self._data()) == \
             ['Public ID', 'Active', 'Hostname', 'nolabel']
+
+
+class TestMetadataOverrideIsValidated:
+    """The render-view metadata override comes from the query string, so it is checked, not trusted."""
+
+    @staticmethod
+    def _args(metadata: str) -> tuple:
+        """The export args of a render-view request carrying the given metadata."""
+        return ({'view': 'render', 'metadata': metadata},)
+
+    def test_a_usable_override_is_parsed(self) -> None:
+        """A JSON object with list values is handed on to the format."""
+        view, metadata = BaseExporterFormat.resolve_export_view(
+            self._args('{"header": ["public_id"], "columns": ["dg-name"]}')
+        )
+
+        assert view == 'render'
+        assert metadata == {'header': ['public_id'], 'columns': ['dg-name']}
+
+    def test_an_unparsable_override_is_refused(self) -> None:
+        """Reported as an ExporterError, which the route turns into a 400."""
+        with pytest.raises(ExporterMetadataError):
+            BaseExporterFormat.resolve_export_view(self._args('not-json'))
+
+    @pytest.mark.parametrize('metadata', ['[1, 2]', '"a string"', '42'],
+                             ids=['list', 'string', 'number'])
+    def test_an_override_that_is_not_an_object_is_refused(self, metadata: str) -> None:
+        """The override selects header and columns, so it has to be a mapping."""
+        with pytest.raises(ExporterMetadataError):
+            BaseExporterFormat.resolve_export_view(self._args(metadata))
+
+    @pytest.mark.parametrize('key', ['header', 'columns'])
+    def test_a_scalar_where_a_list_belongs_is_refused(self, key: str) -> None:
+        """A string would be spread character by character into the exported header."""
+        with pytest.raises(ExporterMetadataError):
+            BaseExporterFormat.resolve_export_view(self._args(f'{{"{key}": "public_id"}}'))
+
+    @pytest.mark.parametrize('key', ['header', 'columns'])
+    def test_an_absent_key_is_allowed(self, key: str) -> None:
+        """Only the keys the override actually carries are checked."""
+        _, metadata = BaseExporterFormat.resolve_export_view(self._args(f'{{"{key}": []}}'))
+
+        assert metadata == {key: []}
+
+    def test_an_already_decoded_override_is_accepted(self) -> None:
+        """A caller passing the parsed object (not the raw string) is not re-parsed."""
+        _, metadata = BaseExporterFormat.resolve_export_view(
+            ({'view': 'render', 'metadata': {'header': ['public_id']}},)
+        )
+
+        assert metadata == {'header': ['public_id']}
+
+    def test_the_native_view_never_parses_the_override(self) -> None:
+        """Outside the render view the override is not read at all, so it cannot fail."""
+        view, metadata = BaseExporterFormat.resolve_export_view(({'metadata': 'not-json'},))
+
+        assert view.upper() == 'NATIVE'
+        assert metadata is None

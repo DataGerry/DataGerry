@@ -26,7 +26,10 @@ from cmdb.framework.importer.responses.base_parser_response import BaseParserRes
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
 from cmdb.framework.importer.responses.csv_object_parser_response import CsvObjectParserResponse
-from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
+from cmdb.framework.importer.responses.importer_object_response import (
+    ImporterObjectResponse,
+    build_import_summary_message,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -168,3 +171,31 @@ class TestImporterObjectResponse:
 
         assert response.success_imports == []
         assert response.failed_imports == []
+
+
+class TestBuildImportSummaryMessage:
+    """The summary line reports what happened, including when nothing could be imported."""
+
+    @pytest.mark.parametrize(
+        'success, failed, expected',
+        [
+            (2, 0, 'Imported 2 of 2 objects, 0 failed'),
+            (1, 0, 'Imported 1 of 1 object, 0 failed'),
+            (0, 0, 'Imported 0 of 0 objects, 0 failed'),
+            (2, 1, 'Imported 2 of 3 objects, 1 failed'),
+            (0, 3, 'Imported 0 of 3 objects, 3 failed'),
+            (0, 1, 'Imported 0 of 1 object, 1 failed'),
+        ],
+        ids=['all-ok', 'single', 'empty-file', 'partial', 'all-rejected', 'single-rejected'],
+    )
+    def test_summary_wording(self, success: int, failed: int, expected: str) -> None:
+        """Every count combination reads as a plain statement of the outcome."""
+        assert build_import_summary_message(success, failed) == expected
+
+    @pytest.mark.parametrize('success, failed', [(2, 0), (2, 1), (0, 3), (0, 0)])
+    def test_both_counts_are_always_present(self, success: int, failed: int) -> None:
+        """Every summary states the imported count, the submitted total and the failed count."""
+        message = build_import_summary_message(success, failed)
+
+        assert f'Imported {success} of {success + failed}' in message
+        assert f'{failed} failed' in message

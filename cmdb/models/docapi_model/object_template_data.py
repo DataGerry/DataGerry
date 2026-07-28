@@ -25,6 +25,7 @@ from cmdb.manager import ObjectsManager, LocationsManager
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.docapi_model.reference_result import ReferenceResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
@@ -37,7 +38,6 @@ from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 LOGGER: Logger = getLogger(__name__)
 
 # Reserved `name` of the location field on every locatable type
-DG_LOCATION_FIELD_NAME: str = "dg_location"
 # Initial recursion depth for resolving nested reference chains
 DEFAULT_REFERENCE_DEPTH: int = 3
 

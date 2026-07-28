@@ -19,6 +19,7 @@ Implementation of all API routes for Object Imports
 import json
 import os
 import tempfile
+from typing import Any
 from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug import Response
@@ -275,8 +276,8 @@ def import_objects(request_user: CmdbUser) -> Response:
         request_file = get_file_in_request(ImporterFormField.FILE.value)
         working_file = _save_import_file_to_temp(request_file)
 
-        # Load file format
-        file_format = request.form.get(ImporterFormField.FILE_FORMAT.value)
+        # Load + check the file format (client input, so an unusable one is a bad request)
+        file_format = _resolve_file_format()
 
         # Load parser config (optional - falls back to the parser's defaults)
         parser_config: dict = get_element_from_data_request(ImporterFormField.PARSER_CONFIG.value, request) or {}
@@ -305,6 +306,9 @@ def import_objects(request_user: CmdbUser) -> Response:
         importer: ObjectImporter = _build_object_importer(
             file_format, working_file, parser_config, importer_config_request, objects_manager, request_user,
         )
+        # The type was already read (and authorised) above - the importer reuses it instead of
+        # spending a second read on it
+        importer.target_type = type_
 
         # Run the import and log the successfully imported objects (best-effort)
         import_response: ImporterObjectResponse = _run_object_import(importer)
@@ -366,6 +370,67 @@ def _resolve_import_type(
         abort(400, "Could not import objects!")
 
 
+def _resolve_file_format() -> str:
+    """
+    Reads the uploaded file's format and checks that something can actually handle it
+
+    Both the absence of a format and an unsupported one are the caller's mistake, so both are a 400 -
+    the same answer the /parse/ route gives. A parser or importer class that then fails to LOAD is a
+    different matter and stays a 500
+
+    Returns:
+        str: The requested file format
+
+    Raises:
+        HTTPException: 400 when no format was provided or no importer is registered for it
+    """
+    file_format = request.form.get(ImporterFormField.FILE_FORMAT.value)
+
+    if not file_format:
+        LOGGER.error("[import_objects] No file format was provided!")
+        abort(400, "No file format was provided!")
+
+    if file_format not in OBJECT_IMPORTER_REGISTRY:
+        LOGGER.error("[import_objects] Unsupported file format: %s", file_format)
+        abort(400, f"Unsupported file format: {file_format}! "
+                   f"Supported formats: {', '.join(sorted(OBJECT_IMPORTER_REGISTRY))}")
+
+    return file_format
+
+
+def _build_importer_config(importer_config_class: type, importer_config_request: dict) -> Any:
+    """
+    Instantiates the importer configuration from the request payload
+
+    The payload is handed to the config class as keyword arguments, so a key it does not accept - a
+    typo, or a field from another importer - raises a TypeError. That is a malformed request, not a
+    server fault, so it is reported as a 400 naming the offending payload. The two batch bounds are
+    checked here as well: they are counts, and a negative one silently means something else entirely
+    (``candidates[-5:]`` is the TAIL of the batch, and a negative maximum reads as "no limit")
+
+    Args:
+        importer_config_class (type): The config class registered for the file format
+        importer_config_request (dict): The importer config payload from the request
+
+    Returns:
+        Any: The instantiated importer configuration
+
+    Raises:
+        HTTPException: 400 when the payload carries an unusable key or a negative bound
+    """
+    for bound in (ImporterConfigKey.START_ELEMENT.value, ImporterConfigKey.MAX_ELEMENTS.value):
+        value = importer_config_request.get(bound)
+
+        if isinstance(value, int) and not isinstance(value, bool) and value < 0:
+            abort(400, f"'{bound}' must not be negative, got {value}!")
+
+    try:
+        return importer_config_class(**importer_config_request)
+    except TypeError as err:
+        LOGGER.error("[import_objects] Unusable importer config: %s", err)
+        abort(400, f"The importer config is not valid for this file format: {err}")
+
+
 def _build_object_importer(
         file_format: str,
         working_file: str,
@@ -404,7 +469,7 @@ def _build_object_importer(
         LOGGER.error("[import_objects] ImporterLoadError: %s", err, exc_info=True)
         abort(500, "Failed to load ObjectImporter config!")
 
-    importer_config = importer_config_class(**importer_config_request)
+    importer_config = _build_importer_config(importer_config_class, importer_config_request)
 
     try:
         importer_class = load_importer_class(IMPORTER_KIND_OBJECT, file_format)

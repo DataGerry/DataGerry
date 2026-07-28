@@ -41,6 +41,7 @@ from cmdb.utils.helpers import load_class
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.security import AccessDeniedError
+from cmdb.errors.exporter import ExporterError
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -93,8 +94,13 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
         Response: The export data in the chosen format (e.g., a JSON or ZIP file)
 
     Raises:
-        400 Bad Request: If the requested export format is not supported, or the objects cannot be retrieved
+        400 Bad Request: If the requested export format is not supported, if the objects cannot be
+            retrieved, or if the export cannot be produced as asked for - a CSV of a selection
+            spanning several types, an unusable `metadata` override, or a Type whose field names
+            would collide in a tabular column (every ExporterError)
         403 Forbidden: If the user is not permitted to read the objects being exported
+        500 Internal Server Error: If the resolved export format module cannot be imported, or on any
+            other unexpected error
     """
     # Resolves + validates the format (aborts 400 on an unsupported one) before any DB work
     export_format = resolve_export_format(params.optional)
@@ -120,6 +126,11 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
     except ObjectsManagerIterationError as err:
         LOGGER.error("[export_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Objects to export!")
+    except ExporterError as err:
+        # The export cannot be produced as asked for (mixed types in a CSV, an unusable metadata
+        # override, colliding column names) - the request is at fault, not the server
+        LOGGER.error("[export_objects] ExporterError: %s", err)
+        abort(400, str(err))
     except ModuleNotFoundError as err:
         LOGGER.error("[export_objects] ModuleNotFoundError: %s", err, exc_info=True)
         abort(500, f"Module not found for export format: {export_format}!")

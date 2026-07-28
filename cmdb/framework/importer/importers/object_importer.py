@@ -31,16 +31,21 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.importer.importers.base_importer import BaseImporter
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
+from cmdb.framework.importer.importer_constants import UNEXPECTED_OBJECT_IMPORT_ERROR
 from cmdb.framework.importer.helper.object_import_validator import (
     normalize_and_validate_object,
     build_import_type_context,
     apply_new_select_options,
 )
-from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
+from cmdb.framework.importer.responses.importer_object_response import (
+    ImporterObjectResponse,
+    build_import_summary_message,
+)
 from cmdb.framework.importer.messages.import_failed_message import ImportFailedMessage
 from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
@@ -53,6 +58,7 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerDeleteError,
     ObjectsManagerInsertError,
     ObjectsManagerGetError,
+    ObjectsManagerGetTypeError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -85,6 +91,10 @@ class ObjectImporter(BaseImporter):
         self.parser: BaseObjectParser | None = parser
         self.objects_manager: ObjectsManager | None = objects_manager
         self.request_user: CmdbUser | None = request_user
+        # The CmdbType the import writes into. The route resolves and authorises it before the
+        # importer is built and assigns it here, so the import does not read it a second time;
+        # `resolve_target_type` falls back to reading it for any other caller
+        self.target_type: CmdbType | None = None
 
         super().__init__(file=file, file_type=file_type, config=config)
 
@@ -184,6 +194,24 @@ class ObjectImporter(BaseImporter):
         types_manager.update_type(type_instance.public_id, type_instance)
 
 
+    def resolve_target_type(self) -> CmdbType:
+        """
+        Returns the CmdbType this import writes into
+
+        The route hands the already resolved (and access-checked) type over in ``target_type``; only
+        a caller that built the importer itself pays for the read
+
+        Returns:
+            CmdbType: The target type of this import
+        """
+        if self.target_type is not None:
+            return self.target_type
+
+        self.target_type = self.objects_manager.get_object_type(self.get_config().get_type_id())
+
+        return self.target_type
+
+
     def _import(
             self,
             candidates: list[tuple[dict, dict]],
@@ -222,7 +250,19 @@ class ObjectImporter(BaseImporter):
             if run_config.max_elements > 0 and offset >= run_config.max_elements:
                 break
 
-            success, failure = self._process_candidate(provided, current_import_object, special_type, type_context)
+            try:
+                success, failure = self._process_candidate(
+                    provided, current_import_object, special_type, type_context,
+                )
+            except Exception as err:
+                # The report is per object, so an error nobody anticipated fails THIS object only -
+                # without this net it would escape to start_import and discard the whole batch,
+                # including the objects that were already written
+                LOGGER.error("[_import] Unexpected error while importing object: %s", err, exc_info=True)
+                success, failure = None, ImportFailedMessage(
+                    failed_object=provided,
+                    errors=[UNEXPECTED_OBJECT_IMPORT_ERROR.format(detail=err)],
+                )
 
             if success is not None:
                 did_write = True
@@ -236,7 +276,7 @@ class ObjectImporter(BaseImporter):
             self._sync_config_item_count()
 
         return ImporterObjectResponse(
-            message=f'Import of {len(success_imports)} objects',
+            message=build_import_summary_message(len(success_imports), len(failed_imports)),
             success_imports=success_imports,
             failed_imports=failed_imports,
         )
@@ -274,13 +314,15 @@ class ObjectImporter(BaseImporter):
         if errors:
             return None, ImportFailedMessage(failed_object=provided, errors=errors)
 
-        public_id_error = self._resolve_public_id(current_import_object, provided_field_names)
-        if public_id_error:
-            return None, ImportFailedMessage(failed_object=provided, errors=[public_id_error])
-
         try:
-            imported_public_id = self._import_single_object(current_import_object)
-        except (ObjectsManagerGetError, ObjectsManagerDeleteError, ObjectsManagerInsertError) as err:
+            public_id_error, existing = self._resolve_public_id(current_import_object, provided_field_names)
+
+            if public_id_error:
+                return None, ImportFailedMessage(failed_object=provided, errors=[public_id_error])
+
+            imported_public_id = self._import_single_object(current_import_object, existing)
+        except (ObjectsManagerGetError, ObjectsManagerGetTypeError,
+                ObjectsManagerDeleteError, ObjectsManagerInsertError) as err:
             LOGGER.error("[_import] Could not import object: %s", err, exc_info=True)
             return None, ImportFailedMessage(failed_object=provided, errors=[str(err)])
 
@@ -316,7 +358,10 @@ class ObjectImporter(BaseImporter):
         return names
 
 
-    def _resolve_public_id(self, current_import_object: dict, provided_field_names: set) -> str | None:
+    def _resolve_public_id(
+            self,
+            current_import_object: dict,
+            provided_field_names: set) -> tuple[str | None, dict | None]:
         """
         Resolves what an object's public_id means for the import
 
@@ -325,46 +370,72 @@ class ObjectImporter(BaseImporter):
         existing object at that public_id is overwritten only when its type supports every provided field
         (else the object is rejected with the returned error).
 
+        The object living at that public_id is read here and handed back, so the insert step does not
+        have to look it up a second time
+
         Args:
             current_import_object (dict): The object being imported (public_id may be dropped in place)
             provided_field_names (set): The field names the file provided
 
+        Raises:
+            ObjectsManagerGetError: If the existing-object lookup fails
+
         Returns:
-            str | None: An error message when the overwrite is incompatible, otherwise None
+            tuple[str | None, dict | None]: An error message when the overwrite is incompatible (else
+                                            None), and the existing object being overwritten (None
+                                            when the import creates a new object)
         """
         public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
 
         if public_id is None:
-            return None
+            return None, None
 
         if not self.get_config().overwrite_public:
             # Overwrite disabled -> the public_id is irrelevant; import as a brand-new object
             current_import_object.pop(CmdbObjectKey.PUBLIC_ID.value, None)
-            return None
+            return None, None
 
-        return self._check_overwrite_compatibility(public_id, provided_field_names)
+        existing = self.objects_manager.get_object(public_id)
+
+        if not existing:
+            # An unused public_id has nothing to overwrite, so it is imported under that id
+            return None, None
+
+        return self._check_overwrite_compatibility(public_id, existing, provided_field_names), existing
 
 
-    def _check_overwrite_compatibility(self, public_id: int, provided_field_names: set) -> str | None:
+    def _check_overwrite_compatibility(
+            self,
+            public_id: int,
+            existing: dict,
+            provided_field_names: set) -> str | None:
         """
         Checks that the object being overwritten can hold the imported object's fields
 
         The public_id may belong to an object of another type on the target system. Overwriting is only
         allowed when that existing object's type defines every field the import provides; otherwise the
-        object is rejected. An unused public_id has nothing to overwrite, so it is allowed.
+        object is rejected. The same goes for an existing object whose type cannot be resolved at all:
+        without the type there is nothing to check the fields against, so the overwrite is refused
+        instead of silently writing fields the type may not define.
 
         Args:
             public_id (int): The public_id the imported object carries
+            existing (dict): The stored object living at that public_id
             provided_field_names (set): The field names the file provided
+
+        Raises:
+            ObjectsManagerGetTypeError: If the existing object's type could not be retrieved
 
         Returns:
             str | None: An error message when incompatible, otherwise None
         """
-        existing = self.objects_manager.get_object(public_id)
-        if not existing:
-            return None
+        existing_type_id = existing.get(CmdbObjectKey.TYPE_ID.value)
+        existing_type = self.objects_manager.get_object_type(existing_type_id)
 
-        existing_type = self.objects_manager.get_object_type(existing.get_type_id())
+        if not existing_type:
+            return (f"Cannot overwrite object {public_id}: its type "
+                    f"(ID:{existing_type_id}) does not exist")
+
         supported_fields = {field.get(FieldKey.NAME.value) for field in existing_type.get_fields()}
         unsupported = provided_field_names - supported_fields
 
@@ -375,7 +446,7 @@ class ObjectImporter(BaseImporter):
         return None
 
 
-    def _import_single_object(self, current_import_object: dict) -> int:
+    def _import_single_object(self, current_import_object: dict, existing: dict | None = None) -> int:
         """
         Inserts a single (already normalized/validated) object, replacing an existing one of the same id
 
@@ -384,11 +455,15 @@ class ObjectImporter(BaseImporter):
         before the insert. The lifecycle fields (creation_time, last_edit_time, ...) are already set
         by the normalization step, so this method does not touch them.
 
+        Whether an object already lives at that public_id was resolved by ``_resolve_public_id``, which
+        passes its result in as ``existing`` - this method does not read it again
+
         Args:
             current_import_object (dict): The object to insert
+            existing (dict | None): The stored object this import overwrites, as resolved by
+                                    ``_resolve_public_id``; None when the import creates a new object
 
         Raises:
-            ObjectsManagerGetError: If the existing-object lookup fails
             ObjectsManagerDeleteError: If deleting the object being overwritten fails
             ObjectsManagerInsertError: If the insert fails or the ConfigItem limit is reached
 
@@ -396,7 +471,6 @@ class ObjectImporter(BaseImporter):
             int: The public_id the object was imported under
         """
         public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
-        existing = self.objects_manager.get_object(public_id) if public_id else None
 
         if existing:
             #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups

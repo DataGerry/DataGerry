@@ -36,6 +36,16 @@ class ExporterCSVTypeError(ExporterError):
     """
 
 
+class ExporterMetadataError(ExporterError):
+    """
+    Raised when the render-view `metadata` override of an export request is unusable
+
+    The override selects the identity header and the columns of a tabular export, so it has to be a
+    JSON object whose `header` / `columns` are lists. A string where a list is expected would be
+    spread character by character into the header, which is why it is refused instead of exported
+    """
+
+
 class ExporterColumnError(ExporterError):
     """
     Raised when a tabular export (CSV / XLSX) would produce duplicate column names

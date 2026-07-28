@@ -116,3 +116,30 @@ class TestExtractPublicIds:
                 extract_public_ids('1,x,3')
 
             assert exc.value.code == 400
+
+    def test_duplicates_and_order_are_preserved(self) -> None:
+        """The caller decides what a repeated id means, so the parser keeps the list as given."""
+        with app.test_request_context('/'):
+            assert extract_public_ids('3,1,3') == [3, 1, 3]
+
+    @pytest.mark.parametrize(
+        'segment',
+        [' 1 ', '1, 2', '+1', '1_0', '\u0665', '1.0', '0', '-1', '', '1,', ',1', '1,,2'],
+        ids=['padded', 'padded-second', 'plus', 'underscore', 'arabic-indic', 'float',
+             'zero', 'negative', 'empty', 'trailing-comma', 'leading-comma', 'empty-in-the-middle'],
+    )
+    def test_only_plain_positive_numbers_are_accepted(self, segment: str) -> None:
+        """`int()` alone would read several of these as ids the caller never wrote."""
+        with app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc:
+                extract_public_ids(segment)
+
+            assert exc.value.code == 400
+
+    def test_the_offending_value_is_named(self) -> None:
+        """The message points at the value that failed, not just at the segment."""
+        with app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc:
+                extract_public_ids('1,5_3,3')
+
+            assert '5_3' in exc.value.description

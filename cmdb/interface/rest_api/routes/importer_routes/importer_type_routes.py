@@ -32,7 +32,7 @@ from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import TypesManager
+from cmdb.manager import TypesManager, SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import (
@@ -64,14 +64,21 @@ def add_type(request_user: CmdbUser) -> Response:
     Adds new CmdbTypes based on uploaded JSON data
 
     A fresh public_id and creation timestamp are assigned to each imported type, so any public_id in
-    the upload is ignored, and the requesting user becomes the author. Entries that cannot be
-    imported are collected instead of aborting the request; the remaining entries are still inserted
+    the upload is dropped, and the requesting user becomes the author. Only the name, fields and
+    sections are really required: the optional `active`, `selectable_as_parent`, `label`, `version`,
+    `ci_explorer_label`, `ci_explorer_color` and `acl` are defaulted when the upload omits them.
+    A type declaring a `special_type` must name a known one, requires the IPAM feature, and is refused
+    when that marker is already claimed; the type name must be present and unique, and the field /
+    section structure must be sound. References to types that do not exist here are cleared and a
+    missing icon is defaulted. An imported SpecialType is wired up (IPAM ref_types cross-wiring) just
+    like a hand-created one. Entries that cannot be imported are collected instead of aborting the
+    request; the remaining entries are still inserted
 
     Args:
         request_user (CmdbUser): The user making the request, used for permission validation
 
     Raises:
-        HTTPException: 400 if no upload file was provided, 500 on an unexpected error
+        HTTPException: 400 if the upload is missing or unusable, 500 on an unexpected error
 
     Returns:
         Response: A Flask Response object containing the error collection dictionary. The dictionary
@@ -80,6 +87,9 @@ def add_type(request_user: CmdbUser) -> Response:
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES, request_user,
+        )
 
         new_type_list = parse_uploaded_types(request)
         error_collection: dict[str, Any] = {}
@@ -87,7 +97,9 @@ def add_type(request_user: CmdbUser) -> Response:
         ipam_locked: bool = feature_locked(LicenseFeature.IPAM, request_user)
 
         for index, new_type_data in enumerate(new_type_list):
-            import_error = create_type_from_entry(new_type_data, types_manager, request_user.public_id, ipam_locked)
+            import_error = create_type_from_entry(
+                new_type_data, types_manager, section_templates_manager, request_user, ipam_locked,
+            )
 
             if import_error:
                 error_collection[resolve_error_key(new_type_data, index)] = import_error
@@ -111,14 +123,20 @@ def update_type(request_user: CmdbUser) -> Response:
 
     Updates are applied by public_id. Each type must already exist, otherwise an error is recorded for
     it. The requesting user is recorded as the editor of every type it replaces, while the stored
-    author and creation time are left untouched. Entries that cannot be updated are collected instead
-    of aborting the request; the remaining entries are still updated
+    author, creation time, version and `special_type` are left untouched - `special_type` is
+    immutable and can only be set when a type is created. An update replaces the fields and sections
+    wholesale, so it passes the same name / structure rules and the same repairs and defaults as a
+    create - and the same follow-up work: the type's Objects are re-aligned with its new field set,
+    MDS rows and CmdbLocations are updated, dropped global section templates are cleaned up and the
+    SpecialType wiring is re-applied. Entries
+    that cannot be updated are collected instead of aborting the request; the remaining entries are
+    still updated
 
     Args:
         request_user (CmdbUser): The user making the request, used for permission and context
 
     Raises:
-        HTTPException: 400 if no upload file was provided, 500 on an unexpected error
+        HTTPException: 400 if the upload is missing or unusable, 500 on an unexpected error
 
     Returns:
         Response: A Flask Response object containing the error collection dictionary. The dictionary
@@ -127,6 +145,9 @@ def update_type(request_user: CmdbUser) -> Response:
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+            ManagerType.SECTION_TEMPLATES, request_user,
+        )
 
         update_type_list = parse_uploaded_types(request)
         error_collection: dict[str, Any] = {}
@@ -134,7 +155,9 @@ def update_type(request_user: CmdbUser) -> Response:
         ipam_locked: bool = feature_locked(LicenseFeature.IPAM, request_user)
 
         for index, update_type_data in enumerate(update_type_list):
-            update_error = update_type_from_entry(update_type_data, types_manager, request_user.public_id, ipam_locked)
+            update_error = update_type_from_entry(
+                update_type_data, types_manager, section_templates_manager, request_user, ipam_locked,
+            )
 
             if update_error:
                 error_collection[resolve_error_key(update_type_data, index)] = update_error

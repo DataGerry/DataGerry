@@ -40,6 +40,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     get_type_instance_or_404,
     guard_location_field_removal,
     guard_selectable_as_parent_change,
+    location_field_removal_blocker,
+    selectable_as_parent_change_blocker,
     build_location_usage_payload,
     compute_removed_global_templates,
     apply_removed_global_template_cleanup,
@@ -144,6 +146,25 @@ def test_guard_location_field_removal_allows_when_no_objects_use_it() -> None:
         guard_location_field_removal(MagicMock(), old_type, new_type)  # must not raise
 
 
+def test_location_field_removal_blocker_reports_the_reason() -> None:
+    """The blocker hands the reason back instead of aborting, so the type import can report it."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2]):
+        blocker = location_field_removal_blocker(
+            MagicMock(), _type_with_location(True), _type_with_location(False),
+        )
+
+    assert blocker is not None
+    assert '2 Object(s)' in blocker
+
+
+def test_location_field_removal_blocker_is_none_when_allowed() -> None:
+    """No reason means the removal is allowed - what the route turns into 'do not abort'."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        assert location_field_removal_blocker(
+            MagicMock(), _type_with_location(True), _type_with_location(False),
+        ) is None
+
+
 # ------------------------------------------------- guard_selectable_as_parent_change -------------------------------- #
 
 def _type_selectable(value: bool) -> SimpleNamespace:
@@ -173,6 +194,25 @@ def test_guard_selectable_as_parent_change_allows_when_no_objects_placed() -> No
     """Turning selectable_as_parent off is allowed when no object of the type is placed."""
     with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
         guard_selectable_as_parent_change(MagicMock(), _type_selectable(True), _type_selectable(False))  # no raise
+
+
+def test_selectable_as_parent_change_blocker_reports_the_reason() -> None:
+    """The blocker hands the reason back instead of aborting, so the type import can report it."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2, 3]):
+        blocker = selectable_as_parent_change_blocker(
+            MagicMock(), _type_selectable(True), _type_selectable(False),
+        )
+
+    assert blocker is not None
+    assert '3 Object(s)' in blocker
+
+
+def test_selectable_as_parent_change_blocker_is_none_when_allowed() -> None:
+    """No reason means the change is allowed - what the route turns into 'do not abort'."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        assert selectable_as_parent_change_blocker(
+            MagicMock(), _type_selectable(True), _type_selectable(False),
+        ) is None
 
 
 # ------------------------------------------------- build_location_usage_payload ------------------------------------- #

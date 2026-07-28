@@ -159,7 +159,11 @@ def test_uploading_ordinary_type_allowed_without_license(
 def test_uploading_special_type_allowed_when_licensed(
     rest_api, database_manager: MongoDatabaseManager, database_name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With IPAM licensed the uploaded special type is imported like any other."""
+    """With IPAM licensed the uploaded special type is imported like any other.
+
+    Uses SUPERNET rather than SUBNET: the seeded type already claims SUBNET, and a special type can
+    only exist once, so a second SUBNET would be refused by the uniqueness rule instead of the licence.
+    """
     monkeypatch.setattr(
         LicenseService,
         'has_feature',
@@ -167,7 +171,7 @@ def test_uploading_special_type_allowed_when_licensed(
     )
 
     response = rest_api.post(
-        TYPE_IMPORT_URL, data=_type_upload(SpecialType.SUBNET), content_type='multipart/form-data'
+        TYPE_IMPORT_URL, data=_type_upload(SpecialType.SUPERNET), content_type='multipart/form-data'
     )
 
     assert response.status_code == HTTPStatus.OK

@@ -51,6 +51,7 @@ from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.models.ci_explorer_model.node_type_enum import NodeType
 from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
@@ -136,7 +137,9 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (PersonReferenceType, {'PERSON': 'PERSON', 'PERSON_GROUP': 'PERSON_GROUP'}),
     (NodeType, {'CHILD': 'CHILD', 'PARENT': 'PARENT', 'BOTH': 'BOTH'}),
     (SectionKey, {'TYPE': 'type', 'NAME': 'name', 'LABEL': 'label', 'FIELDS': 'fields',
-                  'HIDDEN_FIELDS': 'hidden_fields'}),
+                  'HIDDEN_FIELDS': 'hidden_fields', 'REFERENCE': 'reference'}),
+    (SectionReferenceKey, {'TYPE_ID': 'type_id', 'SECTION_NAME': 'section_name',
+                           'SELECTED_FIELDS': 'selected_fields'}),
     (FieldKey, {
         'TYPE': 'type',
         'NAME': 'name',
@@ -167,6 +170,9 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'SECTIONS': 'sections',
         'FIELDS': 'fields',
         'RENDER_META': 'render_meta',
+        'ICON': 'icon',
+        'SUMMARY': 'summary',
+        'EXTERNALS': 'externals',
         'PUBLIC_ID': 'public_id',
         'NAME': 'name',
         'LABEL': 'label',

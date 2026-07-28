@@ -17,9 +17,13 @@
 Per-object normalization and validation for the object import workflows
 
 Applied to each generated object before it is imported: forces the server-owned lifecycle fields,
-derives ``special_type`` from the target type, defaults the optional fields and validates ``active``.
+derives ``special_type`` from the target type, defaults the optional fields and validates ``active``,
+the multi-data sections and the field values against the target type.
 Returns a list of human-readable error strings (empty when the object is valid) so the caller can
 report a rejected object without aborting the whole import.
+
+The lenient boolean parser both imports apply to an uploaded flag lives in `cmdb.utils.helpers`
+(`parse_import_bool`) - the type import defaults its own flags with it.
 """
 from typing import Any
 from collections import namedtuple
@@ -34,15 +38,12 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.utils.helpers import duplicate_names, parse_import_bool
 from cmdb.framework.importer.importer_constants import DEFAULT_OBJECT_VERSION
 from cmdb.framework.importer.helper.improve_object import ImproveObject
 # -------------------------------------------------------------------------------------------------------------------- #
-
-# Keys of a select / radio field's option list on the type definition: field['extras']['options'] is a
-# list of {'name': ..., 'label': ...} (the option value is its 'name'); reuse FieldKey.NAME / LABEL
-FIELD_EXTRAS_KEY: str = 'extras'
-FIELD_OPTIONS_KEY: str = 'options'
 
 # The type-derived inputs the per-object normalization needs, computed once per import from the target
 # type (see build_import_type_context):
@@ -70,14 +71,6 @@ ImportTypeContext = namedtuple(
     ],
 )
 
-# Accepted string spellings for a boolean import value (compared case-insensitively, stripped)
-_TRUTHY_IMPORT_VALUES: frozenset[str] = frozenset({'true', 'yes', '1'})
-_FALSY_IMPORT_VALUES: frozenset[str] = frozenset({'false', 'no', '0'})
-
-# Reserved name of the special location field (a field of type 'location'); a type has at most one and
-# it is always a top-level field - never a multi-data-section member
-DG_LOCATION_FIELD_NAME: str = 'dg_location'
-
 # Field types whose value cannot be resolved on import yet (foreign object / location ids), so the value
 # is cleared on every import instead of being stored as an unresolved id
 _CLEARABLE_FIELD_TYPES: frozenset[str] = frozenset({
@@ -85,40 +78,6 @@ _CLEARABLE_FIELD_TYPES: frozenset[str] = frozenset({
     FieldType.REF_SECTION.value,
     FieldType.LOCATION.value,
 })
-
-
-def parse_import_bool(value: Any) -> bool | None:
-    """
-    Parses a boolean value as accepted by the object import
-
-    Accepts real booleans, the integers ``1``/``0``, and (case-insensitive, whitespace-tolerant)
-    the strings ``true``/``yes``/``1`` and ``false``/``no``/``0``. Any other value is rejected.
-
-    Args:
-        value (Any): The value to parse
-
-    Returns:
-        bool | None: The parsed boolean, or None if the value is not an accepted boolean
-    """
-    if isinstance(value, bool):
-        return value
-
-    if isinstance(value, int):  # bool is handled above, so this is a plain int (e.g. 1 / 0)
-        if value == 1:
-            return True
-        if value == 0:
-            return False
-        return None
-
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-
-        if normalized in _TRUTHY_IMPORT_VALUES:
-            return True
-        if normalized in _FALSY_IMPORT_VALUES:
-            return False
-
-    return None
 
 
 def normalize_and_validate_object(
@@ -172,6 +131,10 @@ def normalize_and_validate_object(
     _validate_unique_field_names(working_object, errors)
 
     if type_context is not None:
+        # A section the type does not define can hold nothing the type knows -> reject before
+        # anything is backfilled into it
+        _validate_mds_sections(working_object, type_context, errors)
+
         # Complete the object with the type's non-provided fields (defaults) before the type-driven checks
         _backfill_from_type(working_object, type_context)
 
@@ -189,6 +152,31 @@ def normalize_and_validate_object(
         clear_reference_values(working_object, type_context.clearable_reference_fields)
 
     return errors
+
+
+def _validate_mds_sections(working_object: dict, type_context: ImportTypeContext, errors: list[str]) -> None:
+    """
+    Validates that every multi-data section of the object is one the target type defines
+
+    A section id the type does not know is not just unusable - it is invisible: the renderer places an
+    object's MDS rows by looking the section up on the type, so the rows would be stored and never
+    shown again. The field-level check only catches this when the row's field names are unknown too,
+    which they are not when a section was renamed or copied from another type
+
+    Args:
+        working_object (dict): The object being validated
+        type_context (ImportTypeContext): The target type's derived inputs
+        errors (list[str]): The error accumulator to append to on an unknown section
+    """
+    known_sections = set(type_context.mds_field_defaults_by_section)
+    unknown = sorted({
+        str(section.get(CmdbObjectMdsKey.SECTION_ID.value))
+        for section in working_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []
+        if section.get(CmdbObjectMdsKey.SECTION_ID.value) not in known_sections
+    })
+
+    if unknown:
+        errors.append(f"Multi-data section(s) not defined on the type: {unknown}")
 
 
 def _validate_active(working_object: dict, errors: list[str]) -> None:
@@ -279,7 +267,7 @@ def _validate_unique_field_names(working_object: dict, errors: list[str]) -> Non
         field.get(CmdbObjectFieldKey.NAME.value)
         for field in working_object.get(CmdbObjectKey.FIELDS.value) or []
     ]
-    top_level_duplicates = _duplicate_names(top_level_names)
+    top_level_duplicates = duplicate_names(top_level_names)
 
     if top_level_duplicates:
         errors.append(f"Duplicate field name(s) in the object fields: {top_level_duplicates}")
@@ -292,33 +280,12 @@ def _validate_unique_field_names(working_object: dict, errors: list[str]) -> Non
                 entry.get(CmdbObjectFieldKey.NAME.value)
                 for entry in row.get(CmdbObjectMdsRowKey.DATA.value, [])
             ]
-            row_duplicates = _duplicate_names(row_names)
+            row_duplicates = duplicate_names(row_names)
 
             if row_duplicates:
                 errors.append(
                     f"Duplicate field name(s) in multi-data section '{section_id}': {row_duplicates}"
                 )
-
-
-def _duplicate_names(names: list) -> list:
-    """
-    Returns the names that occur more than once, each listed once, in first-seen order
-
-    Args:
-        names (list): The names to inspect
-
-    Returns:
-        list: The duplicated names (empty when all are unique)
-    """
-    seen: set = set()
-    duplicates: list = []
-
-    for name in names:
-        if name in seen and name not in duplicates:
-            duplicates.append(name)
-        seen.add(name)
-
-    return duplicates
 
 
 def build_field_type_map(type_fields: list[dict]) -> dict[str, str]:
@@ -363,6 +330,11 @@ def _field_options(type_fields: list[dict]) -> dict[str, set]:
     """
     Returns the allowed option names of each select / radio field, keyed by field name
 
+    A stored CmdbType keeps a choice field's options directly on the field, as
+    ``options: [{'name': ..., 'label': ...}]`` - the option VALUE is its ``name``. (The assistant's
+    profile format nests them one level deeper, under ``extras``, but ``profile_type_constructor``
+    lifts them onto the field before the type is persisted, so no stored type carries that shape.)
+
     Args:
         type_fields (list[dict]): The target type's field definitions
 
@@ -373,9 +345,11 @@ def _field_options(type_fields: list[dict]) -> dict[str, set]:
 
     for field in type_fields or []:
         if field.get(FieldKey.TYPE.value) in (FieldType.SELECT.value, FieldType.RADIO.value):
-            field_options = field.get(FIELD_EXTRAS_KEY, {}).get(FIELD_OPTIONS_KEY, []) or []
+            field_options = field.get(FieldKey.OPTIONS.value) or []
             options[field.get(FieldKey.NAME.value)] = {
-                option.get(FieldKey.NAME.value) for option in field_options
+                option.get(FieldKey.NAME.value)
+                for option in field_options
+                if isinstance(option, dict)
             }
 
     return options
@@ -438,8 +412,8 @@ def apply_new_select_options(type_instance, new_select_options: dict) -> None:
     Adds newly-seen select values as options on the target type's select fields (mutates the type)
 
     For each ``{field name: [values]}`` entry, appends ``{name, label}=value`` to that select field's
-    ``extras.options`` (skipping any already present). The caller is responsible for persisting the
-    mutated type.
+    ``options`` - the same list the type builder, the renderer and the frontend read (skipping any
+    value already present). The caller is responsible for persisting the mutated type.
 
     Args:
         type_instance: The target ``CmdbType`` (its select fields' options are extended in place)
@@ -450,8 +424,12 @@ def apply_new_select_options(type_instance, new_select_options: dict) -> None:
         if not added_values:
             continue
 
-        options = field.setdefault(FIELD_EXTRAS_KEY, {}).setdefault(FIELD_OPTIONS_KEY, [])
-        existing = {option.get(FieldKey.NAME.value) for option in options}
+        options = field.setdefault(FieldKey.OPTIONS.value, [])
+
+        if not isinstance(options, list):
+            continue
+
+        existing = {option.get(FieldKey.NAME.value) for option in options if isinstance(option, dict)}
 
         for value in added_values:
             if value not in existing:

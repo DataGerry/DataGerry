@@ -407,7 +407,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         """
         try:
             parsed_response: CsvObjectParserResponse = self.parser.parse(self.file)
-            type_instance = self.objects_manager.get_object_type(self.config.get_type_id())
+            type_instance = self.resolve_target_type()
             type_fields = type_instance.get_fields()
 
             header = parsed_response.get_header_list() or []

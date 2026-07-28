@@ -176,7 +176,7 @@ class TestJsonGenerateObject:
         """start_import parses, generates from the type fields, and delegates to _import_for_type."""
         mock_self = MagicMock()
         mock_self.parser.parse.return_value = 'PARSED'
-        type_instance = mock_self.objects_manager.get_object_type.return_value
+        type_instance = mock_self.resolve_target_type.return_value
         type_instance.get_fields.return_value = ['f']
         mock_self._generate_objects.return_value = ['cand']
         mock_self._import_for_type.return_value = 'RESULT'
@@ -452,7 +452,7 @@ class TestCsvStartImport:
         parsed = MagicMock()
         mock_self = MagicMock()
         mock_self.parser.parse.return_value = parsed
-        type_instance = mock_self.objects_manager.get_object_type.return_value
+        type_instance = mock_self.resolve_target_type.return_value
         type_instance.get_fields.return_value = ['f']
         mock_self._build_mds_layout.return_value = [('nics', ['nic_name'])]
         mock_self._generate_objects.return_value = ['cand']

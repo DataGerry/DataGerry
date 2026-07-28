@@ -31,6 +31,7 @@ from werkzeug.exceptions import NotFound
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import TypesManager
 from cmdb.models.type_model import CmdbType
+from cmdb.errors.models.cmdb_type import CmdbTypeToJsonError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -154,3 +155,55 @@ class TestExportTypesByIds:
         monkeypatch.setattr(TypesManager, 'get_types_by', _raiser(RuntimeError('boom')))
 
         assert rest_api.post(f'/export/type/{TYPE_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestSelectionIsReadStrictly:
+    """The id segment addresses documents, so it is read strictly rather than leniently."""
+
+    @pytest.mark.parametrize(
+        'segment',
+        [f' {TYPE_ID} ', f'+{TYPE_ID}', '4_7601', '0', '-1', f'{TYPE_ID},', f',{TYPE_ID}'],
+        ids=['padded', 'plus', 'underscore', 'zero', 'negative', 'trailing-comma', 'leading-comma'],
+    )
+    def test_a_selection_that_is_not_plain_numbers_is_rejected(self, rest_api, segment: str) -> None:
+        """`int()` would read most of these as an id the caller never wrote (`4_7601` -> 47601)."""
+        response = rest_api.post(f'/export/type/{segment}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_plain_selection_still_exports(self, rest_api) -> None:
+        """The strictness only refuses what was ambiguous."""
+        response = rest_api.post(f'/export/type/{TYPE_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert len(json.loads(response.data.decode('utf-8'))) == 1
+
+
+class TestUnserializableTypeFailsTheExport:
+    """A Type that cannot be serialized is a data problem, so the export is refused, not shortened."""
+
+    def test_all_types_export_returns_500(self, rest_api, monkeypatch) -> None:
+        """A short file that looks complete would be worse than an error."""
+        monkeypatch.setattr(CmdbType, 'to_json', _raiser(CmdbTypeToJsonError('boom')))
+
+        assert rest_api.post(EXPORT_ALL_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_by_ids_export_returns_500(self, rest_api, monkeypatch) -> None:
+        """Same on the by-ids route."""
+        monkeypatch.setattr(CmdbType, 'to_json', _raiser(CmdbTypeToJsonError('boom')))
+
+        assert rest_api.post(f'/export/type/{TYPE_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestEmptySelectionCollapsesOntoTheCatalogueExport:
+    """An empty id list produces the whole-catalogue URL - the backend cannot tell them apart."""
+
+    def test_an_empty_selection_exports_every_type(self, rest_api) -> None:
+        """Pinned as the contract it is: refusing an empty selection is the caller's job."""
+        selected: list[int] = []
+
+        response = rest_api.post('/export/type/' + ','.join(str(i) for i in selected))
+
+        assert response.status_code == HTTPStatus.OK
+        # not an empty export - this is the all-types route answering
+        assert len(json.loads(response.data.decode('utf-8'))) >= 1

@@ -426,34 +426,64 @@ def build_location_usage_payload(request_user: CmdbUser, target_type: CmdbType) 
     }
 
 
-def guard_selectable_as_parent_change(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+def selectable_as_parent_change_blocker(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    new_type: CmdbType,
+) -> str | None:
     """
-    Aborts 400 when an update turns 'selectable_as_parent' off while objects of the type are placed
+    Reports why an update may not turn 'selectable_as_parent' off, if it may not
 
     A CmdbType may only stop being selectable as a parent once no CmdbObject of that type is placed
     in the location tree; otherwise a placed object of a now-non-selectable type would remain in the
     tree (and could still act as a parent) while its type forbids it. Only the true -> false
-    transition is guarded - keeping it off, or turning it on, is always allowed. 400 follows the
-    codebase convention for business-rule rejections (the same as the location-field removal guard)
+    transition is guarded - keeping it off, or turning it on, is always allowed. The reason is
+    returned instead of raised so both write paths can use it: the route aborts with it
+    (`guard_selectable_as_parent_change`), the type import reports it per entry
 
     Args:
         request_user (CmdbUser): User performing the request
         old_type (CmdbType): State of the CmdbType before the update
         new_type (CmdbType): State of the CmdbType the update would persist
+
+    Returns:
+        str | None: The reason the change is refused, or None when the update is allowed
     """
     turning_off: bool = old_type.selectable_as_parent and not new_type.selectable_as_parent
 
     if not turning_off:
-        return
+        return None
 
     object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
 
-    if object_public_ids:
-        abort(
-            400,
-            "Cannot disable 'selectable as parent': "
-            f"{len(object_public_ids)} Object(s) of this Type are placed in the location tree. "
-        )
+    if not object_public_ids:
+        return None
+
+    return (
+        "Cannot disable 'selectable as parent': "
+        f"{len(object_public_ids)} Object(s) of this Type are placed in the location tree. "
+    )
+
+
+def guard_selectable_as_parent_change(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+    """
+    Aborts 400 when an update turns 'selectable_as_parent' off while objects of the type are placed
+
+    The route-level wrapper around `selectable_as_parent_change_blocker`. 400 follows the codebase
+    convention for business-rule rejections (the same as the location-field removal guard)
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Raises:
+        HTTPException: 400 when 'selectable_as_parent' may not be turned off
+    """
+    blocker: str | None = selectable_as_parent_change_blocker(request_user, old_type, new_type)
+
+    if blocker:
+        abort(400, blocker)
 
 
 def verify_type_deletable(
@@ -559,31 +589,61 @@ def type_deletion_followup(
         )
 
 
-def guard_location_field_removal(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+def location_field_removal_blocker(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    new_type: CmdbType,
+) -> str | None:
     """
-    Aborts 400 when an update removes the location field while CmdbObjects still hold a location value
+    Reports why an update may not remove the CmdbType's location field, if it may not
 
     A CmdbType's location field may only be dropped once no CmdbObject of that type still stores a
-    location value, otherwise those stored values would be silently orphaned
+    location value, otherwise those stored values would be silently orphaned. The reason is returned
+    instead of raised so both write paths can use it: the route aborts with it
+    (`guard_location_field_removal`), the type import reports it per entry
 
     Args:
         request_user (CmdbUser): User performing the request
         old_type (CmdbType): State of the CmdbType before the update
         new_type (CmdbType): State of the CmdbType the update would persist
+
+    Returns:
+        str | None: The reason the removal is refused, or None when the update is allowed
     """
     removing_location_field: bool = get_location_field(old_type) is not None and get_location_field(new_type) is None
 
     if not removing_location_field:
-        return
+        return None
 
     object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
 
-    if object_public_ids:
-        abort(
-            400,
-            "Cannot remove the location field: "
-            f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
-        )
+    if not object_public_ids:
+        return None
+
+    return (
+        "Cannot remove the location field: "
+        f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
+    )
+
+
+def guard_location_field_removal(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+    """
+    Aborts 400 when an update removes the location field while CmdbObjects still hold a location value
+
+    The route-level wrapper around `location_field_removal_blocker`
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Raises:
+        HTTPException: 400 when the location field may not be removed
+    """
+    blocker: str | None = location_field_removal_blocker(request_user, old_type, new_type)
+
+    if blocker:
+        abort(400, blocker)
 
 
 def compute_removed_global_templates(

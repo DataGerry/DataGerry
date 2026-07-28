@@ -88,25 +88,30 @@ def extract_public_ids(public_ids: str) -> list[int]:
     Parses a comma-separated public_id path segment into a list of integers
 
     Shared by every route that addresses a set of documents through the URL (bulk delete, export by
-    ids) so they all reject a malformed selection the same way. Values are not stripped, so a segment
-    with surrounding whitespace is rejected; duplicates and ordering are preserved for the caller to
-    handle
+    ids) so they all read a selection the same way - which matters most for the delete routes, where
+    a mis-read id deletes the wrong document
+
+    Each value must be a plain, positive, ASCII decimal number. `int()` alone is too permissive for a
+    URL segment: it strips surrounding whitespace, accepts a leading sign, ignores PEP-515 underscores
+    (`5_3001` would silently mean `53001`) and converts non-ASCII digits, so a selection could be
+    read as ids the caller never wrote. Duplicates and ordering are preserved for the caller to handle
 
     Args:
         public_ids (str): The raw path segment, e.g. `'1,2,3'`
 
     Raises:
-        HTTPException: 400 naming the first value that is not an integer
+        HTTPException: 400 naming the first value that is not a plain positive number
 
     Returns:
         list[int]: The parsed public_ids, in the order they were given
     """
     extracted_ids: list[int] = []
 
-    for v in public_ids.split(","):
-        try:
-            extracted_ids.append(int(v))
-        except (ValueError, TypeError):
-            abort(400, f"Invalid value detected for public_id: {v} !")
+    for value in public_ids.split(","):
+        # isascii() matters: '٥'.isdigit() is True and int() would happily turn it into 5
+        if not (value.isascii() and value.isdigit()) or int(value) < 1:
+            abort(400, f"Invalid value detected for public_id: {value} !")
+
+        extracted_ids.append(int(value))
 
     return extracted_ids

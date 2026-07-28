@@ -28,9 +28,9 @@ class TypeSchemaKey(BaseStrEnum):
     literals when constructing or reading a type schema so a typo becomes an ImportError or
     AttributeError instead of a silently ignored key
 
-    RENDER_META is the persisted CmdbType document key the section list nests under
-    ('render_meta.sections'); queries against stored type documents compose their dotted
-    paths from RENDER_META + SECTIONS
+    RENDER_META is the persisted CmdbType document key the presentation data nests under;
+    queries against stored type documents compose their dotted paths from RENDER_META +
+    the nested member (SECTIONS, ICON, SUMMARY, EXTERNALS)
 
     The identity / audit / presentation members (PUBLIC_ID, NAME, LABEL, ACTIVE, AUTHOR_ID,
     EDITOR_ID, CREATION_TIME, LAST_EDIT_TIME, GLOBAL_TEMPLATE_IDS, SELECTABLE_AS_PARENT,
@@ -41,6 +41,9 @@ class TypeSchemaKey(BaseStrEnum):
     SECTIONS = 'sections'
     FIELDS = 'fields'
     RENDER_META = 'render_meta'
+    ICON = 'icon'
+    SUMMARY = 'summary'
+    EXTERNALS = 'externals'
     PUBLIC_ID = 'public_id'
     NAME = 'name'
     LABEL = 'label'
