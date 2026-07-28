@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,19 +14,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for the Exporter routes
+Enumeration of dict keys allowed inside the 'reference' entry of a ref-section
 """
-from .exporter_errors import (
-    ExporterError,
-    ExporterCSVTypeError,
-    ExporterColumnError,
-    ExporterMetadataError,
-)
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = [
-    'ExporterError',
-    'ExporterCSVTypeError',
-    'ExporterColumnError',
-    'ExporterMetadataError',
-]
+class SectionReferenceKey(BaseStrEnum):
+    """
+    Enumeration of dict keys allowed inside a ref-section's 'reference' entry
+
+    A ref-section (SectionKey.REFERENCE) points at a section of ANOTHER CmdbType: TYPE_ID is that
+    type's public_id, SECTION_NAME the section of it that is rendered, and SELECTED_FIELDS the subset
+    of its fields to show. Use these members instead of bare string literals when constructing or
+    reading the reference dict so a typo becomes an ImportError or AttributeError instead of a
+    silently ignored key
+    """
+    TYPE_ID = 'type_id'
+    SECTION_NAME = 'section_name'
+    SELECTED_FIELDS = 'selected_fields'

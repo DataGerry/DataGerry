@@ -21,16 +21,32 @@ Provides:
       the database updater (per-version `updater_<date>` modules) and the exporter
       framework (per-format classes under `cmdb.framework.exporter.format.*`)
     * `str_to_bool` — lenient string/bool coercer used to normalise REST query params
+    * `parse_import_bool` — the more permissive boolean parser the object- and type-imports apply to
+      an uploaded flag, reporting an unusable value instead of raising
+    * `is_non_blank_string` — the "usable name / label" predicate the type import applies to every
+      name, label and icon it reads
+    * `duplicate_names` — reports the values occurring more than once in a sequence, used by the
+      object- and type-import validators to reject duplicate field / section identifiers
+    * `random_hex_color` — random '#RRGGBB' color, used wherever a CI-Explorer color is defaulted
     * `process_bar` — stdout progress bar driven by the database updater
 """
 import re
 import sys
+import random
 import importlib
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Iterable
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Accepted string spellings for a boolean import value (compared case-insensitively, stripped)
+_TRUTHY_IMPORT_VALUES: frozenset[str] = frozenset({'true', 'yes', '1'})
+_FALSY_IMPORT_VALUES: frozenset[str] = frozenset({'false', 'no', '0'})
+
+# Bounds of a random '#RRGGBB' CI-Explorer color: a value in [0, MAX] rendered as zero-padded hex
+_HEX_COLOR_MAX: int = 0xFFFFFF
+_HEX_COLOR_WIDTH: int = 6
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -161,3 +177,95 @@ def process_bar(name: str, total: int, progress: int) -> None:
 
     sys.stdout.write(f'\r{name}: {progress_bar}{status}')
     sys.stdout.flush()
+
+
+def parse_import_bool(value: Any) -> bool | None:
+    """
+    Parses a boolean value as accepted by an import
+
+    Accepts real booleans, the integers ``1``/``0``, and (case-insensitive, whitespace-tolerant)
+    the strings ``true``/``yes``/``1`` and ``false``/``no``/``0``. Any other value is rejected.
+    Unlike `str_to_bool`, an unusable value is reported as None instead of raising, so an import can
+    collect it as a per-entry message. Shared by the object import (`active`) and the type import
+    (`active`, `selectable_as_parent`)
+
+    Args:
+        value (Any): The value to parse
+
+    Returns:
+        bool | None: The parsed boolean, or None if the value is not an accepted boolean
+    """
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, int):  # bool is handled above, so this is a plain int (e.g. 1 / 0)
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+
+        if normalized in _TRUTHY_IMPORT_VALUES:
+            return True
+        if normalized in _FALSY_IMPORT_VALUES:
+            return False
+
+    return None
+
+
+def random_hex_color() -> str:
+    """
+    Generates a random hex color in the form #RRGGBB
+
+    Used wherever a CI-Explorer color has to be filled in for a CmdbType that brings none, so every
+    type shows up with a distinguishable color instead of no color at all
+
+    Returns:
+        str: A random color string such as '#1A2B3C'
+    """
+    return f'#{random.randint(0, _HEX_COLOR_MAX):0{_HEX_COLOR_WIDTH}X}'
+
+
+def is_non_blank_string(value: Any) -> bool:
+    """
+    Reports whether a value is a string carrying more than whitespace
+
+    The check behind "this name / label is usable": the type import applies it to every field name,
+    section name, label and icon an upload brings, where `None`, `''`, `'   '` and a stray number all
+    mean the same thing - nothing to identify or display
+
+    Args:
+        value (Any): The value to test
+
+    Returns:
+        bool: True for a non-blank string, False for anything else
+    """
+    return isinstance(value, str) and bool(value.strip())
+
+
+def duplicate_names(names: Iterable[Any]) -> list:
+    """
+    Returns the values that occur more than once, each listed once, in first-seen order
+
+    Shared by the import validators, which reject duplicate identifiers (object field names, type
+    field / section names) and report exactly which ones collided
+
+    Args:
+        names (Iterable[Any]): The values to inspect
+
+    Returns:
+        list: The duplicated values (empty when all are unique)
+    """
+    seen: set = set()
+    duplicates: list = []
+
+    for name in names:
+        if name in seen and name not in duplicates:
+            duplicates.append(name)
+
+        seen.add(name)
+
+    return duplicates

@@ -16,28 +16,77 @@
 """
 Shared constants for the CmdbType import REST routes
 """
+from typing import Any
+
 from cmdb.utils import BaseStrEnum
 from cmdb.models.type_model import TypeSchemaKey
+from cmdb.security.acl.acl_constants import AclKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'UNKNOWN_TYPE_ERROR_KEY_TEMPLATE',
     'IMPORT_UPDATE_PRESERVED_FIELDS',
+    'STRUCTURE_ERROR_SEPARATOR',
+    'LEGACY_EXTERNALS_KEY',
+    'DEFAULT_TYPE_ICON',
+    'DEFAULT_TYPE_ACL',
+    'IMPORT_BOOLEAN_TYPE_FIELDS',
     'TypeImporterFormField',
     'TypeImportError',
 ]
 
-# Fields an import UPDATE must never write. They describe how the type came to exist on THIS system,
-# so the uploaded values (which belong to the system the type was exported from) are dropped from the
-# update payload; because the update is a `$set`, omitting a field leaves the stored value untouched
+# A ref-section owns exactly one field of its own which is NOT listed in the section's own `fields`
+# list (real ref-sections carry `fields: []`), so it is identified by its FIELD type -
+# FieldType.REF_SECTION ('ref-section-field') - and exempted from "every field belongs to a section".
+# NOTE the renderer resolves the same field by the naming convention `<section name>-field`
+# (cmdb_multi_render._merge_reference_section); the type is what identifies it here
+
+# A type can break several structural rules at once; the report maps one message per entry, so the
+# individual findings are joined into that one message
+STRUCTURE_ERROR_SEPARATOR: str = '; '
+
+# Fields an import UPDATE must never write. `author_id` / `creation_time` / `version` describe how the
+# type came to exist on THIS system, and `special_type` is immutable by design - it may only be set
+# when the type is created. The uploaded values are dropped from the update payload; because the
+# update is a `$set`, omitting a field leaves the stored value untouched
 IMPORT_UPDATE_PRESERVED_FIELDS: tuple[str, ...] = (
     TypeSchemaKey.AUTHOR_ID.value,
     TypeSchemaKey.CREATION_TIME.value,
+    TypeSchemaKey.SPECIAL_TYPE.value,
+    TypeSchemaKey.VERSION.value,
 )
 
 # Error-collection key used for an uploaded entry that carries no usable public_id, so a failure can
 # still be reported back to the caller instead of raising while building the report
 UNKNOWN_TYPE_ERROR_KEY_TEMPLATE: str = 'entry_{index}'
+
+# Older type documents spell the external-link list 'external' instead of 'externals'.
+# TypeRenderMeta.from_data still falls back to it, so the import validates that spelling too
+LEGACY_EXTERNALS_KEY: str = 'external'
+
+# Free Font Awesome class stamped onto 'render_meta.icon' when the upload brings no icon. A type
+# without one renders with no symbol at all in the type list, object tables and the CI explorer, so
+# the import fills in a neutral placeholder the user can change later. 'fas fa-cube' is the same
+# generic symbol the rest of the codebase uses for "some CI"
+DEFAULT_TYPE_ICON: str = 'fas fa-cube'
+
+# The boolean type flags an upload may omit. Both default to True - a type is usable and selectable as
+# a location parent unless it says otherwise - and both accept the lenient import spellings
+# (true/yes/1) via parse_import_bool
+IMPORT_BOOLEAN_TYPE_FIELDS: tuple[str, ...] = (
+    TypeSchemaKey.ACTIVE.value,
+    TypeSchemaKey.SELECTABLE_AS_PARENT.value,
+)
+
+# The "no access control" ACL every newly created CmdbType starts with (same shape the assistant's
+# profile_type_constructor seeds and the one AccessControlList.from_data({}) produces): the ACL is
+# switched off and no group is granted anything, so the type is governed by the normal rights alone
+DEFAULT_TYPE_ACL: dict[str, Any] = {
+    AclKey.ACTIVATED.value: False,
+    AclKey.GROUPS.value: {
+        AclKey.INCLUDES.value: {},
+    },
+}
 
 
 class TypeImporterFormField(BaseStrEnum):
@@ -49,14 +98,48 @@ class TypeImportError(BaseStrEnum):
     """
     Messages reported for a type import
 
-    NO_UPLOAD_FILE and INVALID_UPLOAD_PAYLOAD are raised as an HTTP 400 for the whole request; every
-    other member is a per-entry message recorded in the error collection and carries a `{...}`
-    placeholder filled via `format()`
+    NO_UPLOAD_FILE, INVALID_UPLOAD_PAYLOAD and MALFORMED_JSON describe an unusable upload and are
+    raised as an HTTP 400 for the whole request; every other member is a per-entry message recorded
+    in the error collection. Members with a `{...}` placeholder are filled via `format()`
     """
     NO_UPLOAD_FILE = 'No upload file was provided!'
     INVALID_UPLOAD_PAYLOAD = 'The uploaded data must be a JSON list of Types!'
+    MALFORMED_JSON = 'The uploaded data is not valid JSON: {detail}'
+    MISSING_TYPE_NAME = 'The Type data does not contain a name!'
+    INVALID_BOOLEAN_VALUE = "Invalid value for '{field}': {value}"
     SPECIAL_TYPE_NOT_LICENSED = 'The IPAM feature is not licensed, so the special Type "{special_type}" ' \
                                 'can not be imported!'
+    INVALID_SPECIAL_TYPE = '"{special_type}" is not a valid special Type. Allowed: {allowed}'
+    SPECIAL_TYPE_EXISTS = 'A Type with the special Type "{special_type}" already exists - a special ' \
+                          'Type can only exist once!'
+    TYPE_NAME_EXISTS = 'A Type with the name "{name}" already exists - the name must be unique!'
+    SPECIAL_TYPE_IMMUTABLE = 'The special Type of a stored Type can not be changed by an import ' \
+                             '(stored: {stored}, uploaded: {uploaded})!'
+    NOT_A_TYPE_ENTRY = 'This entry is not a Type object!'
+    INVALID_FIELD_TYPES = 'Field(s) with an unknown type: {fields}. Allowed types: {allowed}'
+    SECTION_FIELD_NOT_DEFINED = 'Section(s) reference field(s) the Type does not define: {names}'
+    DUPLICATE_FIELD_NAMES = 'Duplicate field name(s): {names}'
+    DUPLICATE_SECTION_NAMES = 'Duplicate section name(s): {names}'
+    FIELD_IN_MULTIPLE_SECTIONS = 'Field(s) assigned to more than one section: {names}'
+    FIELD_WITHOUT_SECTION = 'Field(s) not assigned to any section: {names}'
+    MISSING_FIELD_NAMES = 'Field(s) without a name at position(s): {positions}'
+    MISSING_FIELD_LABELS = 'Field(s) without a label: {names}'
+    MISSING_SECTION_LABELS = 'Section(s) without a label: {names}'
+    MISSING_FIELD_OPTIONS = 'Field(s) of type select/radio without usable options: {names}'
+    MULTIPLE_LOCATION_FIELDS = 'A Type may declare at most one location field, found: {names}'
+    RESERVED_LOCATION_FIELD_NAME = "The name '{reserved}' is reserved for the location field: " \
+                                   '{names} must either use the location type or another name'
+    MISSING_SECTION_NAMES = 'Section(s) without a name at position(s): {positions}'
+    INVALID_SECTION_TYPES = 'Section(s) with an unknown type: {sections}. Allowed types: {allowed}'
+    EMPTY_SECTION = 'Section(s) without any field: {names}'
+    SUMMARY_FIELD_NOT_DEFINED = 'The summary references field(s) the Type does not define: {names}'
+    EXTERNAL_FIELD_NOT_DEFINED = 'External link(s) reference field(s) the Type does not define: {names}'
+    NORMALIZATION_FAILED = 'Failed to prepare this Type for import: {detail}'
+    REPAIRED_TYPE_INVALID = 'Completing this Type from its global section template(s) made it ' \
+                            'invalid: {detail}'
+    CREATE_SIDE_EFFECTS_FAILED = 'The Type was imported, but wiring up its SpecialType failed: {detail}'
+    UPDATE_SIDE_EFFECTS_FAILED = 'The Type was updated, but applying the follow-up changes to its ' \
+                                 'Objects, Locations and section templates failed: {detail}'
     PUBLIC_ID_ASSIGNMENT_FAILED = 'Failed to assign a public_id to this Type: {detail}'
     INVALID_TYPE_DATA = 'Failed to create a Type instance from the provided data: {detail}'
     IMPORT_FAILED = 'Failed to import this Type: {detail}'

@@ -33,5 +33,13 @@ class ImporterFormField(BaseStrEnum):
 
 
 class ImporterConfigKey(BaseStrEnum):
-    """Keys read from the importer configuration payload"""
+    """
+    Keys read from the importer configuration payload
+
+    START_ELEMENT / MAX_ELEMENTS bound the batch and are validated by the route: both are counts, so
+    a negative value is not a smaller batch but a different one (a negative start would slice from
+    the END of the candidate list)
+    """
     TYPE_ID = 'type_id'
+    START_ELEMENT = 'start_element'
+    MAX_ELEMENTS = 'max_elements'

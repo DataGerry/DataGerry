@@ -209,3 +209,89 @@ class TestExportObjects:
         )
 
         assert rest_api.get(_export_url()).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+SECOND_TYPE_ID: int = 47502
+SECOND_OBJECT_ID: int = 47512
+
+
+class TestExportRequestsThatCannotBeProduced:
+    """An export the request itself makes impossible is a 400, not a server error."""
+
+    @pytest.fixture(name='second_type')
+    def fixture_second_type(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds a second type plus one object of it, so a selection can span two types."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        second = _type_doc()
+        second['public_id'] = SECOND_TYPE_ID
+        second['name'] = 'export-obj-type-2'
+        types.insert_one(second)
+        objects.insert_one({
+            'public_id': SECOND_OBJECT_ID,
+            'type_id': SECOND_TYPE_ID,
+            'active': True,
+            'author_id': 1,
+            'creation_time': datetime.now(timezone.utc),
+            'version': '1.0.0',
+            'fields': [{'name': NAME_FIELD, 'value': 'second'}],
+        })
+
+        yield
+
+        types.delete_many({'public_id': SECOND_TYPE_ID})
+        objects.delete_many({'public_id': SECOND_OBJECT_ID})
+
+    #pylint: disable=unused-argument
+    def test_a_csv_of_two_types_is_rejected_with_400(self, rest_api, second_type) -> None:
+        """CSV has no multi-type support, so the selection is the caller's mistake."""
+        both = json.dumps({'type_id': {'$in': [TYPE_ID, SECOND_TYPE_ID]}})
+
+        response = rest_api.get(f'{EXPORT_URL}?filter={both}&classname=CsvExportFormat')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    #pylint: disable=unused-argument
+    def test_a_zip_of_two_types_still_works(self, rest_api, second_type) -> None:
+        """ZIP writes one entry per type, so the same selection is fine there."""
+        both = json.dumps({'type_id': {'$in': [TYPE_ID, SECOND_TYPE_ID]}})
+
+        response = rest_api.get(f'{EXPORT_URL}?filter={both}&zip=true&classname=CsvExportFormat')
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_metadata_that_is_not_json_is_rejected_with_400(self, rest_api) -> None:
+        """The override comes from the query string, so an unparsable one is a bad request."""
+        response = rest_api.get(_export_url(classname='CsvExportFormat', view='render',
+                                            metadata='not-json'))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize(
+        'metadata',
+        ['[1,2]', '"a string"', '{"header": "public_id"}', '{"columns": "dg-name"}'],
+        ids=['list', 'string', 'header-not-a-list', 'columns-not-a-list'],
+    )
+    def test_metadata_of_the_wrong_shape_is_rejected_with_400(self, rest_api, metadata: str) -> None:
+        """A string where a list belongs would be spread character by character into the header."""
+        response = rest_api.get(_export_url(classname='CsvExportFormat', view='render',
+                                            metadata=metadata))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_usable_metadata_override_still_exports(self, rest_api) -> None:
+        """The guard only refuses what could not have worked."""
+        metadata = json.dumps({'header': ['public_id'], 'columns': [NAME_FIELD]})
+
+        response = rest_api.get(_export_url(classname='CsvExportFormat', view='render',
+                                            metadata=metadata))
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.data.decode('utf-8').splitlines()[0] == f'public_id,{NAME_FIELD}'
+
+    def test_metadata_is_ignored_outside_the_render_view(self, rest_api) -> None:
+        """Only the render view reads the override, so a native export never parses it."""
+        response = rest_api.get(_export_url(classname='CsvExportFormat', metadata='not-json'))
+
+        assert response.status_code == HTTPStatus.OK

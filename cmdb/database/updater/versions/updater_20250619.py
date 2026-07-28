@@ -16,7 +16,6 @@
 """
 Database update 20250619: backfill CI-Explorer fields on objects and types
 """
-import random
 from logging import Logger, getLogger
 from typing import Any
 
@@ -24,6 +23,8 @@ from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
+
+from cmdb.utils.helpers import random_hex_color
 
 from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -89,7 +90,7 @@ class Update20250619(BaseDatabaseUpdate):
                     update_fields['ci_explorer_label'] = None
 
                 if 'ci_explorer_color' not in cur_type:
-                    update_fields['ci_explorer_color'] = get_random_color()
+                    update_fields['ci_explorer_color'] = random_hex_color()
 
                 # Only update if something needs to be added
                 if update_fields:
@@ -104,14 +105,3 @@ class Update20250619(BaseDatabaseUpdate):
             self.increase_updater_version(self.creation_date())
         except Exception as err:
             raise UpdaterException(str(err)) from err
-
-# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-def get_random_color() -> str:
-    """
-    Generates a random hex color in the form #RRGGBB
-
-    Returns:
-        str: A random color string such as '#1A2B3C'
-    """
-    return f'#{random.randint(0, 0xFFFFFF):06X}'

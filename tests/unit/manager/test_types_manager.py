@@ -593,3 +593,34 @@ def test_handle_multi_data_sections_wraps_unexpected_error_as_mds_error() -> Non
 
     with pytest.raises(TypesManagerUpdateMDSError):
         TypesManager.handle_multi_data_sections(mgr, old_type, {})
+
+
+# ------------------------------------------------- get_existing_type_ids -------------------------------------------- #
+
+def test_get_existing_type_ids_returns_the_matching_ids() -> None:
+    """The distinct lookup's result is handed back as a set, so callers can test membership."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [3, 7]
+
+    assert TypesManager.get_existing_type_ids(mgr, [3, 7, 9]) == {3, 7}
+
+    call = mgr.get_distinct.call_args
+    assert call.args[0] == TypeSchemaKey.PUBLIC_ID.value
+    assert call.args[1] == {TypeSchemaKey.PUBLIC_ID.value: {'$in': [3, 7, 9]}}
+
+
+def test_get_existing_type_ids_skips_the_query_for_an_empty_list() -> None:
+    """Nothing to resolve means no database round trip at all."""
+    mgr = MagicMock(spec=TypesManager)
+
+    assert TypesManager.get_existing_type_ids(mgr, []) == set()
+    mgr.get_distinct.assert_not_called()
+
+
+def test_get_existing_type_ids_wraps_get_error() -> None:
+    """A failing distinct query surfaces as the manager's own error type."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_existing_type_ids(mgr, [1])

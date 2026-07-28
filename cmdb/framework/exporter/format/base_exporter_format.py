@@ -17,6 +17,7 @@
 Implementation of the BaseExporterFormat
 """
 import json
+from json import JSONDecodeError
 from typing import Any
 
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -30,9 +31,9 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectMdsRowKey,
 )
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
-from cmdb.framework.exporter.exporter_constants import ExporterOptionKey
+from cmdb.framework.exporter.exporter_constants import ExporterOptionKey, ExporterMetadataKey
 
-from cmdb.errors.exporter import ExporterColumnError
+from cmdb.errors.exporter import ExporterColumnError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # RenderResult keys read while exporting (these live on the render result / type information / object
@@ -95,8 +96,17 @@ class BaseExporterFormat:
         header overrides therefore require the render view; how a format treats a render view given
         without metadata is left to the individual format.
 
+        The override comes straight from the query string, so it is validated here rather than trusted:
+        it has to be JSON, it has to be an object, and its `header` / `columns` have to be lists. A
+        string where a list is expected would otherwise be spread character by character into the
+        exported header
+
         Args:
             args (tuple): The positional export args; `args[0]` (if present) is the options dict
+
+        Raises:
+            ExporterMetadataError: If the metadata override is not JSON, not an object, or carries a
+                                   `header` / `columns` that is not a list
 
         Returns:
             tuple[str, dict | None]: (requested view, parsed metadata override or None)
@@ -106,9 +116,41 @@ class BaseExporterFormat:
         raw_metadata = options.get(ExporterOptionKey.METADATA.value)
 
         if raw_metadata and view.upper() == ExporterConfigType.RENDER.value:
-            return view, json.loads(raw_metadata)
+            return view, BaseExporterFormat._parse_metadata_override(raw_metadata)
 
         return view, None
+
+
+    @staticmethod
+    def _parse_metadata_override(raw_metadata: Any) -> dict:
+        """
+        Decodes and checks the render-view metadata override
+
+        Args:
+            raw_metadata (Any): The raw `metadata` value from the export request
+
+        Raises:
+            ExporterMetadataError: If the value is not JSON, not an object, or carries a
+                                   `header` / `columns` that is not a list
+
+        Returns:
+            dict: The parsed override
+        """
+        try:
+            metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
+        except JSONDecodeError as err:
+            raise ExporterMetadataError(f"The export metadata is not valid JSON: {err}") from err
+
+        if not isinstance(metadata, dict):
+            raise ExporterMetadataError('The export metadata must be a JSON object!')
+
+        for key in (ExporterMetadataKey.HEADER.value, ExporterMetadataKey.COLUMNS.value):
+            value = metadata.get(key)
+
+            if value is not None and not isinstance(value, list):
+                raise ExporterMetadataError(f"The export metadata '{key}' must be a list!")
+
+        return metadata
 
 
     @staticmethod

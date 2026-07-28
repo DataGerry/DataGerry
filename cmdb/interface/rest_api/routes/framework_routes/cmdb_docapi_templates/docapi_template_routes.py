@@ -43,7 +43,7 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_f
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
     DocapiTemplateRight,
 )
-from cmdb.interface.blueprints import APIBlueprint, RootBlueprint
+from cmdb.interface.blueprints import APIBlueprint
 
 from cmdb.security.license.license_constants import LicenseFeature
 
@@ -61,7 +61,7 @@ LOGGER: Logger = getLogger(__name__)
 # Right guarding the render route - rendering a template reads the target CmdbObject (object domain)
 RENDER_OBJECT_RIGHT: str = 'base.framework.object.view'
 
-docapi_blueprint = RootBlueprint('docapi', __name__, url_prefix='/docapi')
+docapi_blueprint = APIBlueprint('docapi', __name__, url_prefix='/docapi')
 
 docs_blueprint = APIBlueprint('docs', __name__)
 

@@ -439,6 +439,38 @@ class TypesManager(BaseManager):
         return bool(matching_type)
 
 
+    def get_existing_type_ids(self, public_ids: list[int]) -> set[int]:
+        """
+        Reports which of the given public_ids belong to an existing CmdbType
+
+        Answers "do these types exist?" with a single distinct query on the indexed public_id, so no
+        type document is loaded. Use this instead of get_types_lookup when only the existence of the
+        referenced types matters, e.g. when checking cross-type references for dangling ids
+
+        Args:
+            public_ids (list[int]): The CmdbType public_ids to look for
+
+        Raises:
+            TypesManagerGetError: If the lookup fails
+
+        Returns:
+            set[int]: The subset of public_ids an existing CmdbType carries (empty when none match)
+        """
+        if not public_ids:
+            return set()
+
+        try:
+            found_ids: list[Any] = self.get_distinct(
+                TypeSchemaKey.PUBLIC_ID.value,
+                {TypeSchemaKey.PUBLIC_ID.value: {'$in': public_ids}},
+            )
+
+            return set(found_ids)
+        except Exception as err:
+            LOGGER.error("[get_existing_type_ids] Exception: %s. Type: %s", err, type(err))
+            raise TypesManagerGetError(str(err)) from err
+
+
     def update_multi_data_fields(
         self,
         target_type: CmdbType,

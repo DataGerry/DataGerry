@@ -26,13 +26,13 @@ from cmdb.database import MongoDatabaseManager
 
 from cmdb import __title__, __version__
 from cmdb.interface.rest_api.responses import DefaultResponse
-from cmdb.interface.blueprints import RootBlueprint
+from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.connection_helper import load_frontend_config
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-connection_routes = RootBlueprint('connection_routes', __name__)
+connection_routes = APIBlueprint('connection_routes', __name__)
 
 with current_app.app_context():
     dbm: MongoDatabaseManager = current_app.database_manager

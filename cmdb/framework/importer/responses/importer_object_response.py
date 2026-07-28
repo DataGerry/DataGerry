@@ -16,9 +16,36 @@
 """
 Implementation of ImporterObjectResponse
 """
+from cmdb.framework.importer.importer_constants import IMPORT_SUMMARY_MESSAGE
 from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.messages.import_failed_message import ImportFailedMessage
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def build_import_summary_message(success_count: int, failed_count: int) -> str:
+    """
+    Builds the human-readable summary line of a bulk object import
+
+    A batch that imported nothing is still a completed request, so the summary reports what happened
+    rather than reading like an error. Both counts and the submitted total are always stated, zeroes
+    included, so the outcome can be read off the one line without comparing it against the request
+
+    Args:
+        success_count (int): Number of objects that were imported
+        failed_count (int): Number of objects that were rejected or failed to import
+
+    Returns:
+        str: The summary line, e.g. `Imported 2 of 3 objects, 1 failed`
+    """
+    total = success_count + failed_count
+
+    return IMPORT_SUMMARY_MESSAGE.format(
+        success=success_count,
+        total=total,
+        noun='object' if total == 1 else 'objects',
+        failed=failed_count,
+    )
+
+
 
 class ImporterObjectResponse:
     """

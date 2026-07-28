@@ -16,82 +16,61 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.importer_routes.importer_type_helper
 
-Covers parse_uploaded_types (decodes the multipart upload, aborts 400 when it is missing), the
-resolve_error_key fallback for entries without a usable public_id, and the per-entry create/update
-steps, which report a message instead of raising so the rest of the batch keeps running. The manager
-is stubbed throughout - no database is involved.
+The orchestration layer: parsing the multipart upload, the authorship stamps, the update payload, the
+error-collection key, the two per-entry steps and the persistence side effects that follow the write.
+The rules and repairs the steps call are covered by their own modules - here they are only checked to
+run, in the right order, with their findings reported. The manager is stubbed throughout.
 """
 import json
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
-from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
+    DEFAULT_TYPE_ICON,
+    TypeImportError,
+)
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import (
     parse_uploaded_types,
     stamp_import_authorship,
     stamp_import_edit,
-    special_type_license_error,
     build_import_update_payload,
     resolve_error_key,
+    apply_import_create_side_effects,
+    apply_import_update_side_effects,
+    _templates_the_update_still_claims,
+    repaired_structure_error,
     create_type_from_entry,
     update_type_from_entry,
 )
 from tests.utils.ipam_doc_builders import make_type_doc
+from tests.utils.type_import_builders import (
+    BOOM,
+    EXISTING_PUBLIC_ID,
+    MISSING_PUBLIC_ID,
+    NEW_PUBLIC_ID,
+    IMPORTER,
+    IMPORTER_ID,
+    HELPER,
+    StubTypesManager,
+    StubSectionTemplatesManager,
+    no_templates,
+    raise_boom,
+    ref_section_entry,
+    unreachable,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 app = Flask(__name__)
 
-NEW_PUBLIC_ID: int = 4711
-EXISTING_PUBLIC_ID: int = 4712
-MISSING_PUBLIC_ID: int = 9999
-BOOM: str = 'boom'
-IMPORTER_ID: int = 42
 
-
-class _StubTypesManager:
-    """Records the writes the helpers perform and can be told to fail at a chosen step."""
-
-    def __init__(
-        self,
-        new_public_id: int | Exception = NEW_PUBLIC_ID,
-        matched_count: int = 1,
-        insert_error: Exception | None = None,
-        update_error: Exception | None = None,
-    ) -> None:
-        self.new_public_id = new_public_id
-        self.matched_count = matched_count
-        self.insert_error = insert_error
-        self.update_error = update_error
-        self.inserted: list[Any] = []
-        self.updated: list[tuple[int, Any]] = []
-
-    def get_new_type_public_id(self) -> int:
-        """Return the next public_id, or raise when the stub was configured to fail."""
-        if isinstance(self.new_public_id, Exception):
-            raise self.new_public_id
-
-        return self.new_public_id
-
-    def insert_type(self, new_type: Any) -> None:
-        """Record the insert, or raise when the stub was configured to fail."""
-        if self.insert_error:
-            raise self.insert_error
-
-        self.inserted.append(new_type)
-
-    def update_type(self, public_id: int, update_type: Any) -> SimpleNamespace:
-        """Record the update and report how many documents it matched, mirroring UpdateResult."""
-        if self.update_error:
-            raise self.update_error
-
-        self.updated.append((public_id, update_type))
-
-        return SimpleNamespace(matched_count=self.matched_count)
+def _raise_on_read(_public_id: int) -> None:
+    """Stands in for a manager whose existence read fails."""
+    raise RuntimeError(BOOM)
 
 
 class TestParseUploadedTypes:
@@ -125,6 +104,19 @@ class TestParseUploadedTypes:
                 parse_uploaded_types(request)
 
             assert exc.value.code == 400
+
+    def test_malformed_json_aborts_400(self) -> None:
+        """An upload that is not valid JSON is a bad request, not an internal error."""
+        with app.test_request_context(
+            '/', method='POST',
+            data={'uploadFile': '[{"name": '},
+            content_type='multipart/form-data',
+        ):
+            with pytest.raises(HTTPException) as exc:
+                parse_uploaded_types(request)
+
+            assert exc.value.code == 400
+            assert exc.value.description.startswith('The uploaded data is not valid JSON:')
 
     @pytest.mark.parametrize(
         'payload',
@@ -192,33 +184,6 @@ class TestStampImportAuthorship:
         }
 
 
-class TestSpecialTypeLicenseError:
-    """special_type_license_error blocks importing an IPAM special type onto an unlicensed instance."""
-
-    def test_special_type_is_rejected_when_ipam_is_locked(self) -> None:
-        """A locked instance reports the entry instead of installing the special type."""
-        entry = {TypeSchemaKey.SPECIAL_TYPE.value: 'SUBNET'}
-
-        result = special_type_license_error(entry, ipam_locked=True)
-
-        assert result == TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type='SUBNET')
-
-    def test_special_type_is_allowed_when_ipam_is_licensed(self) -> None:
-        """A licensed instance imports the special type normally."""
-        entry = {TypeSchemaKey.SPECIAL_TYPE.value: 'SUBNET'}
-
-        assert special_type_license_error(entry, ipam_locked=False) is None
-
-    @pytest.mark.parametrize(
-        'entry',
-        [{}, {TypeSchemaKey.SPECIAL_TYPE.value: ''}, {TypeSchemaKey.SPECIAL_TYPE.value: None}, 'not-a-dict'],
-        ids=['absent', 'empty', 'null', 'non-dict'],
-    )
-    def test_ordinary_entry_is_never_blocked(self, entry: Any) -> None:
-        """An entry carrying no special_type is unaffected by the licence state."""
-        assert special_type_license_error(entry, ipam_locked=True) is None
-
-
 class TestStampImportEdit:
     """stamp_import_edit records the importing user as the editor of a replaced type."""
 
@@ -248,13 +213,15 @@ class TestBuildImportUpdatePayload:
     """build_import_update_payload drops the fields an import update must not write."""
 
     def test_omits_the_preserved_fields(self) -> None:
-        """author_id and creation_time are absent, so the $set leaves the stored values untouched."""
+        """The stored-fact fields are absent, so the $set leaves the stored values untouched."""
         instance = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'))
 
         payload = build_import_update_payload(instance)
 
         assert TypeSchemaKey.AUTHOR_ID.value not in payload
         assert TypeSchemaKey.CREATION_TIME.value not in payload
+        assert TypeSchemaKey.VERSION.value not in payload
+        assert TypeSchemaKey.SPECIAL_TYPE.value not in payload
 
     def test_keeps_everything_else(self) -> None:
         """The rest of the type is still written, so an update remains a full replacement."""
@@ -273,13 +240,14 @@ class TestCreateTypeFromEntry:
     def test_locked_special_type_is_rejected_without_consuming_a_public_id(self) -> None:
         """A blocked entry is reported before any id is assigned, so the counter is not advanced."""
         entry = make_type_doc(0, 'imported-ipam-type', special_type='SUBNET')
-        types_manager = _StubTypesManager()
+        types_manager = StubTypesManager()
 
-        result = create_type_from_entry(entry, types_manager, IMPORTER_ID, ipam_locked=True)
+        result = create_type_from_entry(entry, types_manager, no_templates(), IMPORTER, ipam_locked=True)
 
         assert result == TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type='SUBNET')
-        assert types_manager.inserted == []
-        assert entry['public_id'] == 0  # untouched - get_new_type_public_id was never called
+        assert not types_manager.inserted
+        # the uploaded id is dropped up front and no fresh one was assigned - the counter never moved
+        assert TypeSchemaKey.PUBLIC_ID.value not in entry
 
     def test_authorship_is_rewritten_onto_the_importer(self) -> None:
         """The uploaded author/editor ids are replaced, so no id from the source system survives."""
@@ -287,7 +255,7 @@ class TestCreateTypeFromEntry:
         entry[TypeSchemaKey.AUTHOR_ID.value] = 777
         entry[TypeSchemaKey.EDITOR_ID.value] = 888
 
-        assert create_type_from_entry(entry, _StubTypesManager(), IMPORTER_ID) is None
+        assert create_type_from_entry(entry, StubTypesManager(), no_templates(), IMPORTER) is None
         assert entry[TypeSchemaKey.AUTHOR_ID.value] == IMPORTER_ID
         assert entry[TypeSchemaKey.EDITOR_ID.value] is None
         assert entry[TypeSchemaKey.LAST_EDIT_TIME.value] is None
@@ -296,48 +264,62 @@ class TestCreateTypeFromEntry:
         """A valid entry is inserted with a freshly assigned public_id and reports no error."""
         entry = make_type_doc(0, 'imported-type')
         entry.pop('public_id')
-        types_manager = _StubTypesManager()
+        types_manager = StubTypesManager()
 
-        assert create_type_from_entry(entry, types_manager, IMPORTER_ID) is None
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
         assert entry['public_id'] == NEW_PUBLIC_ID
         assert len(types_manager.inserted) == 1
 
     def test_public_id_from_upload_is_overwritten(self) -> None:
         """A public_id present in the upload is replaced by the server-assigned one."""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
-        types_manager = _StubTypesManager()
+        types_manager = StubTypesManager()
 
-        assert create_type_from_entry(entry, types_manager, IMPORTER_ID) is None
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
         assert entry['public_id'] == NEW_PUBLIC_ID
 
     def test_public_id_assignment_failure_is_reported(self) -> None:
         """A failing public_id assignment is reported instead of aborting the batch."""
         entry = make_type_doc(0, 'imported-type')
-        types_manager = _StubTypesManager(new_public_id=RuntimeError(BOOM))
+        types_manager = StubTypesManager(new_public_id=RuntimeError(BOOM))
 
-        result = create_type_from_entry(entry, types_manager, IMPORTER_ID)
+        result = create_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
 
         assert result == TypeImportError.PUBLIC_ID_ASSIGNMENT_FAILED.format(detail=BOOM)
-        assert types_manager.inserted == []
+        assert not types_manager.inserted
 
-    def test_non_dict_entry_is_reported(self) -> None:
-        """A malformed (non dictionary) entry is reported instead of raising."""
-        result = create_type_from_entry('not-a-dict', _StubTypesManager(), IMPORTER_ID)
+    def test_non_dict_entry_is_reported_without_consuming_an_id(self) -> None:
+        """A malformed entry is reported as such, and the public_id counter never moves."""
+        types_manager = StubTypesManager()
 
-        assert result.startswith('Failed to assign a public_id to this Type:')
+        assert create_type_from_entry('not-a-dict', types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.NOT_A_TYPE_ENTRY.value
+        assert not types_manager.inserted
 
     def test_invalid_type_data_is_reported(self) -> None:
-        """An entry that cannot be built into a CmdbType is reported with the underlying detail."""
-        result = create_type_from_entry({}, _StubTypesManager(), IMPORTER_ID)
+        """An entry that cannot be built into a CmdbType is reported like on the update path."""
+        # named (so the name rules pass) but with an unusable acl, which CmdbType.from_data rejects
+        result = create_type_from_entry(
+            {'name': 'broken', 'acl': 'not-a-dict'}, StubTypesManager(), no_templates(), IMPORTER,
+        )
 
-        assert result.startswith('Failed to import this Type:')
+        assert result.startswith('Failed to create a Type instance from the provided data:')
+
+    def test_entry_without_a_name_is_reported(self) -> None:
+        """A type carrying no name is rejected before anything is assigned or written."""
+        types_manager = StubTypesManager()
+
+        assert create_type_from_entry({}, types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.MISSING_TYPE_NAME.value
+        assert not types_manager.inserted
 
     def test_insert_failure_is_reported(self) -> None:
         """A failing insert is reported with the underlying detail."""
         entry = make_type_doc(0, 'imported-type')
-        types_manager = _StubTypesManager(insert_error=RuntimeError(BOOM))
+        types_manager = StubTypesManager(insert_error=RuntimeError(BOOM))
 
-        assert create_type_from_entry(entry, types_manager, IMPORTER_ID) == TypeImportError.IMPORT_FAILED.format(detail=BOOM)
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.IMPORT_FAILED.format(detail=BOOM)
 
 
 class TestUpdateTypeFromEntry:
@@ -346,17 +328,17 @@ class TestUpdateTypeFromEntry:
     def test_updates_existing_type_and_returns_none(self) -> None:
         """An entry whose update matches a document reports no error."""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
-        types_manager = _StubTypesManager(matched_count=1)
+        types_manager = StubTypesManager(matched_count=1)
 
-        assert update_type_from_entry(entry, types_manager, IMPORTER_ID) is None
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
         assert len(types_manager.updated) == 1
 
     def test_writes_once_without_a_separate_existence_query(self) -> None:
         """Only the update is issued - the outcome comes from matched_count, not a preceding read."""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
-        types_manager = _StubTypesManager(matched_count=1)
+        types_manager = StubTypesManager(matched_count=1)
 
-        update_type_from_entry(entry, types_manager, IMPORTER_ID)
+        update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
 
         # a get_type call would raise AttributeError on this stub, which deliberately has no such method
         assert not hasattr(types_manager, 'get_type')
@@ -364,20 +346,20 @@ class TestUpdateTypeFromEntry:
     def test_locked_special_type_is_rejected_without_writing(self) -> None:
         """A blocked special-type entry is reported and never reaches the update."""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-ipam-type', special_type='VLAN')
-        types_manager = _StubTypesManager(matched_count=1)
+        types_manager = StubTypesManager(matched_count=1)
 
-        result = update_type_from_entry(entry, types_manager, IMPORTER_ID, ipam_locked=True)
+        result = update_type_from_entry(entry, types_manager, no_templates(), IMPORTER, ipam_locked=True)
 
         assert result == TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type='VLAN')
-        assert types_manager.updated == []
+        assert not types_manager.updated
 
     def test_importer_is_recorded_as_the_editor(self) -> None:
         """The importing user becomes the editor and the edit time is stamped server-side."""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
         entry[TypeSchemaKey.EDITOR_ID.value] = 888
-        types_manager = _StubTypesManager(matched_count=1)
+        types_manager = StubTypesManager(matched_count=1)
 
-        assert update_type_from_entry(entry, types_manager, IMPORTER_ID) is None
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
 
         (_, written), = types_manager.updated
         assert written[TypeSchemaKey.EDITOR_ID.value] == IMPORTER_ID
@@ -387,32 +369,424 @@ class TestUpdateTypeFromEntry:
         """The stored author/creation time survive: an update payload simply omits both fields."""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
         entry[TypeSchemaKey.AUTHOR_ID.value] = 777
-        types_manager = _StubTypesManager(matched_count=1)
+        types_manager = StubTypesManager(matched_count=1)
 
-        update_type_from_entry(entry, types_manager, IMPORTER_ID)
+        update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
 
         (_, written), = types_manager.updated
         assert TypeSchemaKey.AUTHOR_ID.value not in written
         assert TypeSchemaKey.CREATION_TIME.value not in written
 
-    def test_unmatched_update_is_reported(self) -> None:
-        """An update matching nothing is reported instead of passing as a silent success."""
-        entry = make_type_doc(MISSING_PUBLIC_ID, 'imported-type')
-        types_manager = _StubTypesManager(matched_count=0)
+    def test_a_type_deleted_between_the_read_and_the_write_is_reported(self) -> None:
+        """The read found it, the write matched nothing - reported instead of a silent success."""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        types_manager = StubTypesManager(matched_count=0)
 
-        result = update_type_from_entry(entry, types_manager, IMPORTER_ID)
+        result = update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
 
-        assert result == TypeImportError.TYPE_NOT_FOUND.format(public_id=MISSING_PUBLIC_ID)
+        assert result == TypeImportError.TYPE_NOT_FOUND.format(public_id=EXISTING_PUBLIC_ID)
 
     def test_invalid_type_data_is_reported(self) -> None:
         """An entry that cannot be built into a CmdbType is reported with the underlying detail."""
-        result = update_type_from_entry({}, _StubTypesManager(), IMPORTER_ID)
+        # the type exists, but the entry carries an unusable acl, which CmdbType.from_data rejects
+        entry = {'name': 'broken', TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID, 'acl': 'not-a-dict'}
+        result = update_type_from_entry(entry, StubTypesManager(), no_templates(), IMPORTER)
 
         assert result.startswith('Failed to create a Type instance from the provided data:')
+
+    def test_an_entry_without_a_public_id_cannot_identify_a_type(self) -> None:
+        """The update is applied by public_id, so an entry without one has nothing to update."""
+        types_manager = StubTypesManager()
+
+        assert update_type_from_entry({'name': 'nameless'}, types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.TYPE_NOT_FOUND.format(public_id=None)
+        assert not types_manager.instance_reads  # not even looked up
+
+    def test_entry_without_a_name_is_reported(self) -> None:
+        """A type carrying no name is rejected before anything is written."""
+        types_manager = StubTypesManager()
+        entry = {TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID}
+
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.MISSING_TYPE_NAME.value
+        assert not types_manager.updated
 
     def test_update_failure_is_reported(self) -> None:
         """A failing update is reported with the underlying detail."""
         entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
-        types_manager = _StubTypesManager(update_error=RuntimeError(BOOM))
+        types_manager = StubTypesManager(update_error=RuntimeError(BOOM))
 
-        assert update_type_from_entry(entry, types_manager, IMPORTER_ID) == TypeImportError.UPDATE_FAILED.format(detail=BOOM)
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.UPDATE_FAILED.format(detail=BOOM)
+
+
+class TestNormalizationDuringImport:
+    """Both per-entry steps repair the entry before it is written."""
+
+    def test_create_stamps_the_default_icon(self) -> None:
+        """A created type without an icon is stored with the placeholder."""
+        entry = make_type_doc(0, 'imported-type')
+        entry['render_meta'].pop('icon')
+        types_manager = StubTypesManager()
+
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+        assert types_manager.inserted[0].render_meta.icon == DEFAULT_TYPE_ICON
+
+    def test_create_clears_a_dangling_reference(self) -> None:
+        """A reference the target system does not know is cleared instead of failing the entry."""
+        entry = ref_section_entry(7)
+        types_manager = StubTypesManager()
+
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+        assert types_manager.inserted[0].render_meta.sections[0].reference.type_id is None
+
+    def test_update_clears_a_dangling_reference(self) -> None:
+        """The update path repairs the replacement the same way the create path does."""
+        entry = ref_section_entry(7)
+        entry[TypeSchemaKey.PUBLIC_ID.value] = EXISTING_PUBLIC_ID
+        entry[TypeSchemaKey.AUTHOR_ID.value] = 1
+        types_manager = StubTypesManager()
+
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+
+        _, payload = types_manager.updated[0]
+
+        assert payload['render_meta']['sections'][0]['reference']['type_id'] is None
+
+    def test_failing_reference_lookup_is_reported_per_entry(self) -> None:
+        """A failing existence lookup fails this entry, not the whole batch."""
+        entry = ref_section_entry(7)
+        types_manager = StubTypesManager(existence_error=RuntimeError(BOOM))
+
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.NORMALIZATION_FAILED.format(detail=BOOM)
+        assert not types_manager.inserted
+
+
+class TestApplyImportCreateSideEffects:
+    """A created type is wired up exactly like a hand-created one - today that is the SpecialType."""
+
+    @pytest.mark.parametrize('entry', [{'name': 'plain'}, {'name': 'plain', 'special_type': ''}],
+                             ids=['absent', 'empty'])
+    def test_an_ordinary_type_has_no_side_effects(self, entry: dict[str, Any], monkeypatch) -> None:
+        """Nothing to wire for an ordinary type."""
+        monkeypatch.setattr(f'{HELPER}.handle_special_types', unreachable)
+
+        apply_import_create_side_effects(StubTypesManager(), no_templates(), entry)
+
+    def test_a_special_type_is_cross_wired(self, monkeypatch) -> None:
+        """handle_special_types runs for the freshly assigned public_id, as the create route does."""
+        wired: list[tuple] = []
+        monkeypatch.setattr(f'{HELPER}.handle_special_types', lambda *args: wired.append(args))
+
+        types_manager = StubTypesManager()
+        section_templates = no_templates()
+        entry = {'name': 'subnet', 'special_type': SpecialType.SUBNET.value,
+                 TypeSchemaKey.PUBLIC_ID.value: NEW_PUBLIC_ID}
+
+        apply_import_create_side_effects(types_manager, section_templates, entry)
+
+        assert wired == [(types_manager, SpecialType.SUBNET.value, section_templates, NEW_PUBLIC_ID)]
+
+
+class TestApplyImportUpdateSideEffects:
+    """An import update owes the stored data the same follow-up work as the normal update route."""
+
+    @staticmethod
+    def _patch(monkeypatch) -> dict[str, list]:
+        """Records the two route helpers this delegates to instead of running them."""
+        calls: dict[str, list] = {'removed': [], 'applied': []}
+
+        def _removed(*args):
+            calls['removed'].append(args)
+            return ({'tpl'}, {})
+
+        monkeypatch.setattr(f'{HELPER}.compute_removed_global_templates', _removed)
+        monkeypatch.setattr(f'{HELPER}.apply_type_update_side_effects',
+                            lambda *args: calls['applied'].append(args))
+
+        return calls
+
+    def test_delegates_to_the_route_helper_with_both_states(self, monkeypatch) -> None:
+        """The pre-update type and the re-read post-update type are both handed over."""
+        calls = self._patch(monkeypatch)
+        types_manager = StubTypesManager()
+        old_type = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type'))
+
+        apply_import_update_side_effects(IMPORTER, types_manager, no_templates(), old_type, {'name': 'new-type'})
+
+        (request_user, manager, passed_old, passed_new, removed), = calls['applied']
+
+        assert request_user is IMPORTER
+        assert manager is types_manager
+        assert passed_old is old_type
+        assert passed_new is types_manager.stored_type  # the re-read, not the uploaded entry
+        assert removed == ({'tpl'}, {})
+
+    def test_the_type_is_re_read_because_the_payload_omits_preserved_fields(self, monkeypatch) -> None:
+        """special_type is never written by an update, so only the stored document is authoritative."""
+        self._patch(monkeypatch)
+        types_manager = StubTypesManager()
+        old_type = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type'))
+
+        apply_import_update_side_effects(IMPORTER, types_manager, no_templates(), old_type, {'name': 'new-type'})
+
+        assert types_manager.instance_reads == [EXISTING_PUBLIC_ID]
+
+    def test_removed_templates_are_computed_from_the_uploaded_ids(self, monkeypatch) -> None:
+        """The dropped global templates come from the upload, not from the re-read type."""
+        calls = self._patch(monkeypatch)
+        old_type = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type'))
+        entry = {'name': 'new-type', TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: ['kept']}
+
+        apply_import_update_side_effects(IMPORTER, StubTypesManager(), no_templates(), old_type, entry)
+
+        (passed_old, incoming_ids), = calls['removed']
+
+        assert passed_old is old_type
+        assert incoming_ids == {'kept'}
+
+    def test_a_type_deleted_after_the_update_is_skipped(self, monkeypatch) -> None:
+        """Nothing left to reconcile, so the side effects are not attempted."""
+        calls = self._patch(monkeypatch)
+        old_type = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type'))
+
+        apply_import_update_side_effects(
+            IMPORTER, StubTypesManager(stored_type_instance=None), no_templates(), old_type, {},
+        )
+
+        assert not calls['applied']
+
+
+class TestSideEffectsAreRunByTheEntrySteps:
+    """Both per-entry steps end in their side effects, and report a failure without hiding the write."""
+
+    def test_create_runs_its_side_effects(self, side_effect_calls: dict[str, list]) -> None:
+        """A created type reaches apply_import_create_side_effects with the stored entry."""
+        entry = make_type_doc(0, 'imported-type')
+        types_manager = StubTypesManager()
+
+        assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+
+        (manager, section_templates, passed_entry), = side_effect_calls['create']
+
+        assert manager is types_manager
+        assert isinstance(section_templates, StubSectionTemplatesManager)
+        assert passed_entry is entry
+
+    def test_update_runs_its_side_effects_with_the_pre_update_type(
+        self, side_effect_calls: dict[str, list]
+    ) -> None:
+        """The type read before the write is what the side effects diff against."""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        types_manager = StubTypesManager()
+
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+
+        (request_user, manager, _templates, old_type, passed_entry), = side_effect_calls['update']
+
+        assert request_user is IMPORTER
+        assert manager is types_manager
+        assert old_type is types_manager.stored_type
+        assert passed_entry is entry
+
+    def test_the_update_reads_the_type_once_before_writing(self) -> None:
+        """One read serves both the existence check and the side effects - not two queries."""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        types_manager = StubTypesManager()
+
+        update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
+
+        assert types_manager.instance_reads == [EXISTING_PUBLIC_ID]
+
+    def test_an_unknown_public_id_is_reported_from_the_read(self) -> None:
+        """The pre-update read doubles as the existence check, so nothing is written."""
+        entry = make_type_doc(MISSING_PUBLIC_ID, 'imported-type')
+        types_manager = StubTypesManager(stored_type_instance=None)
+
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.TYPE_NOT_FOUND.format(public_id=MISSING_PUBLIC_ID)
+        assert not types_manager.updated
+
+    def test_failing_create_side_effects_are_reported_as_a_follow_up(self, monkeypatch) -> None:
+        """The type is already stored, so the message says so instead of claiming the import failed."""
+        monkeypatch.setattr(f'{HELPER}.apply_import_create_side_effects', raise_boom)
+        types_manager = StubTypesManager()
+
+        assert create_type_from_entry(make_type_doc(0, 'imported-type'), types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.CREATE_SIDE_EFFECTS_FAILED.format(detail=BOOM)
+        assert len(types_manager.inserted) == 1  # the Type itself was written
+
+    def test_failing_update_side_effects_are_reported_as_a_follow_up(self, monkeypatch) -> None:
+        """Same for the update: the write happened, the reconciliation did not."""
+        monkeypatch.setattr(f'{HELPER}.apply_import_update_side_effects', raise_boom)
+        types_manager = StubTypesManager()
+
+        assert update_type_from_entry(
+            make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
+        ) == TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(detail=BOOM)
+        assert len(types_manager.updated) == 1  # the Type itself was written
+
+
+class TestUpdateAppliesTheStoredTypeRules:
+    """update_type_from_entry runs the stored-type rules before it writes."""
+
+    def test_a_blocked_update_is_reported_and_nothing_is_written(self, monkeypatch) -> None:
+        """The blocker's message becomes the entry's error and the write is skipped."""
+        monkeypatch.setattr(f'{HELPER}.stored_type_update_blocker', lambda *_args: 'blocked')
+        types_manager = StubTypesManager()
+
+        assert update_type_from_entry(
+            make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
+        ) == 'blocked'
+        assert not types_manager.updated
+
+    def test_the_blocker_sees_the_stored_and_the_uploaded_state(self, monkeypatch) -> None:
+        """Both sides of the comparison are handed over, along with the licence state."""
+        seen: list[tuple] = []
+        monkeypatch.setattr(f'{HELPER}.stored_type_update_blocker',
+                            lambda *args: seen.append(args) or None)
+        types_manager = StubTypesManager()
+
+        update_type_from_entry(
+            make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
+            ipam_locked=True,
+        )
+
+        (request_user, old_type, new_type, ipam_locked), = seen
+
+        assert request_user is IMPORTER
+        assert old_type is types_manager.stored_type
+        assert new_type.public_id == EXISTING_PUBLIC_ID
+        assert ipam_locked is True
+
+    @pytest.mark.parametrize('entry', ['a string', 42, ['a', 'list']], ids=['str', 'int', 'list'])
+    def test_a_non_dict_entry_is_reported_not_raised(self, entry: Any) -> None:
+        """An unusable entry must not escape the batch loop - it is reported like any other."""
+        types_manager = StubTypesManager()
+
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
+            == TypeImportError.NOT_A_TYPE_ENTRY.value
+        assert not types_manager.updated
+
+
+class TestRepairedStructureError:
+    """The structural rules are re-run on what the repairs completed."""
+
+    def test_a_sound_entry_passes(self) -> None:
+        """Nothing the repairs did broke the type."""
+        assert repaired_structure_error(make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')) is None
+
+    def test_a_finding_is_worded_as_a_repair_failure(self) -> None:
+        """The upload was sound, so a finding here can only come from a template's fields."""
+        entry = make_type_doc(
+            EXISTING_PUBLIC_ID, 'imported-type',
+            fields=[{'type': 'text', 'name': 'no-label'}],
+            sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': ['no-label']}],
+        )
+
+        result = repaired_structure_error(entry)
+
+        assert result.startswith('Completing this Type from its global section template(s) made it invalid:')
+        assert "without a label: ['no-label']" in result
+
+
+class TestTemplatesTheUpdateStillClaims:
+    """A claim the repair dropped is not a section the user removed."""
+
+    def test_an_unknown_template_stays_claimed_for_the_cleanup(self) -> None:
+        """It does not exist here, so the repair dropped it - the section must survive."""
+        old_type = CmdbType.from_data(
+            make_type_doc(EXISTING_PUBLIC_ID, 'stored-type', global_template_ids=['dg-gone'])
+        )
+
+        still_claimed = _templates_the_update_still_claims(
+            no_templates(), old_type, {'global_template_ids': []},
+        )
+
+        assert still_claimed == {'dg-gone'}
+
+    def test_a_template_the_user_dropped_is_reported_as_removed(self) -> None:
+        """It exists here, so the upload really took it off the Type."""
+        old_type = CmdbType.from_data(
+            make_type_doc(EXISTING_PUBLIC_ID, 'stored-type', global_template_ids=['dg-real'])
+        )
+        section_templates = StubSectionTemplatesManager([
+            {'public_id': 1, 'name': 'dg-real', 'label': 'Real', 'type': 'section',
+             'is_global': True, 'fields': []},
+        ])
+
+        still_claimed = _templates_the_update_still_claims(
+            section_templates, old_type, {'global_template_ids': []},
+        )
+
+        assert still_claimed == set()
+
+    def test_a_claim_kept_by_the_upload_needs_no_lookup(self) -> None:
+        """Nothing disappeared, so there is nothing to tell apart."""
+        old_type = CmdbType.from_data(
+            make_type_doc(EXISTING_PUBLIC_ID, 'stored-type', global_template_ids=['dg-real'])
+        )
+        section_templates = no_templates()
+
+        still_claimed = _templates_the_update_still_claims(
+            section_templates, old_type, {'global_template_ids': ['dg-real']},
+        )
+
+        assert still_claimed == {'dg-real'}
+        assert not section_templates.queries
+
+    def test_the_update_side_effects_use_it(self, monkeypatch) -> None:
+        """The removed-template set the cleanup runs on comes from this, not from the raw upload."""
+        seen: list[tuple] = []
+        monkeypatch.setattr(f'{HELPER}.compute_removed_global_templates',
+                            lambda *args: seen.append(args) or (set(), {}))
+        monkeypatch.setattr(f'{HELPER}.apply_type_update_side_effects', lambda *args: None)
+
+        old_type = CmdbType.from_data(
+            make_type_doc(EXISTING_PUBLIC_ID, 'stored-type', global_template_ids=['dg-gone'])
+        )
+        types_manager = StubTypesManager()
+
+        apply_import_update_side_effects(
+            IMPORTER, types_manager, no_templates(), old_type, {'global_template_ids': []},
+        )
+
+        (_passed_old, incoming), = seen
+
+        assert incoming == {'dg-gone'}
+
+
+class TestUpdateReadsTheTypeFirst:
+    """The existence check runs before the rules and the repairs, not after them."""
+
+    def test_an_unknown_public_id_costs_no_further_query(self) -> None:
+        """No name lookup, no reference / group / template resolution for an id nobody has."""
+        types_manager = StubTypesManager(stored_type_instance=None)
+        section_templates = no_templates()
+        entry = make_type_doc(MISSING_PUBLIC_ID, 'imported-type')
+
+        assert update_type_from_entry(entry, types_manager, section_templates, IMPORTER) \
+            == TypeImportError.TYPE_NOT_FOUND.format(public_id=MISSING_PUBLIC_ID)
+        assert types_manager.instance_reads == [MISSING_PUBLIC_ID]
+        assert not types_manager.existence_lookups
+        assert not types_manager.group_lookups
+        assert not section_templates.queries
+
+    def test_a_string_public_id_identifies_the_type(self) -> None:
+        """An upload may carry the id as a string; it still resolves."""
+        types_manager = StubTypesManager()
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        entry[TypeSchemaKey.PUBLIC_ID.value] = str(EXISTING_PUBLIC_ID)
+
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+        assert types_manager.instance_reads == [EXISTING_PUBLIC_ID]
+
+    def test_a_read_failure_is_reported_per_entry(self) -> None:
+        """A database error on the existence read fails this entry, not the batch."""
+        types_manager = StubTypesManager()
+        types_manager.get_type_instance = _raise_on_read
+
+        assert update_type_from_entry(
+            make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
+        ) == TypeImportError.UPDATE_FAILED.format(detail=BOOM)

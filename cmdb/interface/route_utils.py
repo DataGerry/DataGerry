@@ -191,6 +191,48 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
     return decorator
 
 
+def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: disable=unused-argument
+    # '**optional' is an extensibility placeholder, matching the other parameter decorators
+    """
+    Decorator to parse and extract query parameters from an HTTP request
+
+    Returns a decorator that:
+    - Extracts query parameters from the current request (via `request.args.to_dict()`)
+    - Injects them as the FIRST positional argument of the decorated function
+    - Forwards any remaining positional/keyword arguments (e.g. a `request_user` injected by an
+      inner decorator) unchanged
+    - Aborts with a 400 Bad Request if the parameters cannot be parsed
+
+    Used only by the DataGerry assistant route. It lived on the former `RootBlueprint` as a
+    classmethod; it is a plain request decorator like the others here, so it belongs with them rather
+    than on a blueprint type
+
+    Args:
+        **optional: Placeholder for optional keyword arguments (currently unused)
+
+    Raises:
+        HTTPException: 400 if the request arguments could not be accessed or parsed
+
+    Returns:
+        Callable: A decorator that injects parsed request parameters into the decorated function
+    """
+    def _parse(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def _decorate(*args: Any, **kwargs: Any) -> Any:
+            try:
+                location_args = request.args.to_dict()
+            except Exception as err:
+                LOGGER.error("[parse_assistant_parameters] Exception: %s. Type: %s",
+                             err, type(err), exc_info=True)
+                abort(400, "Failed to parse the request arguments!")
+
+            return func(location_args, *args, **kwargs)
+
+        return _decorate
+
+    return _parse
+
+
 def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     Decorator that injects the authenticated user into a route handler as `request_user`

@@ -19,9 +19,16 @@ Shared constants for CmdbTypes
 Names the ACL rights guarding the CmdbType REST routes so the routes and any other consumer
 stay aligned on the literal strings instead of repeating them. Mirrors the SectionTemplateRight
 convention in ``section_template_constants``.
+
+Also holds DG_LOCATION_FIELD_NAME, the reserved name of the one location field a CmdbType may
+declare - the renderer, the CI Explorer, DocAPI and both importers all identify it by that name.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Reserved name of the location field. A CmdbType has at most one field of type FieldType.LOCATION
+# and it always carries this name; every consumer that resolves a location value looks it up by it
+DG_LOCATION_FIELD_NAME: str = 'dg_location'
 
 
 class TypeRight(BaseStrEnum):

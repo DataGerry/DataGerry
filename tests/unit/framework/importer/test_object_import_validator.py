@@ -21,6 +21,7 @@ lifecycle fields, type-derived special_type, defaulted optional fields, and the 
 (default when absent/empty, reject when an unrecognised value is provided).
 """
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -323,7 +324,9 @@ class TestFieldTypeStamping:
                 {'section_id': 's1', 'values': [{'multi_data_id': 1, 'data': [{'name': 'nic', 'value': 'eth0'}]}]}
             ],
         }
-        errors = _normalize(obj, None, _ctx(type_map={'host': 'text', 'nic': 'text'}))
+        errors = _normalize(
+            obj, None, _ctx(type_map={'host': 'text', 'nic': 'text'}, mds_defaults={'s1': {}}),
+        )
 
         assert not errors
         assert obj['fields'][0]['type'] == 'text'  # overwrote 'WRONG'
@@ -412,8 +415,8 @@ class TestBuildImportTypeContext:
         """Select and radio option names are collected; new_select_options starts empty."""
         type_instance = MagicMock()
         type_instance.get_fields.return_value = [
-            {'name': 'kind', 'type': 'select', 'extras': {'options': [{'name': 'a'}, {'name': 'b'}]}},
-            {'name': 'mode', 'type': 'radio', 'extras': {'options': [{'name': 'on'}]}},
+            {'name': 'kind', 'type': 'select', 'options': [{'name': 'a'}, {'name': 'b'}]},
+            {'name': 'mode', 'type': 'radio', 'options': [{'name': 'on'}]},
             {'name': 'host', 'type': 'text'},
         ]
         type_instance.get_sections.return_value = []
@@ -569,16 +572,34 @@ class TestApplyNewSelectOptions:
 
     def test_adds_missing_options_only(self) -> None:
         """Only values not already present are appended; fields with no new values are skipped."""
-        kind = {'name': 'kind', 'type': 'select', 'extras': {'options': [{'name': 'a', 'label': 'a'}]}}
-        other = {'name': 'other', 'type': 'select', 'extras': {'options': [{'name': 'z', 'label': 'z'}]}}
+        kind = {'name': 'kind', 'type': 'select', 'options': [{'name': 'a', 'label': 'a'}]}
+        other = {'name': 'other', 'type': 'select', 'options': [{'name': 'z', 'label': 'z'}]}
         type_instance = MagicMock()
         type_instance.get_fields.return_value = [kind, other]
 
         # only 'kind' has new values; 'other' is skipped (no entry in the map)
         apply_new_select_options(type_instance, {'kind': ['a', 'b']})
 
-        assert kind['extras']['options'] == [{'name': 'a', 'label': 'a'}, {'name': 'b', 'label': 'b'}]
-        assert other['extras']['options'] == [{'name': 'z', 'label': 'z'}]  # untouched
+        assert kind['options'] == [{'name': 'a', 'label': 'a'}, {'name': 'b', 'label': 'b'}]
+        assert other['options'] == [{'name': 'z', 'label': 'z'}]  # untouched
+
+    def test_an_unusable_option_list_is_left_alone(self) -> None:
+        """A field whose options are not a list at all is skipped rather than crashing the import."""
+        broken = {'name': 'kind', 'type': 'select', 'options': 'nonsense'}
+        type_instance = SimpleNamespace(get_fields=lambda: [broken])
+
+        apply_new_select_options(type_instance, {'kind': ['b']})
+
+        assert broken['options'] == 'nonsense'
+
+    def test_a_field_without_an_option_list_gets_one(self) -> None:
+        """A select that never had options yet still collects the newly seen value."""
+        field = {'name': 'kind', 'type': 'select'}
+        type_instance = SimpleNamespace(get_fields=lambda: [field])
+
+        apply_new_select_options(type_instance, {'kind': ['b']})
+
+        assert field['options'] == [{'name': 'b', 'label': 'b'}]
 
 
 class TestBackfillFromType:
@@ -669,4 +690,69 @@ class TestRequiredFieldsRule:
         ]}
 
         assert not _normalize(
-            obj, None, _ctx(type_map={'nic': 'text'}, required_mds={'nics': {'nic'}}))
+            obj, None,
+            _ctx(type_map={'nic': 'text'}, required_mds={'nics': {'nic'}}, mds_defaults={'nics': {}}),
+        )
+
+
+class TestMultiDataSectionRule:
+    """An object may only carry multi-data sections its Type defines."""
+
+    @staticmethod
+    def _object_with_section(section_id: str) -> dict:
+        """An object carrying one MDS section with a single row."""
+        return {
+            'fields': [],
+            'multi_data_sections': [
+                {'section_id': section_id, 'values': [{'multi_data_id': 1, 'data': []}]},
+            ],
+        }
+
+    def test_a_known_section_passes(self) -> None:
+        """The section is defined on the type, so its rows have somewhere to be rendered."""
+        errors = _normalize(
+            self._object_with_section('nics'), None, _ctx(mds_defaults={'nics': {}}),
+        )
+
+        assert not errors
+
+    def test_an_unknown_section_is_reported(self) -> None:
+        """Its rows would be stored and never shown again."""
+        errors = _normalize(
+            self._object_with_section('ghosts'), None, _ctx(mds_defaults={'nics': {}}),
+        )
+
+        assert errors == ["Multi-data section(s) not defined on the type: ['ghosts']"]
+
+    def test_a_type_without_any_mds_section_rejects_every_section(self) -> None:
+        """Nothing to place the rows in at all."""
+        errors = _normalize(self._object_with_section('nics'), None, _ctx())
+
+        assert errors == ["Multi-data section(s) not defined on the type: ['nics']"]
+
+    def test_every_unknown_section_is_named_once(self) -> None:
+        """The report lists them together, sorted, rather than one error per row."""
+        working_object = {
+            'fields': [],
+            'multi_data_sections': [
+                {'section_id': 'b', 'values': []},
+                {'section_id': 'a', 'values': []},
+                {'section_id': 'a', 'values': []},
+            ],
+        }
+
+        errors = _normalize(working_object, None, _ctx())
+
+        assert errors == ["Multi-data section(s) not defined on the type: ['a', 'b']"]
+
+    def test_an_object_without_sections_is_unaffected(self) -> None:
+        """The rule only looks at what the object actually carries."""
+        assert not _normalize({'fields': []}, None, _ctx())
+
+    def test_the_rule_runs_before_the_backfill(self) -> None:
+        """Nothing is completed into a section the type does not know."""
+        working_object = self._object_with_section('ghosts')
+
+        _normalize(working_object, None, _ctx(mds_defaults={'nics': {'nic': 'x'}}))
+
+        assert not working_object['multi_data_sections'][0]['values'][0]['data']

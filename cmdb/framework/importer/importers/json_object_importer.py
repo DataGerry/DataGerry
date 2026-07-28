@@ -149,7 +149,7 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
         """
         try:
             parsed_response: JsonObjectParserResponse = self.parser.parse(self.file)
-            type_instance = self.objects_manager.get_object_type(self.config.get_type_id())
+            type_instance = self.resolve_target_type()
             type_fields = type_instance.get_fields()
 
             candidates = self._generate_objects(parsed_response, fields=type_fields)
