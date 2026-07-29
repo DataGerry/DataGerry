@@ -1,14 +1,7 @@
 <form [formGroup]="fileForm" class="file-form">
     <div class="field">
-        <label for="fileFormat">File format</label>
-        <select id="fileFormat" formControlName="fileFormat" class="form-select">
-            <option value="">Select a format…</option>
-            @for (importer of importerTypes; track importer) {
-            <option value="{{ importer.name }}">
-                {{ importer.name | uppercase }}
-            </option>
-            }
-        </select>
+        <app-form-select label="File format" formControlName="fileFormat" [items]="formatOptions" bindLabel="label"
+            bindValue="value" placeholder="Select a format…" [required]="true"></app-form-select>
         <span class="field__hint">Choose the format of the file you want to import.</span>
     </div>
 

@@ -1,16 +1,11 @@
 <form [formGroup]="configForm" class="mapping-form">
-    <div class="mb-3 row">
-        <label class="col-sm-3 col-form-label" for="typeID">
+    <div class="row">
+        <label class="col-sm-3 col-form-label">
             Select type
         </label>
         <div class="col-sm-9">
-            <select id="typeID" class="form-select" formControlName="typeID">
-                @for (typeSelect of typeList; track typeSelect) {
-                <option [value]="typeSelect.public_id">
-                    {{ typeSelect.label }}
-                </option>
-                }
-            </select>
+            <app-form-select formControlName="typeID" [items]="typeList" bindLabel="label" bindValue="public_id"
+                placeholder="Select a type" [required]="true"></app-form-select>
         </div>
     </div>
 

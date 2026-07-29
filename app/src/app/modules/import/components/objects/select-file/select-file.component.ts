@@ -36,7 +36,7 @@ export class SelectFileComponent implements OnInit, OnDestroy {
     public fileForm: UntypedFormGroup;
     public fileName: string = 'Choose file';
     public selectedFileFormat: string = `.${ this.defaultFileFormat }`;
-    public importerTypes: any[] = [];
+    public formatOptions: { label: string; value: string }[] = [];
 
     // Loading subscription
     private importerDefinitionSubscription: Subscription;
@@ -83,7 +83,10 @@ export class SelectFileComponent implements OnInit, OnDestroy {
         this.loaderService.show();
         this.importerDefinitionSubscription = this.importService.getObjectImporters()
         .pipe(finalize(() => this.loaderService.hide())).subscribe(importers => {
-            this.importerTypes = importers;
+            this.formatOptions = ((importers ?? []) as any[]).map((importer) => ({
+                label: (importer?.name ?? '').toUpperCase(),
+                value: importer?.name
+            }));
         });
 
         this.fileFormatChangeSubscription = this.fileFormat.valueChanges.subscribe((format: string) => {
