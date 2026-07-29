@@ -212,7 +212,11 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
 
 
     public showReferencePreview(): void {
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg' });
+        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, {
+            size: 'xl',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.renderResult = this.objectLocation;
     }
 

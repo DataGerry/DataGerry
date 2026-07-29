@@ -93,7 +93,12 @@ export class ObjectTableActionsComponent implements OnDestroy {
             return;
         }
 
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg', scrollable: true });
+        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, {
+            size: 'xl',
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.renderResult = this.result;
     }
 
