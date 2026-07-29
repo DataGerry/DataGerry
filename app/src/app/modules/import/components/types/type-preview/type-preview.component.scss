@@ -1,0 +1,300 @@
+@import '../../wizard-step';
+
+:host {
+    display: block;
+    @include dg-controls;
+    @include dg-step-actions;
+}
+
+.preview-step {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+/* --------------------------------------------------- IMPORT MODE -------------------------------------------------- */
+.mode-group {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+
+    &__legend {
+        float: none;
+        width: auto;
+        margin-bottom: 0.6rem;
+        padding: 0;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: $label;
+    }
+}
+
+.mode-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 0.75rem;
+}
+
+.mode-option {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    margin: 0;
+    padding: 0.85rem 0.95rem;
+    border: 1px solid $border;
+    border-radius: $radius-card;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color $ease, box-shadow $ease, background $ease;
+
+    &:hover {
+        border-color: $border-strong;
+        background: $surface;
+    }
+
+    &:focus-within {
+        border-color: $brand;
+        box-shadow: 0 0 0 0.2rem $brand-ring;
+    }
+
+    &--active {
+        border-color: $brand;
+        background: $brand-soft;
+
+        .mode-option__icon {
+            background: $brand;
+            color: #fff;
+        }
+
+        .mode-option__check {
+            opacity: 1;
+        }
+    }
+
+    /* The label carries the visuals; the native radio stays focusable but invisible. */
+    &__input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    &__icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        flex-shrink: 0;
+        border-radius: 0.6rem;
+        background: $surface;
+        color: $brand;
+        font-size: 0.85rem;
+        transition: background $ease, color $ease;
+    }
+
+    &__body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        min-width: 0;
+    }
+
+    &__title {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: $ink;
+    }
+
+    &__text {
+        font-size: 0.8rem;
+        line-height: 1.4;
+        color: $muted;
+    }
+
+    &__check {
+        position: absolute;
+        top: 0.7rem;
+        right: 0.75rem;
+        color: $brand;
+        font-size: 0.9rem;
+        opacity: 0;
+        transition: opacity $ease;
+    }
+}
+
+/* --------------------------------------------------- TYPE LIST ---------------------------------------------------- */
+.types-panel {
+    border: 1px solid $border;
+    border-radius: $radius-card;
+    background: #fff;
+    overflow: hidden;
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.7rem 0.9rem;
+        background: linear-gradient(180deg, #fbfcfd 0%, #f5f7f9 100%);
+        border-bottom: 1px solid $hairline;
+        flex-wrap: wrap;
+    }
+
+    &__title {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin: 0;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: $label;
+    }
+
+    &__count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.4rem;
+        height: 1.4rem;
+        padding: 0 0.4rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: $brand;
+        background: $brand-soft;
+    }
+
+    &__search {
+        position: relative;
+        flex: 0 1 16rem;
+
+        i {
+            position: absolute;
+            top: 50%;
+            left: 0.65rem;
+            transform: translateY(-50%);
+            font-size: 0.78rem;
+            color: $faint;
+            pointer-events: none;
+        }
+
+        .form-control {
+            padding-left: 1.9rem;
+            background: #fff;
+        }
+    }
+
+    &__empty {
+        margin: 0;
+        padding: 1.75rem 1rem;
+        text-align: center;
+        font-size: 0.85rem;
+        color: $muted;
+    }
+}
+
+.type-list {
+    max-height: 24rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.type-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid $hairline;
+    transition: background $ease;
+
+    &:last-child {
+        border-bottom: 0;
+    }
+
+    &:hover {
+        background: rgba(15, 23, 42, 0.02);
+    }
+
+    &__icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        flex-shrink: 0;
+        border-radius: 0.55rem;
+        background: $brand-soft;
+        color: $brand;
+        font-size: 0.85rem;
+    }
+
+    &__main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    &__label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: $ink;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__name {
+        font-size: 0.78rem;
+        color: $muted;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__meta {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    &__remove {
+        flex-shrink: 0;
+    }
+
+    @media (max-width: 767.98px) {
+        &__meta {
+            display: none;
+        }
+    }
+}
+
+.type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.45rem;
+    border: 1px solid $border;
+    border-radius: 0.4rem;
+    background: $surface;
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: $muted;
+    white-space: nowrap;
+
+    &--id {
+        color: $brand;
+        background: $brand-soft;
+        border-color: transparent;
+    }
+}
