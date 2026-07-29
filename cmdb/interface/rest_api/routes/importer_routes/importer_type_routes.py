@@ -19,14 +19,14 @@ Implementation of all API routes for Type Imports
 The blueprint is mounted by init_rest_api at `/import/type`, so this module is self-contained: it can
 be imported without an application context and without a parent import blueprint
 
-Both routes take the same multipart upload (a JSON list of exported CmdbTypes) and follow the same
-partial-report contract: every entry is processed independently and the response body is a mapping of
-the failed entries to their error message, so a single bad entry never discards the rest of the batch.
-An empty mapping therefore means the whole upload was applied. The per-entry work lives in
-importer_type_helper
+Both routes take the same multipart upload (a JSON list of exported CmdbTypes) and answer with the same
+partial report the object import returns (`ImportReportResponse`: `message`, `success_imports`,
+`failed_imports`): every entry is processed independently, so a single bad entry never discards the rest
+of the batch. An imported type only adds to the `success_imports` count; a rejected one is reported as
+`{failed_type, errors}` - the data the user provided plus the reason - which is the sole difference from
+the object import's `failed_object`. The per-entry work lives in importer_type_helper
 """
 from logging import Logger, getLogger
-from typing import Any
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -35,9 +35,10 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import TypesManager, SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.framework.importer.responses.import_report_response import ImportReportResponse
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import (
     parse_uploaded_types,
-    resolve_error_key,
+    run_type_import_batch,
     create_type_from_entry,
     update_type_from_entry,
 )
@@ -81,9 +82,10 @@ def add_type(request_user: CmdbUser) -> Response:
         HTTPException: 400 if the upload is missing or unusable, 500 on an unexpected error
 
     Returns:
-        Response: A Flask Response object containing the error collection dictionary. The dictionary
-                  maps each failed type (by its assigned public_id, else by its position in the
-                  upload) to an error message. An empty dictionary means every type was imported
+        Response: A Flask Response object containing the partial report - a summary line, the number of
+                  created types (`success_imports`) and the `failed_imports` of the entries that could
+                  not be imported (each as `{failed_type, errors}`, carrying the uploaded data and the
+                  reason). An empty `failed_imports` means every type was imported
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -92,19 +94,17 @@ def add_type(request_user: CmdbUser) -> Response:
         )
 
         new_type_list = parse_uploaded_types(request)
-        error_collection: dict[str, Any] = {}
         # The licence state is per request, not per entry - resolve it once for the whole batch
         ipam_locked: bool = feature_locked(LicenseFeature.IPAM, request_user)
 
-        for index, new_type_data in enumerate(new_type_list):
-            import_error = create_type_from_entry(
+        import_report: ImportReportResponse = run_type_import_batch(
+            new_type_list,
+            lambda new_type_data: create_type_from_entry(
                 new_type_data, types_manager, section_templates_manager, request_user, ipam_locked,
-            )
+            ),
+        )
 
-            if import_error:
-                error_collection[resolve_error_key(new_type_data, index)] = import_error
-
-        return DefaultResponse(error_collection).make_response()
+        return DefaultResponse(import_report).make_response()
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
@@ -139,9 +139,10 @@ def update_type(request_user: CmdbUser) -> Response:
         HTTPException: 400 if the upload is missing or unusable, 500 on an unexpected error
 
     Returns:
-        Response: A Flask Response object containing the error collection dictionary. The dictionary
-                  maps each failed type (by its public_id, else by its position in the upload) to an
-                  error message. An empty dictionary means every type was updated
+        Response: A Flask Response object containing the partial report - a summary line, the number of
+                  updated types (`success_imports`) and the `failed_imports` of the entries that could
+                  not be updated (each as `{failed_type, errors}`, carrying the uploaded data and the
+                  reason). An empty `failed_imports` means every type was updated
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -150,19 +151,17 @@ def update_type(request_user: CmdbUser) -> Response:
         )
 
         update_type_list = parse_uploaded_types(request)
-        error_collection: dict[str, Any] = {}
         # The licence state is per request, not per entry - resolve it once for the whole batch
         ipam_locked: bool = feature_locked(LicenseFeature.IPAM, request_user)
 
-        for index, update_type_data in enumerate(update_type_list):
-            update_error = update_type_from_entry(
+        import_report: ImportReportResponse = run_type_import_batch(
+            update_type_list,
+            lambda update_type_data: update_type_from_entry(
                 update_type_data, types_manager, section_templates_manager, request_user, ipam_locked,
-            )
+            ),
+        )
 
-            if update_error:
-                error_collection[resolve_error_key(update_type_data, index)] = update_error
-
-        return DefaultResponse(error_collection).make_response()
+        return DefaultResponse(import_report).make_response()
     except HTTPException as http_err:
         raise http_err
     except Exception as err:

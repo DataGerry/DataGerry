@@ -261,8 +261,11 @@ def import_objects(request_user: CmdbUser) -> Response:
                                   must include a valid 'type_id'
 
     Returns:
-        Response: A `DefaultResponse` containing the results of the import operation,
-                  including success/failure
+        Response: A `DefaultResponse` carrying the partial report of the import - a summary line, the
+                  number of imported objects (`success_imports`) and the `failed_imports` of the objects
+                  that were rejected (each as `{failed_object, errors}`, carrying the data the user
+                  provided and every reason). A partially or fully failed import is still HTTP 200, so
+                  the outcome is read off `failed_imports`, never off the status code
     """
     working_file: str | None = None
     request_file: FileStorage | None = None
@@ -314,7 +317,7 @@ def import_objects(request_user: CmdbUser) -> Response:
         import_response: ImporterObjectResponse = _run_object_import(importer)
         _log_imported_objects(import_response.success_imports, objects_manager, logs_manager, request_user)
 
-        return DefaultResponse(import_response).make_response()
+        return DefaultResponse(import_response.as_report()).make_response()
     except HTTPException:
         raise
     except Exception as err:
@@ -539,7 +542,7 @@ def _remove_temp_file(working_file: str | None) -> None:
 
 
 def _log_imported_objects(
-        success_imports: list,
+        success_messages: list,
         objects_manager: ObjectsManager,
         logs_manager: LogsManager,
         request_user: CmdbUser) -> None:
@@ -550,12 +553,14 @@ def _log_imported_objects(
     single object must not fail the whole import - it is logged and the remaining objects continue.
 
     Args:
-        success_imports (list): The ImportSuccessMessage entries of the imported objects
+        success_messages (list): The ImportSuccessMessage entries of the imported objects. They exist
+                                 only inside the import: the response reports the imported objects as a
+                                 count, but the CREATE logs need their public_ids
         objects_manager (ObjectsManager): Manager used to re-read the imported object state
         logs_manager (LogsManager): Manager used to persist the create log
         request_user (CmdbUser): The user credited as the log author
     """
-    for message in success_imports:
+    for message in success_messages:
         try:
             current_object = CmdbObject.from_data(objects_manager.get_object(message.public_id))
             render_result = CmdbMultiRender([current_object], request_user).result(single_object=True)

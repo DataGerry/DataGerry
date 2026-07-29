@@ -16,8 +16,8 @@
 """
 Unit tests for the CmdbRelation route helpers
 
-Pure tests: the ObjectRelationsManager is a MagicMock, so only the comparison logic and the
-delete-cascade dispatch are exercised.
+Pure tests: the ObjectRelationsManager / ObjectRelationLogsManager are MagicMocks, so only the
+comparison logic, the delete-cascade dispatch and the log orchestration are exercised.
 """
 from http import HTTPStatus
 from typing import Any
@@ -26,11 +26,17 @@ from unittest.mock import MagicMock
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.models.log_model import LogInteraction
+from cmdb.errors.manager.object_relation_logs_manager import ObjectRelationLogsManagerBuildError
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
+    resolve_counterpart_summaries,
     get_deleted_type_ids,
     handle_deleted_type_ids,
     get_existing_relation_or_abort,
     validate_object_relation_endpoints,
+    log_object_relation_change,
+    log_object_relation_update,
+    log_object_relation_deletions,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -136,3 +142,120 @@ class TestValidateObjectRelationEndpoints:
             validate_object_relation_endpoints(7, 7)
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+
+# ------------------------------------------------ the log helpers --------------------------------------------------- #
+
+OLD_RELATION: dict[str, Any] = {'public_id': 11, 'relation_parent_id': 1, 'relation_child_id': 2}
+NEW_RELATION: dict[str, Any] = {'public_id': 11, 'relation_parent_id': 1, 'relation_child_id': 2}
+MOVED_RELATION: dict[str, Any] = {'public_id': 11, 'relation_parent_id': 1, 'relation_child_id': 9}
+
+REQUEST_USER = MagicMock(name='request_user')
+
+
+def _logs_manager(endpoints_changed: bool = False) -> MagicMock:
+    """Builds a logs-manager mock whose endpoint comparison returns the given verdict."""
+    logs_manager = MagicMock()
+    logs_manager.check_related_object_changed.return_value = endpoints_changed
+
+    return logs_manager
+
+
+class TestLogObjectRelationChange:
+    """log_object_relation_change writes one log and never lets a logging failure escape."""
+
+    def test_writes_the_log(self) -> None:
+        """The interaction and both states are handed to the logs manager unchanged."""
+        logs_manager = _logs_manager()
+
+        log_object_relation_change(logs_manager, REQUEST_USER, LogInteraction.CREATE, None, NEW_RELATION)
+
+        logs_manager.build_object_relation_log.assert_called_once_with(
+            LogInteraction.CREATE, REQUEST_USER, None, NEW_RELATION,
+        )
+
+    def test_swallows_a_logging_failure(self) -> None:
+        """A build/insert error is logged and dropped - the write it describes already happened."""
+        logs_manager = _logs_manager()
+        logs_manager.build_object_relation_log.side_effect = ObjectRelationLogsManagerBuildError('boom')
+
+        log_object_relation_change(logs_manager, REQUEST_USER, LogInteraction.DELETE, OLD_RELATION, None)
+
+
+class TestLogObjectRelationUpdate:
+    """log_object_relation_update records a field edit differently from a moved relation."""
+
+    def test_field_only_change_is_one_edit(self) -> None:
+        """Unchanged endpoints yield a single EDIT entry."""
+        logs_manager = _logs_manager(endpoints_changed=False)
+
+        log_object_relation_update(logs_manager, REQUEST_USER, OLD_RELATION, NEW_RELATION)
+
+        logs_manager.build_object_relation_log.assert_called_once_with(
+            LogInteraction.EDIT, REQUEST_USER, OLD_RELATION, NEW_RELATION,
+        )
+
+    def test_moved_relation_is_a_delete_plus_a_create(self) -> None:
+        """A changed endpoint is recorded as the old relation's DELETE and the new one's CREATE."""
+        logs_manager = _logs_manager(endpoints_changed=True)
+
+        log_object_relation_update(logs_manager, REQUEST_USER, OLD_RELATION, MOVED_RELATION)
+
+        assert [call.args[0] for call in logs_manager.build_object_relation_log.call_args_list] == [
+            LogInteraction.DELETE, LogInteraction.CREATE,
+        ]
+        assert logs_manager.build_object_relation_log.call_args_list[0].args[2] is OLD_RELATION
+        assert logs_manager.build_object_relation_log.call_args_list[1].args[3] is MOVED_RELATION
+
+
+class TestLogObjectRelationDeletions:
+    """log_object_relation_deletions batches one DELETE log per deleted relation."""
+
+    def test_reserves_ids_and_inserts_once(self) -> None:
+        """N relations cost one id reservation and one insert, with the ids stamped onto the logs."""
+        logs_manager = _logs_manager()
+        logs_manager.format_object_relation_log_data.side_effect = [{'log': 'a'}, {'log': 'b'}]
+        logs_manager.reserve_public_ids.return_value = [101, 102]
+
+        log_object_relation_deletions(logs_manager, REQUEST_USER, [OLD_RELATION, MOVED_RELATION])
+
+        logs_manager.reserve_public_ids.assert_called_once_with(2)
+        logs_manager.insert_many.assert_called_once_with(
+            [{'log': 'a', 'public_id': 101}, {'log': 'b', 'public_id': 102}], skip_public=True,
+        )
+
+    def test_no_deletions_writes_nothing(self) -> None:
+        """An empty selection reserves no ids and inserts nothing."""
+        logs_manager = _logs_manager()
+
+        log_object_relation_deletions(logs_manager, REQUEST_USER, [])
+
+        logs_manager.reserve_public_ids.assert_not_called()
+        logs_manager.insert_many.assert_not_called()
+
+    def test_swallows_a_logging_failure(self) -> None:
+        """A failure while batching the logs must not fail the delete that already happened."""
+        logs_manager = _logs_manager()
+        logs_manager.format_object_relation_log_data.side_effect = ObjectRelationLogsManagerBuildError('boom')
+
+        log_object_relation_deletions(logs_manager, REQUEST_USER, [OLD_RELATION])
+
+        logs_manager.insert_many.assert_not_called()
+
+
+class TestResolveCounterpartSummaries:
+    """resolve_counterpart_summaries only reads the objects it actually needs."""
+
+    def test_no_ids_skips_the_read(self) -> None:
+        """An empty page (or one with only unresolvable sides) costs no query at all."""
+        objects_manager = MagicMock()
+
+        assert resolve_counterpart_summaries([], MagicMock(), objects_manager) == {}
+        objects_manager.iterate.assert_not_called()
+
+    def test_only_none_ids_skips_the_read(self) -> None:
+        """Rows whose counterpart id is missing do not trigger a read either."""
+        objects_manager = MagicMock()
+
+        assert resolve_counterpart_summaries([None, None], MagicMock(), objects_manager) == {}
+        objects_manager.iterate.assert_not_called()

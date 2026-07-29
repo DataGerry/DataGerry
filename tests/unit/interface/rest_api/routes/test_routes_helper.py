@@ -17,8 +17,9 @@
 Unit tests for cmdb.interface.rest_api.routes.routes_helper
 
 The shared multipart-request helpers (get_file_in_request / get_element_from_data_request, consolidated
-here from the importer + media-library route utils) plus fetch_only_active_objects / extract_public_ids,
-exercised inside a minimal Flask request context (no REST API booted).
+here from the importer + media-library route utils) plus fetch_only_active_objects and the two public_id
+readers (extract_public_ids for a URL segment, normalize_public_id_list for a JSON body), exercised
+inside a minimal Flask request context (no REST API booted).
 """
 import json
 from io import BytesIO
@@ -27,11 +28,14 @@ import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
+from typing import Any
+
 from cmdb.interface.rest_api.routes.routes_helper import (
     get_file_in_request,
     get_element_from_data_request,
     fetch_only_active_objects,
     extract_public_ids,
+    normalize_public_id_list,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -143,3 +147,63 @@ class TestExtractPublicIds:
                 extract_public_ids('1,5_3,3')
 
             assert '5_3' in exc.value.description
+
+
+class TestNormalizePublicIdList:
+    """normalize_public_id_list reads a JSON body selection as plain positive integers."""
+
+    def test_accepts_numbers_and_digit_strings(self) -> None:
+        """Both JSON forms of an id end up as the same integer, order preserved."""
+        assert normalize_public_id_list([3, '1', 2]) == [3, 1, 2]
+
+    def test_keeps_duplicates(self) -> None:
+        """Duplicates are the caller's business, not the reader's."""
+        assert normalize_public_id_list([4, 4]) == [4, 4]
+
+    def test_accepts_an_empty_selection(self) -> None:
+        """An empty list normalises to an empty list (the caller decides whether that is an error)."""
+        assert normalize_public_id_list([]) == []
+
+    @pytest.mark.parametrize(
+        'value',
+        [True, False],
+        ids=['true', 'false'],
+    )
+    def test_rejects_booleans(self, value: Any) -> None:
+        """A JSON boolean is an int in Python - accepting it would address public_id 1 (regression)."""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list([value])
+
+        assert exc_info.value.code == 400
+
+    @pytest.mark.parametrize(
+        'value',
+        [0, -1, '0', '-5'],
+        ids=['zero', 'negative', 'zero-string', 'negative-string'],
+    )
+    def test_rejects_non_positive_ids(self, value: Any) -> None:
+        """public_ids start at 1, so 0 and negatives are refused."""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list([value])
+
+        assert exc_info.value.code == 400
+
+    @pytest.mark.parametrize(
+        'value',
+        [None, 1.5, '1.5', ' 7', '7_0', '٥', 'abc', [1], {'id': 1}],
+        ids=['none', 'float', 'float-string', 'padded', 'underscored', 'non-ascii-digit',
+             'text', 'list', 'dict'],
+    )
+    def test_rejects_anything_else(self, value: Any) -> None:
+        """Everything int() would silently coerce (or choke on) is refused up front."""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list([value])
+
+        assert exc_info.value.code == 400
+
+    def test_reports_the_offending_value(self) -> None:
+        """The 400 names the value that was refused, so the caller can find it in its payload."""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list([1, 'nope'])
+
+        assert 'nope' in exc_info.value.description

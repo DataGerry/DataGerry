@@ -26,6 +26,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.log_model import CmdbObjectRelationLog, LogInteraction
+from cmdb.models.object_relation_model import ObjectRelationKey, ObjectRelationFieldValueKey
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.framework.results import IterationResult
@@ -38,15 +39,9 @@ from cmdb.errors.manager.object_relation_logs_manager import (
 
 LOGGER: Logger = getLogger(__name__)
 
-# Source CmdbObjectRelation document fields read when building a log
-PUBLIC_ID_FIELD: str = 'public_id'
-RELATION_PARENT_ID_FIELD: str = 'relation_parent_id'
-RELATION_CHILD_ID_FIELD: str = 'relation_child_id'
-FIELD_VALUES_FIELD: str = 'field_values'
-
-# Keys of a single field_values entry; an object-relation field value is a name/value pair by design
-FIELD_VALUE_NAME_KEY: str = 'name'
-FIELD_VALUE_VALUE_KEY: str = 'value'
+# The source CmdbObjectRelation document keys read when building a log come from the model
+# (ObjectRelationKey / ObjectRelationFieldValueKey), shared with the routes and the
+# ObjectRelationsManager
 
 # Keys of the EDIT 'changes' diff structure produced by get_field_value_changes
 CHANGES_MODIFIED_KEY: str = 'modified'
@@ -225,21 +220,21 @@ class ObjectRelationLogsManager(GenericManager):
                 "creation_time": datetime.now(timezone.utc),
                 "author_id": request_user.get_public_id(),
                 "author_name": request_user.get_display_name(),
-                "object_relation_parent_id": object_relation.get(RELATION_PARENT_ID_FIELD),
-                "object_relation_child_id": object_relation.get(RELATION_CHILD_ID_FIELD),
-                "object_relation_id": object_relation.get(PUBLIC_ID_FIELD),
+                "object_relation_parent_id": object_relation.get(ObjectRelationKey.RELATION_PARENT_ID.value),
+                "object_relation_child_id": object_relation.get(ObjectRelationKey.RELATION_CHILD_ID.value),
+                "object_relation_id": object_relation.get(ObjectRelationKey.PUBLIC_ID.value),
                 "changes": {},
             }
 
             if action == LogInteraction.CREATE:
                 object_relation_log["changes"] = {
-                    item[FIELD_VALUE_NAME_KEY]: item[FIELD_VALUE_VALUE_KEY]
-                    for item in new_object_relation.get(FIELD_VALUES_FIELD, [])
+                    item[ObjectRelationFieldValueKey.NAME.value]: item[ObjectRelationFieldValueKey.VALUE.value]
+                    for item in new_object_relation.get(ObjectRelationKey.FIELD_VALUES.value, [])
                 }
             elif action == LogInteraction.EDIT:
                 object_relation_log["changes"] = self.get_field_value_changes(
-                    old_object_relation.get(FIELD_VALUES_FIELD, []),
-                    new_object_relation.get(FIELD_VALUES_FIELD, []),
+                    old_object_relation.get(ObjectRelationKey.FIELD_VALUES.value, []),
+                    new_object_relation.get(ObjectRelationKey.FIELD_VALUES.value, []),
                 )
 
             return object_relation_log
@@ -263,9 +258,12 @@ class ObjectRelationLogsManager(GenericManager):
                 - 'added': ``{name: value}`` for names only present in new_fields
                 - 'deleted': ``{name: value}`` for names only present in old_fields
         """
+        name_key = ObjectRelationFieldValueKey.NAME.value
+        value_key = ObjectRelationFieldValueKey.VALUE.value
+
         # Convert each list of name/value pairs into a {name: value} mapping
-        old_dict = {item[FIELD_VALUE_NAME_KEY]: item[FIELD_VALUE_VALUE_KEY] for item in old_fields}
-        new_dict = {item[FIELD_VALUE_NAME_KEY]: item[FIELD_VALUE_VALUE_KEY] for item in new_fields}
+        old_dict = {item[name_key]: item[value_key] for item in old_fields}
+        new_dict = {item[name_key]: item[value_key] for item in new_fields}
 
         changes: dict[str, Any] = {
             CHANGES_MODIFIED_KEY: {},
@@ -302,7 +300,9 @@ class ObjectRelationLogsManager(GenericManager):
         Returns:
             bool: True if either relation_parent_id or relation_child_id changed, else False
         """
-        parent_id_changed = old_values.get(RELATION_PARENT_ID_FIELD) != new_values.get(RELATION_PARENT_ID_FIELD)
-        child_id_changed = old_values.get(RELATION_CHILD_ID_FIELD) != new_values.get(RELATION_CHILD_ID_FIELD)
+        parent_id_changed = old_values.get(ObjectRelationKey.RELATION_PARENT_ID.value) != new_values.get(
+                                                                  ObjectRelationKey.RELATION_PARENT_ID.value)
+        child_id_changed = old_values.get(ObjectRelationKey.RELATION_CHILD_ID.value) != new_values.get(
+                                                                 ObjectRelationKey.RELATION_CHILD_ID.value)
 
         return parent_id_changed or child_id_changed

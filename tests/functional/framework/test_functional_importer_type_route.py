@@ -16,14 +16,14 @@
 """
 Functional coverage for the /import/type routes
 
-Both verbs share a partial-report contract: every uploaded entry is processed independently and the
-response body maps the failed entries to a diagnostic message, so one bad entry never discards the
-rest of the batch. Covers create (add_type): types are inserted with server-assigned public_ids;
-update (update_type): existing types are updated, an unknown public_id is reported instead of silently
-succeeding, and an entry without a public_id is keyed by its position rather than raising; the
-special_type rules (known value, unique marker, immutable across an update); the name / field /
-section rules and the silent repairs (default icon, cleared dangling cross-type references); plus the
-missing-upload, malformed-JSON and non-list-payload -> 400 guards on both verbs.
+Both verbs answer with the same partial report the object import returns (`message`, `success_imports`,
+`failed_imports`): every uploaded entry is processed independently; an imported one only adds to the
+`success_imports` count, a rejected one is reported with the data the user provided plus a diagnostic
+message, so one bad entry never discards the rest of the batch. Covers create (add_type): types are inserted with server-assigned public_ids;
+update (update_type): existing types are updated and an unknown public_id is reported instead of
+silently succeeding; the special_type rules (known value, unique marker, immutable across an update);
+the name / field / section rules and the silent repairs (default icon, cleared dangling cross-type
+references); plus the missing-upload, malformed-JSON and non-list-payload -> 400 guards on both verbs.
 """
 import json
 import re
@@ -103,21 +103,53 @@ def _raw_upload_form(payload: Any) -> dict[str, Any]:
     return {'uploadFile': json.dumps(payload, default=str)}
 
 
+def _errors(response) -> list[str]:
+    """Every error message the partial report collected, in upload order."""
+    return [error for failure in response.get_json()['failed_imports'] for error in failure['errors']]
+
+
+def _failed_types(response) -> list[Any]:
+    """The uploaded data of every entry the partial report rejected, in upload order."""
+    return [failure['failed_type'] for failure in response.get_json()['failed_imports']]
+
+
+def _imported_count(response) -> int:
+    """How many entries the partial report reports as imported."""
+    return response.get_json()['success_imports']
+
+
 class TestAddType:
     """POST /import/type/create/ inserts uploaded types and collects per-type failures."""
 
     def test_creates_type(self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """A valid type upload is inserted and no errors are collected."""
+        """A valid type upload is inserted and reported as imported with its assigned public_id."""
         payload = make_type_doc(0, NEW_TYPE_NAME)
         payload.pop('public_id')  # the route assigns a fresh public_id
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {}
+        assert _errors(response) == []
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
         assert stored is not None
+        assert _imported_count(response) == 1
+
+    def test_reports_the_same_structure_as_the_object_import(self, rest_api) -> None:
+        """The report always carries the summary line and both per-entry lists, whatever happened."""
+        valid = make_type_doc(0, NEW_TYPE_NAME)
+        valid.pop('public_id')
+
+        response = rest_api.post(
+            CREATE_URL, data=_upload_form([valid, {}]), content_type='multipart/form-data'
+        )
+        report = response.get_json()
+
+        assert response.status_code == HTTPStatus.OK
+        assert set(report) == {'message', 'success_imports', 'failed_imports'}
+        assert report['message'] == 'Imported 1 of 2 types, 1 failed'
+        assert report['success_imports'] == 1  # a flat count: the imported types are not echoed back
+        assert len(report['failed_imports']) == 1
 
     def test_authorship_is_rewritten_onto_the_importer(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
@@ -139,11 +171,12 @@ class TestAddType:
         assert stored['last_edit_time'] is None
 
     def test_invalid_entry_is_collected_not_aborted(self, rest_api) -> None:
-        """An invalid type entry is recorded in the error collection instead of failing the request."""
+        """An invalid type entry is reported in failed_imports instead of failing the request."""
         response = rest_api.post(CREATE_URL, data=_upload_form([{}]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        assert len(response.get_json()) == 1
+        assert len(_errors(response)) == 1
+        assert _failed_types(response) == [{}]  # reported with the data the upload carried
 
     def test_error_message_carries_detail(self, rest_api) -> None:
         """A collected create failure names the reason, not just a generic sentence."""
@@ -154,7 +187,7 @@ class TestAddType:
             content_type='multipart/form-data',
         )
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert message.startswith('Failed to create a Type instance from the provided data:')
         assert len(message) > len('Failed to create a Type instance from the provided data:')
 
@@ -170,10 +203,11 @@ class TestAddType:
         )
 
         assert response.status_code == HTTPStatus.OK
-        assert len(response.get_json()) == 1
+        assert len(_errors(response)) == 1
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': SECOND_TYPE_NAME})
         assert stored is not None
+        assert _imported_count(response) == 1
 
     def test_missing_upload_returns_400(self, rest_api) -> None:
         """A create with no uploadFile is rejected with 400."""
@@ -203,7 +237,7 @@ class TestUpdateType:
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {}
+        assert _errors(response) == []
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'public_id': UPDATE_TYPE_ID})
         assert stored['label'] == UPDATED_LABEL
@@ -222,7 +256,7 @@ class TestUpdateType:
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {}
+        assert _errors(response) == []
         stored = types.find_one({'public_id': UPDATE_TYPE_ID})
         assert stored['editor_id'] == ADMIN_PUBLIC_ID
         assert stored['last_edit_time'] is not None
@@ -260,15 +294,19 @@ class TestUpdateType:
         response = rest_api.post(UPDATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {
-            str(MISSING_TYPE_ID): f'No Type with public_id {MISSING_TYPE_ID} exists, it can not be updated!'
-        }
+        assert _errors(response) == [
+            f'No Type with public_id {MISSING_TYPE_ID} exists, it can not be updated!'
+        ]
+        # the entry is reported back with the data it was uploaded with
+        (failed_type,) = _failed_types(response)
+        assert failed_type['public_id'] == MISSING_TYPE_ID
+        assert failed_type['name'] == payload['name']
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'public_id': MISSING_TYPE_ID})
         assert stored is None  # the failed update must not have upserted the type
 
     def test_invalid_entry_is_collected_not_aborted(self, rest_api) -> None:
-        """An entry the update cannot apply is collected, keyed by its position."""
+        """An entry the update cannot apply is reported with the data it carried."""
         # an update is applied by public_id, and this entry carries none
         response = rest_api.post(
             UPDATE_URL,
@@ -277,9 +315,8 @@ class TestUpdateType:
         )
 
         assert response.status_code == HTTPStatus.OK
-        (key, message), = response.get_json().items()
-        assert key == 'entry_0'  # no public_id to key on - the position is used instead of raising
-        assert message == 'No Type with public_id None exists, it can not be updated!' 
+        assert _errors(response) == ['No Type with public_id None exists, it can not be updated!']
+        assert _failed_types(response) == [{'name': 'broken-type'}]
 
     def test_valid_entry_survives_an_invalid_sibling(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
@@ -296,7 +333,8 @@ class TestUpdateType:
         )
 
         assert response.status_code == HTTPStatus.OK
-        assert list(response.get_json()) == ['entry_0']
+        assert _failed_types(response) == [{}]
+        assert _imported_count(response) == 1
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'public_id': UPDATE_TYPE_ID})
         assert stored['label'] == UPDATED_LABEL
@@ -338,7 +376,7 @@ class TestSpecialTypeRules:
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'not a valid special Type' in message
 
     def test_special_type_can_only_exist_once(
@@ -354,7 +392,7 @@ class TestSpecialTypeRules:
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'already exists' in message
         assert types.find_one({'name': NEW_TYPE_NAME}) is None
 
@@ -372,7 +410,7 @@ class TestSpecialTypeRules:
         )
 
         assert response.status_code == HTTPStatus.OK
-        assert len(response.get_json()) == 1
+        assert len(_errors(response)) == 1
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
         assert types.find_one({'name': NEW_TYPE_NAME}) is not None
         assert types.find_one({'name': SECOND_TYPE_NAME}) is None
@@ -390,7 +428,7 @@ class TestSpecialTypeRules:
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'can not be changed by an import' in message
 
         stored = types.find_one({'public_id': SPECIAL_TYPE_ID})
@@ -411,7 +449,7 @@ class TestSpecialTypeRules:
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'can not be changed by an import' in message
         assert types.find_one({'public_id': SPECIAL_TYPE_ID})['special_type'] == SpecialType.SUBNET.value
 
@@ -427,7 +465,7 @@ class TestSpecialTypeRules:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = types.find_one({'public_id': SPECIAL_TYPE_ID})
 
@@ -455,7 +493,7 @@ class TestFieldAndSectionRules:
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'Duplicate field name(s)' in message
         assert database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME}) is None
@@ -474,7 +512,7 @@ class TestFieldAndSectionRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'Duplicate section name(s)' in message
 
     def test_field_without_a_section_is_rejected(self, rest_api) -> None:
@@ -488,7 +526,7 @@ class TestFieldAndSectionRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "not assigned to any section: ['orphan']" in message
 
     def test_field_in_two_sections_is_rejected(self, rest_api) -> None:
@@ -505,7 +543,7 @@ class TestFieldAndSectionRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'more than one section' in message
 
     def test_ref_section_type_is_accepted(
@@ -530,7 +568,7 @@ class TestFieldAndSectionRules:
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {}
+        assert _errors(response) == []
         assert database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME}) is not None
 
@@ -550,7 +588,7 @@ class TestFieldAndSectionRules:
         response = rest_api.post(UPDATE_URL, data=_upload_form([broken]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'not assigned to any section' in message
 
 
@@ -570,7 +608,7 @@ class TestNameAndFieldTypeRules:
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'already exists' in message
         assert types.count_documents({'name': NEW_TYPE_NAME}) == 1  # nothing added
 
@@ -587,7 +625,7 @@ class TestNameAndFieldTypeRules:
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {}
+        assert _errors(response) == []
         assert types.find_one({'public_id': UPDATE_TYPE_ID})['label'] == UPDATED_LABEL
 
     def test_update_onto_another_types_name_is_rejected(
@@ -605,7 +643,7 @@ class TestNameAndFieldTypeRules:
         response = rest_api.post(UPDATE_URL, data=_upload_form([renamed]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'already exists' in message
         assert types.find_one({'public_id': UPDATE_TYPE_ID})['name'] == NEW_TYPE_NAME
 
@@ -620,7 +658,7 @@ class TestNameAndFieldTypeRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'a (not-a-type)' in message
 
     def test_section_referencing_an_undefined_field_is_rejected(self, rest_api) -> None:
@@ -634,7 +672,7 @@ class TestNameAndFieldTypeRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "does not define: ['ghost']" in message or "not define: ['ghost']" in message
 
 
@@ -660,7 +698,7 @@ class TestUploadAndNameCompletenessRules:
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert message == 'The Type data does not contain a name!'
 
     def test_nameless_field_is_rejected(self, rest_api) -> None:
@@ -674,7 +712,7 @@ class TestUploadAndNameCompletenessRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'without a name at position(s): [1]' in message
 
 
@@ -692,7 +730,7 @@ class TestSectionContentRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'main (mutli-data-section)' in message
 
     def test_empty_section_is_rejected(self, rest_api) -> None:
@@ -709,7 +747,7 @@ class TestSectionContentRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "without any field: ['empty']" in message
 
     def test_undefined_summary_field_is_rejected(self, rest_api) -> None:
@@ -720,7 +758,7 @@ class TestSectionContentRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "summary references field(s) the Type does not define: ['ghost']" in message
 
     def test_undefined_external_link_field_is_rejected(self, rest_api) -> None:
@@ -733,7 +771,7 @@ class TestSectionContentRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "External link(s) reference field(s) the Type does not define: ['ghost']" in message
 
 
@@ -772,7 +810,7 @@ class TestImportRepairs:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
         assert stored['render_meta']['icon'] == 'fas fa-cube'
@@ -800,7 +838,7 @@ class TestImportRepairs:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
         assert stored['render_meta']['sections'][1]['reference'] == {
@@ -819,7 +857,7 @@ class TestImportRepairs:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         stored = types.find_one({'name': NEW_TYPE_NAME})
         assert stored['render_meta']['sections'][1]['reference']['type_id'] == UPDATE_TYPE_ID
 
@@ -842,7 +880,7 @@ class TestImportRepairs:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         assert types.find_one({'public_id': UPDATE_TYPE_ID})['fields'][0]['ref_types'] == [SPECIAL_TYPE_ID]
 
 
@@ -872,7 +910,7 @@ class TestOptionalTypeFields:
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = self._stored(database_manager, database_name)
 
@@ -892,7 +930,7 @@ class TestOptionalTypeFields:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         assert self._stored(database_manager, database_name)['public_id'] != MISSING_TYPE_ID
 
     def test_provided_optional_values_survive(
@@ -913,7 +951,7 @@ class TestOptionalTypeFields:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = self._stored(database_manager, database_name)
 
@@ -935,7 +973,7 @@ class TestOptionalTypeFields:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = self._stored(database_manager, database_name)
 
@@ -951,7 +989,7 @@ class TestOptionalTypeFields:
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert message == "Invalid value for 'active': 'maybe'"
 
     def test_uploaded_version_is_overwritten_on_create(
@@ -981,7 +1019,7 @@ class TestOptionalTypeFields:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = types.find_one({'public_id': UPDATE_TYPE_ID})
 
@@ -1002,7 +1040,7 @@ class TestOptionalTypeFields:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = types.find_one({'public_id': UPDATE_TYPE_ID})
 
@@ -1058,7 +1096,7 @@ class TestImportUpdateReconcilesStoredData:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
             .find_one({'public_id': RECONCILED_OBJECT_ID})
@@ -1080,7 +1118,7 @@ class TestImportUpdateReconcilesStoredData:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
             .find_one({'public_id': RECONCILED_OBJECT_ID})
@@ -1132,7 +1170,7 @@ class TestImportUpdateReconcilesStoredData:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)\
             .find_one({'public_id': RECONCILED_LOCATION_ID})
@@ -1168,7 +1206,7 @@ class TestImportCreateWiresSpecialTypes:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         imported_id = types.find_one({'name': NEW_TYPE_NAME})['public_id']
         subnet = types.find_one({'public_id': SPECIAL_TYPE_ID})
@@ -1223,7 +1261,7 @@ class TestImportUpdateGuards:
         )
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'Cannot remove the location field' in message
         # nothing was written: the type still declares the location field
         stored_fields = {field['name'] for field in types.find_one({'public_id': UPDATE_TYPE_ID})['fields']}
@@ -1242,7 +1280,7 @@ class TestImportUpdateGuards:
             content_type='multipart/form-data',
         )
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         stored_fields = {field['name'] for field in types.find_one({'public_id': UPDATE_TYPE_ID})['fields']}
         assert stored_fields == {'dg-name'}
 
@@ -1259,7 +1297,7 @@ class TestImportUpdateGuards:
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "Cannot disable 'selectable as parent'" in message
         assert types.find_one({'public_id': UPDATE_TYPE_ID})['selectable_as_parent'] is True
 
@@ -1274,7 +1312,7 @@ class TestImportUpdateGuards:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         assert types.find_one({'public_id': UPDATE_TYPE_ID})['selectable_as_parent'] is False
 
     def test_a_non_dict_entry_is_reported_not_a_500(self, rest_api) -> None:
@@ -1284,7 +1322,7 @@ class TestImportUpdateGuards:
         )
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert message == 'This entry is not a Type object!'
 
 
@@ -1310,7 +1348,7 @@ class TestImportUpdateLicenceGate:
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'IPAM feature is not licensed' in message
         assert types.find_one({'public_id': SPECIAL_TYPE_ID})['label'] != UPDATED_LABEL
 
@@ -1326,7 +1364,7 @@ class TestImportUpdateLicenceGate:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         assert types.find_one({'public_id': UPDATE_TYPE_ID})['label'] == UPDATED_LABEL
 
 
@@ -1356,7 +1394,7 @@ class TestFieldContentRules:
         """Every field needs a label."""
         response = self._post(rest_api, [{'type': 'text', 'name': 'host'}])
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "without a label: ['host']" in message
 
     def test_unlabelled_section_is_rejected(self, rest_api) -> None:
@@ -1370,14 +1408,14 @@ class TestFieldContentRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "Section(s) without a label: ['main']" in message
 
     def test_choice_field_without_options_is_rejected(self, rest_api) -> None:
         """A select with nothing to pick from can never hold a value."""
         response = self._post(rest_api, [{'type': 'select', 'name': 'choice', 'label': 'Choice'}])
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "select/radio without usable options: ['choice']" in message
 
     def test_choice_field_with_options_is_accepted(
@@ -1389,7 +1427,7 @@ class TestFieldContentRules:
              'options': [{'name': 'a', 'label': 'A'}]},
         ])
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
         assert database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME}) is not None
 
@@ -1400,21 +1438,21 @@ class TestFieldContentRules:
             {'type': 'location', 'name': 'where', 'label': 'Where'},
         ])
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert 'at most one location field' in message
 
     def test_a_differently_named_location_field_is_rejected(self, rest_api) -> None:
         """The location value is resolved by the reserved name, so another name is never read."""
         response = self._post(rest_api, [{'type': 'location', 'name': 'where', 'label': 'Where'}])
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "is reserved for the location field" in message
 
     def test_the_reserved_name_on_a_text_field_is_rejected(self, rest_api) -> None:
         """A text field called dg_location would be mistaken for the location field."""
         response = self._post(rest_api, [{'type': 'text', 'name': 'dg_location', 'label': 'Not a location'}])
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
         assert "is reserved for the location field" in message
 
 
@@ -1431,7 +1469,7 @@ class TestCrossSystemReferencesAreCleaned:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
@@ -1449,7 +1487,7 @@ class TestCrossSystemReferencesAreCleaned:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
@@ -1486,7 +1524,7 @@ class TestCrossSystemReferencesAreCleaned:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
@@ -1537,7 +1575,7 @@ class TestUnknownTemplateClaimDoesNotDestroyData:
             UPDATE_URL, data=_upload_form([self._stored_doc()]), content_type='multipart/form-data',
         )
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'public_id': UPDATE_TYPE_ID})
@@ -1574,7 +1612,7 @@ class TestUnknownTemplateClaimDoesNotDestroyData:
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([updated]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'public_id': UPDATE_TYPE_ID})
@@ -1599,7 +1637,7 @@ class TestEmptyAclIsSwitchedOff:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
@@ -1663,7 +1701,7 @@ class TestRepairedTypesAreRevalidated:
             CREATE_URL, data=_upload_form([self._payload()]), content_type='multipart/form-data',
         )
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
 
         assert message.startswith('Completing this Type from its global section template(s) made it invalid:')
         assert "without a label: ['dg-mail']" in message
@@ -1682,7 +1720,7 @@ class TestRepairedTypesAreRevalidated:
             CREATE_URL, data=_upload_form([self._payload()]), content_type='multipart/form-data',
         )
 
-        (message,) = response.get_json().values()
+        (message,) = _errors(response)
 
         assert 'dg-mail (not-a-type)' in message
 
@@ -1698,7 +1736,7 @@ class TestRepairedTypesAreRevalidated:
             CREATE_URL, data=_upload_form([self._payload()]), content_type='multipart/form-data',
         )
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'name': NEW_TYPE_NAME})
@@ -1759,7 +1797,7 @@ class TestExportImportRoundTrip:
             UPDATE_URL, data=_upload_form(exported), content_type='multipart/form-data',
         )
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         stored = types.find_one({'public_id': UPDATE_TYPE_ID})
 
@@ -1784,7 +1822,7 @@ class TestExportImportRoundTrip:
             CREATE_URL, data=_upload_form(exported), content_type='multipart/form-data',
         )
 
-        assert response.get_json() == {}
+        assert _errors(response) == []
 
         created = types.find_one({'name': SECOND_TYPE_NAME})
 

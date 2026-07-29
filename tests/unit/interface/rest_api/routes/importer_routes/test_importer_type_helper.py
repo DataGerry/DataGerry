@@ -17,9 +17,10 @@
 Unit tests for cmdb.interface.rest_api.routes.importer_routes.importer_type_helper
 
 The orchestration layer: parsing the multipart upload, the authorship stamps, the update payload, the
-error-collection key, the two per-entry steps and the persistence side effects that follow the write.
-The rules and repairs the steps call are covered by their own modules - here they are only checked to
-run, in the right order, with their findings reported. The manager is stubbed throughout.
+batch runner that assembles the partial report, the two per-entry steps and the persistence side
+effects that follow the write. The rules and repairs the steps call are covered by their own modules -
+here they are only checked to run, in the right order, with their findings reported. The manager is
+stubbed throughout.
 """
 import json
 from typing import Any
@@ -39,7 +40,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import 
     stamp_import_authorship,
     stamp_import_edit,
     build_import_update_payload,
-    resolve_error_key,
+    run_type_import_batch,
     apply_import_create_side_effects,
     apply_import_update_side_effects,
     _templates_the_update_still_claims,
@@ -137,21 +138,99 @@ class TestParseUploadedTypes:
             assert TypeImportError.INVALID_UPLOAD_PAYLOAD.value in exc.value.description
 
 
-class TestResolveErrorKey:
-    """resolve_error_key prefers the public_id and falls back to the entry position."""
+class TestRunTypeImportBatch:
+    """run_type_import_batch reports every entry in the shape the object import answers with."""
 
-    def test_uses_public_id_when_present(self) -> None:
-        """An entry carrying a public_id is keyed by it."""
-        assert resolve_error_key({'public_id': EXISTING_PUBLIC_ID}, 3) == str(EXISTING_PUBLIC_ID)
+    def test_counts_the_imported_entries(self) -> None:
+        """A batch nothing failed in reports the imported count, not the imported types."""
+        entries: list[Any] = [
+            {TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID},
+            {TypeSchemaKey.PUBLIC_ID.value: NEW_PUBLIC_ID},
+        ]
 
-    @pytest.mark.parametrize(
-        'entry',
-        [{}, {'public_id': None}, 'not-a-dict', None],
-        ids=['no-public-id', 'null-public-id', 'string-entry', 'none-entry'],
-    )
-    def test_falls_back_to_index(self, entry: Any) -> None:
-        """An entry without a usable public_id is keyed by its position instead of raising."""
-        assert resolve_error_key(entry, 2) == 'entry_2'
+        report = run_type_import_batch(entries, lambda _entry: None)
+
+        assert report.message == 'Imported 2 of 2 types, 0 failed'
+        assert report.success_imports == 2
+        assert report.failed_imports == []
+
+    def test_failure_carries_the_uploaded_data_and_the_reason(self) -> None:
+        """A rejected entry is reported with the data the user uploaded, not with the mutated entry."""
+        uploaded: dict[str, Any] = {
+            TypeSchemaKey.NAME.value: 'uploaded',
+            TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID,
+        }
+
+        def repair_then_fail(type_entry: dict[str, Any]) -> str:
+            del type_entry[TypeSchemaKey.PUBLIC_ID.value]
+            type_entry[TypeSchemaKey.NAME.value] = 'repaired'
+
+            return BOOM
+
+        report = run_type_import_batch([dict(uploaded)], repair_then_fail)
+        (failure,) = report.failed_imports
+
+        assert failure.failed_type == uploaded
+        assert failure.errors == [BOOM]
+
+    def test_a_rejected_entry_does_not_discard_its_siblings(self) -> None:
+        """Both outcomes end up in the report and the summary states the split."""
+        report = run_type_import_batch(
+            [{TypeSchemaKey.NAME.value: 'bad'}, {TypeSchemaKey.NAME.value: 'good'}],
+            lambda type_entry: BOOM if type_entry[TypeSchemaKey.NAME.value] == 'bad' else None,
+        )
+
+        assert report.message == 'Imported 1 of 2 types, 1 failed'
+        assert report.success_imports == 1
+        assert [failure.failed_type[TypeSchemaKey.NAME.value] for failure in report.failed_imports] == ['bad']
+
+    def test_an_unexpected_error_fails_only_that_entry(self) -> None:
+        """An error the per-entry step did not anticipate is reported like any other rejection."""
+        def raise_for_the_first(type_entry: dict[str, Any]) -> None:
+            if type_entry[TypeSchemaKey.NAME.value] == 'bad':
+                raise RuntimeError(BOOM)
+
+            return None
+
+        report = run_type_import_batch(
+            [{TypeSchemaKey.NAME.value: 'bad'}, {TypeSchemaKey.NAME.value: 'good'}],
+            raise_for_the_first,
+        )
+
+        assert report.success_imports == 1
+        assert report.failed_imports[0].errors == [
+            TypeImportError.UNEXPECTED_IMPORT_ERROR.format(detail=BOOM),
+        ]
+
+    @pytest.mark.parametrize('entry', ['not-a-dict', None, 42], ids=['string', 'none', 'number'])
+    def test_an_unusable_entry_is_reported_as_provided(self, entry: Any) -> None:
+        """An entry that is not a type dictionary is still reported back with its value."""
+        report = run_type_import_batch([entry], lambda _entry: TypeImportError.NOT_A_TYPE_ENTRY.value)
+        (failure,) = report.failed_imports
+
+        assert failure.failed_type == entry
+        assert failure.errors == [TypeImportError.NOT_A_TYPE_ENTRY.value]
+
+    def test_an_empty_upload_reports_nothing(self) -> None:
+        """An empty list is a completed batch with no outcomes, not an error."""
+        report = run_type_import_batch([], unreachable)
+
+        assert report.message == 'Imported 0 of 0 types, 0 failed'
+        assert report.success_imports == 0
+        assert report.failed_imports == []
+
+    def test_a_failure_serializes_with_the_type_named_key(self) -> None:
+        """The wire contract: a rejected entry is `failed_type`, not the object import's `failed_object`."""
+        entry: dict[str, Any] = {TypeSchemaKey.PUBLIC_ID.value: NEW_PUBLIC_ID}
+
+        report = run_type_import_batch(
+            [entry, {TypeSchemaKey.NAME.value: 'bad'}],
+            lambda type_entry: BOOM if TypeSchemaKey.NAME.value in type_entry else None,
+        )
+        (failure,) = report.failed_imports
+
+        assert report.success_imports == 1
+        assert failure.__dict__ == {'failed_type': {TypeSchemaKey.NAME.value: 'bad'}, 'errors': [BOOM]}
 
 
 class TestStampImportAuthorship:

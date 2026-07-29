@@ -26,10 +26,12 @@ from cmdb.framework.importer.responses.base_parser_response import BaseParserRes
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
 from cmdb.framework.importer.responses.csv_object_parser_response import CsvObjectParserResponse
-from cmdb.framework.importer.responses.importer_object_response import (
-    ImporterObjectResponse,
+from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
+from cmdb.framework.importer.responses.import_report_response import (
+    ImportReportResponse,
     build_import_summary_message,
 )
+from cmdb.framework.importer.importer_constants import ImportNoun
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -155,7 +157,7 @@ class TestCsvObjectParserResponse:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class TestImporterObjectResponse:
-    """The bulk-import response carries a message and the success/failed message lists."""
+    """The importer's internal result keeps a message per imported and per failed object."""
 
     def test_stores_message_and_import_lists(self) -> None:
         """The message and both import lists are stored as given."""
@@ -171,6 +173,48 @@ class TestImporterObjectResponse:
 
         assert response.success_imports == []
         assert response.failed_imports == []
+
+
+class TestImporterObjectResponseAsReport:
+    """as_report() turns the internal result into the body the caller receives."""
+
+    def test_imported_objects_collapse_to_a_count(self) -> None:
+        """The response reports HOW MANY objects were imported, not the objects themselves."""
+        report = ImporterObjectResponse(message='ok', success_imports=['a', 'b', 'c']).as_report()
+
+        assert isinstance(report, ImportReportResponse)
+        assert report.success_imports == 3
+
+    def test_failures_and_message_are_carried_over(self) -> None:
+        """The rejected objects keep their messages and the summary line is reused as built."""
+        failures = [{'failed_object': {}, 'errors': ['boom']}]
+
+        report = ImporterObjectResponse(message='summary', success_imports=[], failed_imports=failures).as_report()
+
+        assert report.message == 'summary'
+        assert report.failed_imports is failures
+
+    def test_an_empty_import_reports_zero(self) -> None:
+        """A batch that imported nothing reports 0, not an empty list."""
+        assert ImporterObjectResponse(message='none').as_report().success_imports == 0
+
+
+class TestImportReportResponse:
+    """The wire report carries the imported count and the failure messages."""
+
+    def test_success_imports_is_a_count(self) -> None:
+        """success_imports is a plain number - the imported entries are never echoed back."""
+        report = ImportReportResponse(message='ok', success_imports=2, failed_imports=['f'])
+
+        assert report.success_imports == 2
+        assert report.failed_imports == ['f']
+
+    def test_defaults_to_nothing_imported(self) -> None:
+        """Omitting both sides yields a zero count and an empty failure list, not None."""
+        report = ImportReportResponse(message='none')
+
+        assert report.success_imports == 0
+        assert report.failed_imports == []
 
 
 class TestBuildImportSummaryMessage:
@@ -199,3 +243,16 @@ class TestBuildImportSummaryMessage:
 
         assert f'Imported {success} of {success + failed}' in message
         assert f'{failed} failed' in message
+
+    @pytest.mark.parametrize(
+        'success, failed, expected',
+        [
+            (2, 1, 'Imported 2 of 3 types, 1 failed'),
+            (1, 0, 'Imported 1 of 1 type, 0 failed'),
+            (0, 0, 'Imported 0 of 0 types, 0 failed'),
+        ],
+        ids=['partial', 'single', 'empty-upload'],
+    )
+    def test_the_noun_names_what_was_imported(self, success: int, failed: int, expected: str) -> None:
+        """The type import reuses the same line, only naming types instead of objects."""
+        assert build_import_summary_message(success, failed, ImportNoun.TYPE) == expected

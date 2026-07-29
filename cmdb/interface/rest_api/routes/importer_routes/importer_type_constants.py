@@ -24,7 +24,6 @@ from cmdb.security.acl.acl_constants import AclKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'UNKNOWN_TYPE_ERROR_KEY_TEMPLATE',
     'IMPORT_UPDATE_PRESERVED_FIELDS',
     'STRUCTURE_ERROR_SEPARATOR',
     'LEGACY_EXTERNALS_KEY',
@@ -41,7 +40,7 @@ __all__: list[str] = [
 # NOTE the renderer resolves the same field by the naming convention `<section name>-field`
 # (cmdb_multi_render._merge_reference_section); the type is what identifies it here
 
-# A type can break several structural rules at once; the report maps one message per entry, so the
+# A type can break several structural rules at once; an entry is reported with one message, so the
 # individual findings are joined into that one message
 STRUCTURE_ERROR_SEPARATOR: str = '; '
 
@@ -55,10 +54,6 @@ IMPORT_UPDATE_PRESERVED_FIELDS: tuple[str, ...] = (
     TypeSchemaKey.SPECIAL_TYPE.value,
     TypeSchemaKey.VERSION.value,
 )
-
-# Error-collection key used for an uploaded entry that carries no usable public_id, so a failure can
-# still be reported back to the caller instead of raising while building the report
-UNKNOWN_TYPE_ERROR_KEY_TEMPLATE: str = 'entry_{index}'
 
 # Older type documents spell the external-link list 'external' instead of 'externals'.
 # TypeRenderMeta.from_data still falls back to it, so the import validates that spelling too
@@ -99,8 +94,9 @@ class TypeImportError(BaseStrEnum):
     Messages reported for a type import
 
     NO_UPLOAD_FILE, INVALID_UPLOAD_PAYLOAD and MALFORMED_JSON describe an unusable upload and are
-    raised as an HTTP 400 for the whole request; every other member is a per-entry message recorded
-    in the error collection. Members with a `{...}` placeholder are filled via `format()`
+    raised as an HTTP 400 for the whole request; every other member is a per-entry message reported in
+    the `failed_imports` of the partial report. Members with a `{...}` placeholder are filled via
+    `format()`
     """
     NO_UPLOAD_FILE = 'No upload file was provided!'
     INVALID_UPLOAD_PAYLOAD = 'The uploaded data must be a JSON list of Types!'
@@ -145,3 +141,7 @@ class TypeImportError(BaseStrEnum):
     IMPORT_FAILED = 'Failed to import this Type: {detail}'
     TYPE_NOT_FOUND = 'No Type with public_id {public_id} exists, it can not be updated!'
     UPDATE_FAILED = 'Failed to update this Type: {detail}'
+    # Reported for an entry whose import failed with an error the import itself did not anticipate. The
+    # batch keeps running and the entry lands in failed_imports like any other rejection, so a defect
+    # in one Type can never discard the Types around it
+    UNEXPECTED_IMPORT_ERROR = 'Unexpected error while importing this Type: {detail}'

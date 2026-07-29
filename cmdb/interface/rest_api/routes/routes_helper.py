@@ -17,6 +17,7 @@
 Implementation of general API route helpers
 """
 import json
+from typing import Any
 from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
@@ -115,3 +116,41 @@ def extract_public_ids(public_ids: str) -> list[int]:
         extracted_ids.append(int(value))
 
     return extracted_ids
+
+
+def normalize_public_id_list(values: list[Any]) -> list[int]:
+    """
+    Normalises the public_ids of a JSON request body into a list of integers
+
+    The body counterpart of `extract_public_ids`: a bulk operation may send its selection as JSON
+    numbers or as strings, and both have to end up as the same positive integers. `isinstance(x, int)`
+    alone is not enough - `bool` IS an `int` in Python, so a JSON `true` would silently become
+    public_id 1 and address a document the caller never named. Duplicates and ordering are preserved
+    for the caller to handle
+
+    Args:
+        values (list[Any]): The raw public_ids taken from the request body
+
+    Raises:
+        HTTPException: 400 naming the first value that is not a plain positive number
+
+    Returns:
+        list[int]: The normalised public_ids, in the order they were given
+    """
+    normalized_ids: list[int] = []
+
+    for value in values:
+        if isinstance(value, bool):
+            abort(400, f"Invalid value detected for public_id: {value} !")
+
+        if not isinstance(value, int) and not (isinstance(value, str) and value.isascii() and value.isdigit()):
+            abort(400, f"Invalid value detected for public_id: {value} !")
+
+        candidate = int(value)
+
+        if candidate < 1:
+            abort(400, f"Invalid value detected for public_id: {value} !")
+
+        normalized_ids.append(candidate)
+
+    return normalized_ids

@@ -37,12 +37,22 @@ class JsonMappingKey(BaseStrEnum):
     FIELDS = 'fields'
 
 
-# Human-readable summary line of a bulk object import (``ImporterObjectResponse.message``). Both
-# counts are always present - including the zeroes - so the outcome of any batch can be read off one
-# line without comparing it against the request. It is a log / API-consumer convenience only: the
-# frontend renders its own counts from success_imports and failed_imports, so this string is never
-# parsed. A partially or fully failed import is still HTTP 200
+# Human-readable summary line of a bulk import (``ImportReportResponse.message``). Both counts are
+# always present - including the zeroes - so the outcome of any batch can be read off one line without
+# comparing it against the request. It is a log / API-consumer convenience only: the frontend renders
+# its own counts from success_imports and failed_imports, so this string is never parsed. A partially
+# or fully failed import is still HTTP 200
 IMPORT_SUMMARY_MESSAGE: str = 'Imported {success} of {total} {noun}, {failed} failed'
+
+
+class ImportNoun(BaseStrEnum):
+    """What a bulk import counted, named in its summary line (``IMPORT_SUMMARY_MESSAGE``)"""
+    OBJECT = 'object'
+    TYPE = 'type'
+
+
+# Appended to an ``ImportNoun`` when the summary line counts anything other than exactly one element
+IMPORT_NOUN_PLURAL_SUFFIX: str = 's'
 
 
 class MapEntryOptionKey(BaseStrEnum):
