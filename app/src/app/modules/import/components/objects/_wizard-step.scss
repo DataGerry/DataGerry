@@ -1,0 +1,117 @@
+/* ----------------------------------------------------- TOKENS ----------------------------------------------------- */
+$brand: #e94d18;
+$brand-soft: rgba(233, 77, 24, 0.10);
+$brand-ring: rgba(233, 77, 24, 0.12);
+$brand-shadow: rgba(233, 77, 24, 0.28);
+
+$success: #198754;
+$success-ink: #146c43;
+$success-bg: #f4fbf7;
+$success-brd: #d7f0e2;
+
+$border: #e9ecef;
+$border-strong: #dfe3e8;
+$hairline: #eef0f3;
+$surface: #f8fafc;
+
+$ink: #1f2937;
+$label: #374151;
+$muted: #6b7280;
+$faint: #9ca3af;
+
+$radius-card: 1rem;
+$radius-ctl: 0.6rem;
+$shadow-card: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
+$ease: 180ms ease;
+
+/* ----------------------------------------------------- FIELDS ----------------------------------------------------- */
+@mixin dg-controls {
+    label:not(.form-check-label) {
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: $label;
+        margin-bottom: 0.35rem;
+    }
+
+    .form-control,
+    .form-select {
+        border: 1px solid $border;
+        border-radius: $radius-ctl;
+        background: $surface;
+        color: $ink;
+        font-size: 0.9rem;
+        padding: 0.5rem 0.75rem;
+        transition: border-color $ease, box-shadow $ease, background $ease;
+
+        &:focus {
+            background: #fff;
+            border-color: $brand;
+            box-shadow: 0 0 0 0.2rem $brand-ring;
+            outline: none;
+        }
+
+        &:disabled {
+            background: #f1f3f5;
+            color: $faint;
+        }
+    }
+
+    .form-text {
+        color: $muted;
+        font-size: 0.8rem;
+    }
+
+    /* Modern brand-tinted switch/checkbox. */
+    .form-check-input {
+        cursor: pointer;
+        border-color: $border;
+        transition: background-color $ease, border-color $ease, box-shadow $ease;
+
+        &:checked {
+            background-color: $brand;
+            border-color: $brand;
+        }
+
+        &:focus {
+            border-color: $brand;
+            box-shadow: 0 0 0 0.2rem $brand-ring;
+        }
+    }
+}
+
+/* ------------------------------------------------- STEP ACTION BAR ------------------------------------------------ */
+@mixin dg-step-actions {
+    .step-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+        padding-top: 1.1rem;
+        border-top: 1px solid $hairline;
+
+        &--end {
+            justify-content: flex-end;
+        }
+    }
+}
+
+/* ------------------------------------------------------ CALLOUT --------------------------------------------------- */
+@mixin dg-callout {
+    .step-callout {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+        padding: 0.75rem 0.9rem;
+        background: $surface;
+        border: 1px solid $hairline;
+        border-radius: $radius-ctl;
+        color: $muted;
+        font-size: 0.85rem;
+
+        i {
+            color: $brand;
+            margin-top: 0.1rem;
+        }
+    }
+}
