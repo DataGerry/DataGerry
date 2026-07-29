@@ -110,8 +110,9 @@ class TestBuildTypesJsonExportResponse:
         assert response.status_code == HTTPStatus.OK
         assert response.mimetype == TYPE_EXPORT_MIMETYPE
         disposition = response.headers['Content-Disposition']
-        assert 'attachment; filename=' in disposition
-        assert disposition.endswith(f'.{TYPE_EXPORT_FILE_EXTENSION}')
+        assert 'attachment; filename="' in disposition  # quoted: the name carries more than a timestamp
+        assert disposition.endswith(f'.{TYPE_EXPORT_FILE_EXTENSION}"')
+        assert '_types_2.' in disposition  # the subject is the number of exported types
         assert [entry['public_id'] for entry in json.loads(response.get_data(as_text=True))] == [1, 2]
 
     def test_empty_types_serialize_to_empty_list(self) -> None:
@@ -133,14 +134,24 @@ class TestBuildTypesJsonExportResponse:
         assert '\n' in body
         assert f'\n{" " * (2 * TYPE_EXPORT_JSON_INDENT)}"public_id"' in body
 
-    def test_filename_carries_the_shared_export_timestamp(self) -> None:
-        """The attachment name is the shared export timestamp, so it parses with that format."""
+    def test_filename_leads_with_the_shared_export_timestamp(self) -> None:
+        """The name starts with the shared timestamp, so a downloads folder sorts chronologically."""
         response = build_types_json_export_response([])
 
-        filename = response.headers['Content-Disposition'].split('filename=')[1]
-        stamp = filename.removesuffix(f'.{TYPE_EXPORT_FILE_EXTENSION}')
+        filename = response.headers['Content-Disposition'].split('filename="')[1].rstrip('"')
+        stamp = filename.split('_types_')[0]
 
         assert datetime.strptime(stamp, EXPORT_FILENAME_TIMESTAMP_FMT)
+
+    def test_filename_names_the_kind_and_the_type_count(self) -> None:
+        """`<timestamp>_types_<count>.json` - the size is what identifies a catalogue slice."""
+        with patch(f'{MODULE_PATH}.CmdbType') as cmdb_type:
+            cmdb_type.to_json.side_effect = lambda type_: {'public_id': type_}
+            response = build_types_json_export_response([1, 2, 3])
+
+        filename = response.headers['Content-Disposition'].split('filename="')[1].rstrip('"')
+
+        assert filename.endswith(f'_types_3.{TYPE_EXPORT_FILE_EXTENSION}')
 
     def test_bson_values_are_encoded_by_the_default_hook(self) -> None:
         """ObjectId / datetime values that plain json cannot encode are converted, not raised on."""

@@ -20,8 +20,37 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # strftime format for the timestamp used in exported-file names, e.g. 2026_07_21-13_05_00. The stamp is
-# taken in UTC (see export_filename_helper.build_export_filename_timestamp) and carries no timezone marker
+# taken in UTC (see export_filename_helper.build_export_filename_timestamp) and carries no timezone marker.
+# The date leads so a downloads folder sorts chronologically by name
 EXPORT_FILENAME_TIMESTAMP_FMT: str = '%Y_%m_%d-%H_%M_%S'
+
+# The parts an export filename is assembled from, after the timestamp:
+#   <timestamp>_<kind>_<subject>[_readable].<extension>
+# e.g. `2026_07_21-13_05_00_objects_router_readable.csv`, `2026_07_21-13_05_00_types_47.json`
+EXPORT_FILENAME_PART_SEPARATOR: str = '_'
+
+# What was exported - the two export kinds name themselves so an object export and a type export taken in
+# the same second are no longer indistinguishable
+EXPORT_KIND_OBJECTS: str = 'objects'
+EXPORT_KIND_TYPES: str = 'types'
+
+# Subject of an object export when the selection is not one single type: JSON / XML / ZIP may span several
+# types (CSV and XLSX refuse a mixed selection), and a filter can match nothing at all
+EXPORT_SUBJECT_MANY_TYPES_TEMPLATE: str = '{count}-types'
+EXPORT_SUBJECT_NO_OBJECTS: str = 'no-objects'
+
+# Appended to a presentation ("human readable") export. Such a file is NOT re-importable, so the name says
+# so - it is the cheapest guard against feeding one back into the importer later
+EXPORT_FILENAME_READABLE_MARKER: str = 'readable'
+
+# A filename part is reduced to these characters; everything else becomes the replacement. CmdbType names
+# are free text, and the value ends up in a Content-Disposition header as well as on a filesystem
+EXPORT_FILENAME_ALLOWED_PATTERN: str = r'[^a-z0-9.-]+'
+EXPORT_FILENAME_REPLACEMENT: str = '-'
+
+# Length caps: the subject alone, and the assembled name without its extension
+EXPORT_FILENAME_SUBJECT_MAX_LENGTH: int = 40
+EXPORT_FILENAME_MAX_LENGTH: int = 120
 
 # Import path prefix of the export format classes (dynamically loaded by class name via load_class)
 EXPORT_FORMAT_MODULE_PREFIX: str = 'cmdb.framework.exporter.format.'

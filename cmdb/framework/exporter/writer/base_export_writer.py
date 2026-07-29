@@ -32,9 +32,9 @@ from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.exporter.config.exporter_config import ExporterConfig
-from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
+from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat, TYPE_INFO_NAME_KEY
 from cmdb.framework.exporter.exporter_constants import ExporterOptionKey
-from cmdb.framework.exporter.export_filename_helper import build_export_filename_timestamp
+from cmdb.framework.exporter.export_filename_helper import build_object_export_filename
 
 from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -113,11 +113,11 @@ class BaseExportWriter:
             Response: A Flask Response object containing the exported data
         """
         conf_option = self.export_config.options
-        timestamp: str = build_export_filename_timestamp()
+        human_readable: bool = BaseExporterFormat.is_human_readable(conf_option)
 
         # A human-readable export needs location field values resolved to names; the format classes have
         # no database access, so resolve the {public_id: name} map here and pass it through the options
-        if BaseExporterFormat.is_human_readable(conf_option):
+        if human_readable:
             conf_option = {**(conf_option or {}),
                            ExporterOptionKey.LOCATION_NAMES.value: self._resolve_location_names()}
 
@@ -127,13 +127,45 @@ class BaseExportWriter:
         file_extension = self.export_format.__class__.FILE_EXTENSION
         mimetype = self.export_format.__class__.MIME_TYPE
 
+        # The filename names what was exported, so it is derived from the RENDERED objects (the export
+        # config only carries a raw filter, which says nothing about the types it matched)
+        filename: str = build_object_export_filename(
+            self._exported_type_names(), file_extension, human_readable,
+        )
+
         return Response(
             export_content,
             mimetype=mimetype,
             headers={
-                "Content-Disposition": f"attachment; filename={timestamp}.{file_extension}"
+                # Quoted: the name now carries a type name, and an unquoted header value cannot hold a
+                # separator. sanitize_filename_part keeps the value ASCII, so no filename* is needed
+                "Content-Disposition": f'attachment; filename="{filename}"'
             }
         )
+
+
+    def _exported_type_names(self) -> list[str]:
+        """
+        Collects the distinct CmdbType names of the objects being exported
+
+        Read off the rendered data rather than the export config: the config carries the raw object
+        filter, which does not say which types it ended up matching. The order follows first appearance
+        so a single-type export always yields that one name
+
+        Returns:
+            list[str]: The distinct type names, empty when the export matched no object
+        """
+        type_names: list[str] = []
+
+        for render_result in self.data:
+            # getattr, not attribute access: naming the file must never be able to fail an export whose
+            # content is already serialised
+            type_name = (getattr(render_result, 'type_information', None) or {}).get(TYPE_INFO_NAME_KEY)
+
+            if type_name and type_name not in type_names:
+                type_names.append(type_name)
+
+        return type_names
 
 
     def _resolve_location_names(self) -> dict:

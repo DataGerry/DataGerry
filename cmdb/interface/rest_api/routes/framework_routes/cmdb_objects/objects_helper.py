@@ -660,6 +660,167 @@ def build_new_object_data(
     return new_object_data, object_type
 
 
+def guard_config_item_limit(request_user: CmdbUser, objects_manager: ObjectsManager) -> None:
+    """
+    Refuses a new CmdbObject when the user's subscription has no ConfigItem budget left
+
+    A no-op outside cloud mode, where no such limit exists
+
+    Args:
+        request_user (CmdbUser): The CmdbUser the limit is checked for
+        objects_manager (ObjectsManager): Manager used to count the stored CmdbObjects
+
+    Raises:
+        HTTPException: 400 when the ConfigItem limit is reached
+    """
+    if not current_app.cloud_mode:
+        return
+
+    if request_user.is_config_item_limit_reached(objects_manager.count_documents()):
+        abort(400, "The maximum amout of ConfigItems is reached!")
+
+
+def resolve_object_type(
+        objects_manager: ObjectsManager,
+        type_id: int,
+        type_cache: dict[int, CmdbType] | None = None,
+    ) -> CmdbType:
+    """
+    Resolves a CmdbObject's CmdbType, reusing an already resolved one when a cache is passed
+
+    Every type read costs a query plus building the model, and a bulk update usually targets objects of
+    the SAME type - so a caller that iterates hands in a cache and pays for each distinct type once
+    instead of once per object. The cache is filled as types are resolved
+
+    Args:
+        objects_manager (ObjectsManager): Manager used to read the CmdbType
+        type_id (int): public_id of the CmdbType to resolve
+        type_cache (dict[int, CmdbType] | None): Types already resolved by this caller, extended in
+                                                 place. Defaults to None (always read)
+
+    Raises:
+        HTTPException: 500 when the type does not exist
+
+    Returns:
+        CmdbType: The resolved CmdbType
+    """
+    if type_cache is not None and type_id in type_cache:
+        return type_cache[type_id]
+
+    object_type: CmdbType | None = objects_manager.get_object_type(type_id)
+
+    if not object_type:
+        abort(500, "Type of Object not found in database!")
+
+    if type_cache is not None:
+        type_cache[type_id] = object_type
+
+    return object_type
+
+
+def apply_object_insert(
+        payload: dict[str, Any],
+        request_user: CmdbUser,
+        objects_manager: ObjectsManager,
+        types_manager: TypesManager,
+    ) -> int:
+    """
+    Inserts one CmdbObject and runs its side effects, the counterpart of `apply_object_update`
+
+    The order matters and is the point of this function: everything that can refuse the request runs
+    BEFORE the write (ConfigItem budget, payload normalisation, IPAM license, IPAM invariants, location
+    placement), and everything that describes an object that now exists runs after it (the CmdbLocation
+    mirror, the select-option sync, the CREATE webhook, the cloud item count and the create log)
+
+    Args:
+        payload (dict[str, Any]): The raw request body of the new CmdbObject
+        request_user (CmdbUser): The CmdbUser making the request
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes (IPAM license checks)
+
+    Raises:
+        HTTPException: 400 when the ConfigItem limit is reached, the payload is unusable or an IPAM
+            invariant is violated, 403 when the IPAM license is missing, 404 when the type is unknown,
+            500 when the created object cannot be read back
+
+    Returns:
+        int: public_id of the created CmdbObject
+    """
+    guard_config_item_limit(request_user, objects_manager)
+
+    # The custom CmdbLocation tree name (if any) travels in the object body; the parent itself is the
+    # object's location field value. location_name is transient - build_new_object_data strips it
+    location_name: str | None = (payload or {}).get(ObjectPatchKey.LOCATION_NAME.value)
+
+    # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
+    new_object_data, object_type = build_new_object_data(objects_manager, payload)
+
+    # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
+    guard_object_write_license(types_manager, request_user, new_object_data)
+
+    ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
+        objects_manager,
+        types_manager,
+        new_object_data,
+        previous_object=None,
+    )
+
+    if ipam_errors:
+        abort(400, format_errors_for_abort(ipam_errors))
+
+    # Validate the location placement (parent exists) before the object is written
+    has_location_field, location_parent = extract_object_location_parent(
+        new_object_data.get(CmdbObjectKey.FIELDS.value, [])
+    )
+    locations_manager: LocationsManager | None = None
+
+    if has_location_field:
+        locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+        validate_object_location_change(
+            new_object_data[CmdbObjectKey.PUBLIC_ID.value], location_parent, locations_manager,
+        )
+
+    new_object_id: int = objects_manager.insert_object(
+        new_object_data,
+        request_user,
+        AccessControlPermission.CREATE,
+    )
+
+    # Mirror the placement into the CmdbLocation tree (best-effort, after the object is saved)
+    if has_location_field:
+        sync_object_location(
+            new_object_id,
+            location_parent,
+            location_name,
+            object_type,
+            request_user,
+            objects_manager,
+            locations_manager,
+        )
+
+    created_object: dict[str, Any] | None = objects_manager.get_object(new_object_id)
+
+    if not created_object:
+        # The object IS stored at this point, so this is a read failure, not a missing object
+        abort(500, "The created Object could not be read back from the database!")
+
+    created_instance: CmdbObject = CmdbObject.from_data(created_object)
+
+    if created_instance.has_fields_of_type(FieldType.SELECT):
+        sync_select_field_options(request_user, created_instance, object_type)
+
+    handle_notify_webhooks(request_user, created_instance, WebhookEventType.CREATE)
+
+    if current_app.cloud_mode:
+        # Recount AFTER the insert so the synced total includes the just-created object (the
+        # pre-insert count in guard_config_item_limit only answers the limit question)
+        handle_sync_config_item_count(request_user, objects_manager.count_documents())
+
+    handle_create_object_log(request_user, created_instance, LogAction.CREATE)
+
+    return new_object_id
+
+
 def compute_object_version(current_object: CmdbObject, updated_object: CmdbObject) -> tuple[str, dict[str, Any]]:
     """
     Derives the field-level diff and applies the resulting semantic version bump
@@ -750,6 +911,7 @@ def apply_object_update(  # pylint: disable=too-many-locals
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
         logs_manager: LogsManager,
+        type_cache: dict[int, CmdbType] | None = None,
     ) -> dict[str, Any]:
     """
     Applies a full-object update to a single CmdbObject and runs its side effects
@@ -767,6 +929,10 @@ def apply_object_update(  # pylint: disable=too-many-locals
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes (IPAM license/invariant checks)
         logs_manager (LogsManager): Manager used to persist the edit log
+        type_cache (dict[int, CmdbType] | None): Types already resolved by the caller, extended in
+                                                 place. A bulk update usually targets objects of the
+                                                 same type, so passing one turns N type reads into one
+                                                 per distinct type. Defaults to None (always read)
 
     Returns:
         dict[str, Any]: The persisted object document (one entry of the update response)
@@ -790,10 +956,9 @@ def apply_object_update(  # pylint: disable=too-many-locals
     if is_special_type_changed(current_object_instance.special_type, new_data.get('special_type')):
         abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {obj_id}")
 
-    current_type_instance: CmdbType | None = objects_manager.get_object_type(current_object_instance.get_type_id())
-
-    if not current_type_instance:
-        abort(500, "Type of Object not found in database!")
+    current_type_instance: CmdbType = resolve_object_type(
+        objects_manager, current_object_instance.get_type_id(), type_cache,
+    )
 
     new_data.update({
         'public_id': obj_id,
