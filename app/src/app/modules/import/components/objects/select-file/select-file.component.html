@@ -6,35 +6,9 @@
     </div>
 
     <div class="field">
-        <label for="formFile">File</label>
-
-        <div class="dropzone" [class.dropzone--disabled]="fileFormat?.invalid">
-            <input class="dropzone__input" type="file" id="formFile" [disabled]="fileFormat?.invalid"
-                [accept]="selectedFileFormat" (change)="selectFile($event.target.files)">
-            <div class="dropzone__content">
-                <span class="dropzone__icon">
-                    <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
-                </span>
-                <span class="dropzone__title">
-                    <strong>Click to browse</strong> or drop a file here
-                </span>
-                <span class="dropzone__meta">
-                    @if (fileFormat?.invalid) {
-                    Select a format first to enable file selection
-                    } @else {
-                    Accepted format: {{ selectedFileFormat }}
-                    }
-                </span>
-            </div>
-        </div>
-
-        @if (file?.value) {
-        <div class="file-chip">
-            <i class="fas fa-file-lines" aria-hidden="true"></i>
-            <span class="file-chip__name">{{ fileName }}</span>
-            <i class="fas fa-circle-check file-chip__ok" aria-hidden="true"></i>
-        </div>
-        }
+        <app-file-dropzone formControlName="file" label="File" [required]="true"
+            [acceptedExtensions]="selectedFileFormat"
+            disabledHint="Select a format first to enable file selection"></app-file-dropzone>
     </div>
 </form>
 

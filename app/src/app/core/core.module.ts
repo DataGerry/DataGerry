@@ -17,6 +17,7 @@ import { ButtonComponent } from './components/base/button/app-button.component';
 import { CheckboxComponent } from './components/base/checkbox/checkbox.component';
 import { RadioComponent } from './components/base/radio/radio.component';
 import { SelectComponent } from './components/base/select/select.component';
+import { FileDropzoneComponent } from './components/base/file-dropzone/file-dropzone.component';
 import { SliderComponent } from './components/base/slider/slider.component';
 import { ToggleComponent } from './components/base/toggle/toggle.component';
 import { FormDateComponent } from './components/base/date/form-date.component';
@@ -48,6 +49,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     CheckboxComponent,
     RadioComponent,
     SelectComponent,
+    FileDropzoneComponent,
     SliderComponent,
     ToggleComponent,
     FormDateComponent,
@@ -84,6 +86,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     CheckboxComponent,
     RadioComponent,
     SelectComponent,
+    FileDropzoneComponent,
     SliderComponent,
     ToggleComponent,
     FormDateComponent,
