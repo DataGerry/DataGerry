@@ -9,6 +9,16 @@ $success-ink: #146c43;
 $success-bg: #f4fbf7;
 $success-brd: #d7f0e2;
 
+$warning: #b45309;
+$warning-ink: #92400e;
+$warning-bg: #fff8ef;
+$warning-brd: #fde6c8;
+
+$danger: #dc2626;
+$danger-ink: #b42318;
+$danger-bg: #fef4f4;
+$danger-brd: #f7d4d4;
+
 $border: #e9ecef;
 $border-strong: #dfe3e8;
 $hairline: #eef0f3;
@@ -92,6 +102,102 @@ $ease: 180ms ease;
 
         &--end {
             justify-content: flex-end;
+        }
+    }
+}
+
+/* ---------------------------------------------------- DATA TABLE -------------------------------------------------- */
+@mixin dg-data-table {
+    .data-table-scroll {
+        max-height: 22rem;
+        overflow: auto;
+        border: 1px solid $border;
+        border-radius: $radius-ctl;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 0.85rem;
+
+        th,
+        td {
+            padding: 0.55rem 0.85rem;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid $hairline;
+            white-space: nowrap;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: $label;
+            background: $surface;
+            border-bottom: 1px solid $border;
+        }
+
+        tbody td {
+            color: $ink;
+        }
+
+        tbody tr:last-child td {
+            border-bottom: 0;
+        }
+
+        tbody tr:hover td {
+            background: rgba(15, 23, 42, 0.02);
+        }
+
+        &__id {
+            display: inline-block;
+            padding: 0.1rem 0.45rem;
+            border-radius: 0.4rem;
+            font-weight: 700;
+            font-size: 0.78rem;
+            color: $brand;
+            background: $brand-soft;
+        }
+    }
+}
+
+/* ---------------------------------------------------- ERROR CHIPS ------------------------------------------------- */
+@mixin dg-error-chips {
+    .error-chips {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+
+        &__item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.45rem;
+            padding: 0.4rem 0.6rem;
+            border-radius: $radius-ctl;
+            font-size: 0.82rem;
+            font-weight: 500;
+            line-height: 1.45;
+            color: $danger-ink;
+            background: $danger-bg;
+            border: 1px solid $danger-brd;
+            white-space: normal;
+            word-break: break-word;
+
+            i {
+                margin-top: 0.15rem;
+                color: $danger;
+                font-size: 0.8rem;
+                flex: 0 0 auto;
+            }
         }
     }
 }

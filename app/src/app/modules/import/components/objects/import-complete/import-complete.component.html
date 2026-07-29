@@ -47,29 +47,48 @@
 
     @if (importResponse) {
     <div id="import-response">
-        @if (importResponse.success_imports.length > 0) {
-        <div class="result-card result-card--success" role="status">
-            <div class="result-card__icon">
-                <i class="fas fa-check-circle" aria-hidden="true"></i>
-            </div>
-            <div class="result-card__content">
-                <h3 class="result-card__title">Import success!</h3>
-                <p class="result-card__text">
-                    Number of objects successfully imported:
-                    {{ importResponse.success_imports.length }} from {{ parsedData?.count }}
+        <div class="result-banner"
+            [class.result-banner--success]="outcome === 'success'"
+            [class.result-banner--partial]="outcome === 'partial'"
+            [class.result-banner--failed]="outcome === 'failed' || outcome === 'empty'"
+            role="status" aria-live="polite">
+            <span class="result-banner__icon" aria-hidden="true">
+                @switch (outcome) {
+                    @case ('success') { <i class="fas fa-check-circle"></i> }
+                    @case ('partial') { <i class="fas fa-exclamation-triangle"></i> }
+                    @default { <i class="fas fa-times-circle"></i> }
+                }
+            </span>
+            <div class="result-banner__content">
+                <h3 class="result-banner__title">
+                    @switch (outcome) {
+                        @case ('success') { Import completed }
+                        @case ('partial') { Import completed with errors }
+                        @case ('empty') { No objects imported }
+                        @default { Import failed }
+                    }
+                </h3>
+                <p class="result-banner__text">
+                    <strong>{{ importedCount }}</strong> imported
+                    @if (failedCount > 0) { · <strong>{{ failedCount }}</strong> failed }
+                    @if (parsedData?.count != null) { · from {{ parsedData.count }} parsed }
                 </p>
-                <app-button label="View list" bootstrapClass="btn-primary" (clicked)="onListRedirect()"></app-button>
             </div>
+            @if (importedCount > 0) {
+            <app-button label="View list" icon="fas fa-list" bootstrapClass="btn-primary"
+                (clicked)="onListRedirect()"></app-button>
+            }
         </div>
-        }
 
-        @if (importResponse.failed_imports.length > 0) {
-        <section class="failed-section">
-            <h2 class="failed-section__title">
+        @if (failedCount > 0) {
+        <section class="result-section">
+            <h2 class="result-section__title result-section__title--failed">
                 <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
-                Failed imports
+                Failed objects
+                <span class="result-section__count result-section__count--failed">{{ failedCount }}</span>
             </h2>
-            <cmdb-failed-import-table [failedImports]="importResponse.failed_imports" />
+            <cmdb-failed-import-table [failedImports]="importResponse.failed_imports"
+                [typeInstance]="typeInstance" />
         </section>
         }
     </div>

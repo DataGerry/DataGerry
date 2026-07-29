@@ -1,0 +1,96 @@
+@import '../wizard-step';
+
+:host {
+    display: block;
+}
+
+@include dg-error-chips;
+
+.failed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.failed-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid $danger-brd;
+    border-left: 3px solid $danger;
+    border-radius: $radius-card;
+    background: #fff;
+
+    &__head {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    &__type {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: $ink;
+    }
+
+    &__id {
+        display: inline-block;
+        padding: 0.1rem 0.45rem;
+        border-radius: 0.4rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: $muted;
+        background: $surface;
+        border: 1px solid $border;
+    }
+
+    &__values {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        padding-top: 0.6rem;
+        border-top: 1px solid $hairline;
+    }
+
+    &__values-label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: $muted;
+    }
+}
+
+.value-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    &__item {
+        display: inline-flex;
+        align-items: center;
+        overflow: hidden;
+        border: 1px solid $border;
+        border-radius: 0.45rem;
+        font-size: 0.8rem;
+    }
+
+    &__key {
+        padding: 0.2rem 0.45rem;
+        font-weight: 600;
+        color: $label;
+        background: $surface;
+        border-right: 1px solid $border;
+        white-space: nowrap;
+    }
+
+    &__val {
+        padding: 0.2rem 0.5rem;
+        color: $ink;
+        word-break: break-word;
+    }
+}
