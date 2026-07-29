@@ -1,29 +1,50 @@
-<hr />
-
-<form [formGroup]="fileForm">
-    <div class="mb-3">
-        <label>
-            Format:
-        </label>
-        <select formControlName="fileFormat" class="form-select">
-            <option></option>
+<form [formGroup]="fileForm" class="file-form">
+    <div class="field">
+        <label for="fileFormat">File format</label>
+        <select id="fileFormat" formControlName="fileFormat" class="form-select">
+            <option value="">Select a format…</option>
             @for (importer of importerTypes; track importer) {
-            <option value="{{importer.name}}">
-                {{importer.name | uppercase}}
+            <option value="{{ importer.name }}">
+                {{ importer.name | uppercase }}
             </option>
             }
         </select>
+        <span class="field__hint">Choose the format of the file you want to import.</span>
     </div>
 
-    <div class="mb-3">
-        <label for="formFile" class="form-label">File:</label>
-        <input [disabled]="fileFormat.invalid" (change)="selectFile($event.target.files)" class="form-control"
-            type="file" id="formFile" [accept]="selectedFileFormat">
-    </div>
+    <div class="field">
+        <label for="formFile">File</label>
 
+        <div class="dropzone" [class.dropzone--disabled]="fileFormat?.invalid">
+            <input class="dropzone__input" type="file" id="formFile" [disabled]="fileFormat?.invalid"
+                [accept]="selectedFileFormat" (change)="selectFile($event.target.files)">
+            <div class="dropzone__content">
+                <span class="dropzone__icon">
+                    <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
+                </span>
+                <span class="dropzone__title">
+                    <strong>Click to browse</strong> or drop a file here
+                </span>
+                <span class="dropzone__meta">
+                    @if (fileFormat?.invalid) {
+                    Select a format first to enable file selection
+                    } @else {
+                    Accepted format: {{ selectedFileFormat }}
+                    }
+                </span>
+            </div>
+        </div>
+
+        @if (file?.value) {
+        <div class="file-chip">
+            <i class="fas fa-file-lines" aria-hidden="true"></i>
+            <span class="file-chip__name">{{ fileName }}</span>
+            <i class="fas fa-circle-check file-chip__ok" aria-hidden="true"></i>
+        </div>
+        }
+    </div>
 </form>
 
-<hr />
-<button class="btn btn-primary next" type="button" awNextStep [disabled]="fileForm.invalid">
-    Next Step <i class="fas fa-angle-double-right"></i>
-</button>
+<div class="step-actions step-actions--end">
+    <app-button label="Next Step" bootstrapClass="btn-primary" [disabled]="fileForm.invalid" awNextStep></app-button>
+</div>

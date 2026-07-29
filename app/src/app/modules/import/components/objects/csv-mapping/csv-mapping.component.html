@@ -1,59 +1,56 @@
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        Mapping
-        <div class="text-end">
-            <form [formGroup]="previewIndexSelectionForm">
-                <select formControlName="indexSelection" class="form-select form-select-sm">
-                    @for (_ of parsedData?.entries; track _; let idx = $index) {
-                    <option [value]="idx">
-                        Row: {{idx}}
-                    </option>
-                    }
-                </select>
-            </form>
-        </div>
+<div class="mapping-card">
+    <div class="mapping-card__head">
+        <h3 class="mapping-card__title">
+            <i class="fas fa-random" aria-hidden="true"></i> Mapping
+        </h3>
+        <form [formGroup]="previewIndexSelectionForm" class="mapping-card__preview">
+            <label for="previewRow">Preview row</label>
+            <select id="previewRow" formControlName="indexSelection" class="form-select form-select-sm">
+                @for (_ of parsedData?.entries; track _; let idx = $index) {
+                <option [value]="idx">Row {{ idx }}</option>
+                }
+            </select>
+        </form>
     </div>
 
-    <table class="table">
-        <thead>
-            <tr>
-                <th>Identifier</th>
-                @if (parserConfig?.header) {
-                <th>Header</th>
-                }
-                @if (!parserConfig?.header) {
-                <th>Index</th>
-                }
-                <th>Example</th>
-            </tr>
-        </thead>
-        <tbody>
-            @for (_ of [].constructor(parsedData?.entry_length); track _; let idx = $index) {
-            <tr>
-                <td dndDropzone [dndEffectAllowed]="allowedEffect"
-                    (dndDrop)="onDrop($event, currentMapping, idx, mappingControls)">
-                    <div
-                        class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                        <span>
-                            @if (currentMapping[idx]?.ref_name) {
-                            <strong>{{currentMapping[idx]?.type_name}}: </strong>
+    <div class="mapping-table">
+        <table>
+            <thead>
+                <tr>
+                    <th class="col-identifier">Identifier</th>
+                    <th class="col-source">{{ parserConfig?.header ? 'Header' : 'Index' }}</th>
+                    <th class="col-example">Example</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (_ of [].constructor(parsedData?.entry_length); track _; let idx = $index) {
+                <tr>
+                    <td class="col-identifier">
+                        <div class="drop-slot" [class.drop-slot--filled]="currentMapping[idx]?.label" dndDropzone
+                            [dndEffectAllowed]="allowedEffect"
+                            (dndDrop)="onDrop($event, currentMapping, idx, mappingControls)">
+                            @if (currentMapping[idx]?.label) {
+                            <span class="drop-slot__label">
+                                @if (currentMapping[idx]?.ref_name) {
+                                <strong>{{ currentMapping[idx]?.type_name }}:</strong>
+                                }
+                                {{ currentMapping[idx]?.label }}
+                            </span>
+                            <app-button [label]="''" icon="fas fa-times" ariaLabel="Remove mapping"
+                                title="Remove mapping" bootstrapClass="btn-sm btn-light"
+                                (clicked)="onRemove(idx, currentMapping, mappingControls)"></app-button>
+                            } @else {
+                            <span class="drop-slot__placeholder">
+                                <i class="fas fa-plus" aria-hidden="true"></i> Drop field here
+                            </span>
                             }
-                            {{currentMapping[idx]?.label}}
-                        </span>
-                        <button (click)="onRemove(idx, currentMapping, mappingControls)" type="button" class="close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
-                    </div>
-                </td>
-                @if (parserConfig?.header) {
-                <th>{{parsedData?.header[idx]}}</th>
+                        </div>
+                    </td>
+                    <td class="col-source">{{ parserConfig?.header ? parsedData?.header[idx] : idx }}</td>
+                    <td class="col-example">{{ parsedData?.entries[previewIndex][idx] }}</td>
+                </tr>
                 }
-                @if (!parserConfig?.header) {
-                <th>{{idx}}</th>
-                }
-                <td>{{parsedData?.entries[previewIndex][idx]}}</td>
-            </tr>
-            }
-        </tbody>
-    </table>
+            </tbody>
+        </table>
+    </div>
 </div>
