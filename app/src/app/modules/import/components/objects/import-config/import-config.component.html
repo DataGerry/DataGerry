@@ -1,55 +1,42 @@
-<hr/>
-<form [formGroup]="configForm">
+<form [formGroup]="configForm" class="config-form">
     <div class="mb-3 row">
-        <label class="col-3 col-form-label">
-            Start element:
+        <label class="col-sm-3 col-form-label" for="start_element">
+            Start element
         </label>
-        <div class="col-9">
-            <input name="start_element" type="number" class="form-control" formControlName="start_element">
-            <span class="form-text text-muted">
-                Start import with object at place
-            </span>
+        <div class="col-sm-9">
+            <input id="start_element" name="start_element" type="number" class="form-control"
+                formControlName="start_element">
+            <span class="form-text">Start import with object at place</span>
         </div>
     </div>
 
     <div class="mb-3 row">
-        <label class="col-3 col-form-label">
-            Max element:
+        <label class="col-sm-3 col-form-label" for="max_elements">
+            Max element
         </label>
-        <div class="col-9">
-            <input name="max_elements" type="number" class="form-control" formControlName="max_elements">
-            <span class="form-text text-muted">
-                Maximum number of objects to import
-            </span>
+        <div class="col-sm-9">
+            <input id="max_elements" name="max_elements" type="number" class="form-control"
+                formControlName="max_elements">
+            <span class="form-text">Maximum number of objects to import</span>
         </div>
     </div>
 
     <div class="mb-3 row">
-        <label class="col-3 col-form-label">
-            Overwrite Public ID:
+        <label class="col-sm-3 col-form-label" for="overwrite_public">
+            Overwrite Public ID
         </label>
-        <div class="col-9">
-        <div class="custom-control custom-checkbox">
-            <input
-                id="overwrite_public"
-                name="overwrite_public"
-                type="checkbox"
-                class="custom-control-input"
-                formControlName="overwrite_public"
-            >
-            <label class="custom-control-label" for="overwrite_public"></label>
-        </div>
-            <span class="form-text text-muted">
-                Update objects if Public ID exists
-            </span>
+        <div class="col-sm-9">
+            <div class="form-check form-switch">
+                <input id="overwrite_public" name="overwrite_public" type="checkbox" class="form-check-input"
+                    formControlName="overwrite_public">
+            </div>
+            <span class="form-text">Update objects if Public ID exists</span>
         </div>
     </div>
 </form>
 
-<hr/>
-<button class="btn btn-primary prev" type="button" awPreviousStep>
-    <i class="fas fa-angle-double-left"></i> Previous Step
-</button>
-<button class="btn btn-primary next" type="button" awNextStep>
-    Next Step <i class="fas fa-angle-double-right"></i>
-</button>
+<div class="step-actions">
+    <app-button label="Previous Step" icon="fas fa-angle-double-left" bootstrapClass="btn-warning"
+        awPreviousStep></app-button>
+    <app-button label="Next Step" bootstrapClass="btn-primary" awNextStep></app-button>
+</div>

@@ -162,7 +162,11 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
 
 
     public showReferencePreview() {
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg' });
+        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, {
+            size: 'xl',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.renderResult = this.refObject;
     }
 }

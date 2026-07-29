@@ -1,19 +1,14 @@
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">Delete selected Objects</h4>
-    <button 
-    type="button" 
-    class="btn-close btn-close-white" 
-    aria-label="Close" 
-    (click)="activeModal.dismiss('close')">
-  </button>  
-</div>
+<dg-modal
+    icon="fas fa-trash-can"
+    eyebrow="Objects"
+    title="Delete selected objects"
+    subtitle="This action cannot be undone"
+    (dismiss)="activeModal.dismiss('close')">
 
-<div class="modal-body">
-    Are you sure, you want to delete all selected objects?
-</div>
+    <p class="delete-lead">Are you sure you want to delete all selected objects?</p>
 
-<div class="modal-footer">
-    <button type="button" class="btn btn-outline-dark" (click)="activeModal.close('close')">Close</button>
-    <button type="submit" class="btn btn-danger" (click)="activeModal.close('delete')">Delete</button>
-</div>
-
+    <app-button dgModalFooter label="Cancel" type="button" bootstrapClass="btn-secondary"
+        (clicked)="activeModal.close('close')"></app-button>
+    <app-button dgModalFooter label="Delete objects" type="button" bootstrapClass="btn-danger"
+        icon="fas fa-trash-can" (clicked)="activeModal.close('delete')"></app-button>
+</dg-modal>

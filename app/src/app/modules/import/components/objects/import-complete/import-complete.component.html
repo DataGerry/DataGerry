@@ -1,79 +1,96 @@
-<hr />
-<table class="table table-borderless">
-    <tbody>
-        <tr class="table-primary">
-            <th scope="row" colspan="2">File</th>
-        </tr>
-        <tr>
-            <th scope="row">Import Format</th>
-            <td>{{importFile?.fileFormat}}</td>
-        </tr>
-        <tr>
-            <th scope="row">Import File</th>
-            <td>{{importFile?.fileName}}</td>
-        </tr>
-        <tr class="table-primary">
-            <th scope="row" colspan="2">Summary</th>
-        </tr>
-        <tr>
-            <th scope="row">Possible number of objects</th>
-            <td>{{parsedData?.count}}</td>
-        </tr>
-        <tr>
-            <th scope="row">Staring at object</th>
-            <td>{{importerConfig?.start_element}}</td>
-        </tr>
-        @if (importerConfig?.max_elements > 0) {
-        <tr>
-            <th scope="row">Max number of object</th>
-            <td>{{importerConfig?.max_elements}}</td>
-        </tr>
-        }
-    </tbody>
-</table>
+<div class="complete-step">
+    <section class="review-card">
+        <h2 class="review-card__head">
+            <i class="fas fa-file" aria-hidden="true"></i> File
+        </h2>
+        <dl class="review-card__body">
+            <div class="review-row">
+                <dt>Import format</dt>
+                <dd>{{ (importFile?.fileFormat | uppercase) || '—' }}</dd>
+            </div>
+            <div class="review-row">
+                <dt>Import file</dt>
+                <dd>{{ importFile?.fileName || '—' }}</dd>
+            </div>
+        </dl>
+    </section>
 
-@if (!importResponse) {
-<div>
-    <hr />
-    <button class="btn btn-success next" type="button" [disabled]="isImporting"
-        [attr.aria-busy]="isImporting" (click)="onStartImport()">
-        @if (isImporting) {
-            Import running <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
-        } @else {
-            Start import <i class="fas fa-save" aria-hidden="true"></i>
-        }
-    </button>
-    <div class="clearfix"></div>
-</div>
-}
+    <section class="review-card">
+        <h2 class="review-card__head">
+            <i class="fas fa-list-ol" aria-hidden="true"></i> Summary
+        </h2>
+        <dl class="review-card__body">
+            <div class="review-row">
+                <dt>Possible number of objects</dt>
+                <dd>{{ parsedData?.count ?? '—' }}</dd>
+            </div>
+            <div class="review-row">
+                <dt>Starting at object</dt>
+                <dd>{{ importerConfig?.start_element ?? '—' }}</dd>
+            </div>
+            @if (importerConfig?.max_elements > 0) {
+            <div class="review-row">
+                <dt>Max number of objects</dt>
+                <dd>{{ importerConfig?.max_elements }}</dd>
+            </div>
+            }
+        </dl>
+    </section>
 
-<hr />
+    @if (!importResponse) {
+    <div class="complete-actions">
+        <app-button [label]="isImporting ? 'Import running' : 'Start import'"
+            [icon]="isImporting ? 'fas fa-spinner fa-spin' : 'fas fa-save'" bootstrapClass="btn-success"
+            [disabled]="isImporting" (clicked)="onStartImport()"></app-button>
+    </div>
+    }
 
-@if (importResponse) {
-<div id="import-response" class="row">
-    @if (importResponse.success_imports.length > 0) {
-    <div class="col-md-12">
-        <div class="alert alert-success" role="alert">
-            <h4 class="alert-heading">Import success!</h4>
-            <p>
-                Number of objects successfully imported: {{importResponse.success_imports.length}} from
-                {{parsedData?.count}}
-            </p>
-            <hr />
-            <button class="btn btn-primary next" type="button" (click)="onListRedirect()">
-                View list
-            </button>
-            <div class="clearfix"></div>
+    @if (importResponse) {
+    <div id="import-response">
+        <div class="result-banner"
+            [class.result-banner--success]="outcome === 'success'"
+            [class.result-banner--partial]="outcome === 'partial'"
+            [class.result-banner--failed]="outcome === 'failed' || outcome === 'empty'"
+            role="status" aria-live="polite">
+            <span class="result-banner__icon" aria-hidden="true">
+                @switch (outcome) {
+                    @case ('success') { <i class="fas fa-check-circle"></i> }
+                    @case ('partial') { <i class="fas fa-exclamation-triangle"></i> }
+                    @default { <i class="fas fa-times-circle"></i> }
+                }
+            </span>
+            <div class="result-banner__content">
+                <h3 class="result-banner__title">
+                    @switch (outcome) {
+                        @case ('success') { Import completed }
+                        @case ('partial') { Import completed with errors }
+                        @case ('empty') { No objects imported }
+                        @default { Import failed }
+                    }
+                </h3>
+                <p class="result-banner__text">
+                    <strong>{{ importedCount }}</strong> imported
+                    @if (failedCount > 0) { · <strong>{{ failedCount }}</strong> failed }
+                    @if (parsedData?.count != null) { · from {{ parsedData.count }} parsed }
+                </p>
+            </div>
+            @if (importedCount > 0) {
+            <app-button label="View list" icon="fas fa-list" bootstrapClass="btn-primary"
+                (clicked)="onListRedirect()"></app-button>
+            }
         </div>
-    </div>
-    }
-    <hr />
-    @if (importResponse.failed_imports.length > 0) {
-    <div class="col-md-12">
-        <h3>Failed Imports</h3>
-        <hr />
-        <cmdb-failed-import-table [failedImports]="importResponse.failed_imports" />
+
+        @if (failedCount > 0) {
+        <section class="result-section">
+            <h2 class="result-section__title result-section__title--failed">
+                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                Failed objects
+                <span class="result-section__count result-section__count--failed">{{ failedCount }}</span>
+            </h2>
+            <cmdb-failed-import-table [failedImports]="importResponse.failed_imports"
+                [typeInstance]="typeInstance" />
+        </section>
+        }
     </div>
     }
 </div>
-}

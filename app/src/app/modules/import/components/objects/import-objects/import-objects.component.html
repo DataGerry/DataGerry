@@ -1,106 +1,144 @@
-<div class="row">
-    <div class="col-md-9">
-        <aw-wizard [navBarLayout]="'large-empty-symbols'">
-            <aw-wizard-step stepId="1" stepTitle="Select file">
-                <ng-template awWizardStepSymbol>
-                    <i class="fas fa-file-code"></i>
-                </ng-template>
-                <cmdb-select-file (formatChange)="formatChange($event)" (fileChange)="fileChange($event)" />
-            </aw-wizard-step>
-
-            <aw-wizard-step stepId="2" stepTitle="File config" (stepExit)="onParseData()">
-                <ng-template awWizardStepSymbol>
-                    <i class="fas fa-clipboard-check"></i>
-                </ng-template>
-                <cmdb-file-config (configChange)="parserConfigChange($event)" [fileFormat]="importerFile.fileFormat" />
-            </aw-wizard-step>
-
-            <aw-wizard-step stepId="3" stepTitle="Type mapping">
-                <ng-template awWizardStepSymbol>
-                    <i class="fas fa-clipboard-check"></i>
-                </ng-template>
-                <cmdb-type-mapping (typeChange)="typeChange($event)"
-                    [manuallyMapping]="defaultImporterConfig?.manually_mapping" [parsedData]="parsedData"
-                    [parserConfig]="parserConfig" (mappingChange)="mappingChange($event)"
-                    [fileFormat]="importerFile.fileFormat" />
-            </aw-wizard-step>
-
-            <aw-wizard-step stepId="4" stepTitle="Import config">
-                <ng-template awWizardStepSymbol>
-                    <i class="fas fa-clipboard-check"></i>
-                </ng-template>
-                <cmdb-import-config (configChange)="importConfigChange($event)" />
-            </aw-wizard-step>
-
-            <aw-wizard-completion-step stepId="5" stepTitle="Complete">
-                <ng-template awWizardStepSymbol>
-                    <i class="fas fa-save"></i>
-                </ng-template>
-                <cmdb-import-complete (startImportEmitter)="startImport()" [importResponse]="importResponse"
-                    [importFile]="importerFile" [importerConfig]="importerConfig" [parserConfig]="parserConfig"
-                    [parsedData]="parsedData" [isImporting]="isImporting" />
-            </aw-wizard-completion-step>
-        </aw-wizard>
-    </div>
-
-    <div class="col-md-3">
-        <h2>Import objects</h2>
-        <hr />
-        <div class="card mb-3">
-            <div class="card-header">
-                File:
-            </div>
-            <ul class="list-group list-group-flush">
-                <li class="list-group-item">File format: {{importerFile?.fileFormat}}</li>
-                <li class="list-group-item">File: {{importerFile?.fileName}}</li>
-            </ul>
+<div class="import-page">
+    <header class="import-page__header">
+        <span class="import-page__icon" aria-hidden="true">
+            <i class="fas fa-file-import"></i>
+        </span>
+        <div class="import-page__heading">
+            <h1 class="import-page__title">Import objects</h1>
+            <p class="import-page__subtitle">
+                Upload a file, map it to a type and review before importing.
+            </p>
         </div>
-        <div class="card mb-3">
-            <div class="card-header">
-                Parser config:
+    </header>
+
+    <div class="row import-page__body">
+        <div class="col-12 col-xl-9">
+            <div class="import-canvas">
+                <aw-wizard [navBarLayout]="'large-empty-symbols'">
+                    <aw-wizard-step stepId="1" stepTitle="Select file">
+                        <ng-template awWizardStepSymbol>
+                            <i class="fas fa-file-code"></i>
+                        </ng-template>
+                        <cmdb-select-file (formatChange)="formatChange($event)" (fileChange)="fileChange($event)" />
+                    </aw-wizard-step>
+
+                    <aw-wizard-step stepId="2" stepTitle="File config" (stepExit)="onParseData()">
+                        <ng-template awWizardStepSymbol>
+                            <i class="fas fa-clipboard-check"></i>
+                        </ng-template>
+                        <cmdb-file-config (configChange)="parserConfigChange($event)"
+                            [fileFormat]="importerFile.fileFormat" />
+                    </aw-wizard-step>
+
+                    <aw-wizard-step stepId="3" stepTitle="Type mapping">
+                        <ng-template awWizardStepSymbol>
+                            <i class="fas fa-project-diagram"></i>
+                        </ng-template>
+                        <cmdb-type-mapping (typeChange)="typeChange($event)"
+                            [manuallyMapping]="defaultImporterConfig?.manually_mapping" [parsedData]="parsedData"
+                            [parserConfig]="parserConfig" (mappingChange)="mappingChange($event)"
+                            [fileFormat]="importerFile.fileFormat" />
+                    </aw-wizard-step>
+
+                    <aw-wizard-step stepId="4" stepTitle="Import config">
+                        <ng-template awWizardStepSymbol>
+                            <i class="fas fa-sliders-h"></i>
+                        </ng-template>
+                        <cmdb-import-config (configChange)="importConfigChange($event)" />
+                    </aw-wizard-step>
+
+                    <aw-wizard-completion-step stepId="5" stepTitle="Complete">
+                        <ng-template awWizardStepSymbol>
+                            <i class="fas fa-save"></i>
+                        </ng-template>
+                        <cmdb-import-complete (startImportEmitter)="startImport()" [importResponse]="importResponse"
+                            [importFile]="importerFile" [importerConfig]="importerConfig" [parserConfig]="parserConfig"
+                            [parsedData]="parsedData" [isImporting]="isImporting" [typeInstance]="typeInstance" />
+                    </aw-wizard-completion-step>
+                </aw-wizard>
             </div>
-            <ul class="list-group list-group-flush">
-                @if (!parserConfig) {
-                <li class="list-group-item list-group-item-warning">
-                    Parser not selected yet!
-                </li>
+        </div>
+
+        <div class="col-12 col-xl-3">
+            <aside class="import-summary">
+                <section class="summary-card">
+                    <h2 class="summary-card__head">
+                        <i class="fas fa-file" aria-hidden="true"></i> File
+                    </h2>
+                    <dl class="summary-card__body">
+                        <div class="summary-row">
+                            <dt>Format</dt>
+                            <dd>{{ (importerFile?.fileFormat | uppercase) || '—' }}</dd>
+                        </div>
+                        <div class="summary-row">
+                            <dt>File</dt>
+                            <dd>{{ importerFile?.fileName || '—' }}</dd>
+                        </div>
+                    </dl>
+                </section>
+
+                <section class="summary-card">
+                    <h2 class="summary-card__head">
+                        <i class="fas fa-cogs" aria-hidden="true"></i> Parser config
+                    </h2>
+                    <dl class="summary-card__body">
+                        @if (!parserConfig) {
+                        <p class="summary-empty">Parser not selected yet</p>
+                        }
+                        @for (parserPro of parserConfig | keyvalue; track parserPro.key) {
+                        <div class="summary-row">
+                            <dt>{{ $any(parserPro).key | titlecase }}</dt>
+                            <dd>{{ parserPro?.value }}</dd>
+                        </div>
+                        }
+                    </dl>
+                </section>
+
+                <section class="summary-card">
+                    <h2 class="summary-card__head">
+                        <i class="fas fa-sliders-h" aria-hidden="true"></i> Importer config
+                    </h2>
+                    <dl class="summary-card__body">
+                        <div class="summary-row">
+                            <dt>Type</dt>
+                            <dd>{{ typeInstance?.label || '—' }}</dd>
+                        </div>
+                        <div class="summary-row">
+                            <dt>Start at</dt>
+                            <dd>{{ importerConfig?.start_element ?? '—' }}</dd>
+                        </div>
+                        <div class="summary-row">
+                            <dt>Max elements</dt>
+                            <dd>{{ importerConfig?.max_elements ?? '—' }}</dd>
+                        </div>
+                        <div class="summary-row">
+                            <dt>Overwrite exists</dt>
+                            <dd>{{ importerConfig?.overwrite_public ? 'Yes' : 'No' }}</dd>
+                        </div>
+                    </dl>
+                </section>
+
+                @if (defaultImporterConfig?.manually_mapping) {
+                <section class="summary-card">
+                    <h2 class="summary-card__head">
+                        <i class="fas fa-project-diagram" aria-hidden="true"></i> Mapping
+                    </h2>
+                    <dl class="summary-card__body">
+                        @if (!mapping?.length) {
+                        <p class="summary-empty">No fields mapped yet</p>
+                        }
+                        @for (mapEntry of mapping; track mapEntry) {
+                        <div class="summary-row">
+                            <dt>{{ $any(mapEntry)?.name }}</dt>
+                            <dd>{{ $any(mapEntry)?.value }}</dd>
+                        </div>
+                        }
+                    </dl>
+                </section>
                 }
-                @for (parserPro of parserConfig | keyvalue; track parserPro) {
-                <li class="list-group-item">
-                    {{parserPro?.key | titlecase}}: {{parserPro?.value}}
-                </li>
-                }
-            </ul>
+            </aside>
         </div>
-        <div class="card mb-3">
-            <div class="card-header">
-                Importer config:
-            </div>
-            <ul class="list-group list-group-flush">
-                <li class="list-group-item">Type: {{typeInstance?.label}}</li>
-                <li class="list-group-item">Start at: {{importerConfig?.start_element}}</li>
-                <li class="list-group-item">Max elements: {{importerConfig?.max_elements}}</li>
-                <li class="list-group-item">Overwrite exists: {{importerConfig?.overwrite_public}}</li>
-            </ul>
-        </div>
-        @if (defaultImporterConfig?.manually_mapping) {
-        <div class="card mb-3">
-            <div class="card-header">
-                Mapping:
-            </div>
-            <ul class="list-group list-group-flush">
-                @for (mapEntry of mapping; track mapEntry) {
-                <li class="list-group-item">
-                    {{mapEntry?.name}} | {{mapEntry?.value}}
-                </li>
-                }
-            </ul>
-        </div>
-        }
     </div>
 </div>
 
-<app-loading-popup
-    [isVisible]="isLoading$ | async"
-    message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

@@ -33,7 +33,32 @@ export class ImporterConfig {
 }
 
 
+export interface ImportObjectField {
+    name: string;
+    value: any;
+    type?: string;
+}
+
+
+export interface ImportObjectData {
+    public_id?: number;
+    type_id?: number;
+    type_label?: string;
+    active?: boolean;
+    fields?: ImportObjectField[];
+    multi_data_sections?: any[];
+    [key: string]: any;
+}
+
+
+export interface ImportFailedEntry {
+    failed_object: ImportObjectData;
+    errors: string[];
+}
+
+
 export class ImportResponse {
-    success_imports: any[];
-    failed_imports: any[];
+    message?: string;
+    success_imports = 0;
+    failed_imports: ImportFailedEntry[] = [];
 }

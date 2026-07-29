@@ -1,78 +1,80 @@
-<hr />
-<form [formGroup]="configForm">
-    <div class="mb-3 row">
-        <label class="col-3 col-form-label">
-            Select type:
+<form [formGroup]="configForm" class="mapping-form">
+    <div class="row">
+        <label class="col-sm-3 col-form-label">
+            Select type
         </label>
-        <div class="col-9">
-            <select class="form-select" formControlName="typeID">
-                @for (typeSelect of typeList; track typeSelect) {
-                <option [value]="typeSelect.public_id">
-                    {{typeSelect.label}}
-                </option>
-                }
-            </select>
+        <div class="col-sm-9">
+            <app-form-select formControlName="typeID" [items]="typeList" bindLabel="label" bindValue="public_id"
+                placeholder="Select a type" [required]="true"></app-form-select>
         </div>
     </div>
-    <hr />
-    <section [hidden]="!typeInstance || !manuallyMapping">
+
+    <section class="mapping-workbench" [hidden]="!typeInstance || !manuallyMapping">
+        <p class="step-callout">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+            Drag entries from the left onto the target rows to map your file to this type.
+        </p>
+
         <div class="row">
             <div class="col-md-3">
-                <div class="card">
-                    <div class="card-header">
+                <div class="mapping-panel">
+                    <h2 class="mapping-panel__head">
                         Meta values
-                    </div>
-                    <div class="card-body">
-                        <div class="list-group">
-                            @for (control of mappingControls | mappingControl: 'type':'property'; track control) {
-                            <div class="list-group-item list-group-item-action" [dndDraggable]="control"
-                                [dndEffectAllowed]="allowedEffect"
-                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
-                                <span>
-                                    {{control.label}}
-                                </span>
-                            </div>
-                            }
+                    </h2>
+                    <div class="mapping-panel__body">
+                        @for (control of mappingControls | mappingControl: 'type':'property'; track control) {
+                        <div class="mapping-chip" [dndDraggable]="control" [dndEffectAllowed]="allowedEffect"
+                            (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
+                            <i class="fas fa-grip-vertical" aria-hidden="true"></i>
+                            <span>{{ control.label }}</span>
                         </div>
+                        } @empty {
+                        <p class="panel-empty">
+                            <i class="fas fa-check-circle" aria-hidden="true"></i>
+                            All assigned
+                        </p>
+                        }
                     </div>
                 </div>
 
-                <div class="card mt-3">
-                    <div class="card-header">
+                <div class="mapping-panel">
+                    <h2 class="mapping-panel__head">
                         Fields
-                    </div>
-                    <div class="card-body">
-                        <div class="list-group">
-                            @for (control of mappingControls | mappingControl: 'type':'field'; track control) {
-                            <div class="list-group-item list-group-item-action" [dndDraggable]="control"
-                                [dndEffectAllowed]="allowedEffect"
-                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
-                                <span>
-                                    {{control.label}}
-                                </span>
-                            </div>
-                            }
+                    </h2>
+                    <div class="mapping-panel__body">
+                        @for (control of mappingControls | mappingControl: 'type':'field'; track control) {
+                        <div class="mapping-chip" [dndDraggable]="control" [dndEffectAllowed]="allowedEffect"
+                            (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
+                            <i class="fas fa-grip-vertical" aria-hidden="true"></i>
+                            <span>{{ control.label }}</span>
                         </div>
+                        } @empty {
+                        <p class="panel-empty">
+                            <i class="fas fa-check-circle" aria-hidden="true"></i>
+                            All assigned
+                        </p>
+                        }
                     </div>
                 </div>
 
                 @if (hasReferences) {
-                <div class="card mt-3">
-                    <div class="card-header">
+                <div class="mapping-panel">
+                    <h2 class="mapping-panel__head">
                         Foreign Keys
-                    </div>
-                    <div class="card-body">
-                        <div class="list-group">
-                            @for (control of mappingControls | mappingControl: 'type':'ref'; track control) {
-                            <div class="list-group-item list-group-item-action" [dndDraggable]="control"
-                                [dndEffectAllowed]="allowedEffect"
-                                (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
-                                <span>
-                                    <strong>{{control.type_name}}: </strong>{{control.label}}
-                                </span>
-                            </div>
-                            }
+                    </h2>
+                    <div class="mapping-panel__body">
+                        @for (control of mappingControls | mappingControl: 'type':'ref'; track control) {
+                        <div class="mapping-chip" [dndDraggable]="control" [dndEffectAllowed]="allowedEffect"
+                            (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
+                            <i class="fas fa-grip-vertical" aria-hidden="true"></i>
+                            <span><strong>{{ control.type_name }}:</strong> {{ control.label }}</span>
                         </div>
+                        } @empty {
+                        <p class="panel-empty">
+                            <i class="fas fa-check-circle" aria-hidden="true"></i>
+                            All assigned
+                        </p>
+                        }
                     </div>
                 </div>
                 }
@@ -81,22 +83,18 @@
             <div class="col-md-9">
                 <ng-template #mappingContainer></ng-template>
                 <div class="text-end mt-2">
-                    <button type="button" class="btn btn-outline-primary" (click)="initMapping()">
-                        Reset
-                    </button>
+                    <app-button label="Reset" icon="fas fa-undo" bootstrapClass="btn-light btn-sm"
+                        (clicked)="initMapping()"></app-button>
                 </div>
             </div>
         </div>
-        <hr />
     </section>
 </form>
 
-<button class="btn btn-primary prev" type="button" awPreviousStep>
-    <i class="fas fa-angle-double-left"></i> Previous Step
-</button>
-<button class="btn btn-primary next" type="button" [disabled]="configForm.invalid" awNextStep>
-    Next Step <i class="fas fa-angle-double-right"></i>
-</button>
-
+<div class="step-actions">
+    <app-button label="Previous Step" icon="fas fa-angle-double-left" bootstrapClass="btn-warning"
+        awPreviousStep></app-button>
+    <app-button label="Next Step" bootstrapClass="btn-primary" [disabled]="configForm.invalid" awNextStep></app-button>
+</div>
 
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

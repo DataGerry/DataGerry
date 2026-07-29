@@ -1,29 +1,17 @@
-<hr />
-
-<form [formGroup]="fileForm">
-    <div class="mb-3">
-        <label>
-            Format:
-        </label>
-        <select formControlName="fileFormat" class="form-select">
-            <option></option>
-            @for (importer of importerTypes; track importer) {
-            <option value="{{importer.name}}">
-                {{importer.name | uppercase}}
-            </option>
-            }
-        </select>
+<form [formGroup]="fileForm" class="file-form">
+    <div class="field">
+        <app-form-select label="File format" formControlName="fileFormat" [items]="formatOptions" bindLabel="label"
+            bindValue="value" placeholder="Select a format…" [required]="true"></app-form-select>
+        <span class="field__hint">Choose the format of the file you want to import.</span>
     </div>
 
-    <div class="mb-3">
-        <label for="formFile" class="form-label">File:</label>
-        <input [disabled]="fileFormat.invalid" (change)="selectFile($event.target.files)" class="form-control"
-            type="file" id="formFile" [accept]="selectedFileFormat">
+    <div class="field">
+        <app-file-dropzone formControlName="file" label="File" [required]="true"
+            [acceptedExtensions]="selectedFileFormat"
+            disabledHint="Select a format first to enable file selection"></app-file-dropzone>
     </div>
-
 </form>
 
-<hr />
-<button class="btn btn-primary next" type="button" awNextStep [disabled]="fileForm.invalid">
-    Next Step <i class="fas fa-angle-double-right"></i>
-</button>
+<div class="step-actions step-actions--end">
+    <app-button label="Next Step" bootstrapClass="btn-primary" [disabled]="fileForm.invalid" awNextStep></app-button>
+</div>

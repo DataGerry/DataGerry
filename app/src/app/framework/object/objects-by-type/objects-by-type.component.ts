@@ -1106,7 +1106,11 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
     public onManyObjectDeletes() {
         if (this.selectedObjects.length > 0) {
-            this.deleteManyModalRef = this.modalService.open(ObjectsDeleteModalComponent, { size: 'lg' });
+            this.deleteManyModalRef = this.modalService.open(ObjectsDeleteModalComponent, {
+                size: 'lg',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            });
 
             this.deleteManyModalRef.result.then((response: string) => {
                 if (response === 'delete') {

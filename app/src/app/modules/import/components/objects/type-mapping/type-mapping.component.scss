@@ -1,0 +1,94 @@
+@import '../wizard-step';
+
+:host {
+    display: block;
+    @include dg-controls;
+    @include dg-step-actions;
+    @include dg-callout;
+}
+
+.mapping-workbench {
+    margin-top: 1.25rem;
+
+    .step-callout {
+        margin-bottom: 1rem;
+    }
+}
+
+/* --------------------------------------------------- SOURCE PANELS ------------------------------------------------ */
+.mapping-panel {
+    background: #fff;
+    border: 1px solid $border;
+    border-radius: $radius-card;
+    overflow: hidden;
+
+    &+& {
+        margin-top: 0.85rem;
+    }
+
+    &__head {
+        margin: 0;
+        padding: 0.6rem 0.85rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: $label;
+        background: linear-gradient(180deg, #fbfcfd 0%, #f5f7f9 100%);
+        border-bottom: 1px solid $hairline;
+    }
+
+    &__body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        padding: 0.6rem;
+        min-height: 3.25rem;
+    }
+}
+
+.panel-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    flex: 1;
+    margin: 0;
+    padding: 0.5rem;
+    font-size: 0.8rem;
+    color: $muted;
+
+    i {
+        color: #a7d7bf;
+        font-size: 0.85rem;
+    }
+}
+
+.mapping-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: $radius-ctl;
+    color: $ink;
+    font-size: 0.85rem;
+    cursor: grab;
+    transition: border-color $ease, box-shadow $ease, transform $ease;
+
+    i {
+        color: $faint;
+        font-size: 0.8rem;
+    }
+
+    &:hover {
+        border-color: $brand;
+        box-shadow: 0 4px 12px -8px $brand-shadow;
+        transform: translateY(-1px);
+    }
+
+    &:active {
+        cursor: grabbing;
+    }
+}

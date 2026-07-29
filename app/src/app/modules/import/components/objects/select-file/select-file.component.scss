@@ -1,0 +1,26 @@
+@import '../wizard-step';
+
+:host {
+    display: block;
+    @include dg-controls;
+    @include dg-step-actions;
+}
+
+.file-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    max-width: 54rem;
+    margin: 1rem auto 0;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+
+    &__hint {
+        margin-top: 0.35rem;
+        font-size: 0.8rem;
+        color: $muted;
+    }
+}

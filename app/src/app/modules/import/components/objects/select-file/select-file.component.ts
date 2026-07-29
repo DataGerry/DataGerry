@@ -34,9 +34,8 @@ export class SelectFileComponent implements OnInit, OnDestroy {
 
     private defaultFileFormat: string = '';
     public fileForm: UntypedFormGroup;
-    public fileName: string = 'Choose file';
-    public selectedFileFormat: string = `.${ this.defaultFileFormat }`;
-    public importerTypes: any[] = [];
+    public selectedFileFormat: string = '';
+    public formatOptions: { label: string; value: string }[] = [];
 
     // Loading subscription
     private importerDefinitionSubscription: Subscription;
@@ -83,16 +82,26 @@ export class SelectFileComponent implements OnInit, OnDestroy {
         this.loaderService.show();
         this.importerDefinitionSubscription = this.importService.getObjectImporters()
         .pipe(finalize(() => this.loaderService.hide())).subscribe(importers => {
-            this.importerTypes = importers;
+            this.formatOptions = ((importers ?? []) as any[]).map((importer) => ({
+                label: (importer?.name ?? '').toUpperCase(),
+                value: importer?.name
+            }));
         });
+
+        this.syncFileControlState(this.fileFormat.value);
 
         this.fileFormatChangeSubscription = this.fileFormat.valueChanges.subscribe((format: string) => {
             this.formatChange.emit(format);
-            this.selectedFileFormat = `.${ format }`;
+            this.selectedFileFormat = format ? `.${ format }` : '';
+            // A file picked for one format must not carry over to another.
+            this.file.reset(null, { emitEvent: false });
+            this.syncFileControlState(format);
         });
 
-        this.fileChangeSubscription = this.file.valueChanges.subscribe((file) => {
-            this.fileChange.emit(file);
+        this.fileChangeSubscription = this.file.valueChanges.subscribe((file: File | null) => {
+            if (file) {
+                this.fileChange.emit(file);
+            }
         });
     }
 
@@ -105,11 +114,12 @@ export class SelectFileComponent implements OnInit, OnDestroy {
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
-    public selectFile(files) {
-        if (files.length > 0) {
-            const file = files[0];
-            this.fileForm.get('file').setValue(file);
-            this.fileName = file.name;
+    /** File selection stays disabled until a format is chosen; the dropzone reflects this via the form. */
+    private syncFileControlState(format: string): void {
+        if (format) {
+            this.file.enable({ emitEvent: false });
+        } else {
+            this.file.disable({ emitEvent: false });
         }
     }
 }
