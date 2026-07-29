@@ -127,6 +127,11 @@ def _type_upload(special_type: str | None) -> dict[str, Any]:
     return {'uploadFile': json.dumps([payload], default=str)}
 
 
+def _type_import_errors(response) -> list[str]:
+    """Every error message the type import's partial report collected."""
+    return [error for failure in response.get_json()['failed_imports'] for error in failure['errors']]
+
+
 def test_uploading_special_type_blocked_without_license(
     rest_api, database_manager: MongoDatabaseManager, database_name: str
 ) -> None:
@@ -136,7 +141,7 @@ def test_uploading_special_type_blocked_without_license(
     )
 
     assert response.status_code == HTTPStatus.OK  # partial report, not an abort
-    (message,) = response.get_json().values()
+    (message,) = _type_import_errors(response)
     assert 'not licensed' in message
     stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
         .find_one({'name': IMPORTED_TYPE_NAME})
@@ -150,7 +155,7 @@ def test_uploading_ordinary_type_allowed_without_license(
     response = rest_api.post(TYPE_IMPORT_URL, data=_type_upload(None), content_type='multipart/form-data')
 
     assert response.status_code == HTTPStatus.OK
-    assert response.get_json() == {}
+    assert _type_import_errors(response) == []
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     assert types.find_one({'name': IMPORTED_TYPE_NAME}) is not None
     types.delete_many({'name': IMPORTED_TYPE_NAME})
@@ -175,7 +180,7 @@ def test_uploading_special_type_allowed_when_licensed(
     )
 
     assert response.status_code == HTTPStatus.OK
-    assert response.get_json() == {}
+    assert _type_import_errors(response) == []
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     assert types.find_one({'name': IMPORTED_TYPE_NAME}) is not None
     types.delete_many({'name': IMPORTED_TYPE_NAME})

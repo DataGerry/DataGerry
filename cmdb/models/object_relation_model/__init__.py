@@ -14,11 +14,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all CmdbObjectRelation relevant classes
+Provides all CmdbObjectRelation relevant classes and its shared document constants
 """
 from .cmdb_object_relation import CmdbObjectRelation
+from .object_relation_constants import (
+    ObjectRelationKey,
+    ObjectRelationFieldValueKey,
+    ObjectRelationRole,
+    RelationTabKey,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'CmdbObjectRelation',
+    'ObjectRelationKey',
+    'ObjectRelationFieldValueKey',
+    'ObjectRelationRole',
+    'RelationTabKey',
 ]

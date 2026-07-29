@@ -16,9 +16,11 @@
 """
 Helper functions for the CmdbType import REST routes
 
-Holds the upload parsing shared by the create and update routes plus the two per-entry steps that
-orchestrate everything else. Each step handles exactly one uploaded entry and reports its outcome as
-a message string instead of aborting, so a single bad entry never kills the rest of the batch
+Holds the upload parsing shared by the create and update routes, the batch runner that turns their
+per-entry outcomes into the same partial report the object import answers with
+(`run_type_import_batch`), plus the two per-entry steps that orchestrate everything else. Each step
+handles exactly one uploaded entry and reports its outcome as a message string instead of aborting, so
+a single bad entry never kills the rest of the batch
 
 The work an entry goes through, and where it lives:
 
@@ -52,6 +54,8 @@ reconciliation, dropped-section-template cleanup). They delegate to the very hel
 import json
 from json import JSONDecodeError
 from typing import Any
+from copy import deepcopy
+from collections.abc import Callable
 from logging import Logger, getLogger
 from datetime import datetime, timezone
 from bson import json_util
@@ -62,6 +66,11 @@ from cmdb.manager import TypesManager, SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.framework.importer.importer_constants import ImportNoun
+from cmdb.framework.importer.responses.import_report_response import (
+    ImportReportResponse,
+    build_import_summary_message,
+)
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     compute_removed_global_templates,
@@ -79,8 +88,8 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import
     normalize_imported_type,
     resolve_global_templates,
 )
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_messages import TypeImportFailedMessage
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
-    UNKNOWN_TYPE_ERROR_KEY_TEMPLATE,
     IMPORT_UPDATE_PRESERVED_FIELDS,
     TypeImporterFormField,
     TypeImportError,
@@ -451,28 +460,53 @@ def read_type_to_update(
     return old_type, None
 
 
-def resolve_error_key(type_entry: Any, index: int) -> str:
+def run_type_import_batch(
+    type_entries: list[Any],
+    import_entry: Callable[[Any], str | None],
+) -> ImportReportResponse:
     """
-    Determines the error-collection key under which a failed entry is reported
+    Imports every uploaded entry on its own and collects the outcomes into one partial report
 
-    The public_id is preferred so the caller can match the failure to the uploaded type. Entries that
-    are not a dictionary, or that carry no public_id yet (a create upload, or a malformed entry), fall
-    back to their position in the upload so building the report can never raise
+    This is the shape the object import answers with: a summary line, the NUMBER of imported entries
+    and one message per rejected entry (`{failed_type, errors}`, where the object import reports
+    `{failed_object, errors}`). An imported type needs no explaining, so it only adds to the count; a
+    rejected one is reported with the data the user provided - snapshotted before the import, which
+    normalizes and repairs the entry in place - so the caller sees what it uploaded rather than what the
+    import made of it.
+
+    An error the per-entry step did not anticipate fails THIS entry only: without that net it would
+    escape to the route and discard the whole batch, including the types already written
 
     Args:
-        type_entry (Any): A single entry of the uploaded payload
-        index (int): The position of the entry within the uploaded payload
+        type_entries (list[Any]): The decoded upload, normally a list of type dictionaries
+        import_entry (Callable[[Any], str | None]): Imports one entry (create or update), returning an
+                                                    error message on failure and None on success
 
     Returns:
-        str: The key to report this entry's failure under
+        ImportReportResponse: The summary line, the imported count and the failure messages of the batch
     """
-    if isinstance(type_entry, dict):
-        public_id = type_entry.get(TypeSchemaKey.PUBLIC_ID.value)
+    success_count: int = 0
+    failed_imports: list[TypeImportFailedMessage] = []
 
-        if public_id is not None:
-            return str(public_id)
+    for type_entry in type_entries:
+        provided = deepcopy(type_entry)
 
-    return UNKNOWN_TYPE_ERROR_KEY_TEMPLATE.format(index=index)
+        try:
+            import_error = import_entry(type_entry)
+        except Exception as err:
+            LOGGER.error("[run_type_import_batch] Exception: %s. Type: %s.", err, type(err), exc_info=True)
+            import_error = TypeImportError.UNEXPECTED_IMPORT_ERROR.format(detail=err)
+
+        if import_error:
+            failed_imports.append(TypeImportFailedMessage(failed_type=provided, errors=[import_error]))
+        else:
+            success_count += 1
+
+    return ImportReportResponse(
+        message=build_import_summary_message(success_count, len(failed_imports), ImportNoun.TYPE),
+        success_imports=success_count,
+        failed_imports=failed_imports,
+    )
 
 
 def create_type_from_entry(

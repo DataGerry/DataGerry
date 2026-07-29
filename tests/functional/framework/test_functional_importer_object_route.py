@@ -410,7 +410,7 @@ class TestOverwriteExistingObject:
         body = response.get_json()
 
         assert body['failed_imports'] == []
-        assert len(body['success_imports']) == 1
+        assert body['success_imports'] == 1
 
         objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
 
@@ -440,7 +440,7 @@ class TestOverwriteExistingObject:
 
         body = response.get_json()
 
-        assert body['success_imports'] == []
+        assert body['success_imports'] == 0
         (failure,) = body['failed_imports']
         assert 'does not support' in failure['errors'][0]
         # the stored object of the other type is untouched
@@ -523,7 +523,7 @@ class TestChoiceFieldOptions:
         body = response.get_json()
 
         assert body['failed_imports'] == []
-        assert len(body['success_imports']) == 1
+        assert body['success_imports'] == 1
 
         stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
             .find_one({'type_id': CHOICE_TYPE_ID})
@@ -778,7 +778,7 @@ class TestExportImportRoundTrip:
         payload = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data').get_json()
 
         assert payload['failed_imports'] == []
-        assert len(payload['success_imports']) == len(ROUNDTRIP_OBJECT_IDS)
+        assert payload['success_imports'] == len(ROUNDTRIP_OBJECT_IDS)
 
     def test_a_csv_export_overwrites_the_objects_it_came_from(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str

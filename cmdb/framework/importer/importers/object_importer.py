@@ -42,10 +42,8 @@ from cmdb.framework.importer.helper.object_import_validator import (
     build_import_type_context,
     apply_new_select_options,
 )
-from cmdb.framework.importer.responses.importer_object_response import (
-    ImporterObjectResponse,
-    build_import_summary_message,
-)
+from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
+from cmdb.framework.importer.responses.import_report_response import build_import_summary_message
 from cmdb.framework.importer.messages.import_failed_message import ImportFailedMessage
 from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
