@@ -28,6 +28,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from flask import abort
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectsManager, TypesManager
@@ -741,16 +742,18 @@ class TestObjectState:
         finally:
             _drop_object(database_manager, database_name, STATE_TOGGLE_ID)
 
-    def test_put_state_unchanged_returns_false(
+    def test_put_state_unchanged_returns_the_object(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Setting the state to its current value is a no-op that returns False with 200."""
+        """A no-op state change writes nothing but answers in the SAME shape as a real change."""
         _insert_object_doc(database_manager, database_name, STATE_NOOP_ID, ORIGINAL_VALUE)
         try:
             response = rest_api.put(f'{ROUTE_URL}/state/{STATE_NOOP_ID}', json=True)
 
-            assert response.status_code == HTTPStatus.OK
-            assert response.get_json() is False
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+            result = response.get_json()['result']
+            assert result['public_id'] == STATE_NOOP_ID
+            assert result['active'] is True
         finally:
             _drop_object(database_manager, database_name, STATE_NOOP_ID)
 
@@ -990,6 +993,11 @@ class TestPatchMdsRows:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              ERROR MAPPING MATRIX                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
+def _abort_418(*_args, **_kwargs):
+    """Aborts with a status no handler maps, proving HTTPExceptions pass through untouched."""
+    abort(HTTPStatus.IM_A_TEAPOT)
+
+
 def _raiser(exc: Exception):
     """Returns a function that ignores its args and raises the given exception."""
     def _fail(*_args, **_kwargs):
@@ -1521,3 +1529,473 @@ class TestObjectLocationSync:
         moved_object = objects.find_one({'public_id': LSYNC_OBJECT_ID})
         location_field = next(f for f in moved_object['fields'] if f['name'] == LOCATION_FIELD_NAME)
         assert location_field['value'] == LSYNC_PARENT_B
+
+
+class TestActiveOnlyFilter:
+    """`onlyActiveObjCookie` narrows the list, the counts and the reference route to active objects."""
+
+    INACTIVE_ID: int = 9431
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds one active and one inactive object of the module's type."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_GET, ORIGINAL_VALUE)
+        inactive = _object_doc(self.INACTIVE_ID, ORIGINAL_VALUE)
+        inactive['active'] = False
+        objects.insert_one(inactive)
+        yield
+        objects.delete_many({'public_id': {'$in': [OBJECT_ID_FOR_GET, self.INACTIVE_ID]}})
+
+    def test_list_excludes_inactive_objects(self, rest_api) -> None:
+        """The list route appends an active-only $match, so the inactive object is not returned."""
+        response = rest_api.get(f'{ROUTE_URL}/?onlyActiveObjCookie=true')
+
+        assert response.status_code == HTTPStatus.OK
+        returned = {entry['public_id'] for entry in response.get_json()['results']}
+        assert self.INACTIVE_ID not in returned
+
+    def test_list_with_a_filter_still_excludes_inactive_objects(self, rest_api) -> None:
+        """A caller-supplied filter dict is wrapped into a stage and the active stage appended to it."""
+        response = rest_api.get(
+            f'{ROUTE_URL}/?onlyActiveObjCookie=true&filter={{"type_id": {TYPE_ID}}}'
+        )
+
+        assert response.status_code == HTTPStatus.OK
+        returned = {entry['public_id'] for entry in response.get_json()['results']}
+        assert self.INACTIVE_ID not in returned
+        assert OBJECT_ID_FOR_GET in returned
+
+    def test_total_count_excludes_inactive_objects(self, rest_api) -> None:
+        """GET /count honours the active-only filter."""
+        with_inactive = rest_api.get(f'{ROUTE_URL}/count').get_json()
+        active_only = rest_api.get(f'{ROUTE_URL}/count?onlyActiveObjCookie=true').get_json()
+
+        assert active_only < with_inactive
+
+    def test_type_count_excludes_inactive_objects(self, rest_api) -> None:
+        """GET /count/<type_id> honours the active-only filter."""
+        with_inactive = rest_api.get(f'{ROUTE_URL}/count/{TYPE_ID}').get_json()
+        active_only = rest_api.get(f'{ROUTE_URL}/count/{TYPE_ID}?onlyActiveObjCookie=true').get_json()
+
+        assert active_only == with_inactive - 1
+
+    def test_references_route_accepts_the_active_filter(self, rest_api) -> None:
+        """The reference route appends the same stage; an object with no references returns an empty page."""
+        response = rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}?onlyActiveObjCookie=true')
+
+        assert response.status_code == HTTPStatus.OK
+
+
+class TestObjectIdsValidation:
+    """The two `objectIDs` encodings both refuse an unusable id instead of failing with a 500."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_UPDATE, ORIGINAL_VALUE)
+        yield
+        _drop_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE)
+
+    @pytest.mark.parametrize('raw_id', ['abc', '0', '-1', '1.5'], ids=['text', 'zero', 'negative', 'float'])
+    def test_bulk_update_rejects_an_unusable_id(self, rest_api, raw_id: str) -> None:
+        """`int()` on a junk id used to raise into the catch-all and answer 500 (regression)."""
+        response = rest_api.put(
+            f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}?objectIDs={raw_id}',
+            json=_object_payload(OBJECT_ID_FOR_UPDATE, UPDATED_VALUE),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_bulk_update_accepts_repeated_parameters(self, rest_api) -> None:
+        """The frontend sends objectIDs as repeated parameters; both targets are updated."""
+        response = rest_api.put(
+            f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}'
+            f'?objectIDs={OBJECT_ID_FOR_UPDATE}&objectIDs={OBJECT_ID_FOR_UPDATE}',
+            json=_object_payload(OBJECT_ID_FOR_UPDATE, UPDATED_VALUE),
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert len(response.get_json()['results']) == 2
+
+    @pytest.mark.parametrize('raw_ids', ['abc', '1,abc', '0'], ids=['text', 'mixed', 'zero'])
+    def test_mds_references_rejects_an_unusable_id(self, rest_api, raw_ids: str) -> None:
+        """A junk id in the comma-joined list used to be dropped silently."""
+        response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}/mds_references?objectIDs={raw_ids}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestReadRouteErrorMapping:
+    """The remaining per-route exception handlers of the read routes."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_GET, ORIGINAL_VALUE)
+        yield
+        _drop_object(database_manager, database_name, OBJECT_ID_FOR_GET)
+
+    def test_rendered_get_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError while reading maps the rendered GET to 400."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_rendered_get_render_failure_returns_500(self, rest_api, monkeypatch) -> None:
+        """A renderer failure is reported as 'could not be rendered', not as a missing object."""
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes.CmdbMultiRender',
+            _raiser(RuntimeError('boom')),
+        )
+
+        assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_passes_an_http_exception_through(self, rest_api, monkeypatch) -> None:
+        """An HTTPException raised inside the list handler keeps its own status."""
+        monkeypatch.setattr(ObjectsManager, 'iterate', _abort_418)
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.IM_A_TEAPOT
+
+    def test_total_count_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError from count_documents maps GET /count to 400."""
+        monkeypatch.setattr(ObjectsManager, 'count_documents', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/count').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_total_count_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error from count_documents maps GET /count to 500."""
+        monkeypatch.setattr(ObjectsManager, 'count_documents', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/count').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_total_count_passes_an_http_exception_through(self, rest_api, monkeypatch) -> None:
+        """The count route re-raises an HTTPException instead of turning it into a 500."""
+        monkeypatch.setattr(ObjectsManager, 'count_documents', _abort_418)
+
+        assert rest_api.get(f'{ROUTE_URL}/count').status_code == HTTPStatus.IM_A_TEAPOT
+
+    def test_type_count_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError maps GET /count/<type_id> to 400."""
+        monkeypatch.setattr(ObjectsManager, 'count_documents', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/count/{TYPE_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_type_count_passes_an_http_exception_through(self, rest_api, monkeypatch) -> None:
+        """The per-type count route re-raises an HTTPException too."""
+        monkeypatch.setattr(ObjectsManager, 'count_documents', _abort_418)
+
+        assert rest_api.get(f'{ROUTE_URL}/count/{TYPE_ID}').status_code == HTTPStatus.IM_A_TEAPOT
+
+    def test_native_get_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
+        """An ACL denial on the native read is a 403."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(AccessDeniedError('nope')))
+
+        assert rest_api.get(f'{ROUTE_URL}/native/{OBJECT_ID_FOR_GET}').status_code == HTTPStatus.FORBIDDEN
+
+    def test_native_get_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on the native read is a 500."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/native/{OBJECT_ID_FOR_GET}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_group_by_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError from the grouping maps the dashboard route to 400."""
+        monkeypatch.setattr(ObjectsManager, 'group_objects_by_value', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/group/type_id').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_group_by_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error from the grouping maps the dashboard route to 500."""
+        monkeypatch.setattr(ObjectsManager, 'group_objects_by_value', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/group/type_id').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_mds_reference_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError maps the single MDS reference route to 400."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_reference').status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_mds_reference_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps the single MDS reference route to 500."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_reference').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_mds_references_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
+        """An ACL denial in the batch route is a 403."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(AccessDeniedError('nope')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_references').status_code \
+            == HTTPStatus.FORBIDDEN
+
+    def test_mds_references_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error in the batch route is a 500."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_references').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_references_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerIterationError from references() maps the route to 400."""
+        monkeypatch.setattr(ObjectsManager, 'references', _raiser(ObjectsManagerIterationError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}').status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_references_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
+        """An ACL denial on the reference route is a 403."""
+        monkeypatch.setattr(ObjectsManager, 'references', _raiser(AccessDeniedError('nope')))
+
+        assert rest_api.get(f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}').status_code \
+            == HTTPStatus.FORBIDDEN
+
+    def test_state_get_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
+        """An ACL denial on the state read is a 403."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(AccessDeniedError('nope')))
+
+        assert rest_api.get(f'{ROUTE_URL}/state/{OBJECT_ID_FOR_GET}').status_code == HTTPStatus.FORBIDDEN
+
+    def test_state_get_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on the state read is a 500."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/state/{OBJECT_ID_FOR_GET}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestWriteAndDeleteErrorMapping:
+    """The remaining per-route exception handlers of the write / delete routes."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds the target object and drops it afterwards.
+
+        MISSING_OBJECT_ID is dropped too: the insert tests below post it, and the read-back one really
+        does store it - leaving it behind would make every later 'missing object' test find one.
+        """
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_UPDATE, ORIGINAL_VALUE)
+        yield
+        _drop_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE)
+        _drop_object(database_manager, database_name, MISSING_OBJECT_ID)
+
+    def _payload(self) -> dict[str, Any]:
+        """The full-object payload the PUT route validates."""
+        return _object_payload(OBJECT_ID_FOR_UPDATE, UPDATED_VALUE)
+
+    # ---- insert ---- #
+    def test_insert_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError while normalising the payload maps POST to 400."""
+        monkeypatch.setattr(ObjectsManager, 'get_new_object_public_id', _raiser(ObjectsManagerGetError('boom')))
+
+        payload = _object_payload(MISSING_OBJECT_ID, 'x')
+        del payload['public_id']
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps POST to 500."""
+        monkeypatch.setattr(ObjectsManager, 'insert_object', _raiser(RuntimeError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_object_payload(MISSING_OBJECT_ID, 'x')).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_insert_unreadable_creation_returns_500(self, rest_api, monkeypatch) -> None:
+        """The object IS stored, so a failing read-back is a 500 - not a 404 claiming it is missing."""
+        original = ObjectsManager.get_object
+        calls = {'count': 0}
+
+        def _second_read_missing(self, *args, **kwargs):
+            calls['count'] += 1
+
+            return None if calls['count'] > 1 else original(self, *args, **kwargs)
+
+        monkeypatch.setattr(ObjectsManager, 'get_object', _second_read_missing)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_object_payload(MISSING_OBJECT_ID, 'x'))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # ---- update ---- #
+    def test_update_write_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerUpdateError maps PUT to 400."""
+        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(ObjectsManagerUpdateError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}', json=self._payload()).status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_update_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
+        """An ACL denial maps PUT to 403."""
+        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(AccessDeniedError('nope')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}', json=self._payload()).status_code \
+            == HTTPStatus.FORBIDDEN
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps PUT to 500."""
+        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}', json=self._payload()).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # ---- patch ---- #
+    def test_patch_write_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerUpdateError maps PATCH to 400."""
+        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(ObjectsManagerUpdateError('boom')))
+
+        response = rest_api.patch(
+            f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}',
+            json={'fields': [{'name': NAME_FIELD, 'value': UPDATED_VALUE}]},
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_patch_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps PATCH to 500."""
+        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(RuntimeError('boom')))
+
+        response = rest_api.patch(
+            f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}',
+            json={'fields': [{'name': NAME_FIELD, 'value': UPDATED_VALUE}]},
+        )
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # ---- state ---- #
+    def test_state_put_missing_object_returns_404(self, rest_api) -> None:
+        """Toggling the state of a non-existent object is a 404."""
+        assert rest_api.put(f'{ROUTE_URL}/state/{MISSING_OBJECT_ID}', json=False).status_code \
+            == HTTPStatus.NOT_FOUND
+
+    def test_state_put_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError maps the state toggle to 400."""
+        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/state/{OBJECT_ID_FOR_UPDATE}', json=False).status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_state_put_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
+        """An ACL denial maps the state toggle to 403."""
+        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(AccessDeniedError('nope')))
+
+        assert rest_api.put(f'{ROUTE_URL}/state/{OBJECT_ID_FOR_UPDATE}', json=False).status_code \
+            == HTTPStatus.FORBIDDEN
+
+    def test_state_put_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps the state toggle to 500."""
+        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/state/{OBJECT_ID_FOR_UPDATE}', json=False).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # ---- delete ---- #
+    def test_delete_missing_object_returns_404(self, rest_api) -> None:
+        """Deleting a non-existent object is a 404."""
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
+        """An ACL denial on the delete is a 403 - it used to fall through to a 500 (regression)."""
+        monkeypatch.setattr(ObjectsManager, 'delete_with_follow_up', _raiser(AccessDeniedError('nope')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code == HTTPStatus.FORBIDDEN
+
+    def test_delete_manager_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerDeleteError maps the delete to 500."""
+        monkeypatch.setattr(ObjectsManager, 'delete_with_follow_up', _raiser(ObjectsManagerDeleteError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_reference_scrub_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """A failure while removing the references to the deleted object is a 500."""
+        monkeypatch.setattr(
+            ObjectsManager, 'delete_all_object_references', _raiser(ObjectsManagerUpdateError('boom')),
+        )
+
+        assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_many_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
+        """An ACL denial on the bulk delete is a 403 - it used to be a 500 (regression)."""
+        monkeypatch.setattr(ObjectsManager, 'delete_object', _raiser(AccessDeniedError('nope')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_UPDATE}').status_code \
+            == HTTPStatus.FORBIDDEN
+
+    def test_delete_many_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerGetError while reading the targets maps the bulk delete to 400."""
+        monkeypatch.setattr(ObjectsManager, 'find', _raiser(ObjectsManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_UPDATE}').status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_delete_many_manager_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerDeleteError maps the bulk delete to 500."""
+        monkeypatch.setattr(ObjectsManager, 'delete_object', _raiser(ObjectsManagerDeleteError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_UPDATE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_many_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps the bulk delete to 500."""
+        monkeypatch.setattr(ObjectsManager, 'find', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_UPDATE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestBulkDeleteIsAtomic:
+    """A target whose CmdbType is gone refuses the whole selection instead of deleting part of it."""
+
+    ORPHAN_ID: int = 9432
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds one healthy object and one whose type_id points at no CmdbType."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_DELETE, ORIGINAL_VALUE)
+        orphan = _object_doc(self.ORPHAN_ID, ORIGINAL_VALUE)
+        orphan['type_id'] = 9998  # no such CmdbType
+        objects.insert_one(orphan)
+        yield
+        objects.delete_many({'public_id': {'$in': [OBJECT_ID_FOR_DELETE, self.ORPHAN_ID]}})
+
+    def test_nothing_is_deleted_when_one_type_is_missing(self, rest_api, database_manager, database_name) -> None:
+        """The type check now runs in the up-front guard; it used to abort mid-loop (regression)."""
+        response = rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_DELETE},{self.ORPHAN_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        # the healthy target - listed FIRST, so the old mid-loop abort had already deleted it - survives
+        assert objects.count_documents({'public_id': OBJECT_ID_FOR_DELETE}) == 1
+        assert objects.count_documents({'public_id': self.ORPHAN_ID}) == 1
+
+
+class TestListFilterShapes:
+    """A caller-supplied filter reaches the list / reference routes as a dict OR as a pipeline."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        _insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_GET, ORIGINAL_VALUE)
+        yield
+        _drop_object(database_manager, database_name, OBJECT_ID_FOR_GET)
+
+    def test_list_accepts_a_pipeline_filter_with_the_active_filter(self, rest_api) -> None:
+        """A filter that already IS a stage list only gets the active stage appended."""
+        response = rest_api.get(
+            f'{ROUTE_URL}/?onlyActiveObjCookie=true&filter=[{{"$match": {{"type_id": {TYPE_ID}}}}}]'
+        )
+
+        assert response.status_code == HTTPStatus.OK
+        assert OBJECT_ID_FOR_GET in {entry['public_id'] for entry in response.get_json()['results']}
+
+    def test_references_accepts_a_pipeline_filter(self, rest_api) -> None:
+        """The reference route takes the same two filter shapes."""
+        response = rest_api.get(
+            f'{ROUTE_URL}/references/{OBJECT_ID_FOR_GET}?filter=[{{"$match": {{"type_id": {TYPE_ID}}}}}]'
+        )
+
+        assert response.status_code == HTTPStatus.OK

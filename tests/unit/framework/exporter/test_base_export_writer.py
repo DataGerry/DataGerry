@@ -29,7 +29,18 @@ from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.framework.exporter.writer.base_export_writer'
-FILENAME_PATTERN: str = r'^attachment; filename=\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}\.json$'
+# <timestamp>_objects_<subject>[_readable].<ext>, quoted - see export_filename_helper
+FILENAME_PATTERN: str = (
+    r'^attachment; filename="\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}_objects_[a-z0-9.-]+\.json"$'
+)
+READABLE_FILENAME_PATTERN: str = (
+    r'^attachment; filename="\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}_objects_[a-z0-9.-]+_readable\.json"$'
+)
+
+
+def _rendered(type_name: str) -> SimpleNamespace:
+    """A rendered export row: the filename builder reads the type name, the location resolution `fields`."""
+    return SimpleNamespace(type_information={'type_name': type_name}, fields=[])
 
 
 class _FakeFormat:
@@ -68,6 +79,33 @@ class TestExport:
         assert re.match(FILENAME_PATTERN, response.headers['Content-Disposition'])
         # the format received the collected data + the config options
         assert fmt.called_with == (['row-1', 'row-2'], {'view': 'native'})
+
+    def test_filename_names_the_exported_type(self) -> None:
+        """The subject comes from the RENDERED objects - the export config only carries a raw filter."""
+        writer = BaseExportWriter(_FakeFormat(), SimpleNamespace(options={}))
+        writer.data = [_rendered('router'), _rendered('router')]
+
+        disposition = writer.export().headers['Content-Disposition']
+
+        assert disposition.endswith('_objects_router.json"')
+
+    def test_filename_counts_a_multi_type_export(self) -> None:
+        """A selection spanning several types is named by their count, not by a list."""
+        writer = BaseExportWriter(_FakeFormat(), SimpleNamespace(options={}))
+        writer.data = [_rendered('router'), _rendered('switch')]
+
+        assert writer.export().headers['Content-Disposition'].endswith('_objects_2-types.json"')
+
+    def test_filename_marks_a_human_readable_export(self) -> None:
+        """The human_readable flag reaches the filename, since such a file is not re-importable."""
+        writer = BaseExportWriter(_FakeFormat(), SimpleNamespace(options={'human_readable': 'true'}))
+        writer._dbm = MagicMock()  # pylint: disable=protected-access
+        writer.data = [_rendered('router')]
+
+        with patch(f'{MODULE_PATH}.LocationsManager'):
+            disposition = writer.export().headers['Content-Disposition']
+
+        assert re.match(READABLE_FILENAME_PATTERN, disposition)
 
     def test_uses_the_formats_declared_mime_type(self) -> None:
         """The response mimetype is exactly the export format's declared MIME_TYPE."""

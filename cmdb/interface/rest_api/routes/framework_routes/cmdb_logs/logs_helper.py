@@ -15,6 +15,13 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Helper methods shared by the CmdbLog REST routes
+
+Holds the shared list assembly (`build_object_logs_response`, which every list endpoint routes its own
+query through) and the server-side user resolution behind ``?include_users=true``.
+
+NOTE the caller's ``filter`` collection parameter is NOT merged into the query here - it is parsed by
+the route decorator and then ignored, which is a known gap (discussion-backlog item), not a decision
+this helper makes on purpose.
 """
 from typing import Any, Union
 
@@ -106,6 +113,9 @@ def build_object_logs_response(logs_manager: LogsManager,
                                     request.url,
                                     request.method == HTTP_HEAD_METHOD)
 
+    # The response is built from the plain log LIST first, on purpose: GetMultiResponse derives `count`
+    # from len(results) in its constructor, so wrapping the logs in {logs, users} before that point
+    # would report the page size as 2 (the number of keys) instead of the number of logs
     if _include_users_requested(request):
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
         api_response.results = {

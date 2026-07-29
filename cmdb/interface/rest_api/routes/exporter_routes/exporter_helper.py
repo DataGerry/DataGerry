@@ -28,7 +28,7 @@ from flask import abort, Response
 from cmdb.database.database_utils import default
 from cmdb.models.type_model import CmdbType
 from cmdb.utils.helpers import is_truthy_query_arg
-from cmdb.framework.exporter.export_filename_helper import build_export_filename_timestamp
+from cmdb.framework.exporter.export_filename_helper import build_type_export_filename
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (
     ZIP_EXPORT_FORMAT,
@@ -113,12 +113,14 @@ def build_types_json_export_response(types: list[CmdbType]) -> Response:
         default=default,
         indent=TYPE_EXPORT_JSON_INDENT,
     )
-    timestamp: str = build_export_filename_timestamp()
+    # The number of exported types is what identifies a catalogue slice, so it names the file
+    filename: str = build_type_export_filename(len(types), TYPE_EXPORT_FILE_EXTENSION)
 
     return Response(
         body,
         mimetype=TYPE_EXPORT_MIMETYPE,
         headers={
-            "Content-Disposition": f"attachment; filename={timestamp}.{TYPE_EXPORT_FILE_EXTENSION}"
+            # Quoted for the same reason as the object export: the name carries more than a timestamp now
+            "Content-Disposition": f'attachment; filename="{filename}"'
         }
     )
