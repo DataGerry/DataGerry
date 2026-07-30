@@ -23,7 +23,6 @@ import { finalize, takeUntil } from 'rxjs/operators';
 
 import { ObjectService } from '../../services/object.service';
 import { FileService } from '../../../export/export.service';
-import { FileSaverService } from 'ngx-filesaver';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { SidebarService } from '../../../layout/services/sidebar.service';
 import { UserSettingsDBService } from '../../../management/user-settings/services/user-settings-db.service';
@@ -44,6 +43,8 @@ import { ObjectsDeleteModalComponent } from '../modals/objects-delete-modal/obje
 import { UserSetting } from '../../../management/user-settings/models/user-setting';
 import { SupportedExporterExtension } from '../../../export/export-objects/model/supported-exporter-extension';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -121,7 +122,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         private route: ActivatedRoute,
         private objectService: ObjectService,
         private fileService: FileService,
-        private fileSaverService: FileSaverService,
+        private exportDownloadService: ExportDownloadService,
         private toastService: ToastService,
         private sidebarService: SidebarService,
         private modalService: NgbModal,
@@ -1080,10 +1081,15 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             ];
         }
 
-        this.fileService.callExportRoute(exportAPI, see.view)
-            .subscribe(res => {
-                this.fileSaverService.save(res.body, new Date().toISOString() + '.' + see.label);
-            });
+        this.loaderService.show();
+
+        this.fileService.callExportRoute(exportAPI, see.view).pipe(
+            takeUntil(this.subscriber),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: res => this.exportDownloadService.save(res, { kind: ExportKind.Objects, extension: see.label }),
+            error: () => this.toastService.error('The objects could not be exported. Please try again.')
+        });
     }
 
 
