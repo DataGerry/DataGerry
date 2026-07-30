@@ -50,6 +50,7 @@ import { CsvMappingComponent } from './components/objects/csv-mapping/csv-mappin
 import { SelectFileDragDropComponent } from './components/types/select-file-drag-drop/select-file-drag-drop.component';
 import { TypePreviewComponent } from './components/types/type-preview/type-preview.component';
 import { ImportTypeCompleteComponent } from './components/types/import-type-complete/import-type-complete.component';
+import { FailedTypeTableComponent } from './components/types/failed-type-table/failed-type-table.component';
 import { ImportCompleteComponent } from './components/objects/import-complete/import-complete.component';
 import { FailedImportTableComponent } from './components/objects/failed-import-table/failed-import-table.component';
 import { CoreModule } from 'src/app/core/core.module';
@@ -79,6 +80,7 @@ import { ImportSummaryModalComponent } from './components/import-summary-dialog/
         SelectFileDragDropComponent,
         TypePreviewComponent,
         ImportTypeCompleteComponent,
+        FailedTypeTableComponent,
         ImportCompleteComponent,
         FailedImportTableComponent,
         ImportThreatComponent,

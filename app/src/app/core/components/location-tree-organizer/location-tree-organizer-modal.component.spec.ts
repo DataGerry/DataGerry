@@ -24,6 +24,7 @@ import { of, throwError } from 'rxjs';
 import { LocationTreeOrganizerModalComponent } from './location-tree-organizer-modal.component';
 import { LocationService, LocationTreeNode } from 'src/app/framework/services/location.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { LocationTreeSelectNode } from '../location-tree-select/location-tree-select.model';
 
 /* -------------------------------------------------------------------------- */
@@ -65,6 +66,7 @@ describe('LocationTreeOrganizerModalComponent', () => {
 
     let locationService: jasmine.SpyObj<LocationService>;
     let toast: jasmine.SpyObj<ToastService>;
+    let permission: jasmine.SpyObj<PermissionService>;
 
     /** A(10) loaded at root; expanded so B/C/F are present, then B expanded so D is present. */
     const buildTree = (): void => {
@@ -92,12 +94,19 @@ describe('LocationTreeOrganizerModalComponent', () => {
 
         toast = jasmine.createSpyObj<ToastService>('ToastService', ['error', 'success']);
 
+        // The modal gates every move behind the location edit right; grant it so the move paths are
+        // reachable. Stubbing it also keeps the real right lookup (and its HTTP chain) out of the test.
+        permission = jasmine.createSpyObj<PermissionService>('PermissionService', ['hasRight', 'hasExtendedRight']);
+        permission.hasRight.and.returnValue(true);
+        permission.hasExtendedRight.and.returnValue(true);
+
         await TestBed.configureTestingModule({
             declarations: [LocationTreeOrganizerModalComponent],
             schemas: [NO_ERRORS_SCHEMA],
             providers: [
                 { provide: LocationService, useValue: locationService },
                 { provide: ToastService, useValue: toast },
+                { provide: PermissionService, useValue: permission },
                 { provide: NgbActiveModal, useValue: jasmine.createSpyObj('NgbActiveModal', ['close', 'dismiss']) }
             ]
         })

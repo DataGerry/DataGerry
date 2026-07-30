@@ -26,9 +26,10 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        flex-wrap: wrap;
     }
 
-    &__type {
+    &__label {
         font-size: 0.9rem;
         font-weight: 700;
         color: $ink;
@@ -40,25 +41,18 @@
         border-radius: 0.4rem;
         font-size: 0.75rem;
         font-weight: 700;
-        color: $muted;
-        background: $surface;
-        border: 1px solid $border;
+        color: $brand;
+        background: $brand-soft;
     }
 
-    &__values {
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
+    &__name {
+        font-size: 0.78rem;
+        color: $muted;
+    }
+
+    &__meta {
         padding-top: 0.6rem;
         border-top: 1px solid $hairline;
-    }
-
-    &__values-label {
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
-        color: $muted;
     }
 }
 
@@ -91,6 +85,5 @@
     &__val {
         padding: 0.2rem 0.5rem;
         color: $ink;
-        word-break: break-word;
     }
 }

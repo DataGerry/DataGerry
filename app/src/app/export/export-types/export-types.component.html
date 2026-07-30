@@ -5,58 +5,39 @@
 <form [formGroup]="formExport" (ngSubmit)="export()">
   <div class="card">
     <div class="card-body">
-      <div class="mb-3">
-        <label for="typeChooser" class="mb-2">Select Type <span class="required">*</span></label>
-        <ng-select id="typeChooser"
-                   [items]="typeList"
-                   required
-                   bindLabel="label"
-                   bindValue="public_id"
-                   placeholder="Choose your option"
-                   formControlName="type">
+      <app-form-select label="Select Types"
+                       placeholder="Choose one or more types"
+                       [items]="typeOptions"
+                       bindLabel="label"
+                       bindValue="public_id"
+                       [multiple]="true"
+                       [enableSelectAll]="true"
+                       [required]="true"
+                       formControlName="types">
+      </app-form-select>
 
-          <ng-template ng-label-tmp let-item="item">
-            <i class="{{item?.render_meta?.icon}}"></i> {{item?.label}}
-            #{{item?.public_id}}
-          </ng-template>
-          <ng-template ng-option-tmp let-item="item" let-index="index">
-            <i class="{{item?.render_meta?.icon}}"></i> {{item?.label}}
-            #{{item?.public_id}}
-          </ng-template>
-        </ng-select>
-
-        <!-- error block -->
-        @if (isSubmitted && type.errors?.required) {
-        <div class="cross-validation-error-message alert alert-danger">
-          Please enter type
-        </div>
-        }
+      <!-- error block -->
+      @if (isSubmitted && types.errors?.required) {
+      <div class="cross-validation-error-message alert alert-danger">
+        Please select at least one type
       </div>
+      }
 
-      <div class="mb-3">
-        <label for="formatChooser" class="mb-2">Output format <span class="required">*</span></label>
-        <ng-select id="formatChooser"
-                   [items]="formatList"
-                   required
-                   bindLabel="label"
-                   bindValue="id"
-                   placeholder="Choose your option"
-                   formControlName="format">
+      <app-form-select label="Output format"
+                       placeholder="Choose your option"
+                       [items]="formatList"
+                       bindLabel="label"
+                       bindValue="id"
+                       [required]="true"
+                       formControlName="format">
+      </app-form-select>
 
-          <ng-template ng-label-tmp let-item="item">
-            <fa-icon icon="{{item.icon}}"></fa-icon> {{item.label}}
-          </ng-template>
-          <ng-template ng-option-tmp let-item="item" let-index="index">
-            <fa-icon icon="{{item.icon}}"></fa-icon> {{item.label}}
-          </ng-template>
-        </ng-select>
-        <!-- error block -->
-        @if (isSubmitted && format.errors?.required) {
-        <div class="cross-validation-error-message alert alert-danger">
-          Please enter format
-        </div>
-        }
+      <!-- error block -->
+      @if (isSubmitted && format.errors?.required) {
+      <div class="cross-validation-error-message alert alert-danger">
+        Please enter format
       </div>
+      }
 
       <button type="button" class="btn btn-success text-end"
               (click)="this.export()"
@@ -66,7 +47,7 @@
 </form>
 
 
-<app-loading-popup 
+<app-loading-popup
   [isVisible]="isLoading$ | async"
   message="We're Processing the Data..."
 ></app-loading-popup>

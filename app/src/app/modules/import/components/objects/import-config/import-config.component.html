@@ -1,7 +1,7 @@
 <form [formGroup]="configForm" class="config-form">
     <div class="mb-3 row">
         <label class="col-sm-3 col-form-label" for="start_element">
-            Start element
+            Start at object
         </label>
         <div class="col-sm-9">
             <input id="start_element" name="start_element" type="number" class="form-control"
@@ -12,12 +12,12 @@
 
     <div class="mb-3 row">
         <label class="col-sm-3 col-form-label" for="max_elements">
-            Max element
+            Objects to import
         </label>
         <div class="col-sm-9">
             <input id="max_elements" name="max_elements" type="number" class="form-control"
                 formControlName="max_elements">
-            <span class="form-text">Maximum number of objects to import</span>
+            <span class="form-text">Maximum number of objects to import. Use 0 to import all objects.</span>
         </div>
     </div>
 

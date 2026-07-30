@@ -31,6 +31,7 @@ import { HorizontalResizeDirective } from './directives/horizontal-resize.direct
 import { FullscreenDirective } from './directives/fullscreen.directive';
 import { PremiumFeatureDirective } from './directives/premium-feature.directive';
 import { PremiumGateDirective } from './directives/premium-gate.directive';
+import { WizardStepperDirective } from './directives/wizard-stepper.directive';
 import { PremiumLockedComponent } from './components/premium-locked/premium-locked.component';
 import { CompactNumberPipe } from './pipes/compact-number.pipe';
 
@@ -71,6 +72,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     FullscreenDirective,
     PremiumFeatureDirective,
     PremiumGateDirective,
+    WizardStepperDirective,
     PremiumLockedComponent,
     DgModalComponent
   ],
@@ -100,6 +102,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     FullscreenDirective,
     PremiumFeatureDirective,
     PremiumGateDirective,
+    WizardStepperDirective,
     PremiumLockedComponent,
     CompactNumberPipe,
     DgModalComponent
