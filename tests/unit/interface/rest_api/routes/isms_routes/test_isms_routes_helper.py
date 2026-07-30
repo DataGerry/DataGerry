@@ -18,15 +18,22 @@ Unit tests for the shared ISMS route helpers in isms_routes_helper.
 
 Pure tests driven against MagicMock managers: ``bulk_delete_reporting_in_use`` (delete_item reports
 whether a document was removed) and ``update_multiple_items`` (the bulk-update orchestration that
-resolves existing ids in one batched query and reports a per-item result).
+resolves existing ids in one batched query and reports a per-item result), plus the RiskAssessment
+required-field guard - which is where the "name every missing field at once" behaviour is asserted,
+since through HTTP the Cerberus schema already rejects four of the five before the guard is reached.
 """
 from unittest.mock import MagicMock
 
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    REQUIRED_RISK_ASSESSMENT_FIELDS,
+)
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     bulk_delete_reporting_in_use,
+    get_missing_risk_assessment_fields,
+    guard_required_risk_assessment_fields,
     update_multiple_items,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -151,3 +158,108 @@ class TestUpdateMultipleItems:
 
         by_id = {entry['public_id']: entry['status'] for entry in results}
         assert by_id == {ID_A: 'failed', ID_B: 'success'}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        RiskAssessment required-field guard                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _complete_risk_assessment() -> dict:
+    """Builds a payload carrying a value for every mandatory RiskAssessment field."""
+    return {
+        'risk_id': 1,
+        'object_id_ref_type': 'OBJECT',
+        'object_id': 2,
+        'risk_owner_id': 3,
+        'risk_assessment_date': {'$date': 1600000000000},
+    }
+
+
+class TestGetMissingRiskAssessmentFields:
+    """Which mandatory fields a payload fails to supply."""
+
+    def test_a_complete_payload_reports_nothing(self) -> None:
+        """Every mandatory field filled means no complaint."""
+        assert get_missing_risk_assessment_fields(_complete_risk_assessment()) == []
+
+    def test_optional_lifecycle_fields_are_not_required(self) -> None:
+        """The treatment / audit blocks may be absent or null - they belong to later stages."""
+        payload = _complete_risk_assessment()
+        payload.update({
+            'risk_treatment_option': None,
+            'implementation_status': None,
+            'audit_done_date': None,
+            'auditor_id': None,
+            'risk_assessor_id': None,
+        })
+
+        assert get_missing_risk_assessment_fields(payload) == []
+
+    @pytest.mark.parametrize('field_name', list(REQUIRED_RISK_ASSESSMENT_FIELDS))
+    def test_an_absent_field_is_reported(self, field_name: str) -> None:
+        """A key that is not sent at all is missing."""
+        payload = _complete_risk_assessment()
+        payload.pop(field_name)
+
+        assert get_missing_risk_assessment_fields(payload) == [field_name]
+
+    @pytest.mark.parametrize('field_name', list(REQUIRED_RISK_ASSESSMENT_FIELDS))
+    def test_a_null_field_is_reported(self, field_name: str) -> None:
+        """A key sent as null is missing too (the schema still allows null for risk_owner_id)."""
+        payload = _complete_risk_assessment()
+        payload[field_name] = None
+
+        assert get_missing_risk_assessment_fields(payload) == [field_name]
+
+    @pytest.mark.parametrize('empty_value', ['', [], {}])
+    def test_an_empty_value_is_reported(self, empty_value: object) -> None:
+        """An empty date object is as unusable as no date at all."""
+        payload = _complete_risk_assessment()
+        payload['risk_assessment_date'] = empty_value
+
+        assert get_missing_risk_assessment_fields(payload) == ['risk_assessment_date']
+
+    def test_a_zero_id_is_not_treated_as_missing(self) -> None:
+        """Only None / empty containers count - a 0 is a value, and the schema rejects it separately."""
+        payload = _complete_risk_assessment()
+        payload['object_id'] = 0
+
+        assert get_missing_risk_assessment_fields(payload) == []
+
+    def test_every_missing_field_is_reported_in_schema_order(self) -> None:
+        """All offenders are collected at once, so one response can name them all."""
+        assert get_missing_risk_assessment_fields({}) == list(REQUIRED_RISK_ASSESSMENT_FIELDS)
+
+    def test_several_missing_fields_are_all_reported(self) -> None:
+        """A partially filled payload names every field it is still missing."""
+        payload = _complete_risk_assessment()
+        payload['risk_owner_id'] = None
+        payload.pop('risk_assessment_date')
+
+        assert get_missing_risk_assessment_fields(payload) == ['risk_owner_id', 'risk_assessment_date']
+
+
+class TestGuardRequiredRiskAssessmentFields:
+    """The 400 the write paths raise."""
+
+    def test_a_complete_payload_passes(self) -> None:
+        """A complete assessment is not refused."""
+        guard_required_risk_assessment_fields(_complete_risk_assessment())  # must not raise
+
+    def test_a_missing_field_aborts_400_naming_it(self) -> None:
+        """The response names the offending field."""
+        payload = _complete_risk_assessment()
+        payload['risk_owner_id'] = None
+
+        with pytest.raises(HTTPException) as err:
+            guard_required_risk_assessment_fields(payload)
+
+        assert err.value.code == 400
+        assert 'risk_owner_id' in err.value.description
+
+    def test_the_message_names_every_missing_field(self) -> None:
+        """All missing fields appear in one message, so the caller can highlight them together."""
+        with pytest.raises(HTTPException) as err:
+            guard_required_risk_assessment_fields({})
+
+        for field_name in REQUIRED_RISK_ASSESSMENT_FIELDS:
+            assert field_name in err.value.description

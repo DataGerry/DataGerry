@@ -110,7 +110,12 @@ PERSON_REF: str = PersonReferenceType.PERSON
 
 
 def _ra_body(public_id: int, **overrides: Any) -> dict[str, Any]:
-    """Builds a schema-valid IsmsRiskAssessment body (all 26 required fields; nullable ones as None)."""
+    """Builds a complete IsmsRiskAssessment body: every mandatory field filled, the optional ones None.
+
+    'risk_owner_id' carries a real person on purpose - it is one of the fields
+    guard_required_risk_assessment_fields refuses as None, so a null here would make every happy-path
+    test a 400.
+    """
     body: dict[str, Any] = {
         'public_id': public_id,
         'risk_id': RISK_ID,
@@ -122,7 +127,7 @@ def _ra_body(public_id: int, **overrides: Any) -> dict[str, Any]:
         },
         'risk_assessor_id': None,
         'risk_owner_id_ref_type': PERSON_REF,
-        'risk_owner_id': None,
+        'risk_owner_id': PERSON_ID,
         'interviewed_persons': [],
         'risk_assessment_date': {'$date': 1600000000000},
         'additional_info': None,
@@ -273,6 +278,47 @@ class TestPostRiskAssessment:
         created = cma_collection.find_one({'public_id': CMA_ID_TO_CREATE})
         assert created is not None
         assert created['risk_assessment_id'] == RA_ID_FOR_GET
+
+
+class TestRequiredFieldsGuard:
+    """Every write path refuses an assessment whose mandatory fields are not all supplied."""
+
+    def test_create_without_a_risk_owner_returns_400(self, rest_api) -> None:
+        """A null risk_owner_id is refused on create (the Cerberus schema still allows it)."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, risk_owner_id=None))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'risk_owner_id' in json.dumps(response.get_json())
+
+    def test_update_without_a_risk_owner_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The same rule applies to an update - an assessment cannot be saved back incomplete."""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}',
+            json=_ra_body(RA_ID_FOR_UPDATE, risk_owner_id=None),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'risk_owner_id' in json.dumps(response.get_json())
+
+    def test_duplicate_without_a_risk_owner_returns_400(self, rest_api) -> None:
+        """The duplicate source payload has to be complete too, or every copy would be incomplete."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/duplicate/risk/{RISK_ID}',
+            json=_ra_body(RA_ID_FOR_GET, risk_owner_id=None),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'risk_owner_id' in json.dumps(response.get_json())
+
+    def test_a_complete_assessment_is_still_accepted(self, rest_api) -> None:
+        """The guard does not reject a payload whose optional lifecycle blocks are empty."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.CREATED
 
 
 class TestGetRiskAssessment:

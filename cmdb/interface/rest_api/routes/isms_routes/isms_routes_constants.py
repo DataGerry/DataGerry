@@ -41,3 +41,17 @@ ISMS_BULK_DELETE_IN_USE_KEY: str = 'in_use'
 # ControlMeasureAssignments the cascade removed alongside the deleted Risks
 RISK_BULK_DELETED_RA_KEY: str = 'deleted_risk_assessments'
 RISK_BULK_DELETED_CMA_KEY: str = 'deleted_control_measure_assignments'
+
+# Fields an IsmsRiskAssessment must carry with a real value on every write path (create / update /
+# duplicate). This mirrors what the frontend form marks as required, so the API refuses exactly the
+# payloads the UI refuses - the remaining fields belong to later lifecycle stages (treatment, audit)
+# and stay optional. Four of them are already non-nullable in the Cerberus schema; 'risk_owner_id' is
+# nullable there, which is why the rule is enforced in one explicit place instead of relying on the
+# schema's per-field flags
+REQUIRED_RISK_ASSESSMENT_FIELDS: tuple[str, ...] = (
+    'risk_id',
+    'object_id_ref_type',
+    'object_id',
+    'risk_owner_id',
+    'risk_assessment_date',
+)
