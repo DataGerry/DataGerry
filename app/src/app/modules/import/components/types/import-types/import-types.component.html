@@ -14,7 +14,7 @@
     <div class="row import-page__body">
         <div class="col-12 col-xl-9">
             <div class="import-canvas">
-                <aw-wizard [navBarLayout]="'large-empty-symbols'">
+                <aw-wizard dgStepper [navBarLayout]="'large-empty-symbols'">
                     <aw-wizard-step stepId="1" stepTitle="Select file" [canExit]="canLeaveWithTypes"
                         (stepEnter)="onFileStepEnter()">
                         <ng-template awWizardStepSymbol>
