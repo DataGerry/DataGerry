@@ -96,9 +96,6 @@ bin: requirements buildvars webapp
 		${BIN_PYINSTALLER} --name datagerry --onefile \
 		--distpath ${DIR_BIN_BUILD} \
 		--workpath ${DIR_TEMP} \
-		--hidden-import cmdb.database.updater.versions.updater_20200512 \
-		--hidden-import cmdb.database.updater.versions.updater_20200513 \
-		--hidden-import cmdb.database.updater.versions.updater_20240603 \
 		--hidden-import cmdb.database.updater.versions.updater_20250619 \
 		--hidden-import cmdb.database.updater.versions.updater_20251203 \
 		--hidden-import cmdb.database.updater.versions.updater_20260225 \

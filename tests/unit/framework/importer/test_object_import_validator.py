@@ -41,6 +41,10 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 
 IMPORTER_ID: int = 7  # the importing user these tests run as; author_id is forced from it
 
+# A select field owned by a predefined section template: its options may not be extended by an import
+PREDEFINED_TEMPLATE: str = 'dg-ipam-interface'
+PROTECTED_SELECT_FIELD: str = 'dg-interface-type'
+
 
 def _normalize(working_object, special_type, type_context=None) -> list:
     """Calls the validator as a fixed importing user - the author id is not what these tests vary."""
@@ -50,7 +54,8 @@ def _normalize(working_object, special_type, type_context=None) -> list:
 
 
 def _ctx(clearable=None, type_map=None, required_top=None, required_mds=None,
-         top_defaults=None, mds_defaults=None, field_options=None, new_select_options=None) -> ImportTypeContext:
+         top_defaults=None, mds_defaults=None, field_options=None, new_select_options=None,
+         predefined_select=None) -> ImportTypeContext:
     """Builds an ImportTypeContext with only the parts a test needs (others default empty)."""
     return ImportTypeContext(
         clearable_reference_fields=clearable or set(),
@@ -60,6 +65,7 @@ def _ctx(clearable=None, type_map=None, required_top=None, required_mds=None,
         top_level_field_defaults=top_defaults or {},
         mds_field_defaults_by_section=mds_defaults or {},
         field_options=field_options if field_options is not None else {},
+        predefined_select_fields=predefined_select if predefined_select is not None else {},
         new_select_options=new_select_options if new_select_options is not None else {},
     )
 
@@ -565,6 +571,70 @@ class TestValueSuitabilityRule:
 
         assert not _normalize(
             obj, None, _ctx(type_map={'mode': 'radio'}, field_options={'mode': {'on', 'off'}}))
+
+    def test_select_unknown_value_of_a_predefined_template_field_is_rejected(self) -> None:
+        """An unknown value of a predefined template's select field rejects the object, options untouched."""
+        options = {PROTECTED_SELECT_FIELD: {'ipv4', 'ipv6'}}
+        new_options: dict = {}
+        obj = {'fields': [{'name': PROTECTED_SELECT_FIELD, 'value': 'IPv4'}]}
+
+        errors = _normalize(
+            obj, None,
+            _ctx(type_map={PROTECTED_SELECT_FIELD: 'select'}, field_options=options,
+                 new_select_options=new_options,
+                 predefined_select={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}))
+
+        assert any("not an allowed option" in error for error in errors)
+        assert any(PREDEFINED_TEMPLATE in error for error in errors)
+        assert options[PROTECTED_SELECT_FIELD] == {'ipv4', 'ipv6'}  # the batch's option set is untouched
+        assert not new_options                                      # nothing is persisted to the type
+
+    def test_select_known_value_of_a_predefined_template_field_passes(self) -> None:
+        """A value the predefined template already offers is imported normally."""
+        obj = {'fields': [{'name': PROTECTED_SELECT_FIELD, 'value': 'ipv6'}]}
+
+        assert not _normalize(
+            obj, None,
+            _ctx(type_map={PROTECTED_SELECT_FIELD: 'select'},
+                 field_options={PROTECTED_SELECT_FIELD: {'ipv4', 'ipv6'}},
+                 predefined_select={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}))
+
+    def test_select_unknown_value_in_an_mds_row_of_a_predefined_template_is_rejected(self) -> None:
+        """The rule also applies inside a multi-data-section row (the predefined MDS template case)."""
+        new_options: dict = {}
+        obj = {
+            'fields': [],
+            'multi_data_sections': [{
+                'section_id': PREDEFINED_TEMPLATE,
+                'highest_id': 1,
+                'values': [{'multi_data_id': 1, 'data': [{'name': PROTECTED_SELECT_FIELD, 'value': 'IPv6'}]}],
+            }],
+        }
+
+        errors = _normalize(
+            obj, None,
+            _ctx(type_map={PROTECTED_SELECT_FIELD: 'select'},
+                 required_mds={PREDEFINED_TEMPLATE: set()},
+                 mds_defaults={PREDEFINED_TEMPLATE: {PROTECTED_SELECT_FIELD: 'ipv4'}},
+                 field_options={PROTECTED_SELECT_FIELD: {'ipv4', 'ipv6'}},
+                 new_select_options=new_options,
+                 predefined_select={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}))
+
+        assert any("not an allowed option" in error for error in errors)
+        assert not new_options
+
+    def test_unprotected_select_field_is_still_extended(self) -> None:
+        """Protecting one field leaves the type's own select fields extendable as before."""
+        new_options: dict = {}
+        obj = {'fields': [{'name': 'kind', 'value': 'c'}]}
+
+        errors = _normalize(
+            obj, None,
+            _ctx(type_map={'kind': 'select'}, field_options={'kind': {'a'}}, new_select_options=new_options,
+                 predefined_select={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}))
+
+        assert not errors
+        assert new_options == {'kind': ['c']}
 
 
 class TestApplyNewSelectOptions:

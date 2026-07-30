@@ -40,6 +40,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     emit_object_update_events,
     apply_object_update,
     sync_select_field_options,
+    collect_unknown_select_values,
+    guard_predefined_select_options,
     handle_delete_object_location,
     build_type_object_counts,
     handle_sync_config_item_count,
@@ -61,6 +63,10 @@ from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
+
+# A select field owned by a predefined section template: its options may not be extended by a write
+PREDEFINED_TEMPLATE: str = 'dg-ipam-interface'
+PROTECTED_SELECT_FIELD: str = 'dg-interface-type'
 
 
 def _make_object(fields: list[dict[str, Any]], special_type: Any = None, public_id: int = 1) -> CmdbObject:
@@ -410,6 +416,7 @@ class TestSyncSelectFieldOptions:
         """A type carrying one select field 'os' whose only known option is 'Windows'."""
         object_type = MagicMock()
         object_type.public_id = 1
+        object_type.global_template_ids = []  # no global section template -> nothing is protected
         object_type.get_fields_with_type.return_value = {
             'os': {'name': 'os', 'type': FieldType.SELECT, 'options': [{'name': 'Windows', 'label': 'Windows'}]}
         }
@@ -460,6 +467,151 @@ class TestSyncSelectFieldOptions:
             sync_select_field_options(MagicMock(), target_object, object_type)
 
         types_manager.update_type.assert_called_once()
+
+    def test_a_predefined_template_select_field_is_never_extended(self) -> None:
+        """A select field owned by a predefined section template is skipped, so the type is not written."""
+        object_type = self._object_type()
+        target_object = SimpleNamespace(
+            fields=[{'name': 'os', 'type': FieldType.SELECT, 'value': 'Linux'}],
+            multi_data_sections=[],
+        )
+        types_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=types_manager), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields', return_value={'os': PREDEFINED_TEMPLATE}):
+            sync_select_field_options(MagicMock(), target_object, object_type)
+
+        types_manager.update_type.assert_not_called()
+        assert {opt['name'] for opt in object_type.fields[0]['options']} == {'Windows'}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            collect_unknown_select_values                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCollectUnknownSelectValues:
+    """collect_unknown_select_values reports the select values a type does not offer yet."""
+
+    TYPE_SELECT_FIELDS: dict[str, Any] = {
+        'os': {'name': 'os', 'type': FieldType.SELECT, 'options': [{'name': 'Windows', 'label': 'Windows'}]},
+    }
+
+    def test_unknown_top_level_value_is_collected(self) -> None:
+        """A regular field's unknown value is reported under its field name."""
+        fields = [{'name': 'os', 'type': FieldType.SELECT, 'value': 'Linux'}]
+
+        assert collect_unknown_select_values(fields, None, self.TYPE_SELECT_FIELDS) == {'os': {'Linux'}}
+
+    def test_unknown_mds_row_value_is_collected(self) -> None:
+        """An MDS row's unknown value is reported the same way."""
+        mds = [{'values': [{'data': [{'name': 'os', 'type': FieldType.SELECT, 'value': 'Linux'}]}]}]
+
+        assert collect_unknown_select_values([], mds, self.TYPE_SELECT_FIELDS) == {'os': {'Linux'}}
+
+    def test_known_value_is_ignored(self) -> None:
+        """A value the type already offers is not reported."""
+        fields = [{'name': 'os', 'type': FieldType.SELECT, 'value': 'Windows'}]
+
+        assert collect_unknown_select_values(fields, [], self.TYPE_SELECT_FIELDS) == {}
+
+    @pytest.mark.parametrize('value', [None, '', [], {}])
+    def test_empty_value_is_ignored(self, value: Any) -> None:
+        """An empty value never becomes an option."""
+        fields = [{'name': 'os', 'type': FieldType.SELECT, 'value': value}]
+
+        assert collect_unknown_select_values(fields, [], self.TYPE_SELECT_FIELDS) == {}
+
+    def test_field_the_type_does_not_define_is_ignored(self) -> None:
+        """A select entry naming a field the type has no select definition for is skipped."""
+        fields = [{'name': 'other', 'type': FieldType.SELECT, 'value': 'x'}]
+
+        assert collect_unknown_select_values(fields, [], self.TYPE_SELECT_FIELDS) == {}
+
+    def test_non_select_entry_is_ignored(self) -> None:
+        """Only select entries are inspected."""
+        fields = [{'name': 'os', 'type': FieldType.TEXT, 'value': 'Linux'}]
+
+        assert collect_unknown_select_values(fields, [], self.TYPE_SELECT_FIELDS) == {}
+
+    def test_missing_field_list_is_tolerated(self) -> None:
+        """A payload without fields / multi_data_sections yields nothing."""
+        assert collect_unknown_select_values(None, None, self.TYPE_SELECT_FIELDS) == {}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           guard_predefined_select_options                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGuardPredefinedSelectOptions:
+    """guard_predefined_select_options refuses a write that would edit a predefined template's field."""
+
+    @staticmethod
+    def _object_type() -> MagicMock:
+        """A type whose select field 'dg-interface-type' only offers 'ipv4' / 'ipv6'."""
+        object_type = MagicMock()
+        object_type.public_id = 1
+        object_type.global_template_ids = [PREDEFINED_TEMPLATE]
+        object_type.get_fields_with_type.return_value = {
+            PROTECTED_SELECT_FIELD: {
+                'name': PROTECTED_SELECT_FIELD,
+                'type': FieldType.SELECT,
+                'options': [{'name': 'ipv4', 'label': 'IPv4'}, {'name': 'ipv6', 'label': 'IPv6'}],
+            },
+        }
+        return object_type
+
+    def test_unknown_value_aborts_400(self) -> None:
+        """An unknown value on the protected field is rejected before the object is written."""
+        fields = [{'name': PROTECTED_SELECT_FIELD, 'type': FieldType.SELECT, 'value': 'IPv4'}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields',
+                   return_value={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}):
+            with pytest.raises(HTTPException) as err:
+                guard_predefined_select_options(MagicMock(), fields, None, self._object_type())
+
+        assert err.value.code == 400
+        assert PREDEFINED_TEMPLATE in err.value.description
+        assert 'IPv4' in err.value.description
+
+    def test_unknown_value_in_an_mds_row_aborts_400(self) -> None:
+        """The MDS rows of the predefined section are checked too."""
+        mds = [{'values': [{'data': [{'name': PROTECTED_SELECT_FIELD,
+                                     'type': FieldType.SELECT, 'value': 'IPv6'}]}]}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields',
+                   return_value={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}):
+            with pytest.raises(HTTPException) as err:
+                guard_predefined_select_options(MagicMock(), [], mds, self._object_type())
+
+        assert err.value.code == 400
+
+    def test_known_value_passes(self) -> None:
+        """A value the predefined template offers is written without complaint."""
+        fields = [{'name': PROTECTED_SELECT_FIELD, 'type': FieldType.SELECT, 'value': 'ipv6'}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields',
+                   return_value={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}):
+            guard_predefined_select_options(MagicMock(), fields, None, self._object_type())  # must not raise
+
+    def test_unprotected_field_passes(self) -> None:
+        """An unknown value of a normal select field is left to sync_select_field_options."""
+        fields = [{'name': PROTECTED_SELECT_FIELD, 'type': FieldType.SELECT, 'value': 'IPv4'}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields', return_value={}):
+            guard_predefined_select_options(MagicMock(), fields, None, self._object_type())  # must not raise
+
+    def test_known_values_only_skips_the_template_lookup(self) -> None:
+        """With nothing to add there is nothing to protect - the section templates are not read."""
+        fields = [{'name': PROTECTED_SELECT_FIELD, 'type': FieldType.SELECT, 'value': 'ipv4'}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager') as get_manager, \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields') as resolver:
+            guard_predefined_select_options(MagicMock(), fields, None, self._object_type())
+
+        get_manager.assert_not_called()
+        resolver.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

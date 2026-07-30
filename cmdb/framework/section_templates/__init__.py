@@ -13,3 +13,26 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Everything about the predefined ("global") section templates DataGerry ships with
+
+    section_template_creator.py     builds the predefined templates the first-boot seeding inserts
+    predefined_section_guard.py     names the CmdbType fields a predefined template owns, so the
+                                    write paths that edit field definitions can skip / reject them
+"""
+from .section_template_creator import SectionTemplateCreator
+from .predefined_section_guard import (
+    PREDEFINED_SELECT_OPTION_REJECTED,
+    get_predefined_template_names,
+    predefined_select_fields,
+    resolve_predefined_select_fields,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'SectionTemplateCreator',
+    'PREDEFINED_SELECT_OPTION_REJECTED',
+    'get_predefined_template_names',
+    'predefined_select_fields',
+    'resolve_predefined_select_fields',
+]

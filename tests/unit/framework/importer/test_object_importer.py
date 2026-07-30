@@ -507,6 +507,7 @@ class TestImportForType:
         type_instance.get_sections.return_value = []
         type_instance.special_type = 'SUBNET'
         mock_self._import.return_value = 'RESULT'
+        mock_self._resolve_predefined_select_fields.return_value = {}
 
         result = ObjectImporter._import_for_type(mock_self, ['cand'], type_instance)
 
@@ -518,8 +519,10 @@ class TestImportForType:
             top_level_field_defaults={'owner': None, 'host': None, 'note': None},
             mds_field_defaults_by_section={},
             field_options={},
+            predefined_select_fields={},
             new_select_options={},
         )
+        mock_self._resolve_predefined_select_fields.assert_called_once_with(type_instance)
         mock_self._import.assert_called_once_with(['cand'], 'SUBNET', expected_context)
         assert result == 'RESULT'
 
@@ -538,6 +541,35 @@ class TestImportForType:
 
         assert result == 'RESULT'
         mock_self._persist_new_select_options.assert_called_once_with(type_instance, {'kind': ['x']})
+
+    def test_predefined_select_fields_are_carried_into_the_context(self) -> None:
+        """The resolved predefined-template select fields become part of the normalization context."""
+        mock_self = MagicMock()
+        type_instance = MagicMock()
+        type_instance.get_fields.return_value = [{'name': 'dg-interface-type', 'type': 'select'}]
+        type_instance.get_sections.return_value = []
+        type_instance.special_type = None
+        mock_self._resolve_predefined_select_fields.return_value = {'dg-interface-type': 'dg-ipam-interface'}
+
+        ObjectImporter._import_for_type(mock_self, ['cand'], type_instance)
+
+        passed_context = mock_self._import.call_args.args[2]
+        assert passed_context.predefined_select_fields == {'dg-interface-type': 'dg-ipam-interface'}
+
+    def test_resolve_predefined_select_fields_delegates_to_the_guard(self) -> None:
+        """_resolve_predefined_select_fields builds a SectionTemplatesManager and asks the guard."""
+        mock_self = MagicMock()
+        mock_self.objects_manager.dbm = 'DBM'
+        mock_self.objects_manager.db_name = 'DB'
+        type_instance = MagicMock()
+
+        with patch(f'{PATH}.SectionTemplatesManager') as manager_cls, \
+             patch(f'{PATH}.resolve_predefined_select_fields', return_value={'a': 't'}) as resolver:
+            result = ObjectImporter._resolve_predefined_select_fields(mock_self, type_instance)
+
+        manager_cls.assert_called_once_with('DBM', 'DB')
+        resolver.assert_called_once_with(type_instance, manager_cls.return_value)
+        assert result == {'a': 't'}
 
     def test_persist_new_select_options_applies_and_updates_the_type(self) -> None:
         """_persist_new_select_options adds the options to the type and saves it once via TypesManager."""

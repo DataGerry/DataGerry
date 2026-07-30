@@ -573,7 +573,7 @@ def test_type_deletion_followup_runs_generic_cleanup_without_special_type() -> N
     with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: managers.setdefault(
         mtype, MagicMock())), \
          patch(f'{PATH}.cleanup_type_references_from_all_types', return_value=0) as cleanup_refs, \
-         patch(f'{PATH}.cleanup_special_type_references') as cleanup_special:
+         patch(f'{PATH}.cleanup_special_type_template_references') as cleanup_special:
         type_deletion_followup(MagicMock(), 7, special_type=None)
 
     managers[ManagerType.RELATIONS].remove_type_from_relations.assert_called_once_with(7)
@@ -583,10 +583,10 @@ def test_type_deletion_followup_runs_generic_cleanup_without_special_type() -> N
 
 
 def test_type_deletion_followup_runs_special_type_cleanup_with_marker() -> None:
-    """A deleted special type additionally triggers the special-type ref_types un-wiring."""
+    """A deleted special type additionally triggers the template-only ref_types un-wiring."""
     with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: MagicMock()), \
          patch(f'{PATH}.cleanup_type_references_from_all_types', return_value=0), \
-         patch(f'{PATH}.cleanup_special_type_references') as cleanup_special:
+         patch(f'{PATH}.cleanup_special_type_template_references') as cleanup_special:
         type_deletion_followup(MagicMock(), 7, special_type='SUBNET')
 
     cleanup_special.assert_called_once()

@@ -23,6 +23,7 @@ from flask import current_app
 
 from cmdb.manager import ObjectsManager
 from cmdb.manager.types_manager import TypesManager
+from cmdb.manager.section_templates_manager import SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import (
@@ -42,6 +43,7 @@ from cmdb.framework.importer.helper.object_import_validator import (
     build_import_type_context,
     apply_new_select_options,
 )
+from cmdb.framework.section_templates import resolve_predefined_select_fields
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 from cmdb.framework.importer.responses.import_report_response import build_import_summary_message
 from cmdb.framework.importer.messages.import_failed_message import ImportFailedMessage
@@ -159,7 +161,9 @@ class ObjectImporter(BaseImporter):
         Imports the candidates against the target type, deriving the normalization inputs from it
 
         Shared by the JSON and CSV importers: builds the ``ImportTypeContext`` once, imports the batch,
-        then persists to the type any select options that unknown imported values introduced.
+        then persists to the type any select options that unknown imported values introduced. Select
+        fields owned by a predefined section template are excluded from that behaviour - an unknown
+        value for one of them rejects the object instead (see ``_resolve_predefined_select_fields``).
 
         Args:
             candidates (list[tuple[dict, dict]]): (provided_data, generated_object) pairs to import
@@ -168,7 +172,10 @@ class ObjectImporter(BaseImporter):
         Returns:
             ImporterObjectResponse: The success and failure messages for the batch
         """
-        type_context = build_import_type_context(type_instance)
+        type_context = build_import_type_context(
+            type_instance,
+            predefined_select_fields=self._resolve_predefined_select_fields(type_instance),
+        )
         response = self._import(candidates, type_instance.special_type, type_context)
 
         # Unknown select values seen during the import become new options on the type (persist once)
@@ -176,6 +183,28 @@ class ObjectImporter(BaseImporter):
             self._persist_new_select_options(type_instance, type_context.new_select_options)
 
         return response
+
+
+    def _resolve_predefined_select_fields(self, type_instance: CmdbType) -> dict[str, str]:
+        """
+        Determines which of the target type's select fields a predefined section template owns
+
+        Those field definitions are immutable, so the import must not extend their options - it rejects
+        an unknown value for them instead. Costs no database read for a type that uses no global
+        section template at all
+
+        Args:
+            type_instance (CmdbType): The target CmdbType being imported into
+
+        Returns:
+            dict[str, str]: {select field name: name of the predefined template owning it}
+        """
+        section_templates_manager = SectionTemplatesManager(
+            self.objects_manager.dbm,
+            self.objects_manager.db_name,
+        )
+
+        return resolve_predefined_select_fields(type_instance, section_templates_manager)
 
 
     def _persist_new_select_options(self, type_instance, new_select_options: dict) -> None:

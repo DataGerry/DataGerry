@@ -73,7 +73,7 @@ class CmdbType(CmdbDAO):
         active: bool = True,
         special_type: SpecialType |None = None,
         selectable_as_parent: bool = True,
-        global_template_ids: list[int] | None = None,
+        global_template_ids: list[str] | None = None,
         fields: list[dict[str, Any]] | None = None,
         version: str | None = None,
         label: str | None = None,
@@ -96,7 +96,8 @@ class CmdbType(CmdbDAO):
             editor_id (int | None): The public_id of the CmdbUser who last edited the CmdbType
             active (bool): Indicates whether the object is active. Defaults to True
             selectable_as_parent (bool): Whether this CmdbType can be a parent Location. Defaults to True
-            global_template_ids (list[int]): A list of global template public_ids used by this CmdbType
+            global_template_ids (list[str]): Names of the global CmdbSectionTemplates used by this
+                                                CmdbType (the name is also the render_meta section name)
             fields (list): A list of fields associated with the CmdbType
             version (str): The version of the CmdbType. Defaults to 1.0.0
             label (str): A user-friendly label for the CmdbType. Defaults to a title-cased version of the name
@@ -114,7 +115,7 @@ class CmdbType(CmdbDAO):
             self.description: str | None = description
             self.version: str = version or CmdbType.DEFAULT_VERSION
             self.selectable_as_parent: bool = selectable_as_parent
-            self.global_template_ids: list[int] = global_template_ids or []
+            self.global_template_ids: list[str] = global_template_ids or []
             self.active: bool = active
             self.special_type: SpecialType | None = special_type
             self.author_id: int = author_id
@@ -515,5 +516,16 @@ class CmdbType(CmdbDAO):
 
 
     def get_fields_with_type(self, field_type: str) -> dict[str, dict[str, Any]]:
-        """TODO: document"""
+        """
+        Retrieves the field definitions of the specified type, keyed by field name
+
+        The name-keyed counterpart of ``get_all_fields_of_type``, for callers that need the whole
+        definition (options, default value, flags) instead of only the names
+
+        Args:
+            field_type (str): The type of the fields to collect (a ``FieldType`` value)
+
+        Returns:
+            dict[str, dict[str, Any]]: {field name: field definition} of every matching field
+        """
         return {f["name"]: f for f in self.fields if f["type"] == field_type}
