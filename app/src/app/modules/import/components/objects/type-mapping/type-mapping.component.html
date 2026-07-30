@@ -9,8 +9,28 @@
         </div>
     </div>
 
+    @if (unsupportedFieldGroups.length) {
+    <div class="skip-notice" role="note">
+        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+        <div class="skip-notice__body">
+            <p class="skip-notice__lead">
+                <strong>Not supported in this version.</strong>
+                The following fields can't be imported and are skipped:
+            </p>
+            <dl class="skip-notice__groups">
+                @for (group of unsupportedFieldGroups; track group.kind) {
+                <div class="skip-notice__group">
+                    <dt>{{ group.kind }}</dt>
+                    <dd>{{ group.names }}</dd>
+                </div>
+                }
+            </dl>
+        </div>
+    </div>
+    }
+
     <section class="mapping-workbench" [hidden]="!typeInstance || !manuallyMapping">
-        <p class="step-callout">
+        <p class="mapping-hint">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
             Drag entries from the left onto the target rows to map your file to this type.
         </p>
@@ -56,28 +76,6 @@
                         }
                     </div>
                 </div>
-
-                @if (hasReferences) {
-                <div class="mapping-panel">
-                    <h2 class="mapping-panel__head">
-                        Foreign Keys
-                    </h2>
-                    <div class="mapping-panel__body">
-                        @for (control of mappingControls | mappingControl: 'type':'ref'; track control) {
-                        <div class="mapping-chip" [dndDraggable]="control" [dndEffectAllowed]="allowedEffect"
-                            (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
-                            <i class="fas fa-grip-vertical" aria-hidden="true"></i>
-                            <span><strong>{{ control.type_name }}:</strong> {{ control.label }}</span>
-                        </div>
-                        } @empty {
-                        <p class="panel-empty">
-                            <i class="fas fa-check-circle" aria-hidden="true"></i>
-                            All assigned
-                        </p>
-                        }
-                    </div>
-                </div>
-                }
             </div>
 
             <div class="col-md-9">

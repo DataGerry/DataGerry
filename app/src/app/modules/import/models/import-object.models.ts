@@ -33,6 +33,12 @@ export class ImporterConfig {
 }
 
 
+export interface UnsupportedImportFieldGroup {
+    kind: string;
+    names: string;
+}
+
+
 export interface ImportObjectField {
     name: string;
     value: any;

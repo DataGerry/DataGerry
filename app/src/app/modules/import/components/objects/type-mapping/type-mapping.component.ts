@@ -44,11 +44,19 @@ import { CsvMappingComponent } from '../csv-mapping/csv-mapping.component';
 import { TypeMappingBaseComponent } from './type-mapping-base.component';
 import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { UnsupportedImportFieldGroup } from '../../../models/import-object.models';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export const mappingComponents: { [type: string]: any } = {
     json: JsonMappingComponent,
     csv: CsvMappingComponent
+};
+
+/** Field types whose references the object importer cannot resolve yet. */
+export const unsupportedImportFieldTypes: { [type: string]: string } = {
+    'ref': 'Reference',
+    'location': 'Location',
+    'ref-section-field': 'Referenced section'
 };
 
 @Component({
@@ -87,6 +95,7 @@ export class TypeMappingComponent extends TypeMappingBaseComponent implements On
     public typeList: CmdbType[];
     public typeInstance: CmdbType;
     public configForm: UntypedFormGroup;
+    public unsupportedFieldGroups: UnsupportedImportFieldGroup[] = [];
 
     private component: any;
     public componentRef: ComponentRef<any>;
@@ -173,6 +182,7 @@ export class TypeMappingComponent extends TypeMappingBaseComponent implements On
     public initMapping() {
         this.currentMapping = [];
         this.mappingControls = [];
+        this.unsupportedFieldGroups = [];
 
         for (const meta of this.defaultMappingValues) {
             this.mappingControls.push({
@@ -191,34 +201,29 @@ export class TypeMappingComponent extends TypeMappingBaseComponent implements On
                 });
             }
 
-            this.hasReferences = this.typeInstance.has_references();
-
-            if (this.hasReferences) {
-                const refFields = this.typeInstance.get_reference_fields();
-                let workingRefType;
-
-                for (const refField of refFields) {
-                    workingRefType = this.typeList.find(id => id.public_id === refField.ref_types ||
-                                     (Array.isArray(refField.ref_types) &&
-                                     refField.ref_types.includes(id.public_id))) as CmdbType;
-
-                    if (workingRefType) {
-                        for (const typeField of workingRefType.fields) {
-                            this.mappingControls.push({
-                                name: refField.name,
-                                ref_name: typeField.name,
-                                label: typeField.label,
-                                type: 'ref',
-                                type_id: workingRefType.public_id,
-                                type_name: workingRefType.name
-                            });
-                        }
-                    }
-                }
-            }
+            this.unsupportedFieldGroups = this.groupUnsupportedFields(this.typeInstance);
         }
 
         this.loadMappingComponent();
+    }
+
+
+    /**
+     * Groups the fields whose references the importer drops by kind, so the step can warn about them
+     * in one compact line per kind instead of repeating the kind on every field.
+     */
+    private groupUnsupportedFields(typeInstance: CmdbType): UnsupportedImportFieldGroup[] {
+        const fields = typeInstance.fields ?? [];
+
+        return Object.keys(unsupportedImportFieldTypes)
+            .map((fieldType) => ({
+                kind: unsupportedImportFieldTypes[fieldType],
+                names: fields
+                    .filter((field) => field?.type === fieldType)
+                    .map((field) => field.label || field.name)
+                    .join(', ')
+            }))
+            .filter((group) => group.names !== '');
     }
 
 
