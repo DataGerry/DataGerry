@@ -27,6 +27,7 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_BULK_DELETE_DELETED_KEY,
     ISMS_BULK_DELETE_IN_USE_KEY,
+    REQUIRED_RISK_ASSESSMENT_FIELDS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -166,3 +167,50 @@ def bulk_delete_reporting_in_use(
         ISMS_BULK_DELETE_DELETED_KEY: sorted(deleted_ids),
         ISMS_BULK_DELETE_IN_USE_KEY: sorted(in_use_ids),
     }
+
+
+def get_missing_risk_assessment_fields(data: dict[str, Any]) -> list[str]:
+    """
+    Reports which of an IsmsRiskAssessment's mandatory fields the payload does not supply
+
+    A field counts as missing when its key is absent, its value is None, or its value is an empty
+    string / list / dict - a date sent as ``{}`` is as unusable as no date at all. Every offending
+    field is collected instead of stopping at the first, so one response can name them all
+
+    Args:
+        data (dict[str, Any]): The IsmsRiskAssessment payload to check
+
+    Returns:
+        list[str]: The missing field names in the order of REQUIRED_RISK_ASSESSMENT_FIELDS, empty when
+            the payload is complete
+    """
+    missing_fields: list[str] = []
+
+    for field_name in REQUIRED_RISK_ASSESSMENT_FIELDS:
+        value: Any = data.get(field_name)
+
+        if value is None or value == '' or value == [] or value == {}:
+            missing_fields.append(field_name)
+
+    return missing_fields
+
+
+def guard_required_risk_assessment_fields(data: dict[str, Any]) -> None:
+    """
+    Refuses an IsmsRiskAssessment write whose mandatory fields are not all supplied
+
+    Runs on every write path (create, update and duplicate) before anything is stored, so a partially
+    filled assessment can never reach the database. The message lists every missing field at once, so
+    the caller can highlight all of them in one go rather than discovering them one request at a time.
+    The later lifecycle stages (risk treatment, effectiveness audit) stay optional by design
+
+    Args:
+        data (dict[str, Any]): The IsmsRiskAssessment payload to check
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming every missing field
+    """
+    missing_fields: list[str] = get_missing_risk_assessment_fields(data)
+
+    if missing_fields:
+        abort(400, f"The RiskAssessment is missing required field(s): {', '.join(missing_fields)}!")

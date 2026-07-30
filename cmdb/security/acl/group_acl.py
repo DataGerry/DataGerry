@@ -21,6 +21,7 @@ from typing import TypeVar, Any
 
 from cmdb.security.acl.access_control_list_section import AccessControlListSection
 from cmdb.security.acl.access_control_section_dict import AccessControlSectionDict
+from cmdb.security.acl.acl_constants import AclKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -82,7 +83,7 @@ class GroupACL(AccessControlListSection[int]):
         Returns:
             GroupACL: GroupACL with the given data
         """
-        return cls(data.get('includes', set()))
+        return cls(data.get(AclKey.INCLUDES.value, {}))
 
 
     @classmethod
@@ -90,12 +91,16 @@ class GroupACL(AccessControlListSection[int]):
         """
         Converts a AccessControlListSection[T] into a json compatible dict
 
+        Group keys are written back as strings (that is how they are stored) and every permission
+        container as a sorted list of its string values, so a section mutated in memory - where the
+        mutators keep a set - serialises exactly like one loaded from the database
+
         Args:
-            instance (AccessControlListSection[T]): The AccessControlListSection[T] which should be converted
+            section (AccessControlListSection[T]): The AccessControlListSection[T] which should be converted
 
         Returns:
             dict: Json compatible dict of the AccessControlListSection[T] values
         """
         return {
-            'includes': {str(k): v for k, v in section.includes.items()}
+            AclKey.INCLUDES.value: cls._serialise_includes(section)
         }
