@@ -54,6 +54,10 @@
         margin: 0;
     }
 
+    &__text {
+        margin: 0.1rem 0 0;
+    }
+
     &__groups {
         display: flex;
         flex-wrap: wrap;

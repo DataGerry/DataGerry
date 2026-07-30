@@ -17,10 +17,9 @@
 */
 import { Component, OnInit } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
-import { DatePipe } from '@angular/common';
+import { HttpResponse } from '@angular/common/http';
 
 import { TypeService } from '../../framework/services/type.service';
-import { FileSaverService } from 'ngx-filesaver';
 import { FileService } from '../export.service';
 
 import { CmdbType } from '../../framework/models/cmdb-type';
@@ -28,6 +27,8 @@ import { SupportedExporterExtension } from './model/supported-exporter-extension
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 import { finalize } from 'rxjs';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
@@ -51,9 +52,8 @@ export class ExportObjectsComponent implements OnInit {
     /* ------------------------------------------------------------------------------------------------------------------ */
     constructor(
         private exportService: FileService,
-        private datePipe: DatePipe,
         private typeService: TypeService,
-        private fileSaverService: FileSaverService,
+        private exportDownloadService: ExportDownloadService,
         private toastService: ToastService,
         private loaderService: LoaderService,
     ) {
@@ -143,10 +143,10 @@ export class ExportObjectsComponent implements OnInit {
     }
 
 
-    public downLoadFile(data: any, exportType: any) {
+    public downLoadFile(response: HttpResponse<Blob>, exportType: string) {
         this.isVisible = false;
-        const timestamp = this.datePipe.transform(new Date(), 'MM_dd_yyyy_hh_mm_ss');
-        const extension = this.formatList.find(x => x.extension === exportType);
-        this.fileSaverService.save(data.body, timestamp + '.' + extension.label);
+        const format = this.formatList.find(entry => entry.extension === exportType);
+
+        this.exportDownloadService.save(response, { kind: ExportKind.Objects, extension: format?.label });
     }
 }

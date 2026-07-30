@@ -2,10 +2,11 @@ import { Component, OnInit } from '@angular/core';
 import { TypeService } from '../../framework/services/type.service';
 import { CmdbType } from '../../framework/models/cmdb-type';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
-import { DatePipe } from '@angular/common';
-import { FileSaverService } from 'ngx-filesaver';
+import { HttpResponse } from '@angular/common/http';
 import { FileService } from '../export.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 import { finalize } from 'rxjs';
 import { ExportTypeOption } from './export-type-option.model';
 
@@ -24,7 +25,7 @@ export class ExportTypesComponent implements OnInit {
     public isLoading$ = this.loaderService.isLoading$;
 
     constructor(private typeService: TypeService, private exportService: FileService,
-        private datePipe: DatePipe, private fileSaverService: FileSaverService,  private loaderService: LoaderService) {
+        private exportDownloadService: ExportDownloadService, private loaderService: LoaderService) {
         this.formExport = new UntypedFormGroup({
             types: new UntypedFormControl([], Validators.required),
             format: new UntypedFormControl(null, Validators.required)
@@ -80,9 +81,8 @@ export class ExportTypesComponent implements OnInit {
     }
 
 
-    public downLoadFile(data: any) {
-        const timestamp = this.datePipe.transform(new Date(), 'MM_dd_yyyy_hh_mm_ss');
-        this.fileSaverService.save(data.body, timestamp + '.json');
+    public downLoadFile(response: HttpResponse<Blob>) {
+        this.exportDownloadService.save(response, { kind: ExportKind.Types, extension: 'json' });
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
