@@ -48,7 +48,7 @@ from cmdb.database.predefined_data.predefined_data_constants import LocationKey
 from cmdb.framework.ipam.special_type_wiring import (
     handle_special_types,
     cleanup_type_references_from_all_types,
-    cleanup_special_type_references,
+    cleanup_special_type_template_references,
 )
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
@@ -536,9 +536,9 @@ def type_deletion_followup(
     groups and the 'types' arrays of all CmdbCategories, and strips it from every other
     CmdbType's field-level 'ref_types' arrays so no surviving type still offers the
     deleted type as a reference target. When the deleted type carried a SpecialType
-    marker, additionally drops the id from any 'ref_types' arrays that
-    handle_special_types had cross-wired on the IPAM section template, so newly added
-    'dg-ipam-interface' sections no longer offer it either
+    marker, the 'dg-ipam-interface' section template - the one document that type-level
+    sweep cannot reach - is un-wired too, so newly added 'dg-ipam-interface' sections no
+    longer offer it either
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -575,14 +575,14 @@ def type_deletion_followup(
             public_id, updated_count,
         )
 
-    # Drop the deleted type's id from cross-wired SpecialType 'ref_types' arrays
+    # The type-level sweep above cannot reach the 'dg-ipam-interface' section template document, so a
+    # deleted SpecialType is additionally un-wired there (template-only, no overlap with the sweep)
     if special_type:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
             ManagerType.SECTION_TEMPLATES,
             request_user,
         )
-        cleanup_special_type_references(
-            types_manager,
+        cleanup_special_type_template_references(
             section_templates_manager,
             special_type,
             public_id,

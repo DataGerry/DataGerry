@@ -22,6 +22,11 @@ the multi-data sections and the field values against the target type.
 Returns a list of human-readable error strings (empty when the object is valid) so the caller can
 report a rejected object without aborting the whole import.
 
+An unknown value of a select field normally extends that field's options on the target type, which is
+recorded in the ``ImportTypeContext`` and persisted once per batch. The exception is a select field a
+predefined section template owns: those definitions are immutable, so the value is rejected instead
+(see ``cmdb.framework.section_templates.predefined_section_guard``).
+
 The lenient boolean parser both imports apply to an uploaded flag lives in `cmdb.utils.helpers`
 (`parse_import_bool`) - the type import defaults its own flags with it.
 """
@@ -43,6 +48,7 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils.helpers import duplicate_names, parse_import_bool
 from cmdb.framework.importer.importer_constants import DEFAULT_OBJECT_VERSION
 from cmdb.framework.importer.helper.improve_object import ImproveObject
+from cmdb.framework.section_templates import PREDEFINED_SELECT_OPTION_REJECTED
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The type-derived inputs the per-object normalization needs, computed once per import from the target
@@ -55,6 +61,9 @@ from cmdb.framework.importer.helper.improve_object import ImproveObject
 #   mds_field_defaults_by_section - {section_id: {name: default value}} of each MDS section's fields
 #   field_options                 - {name: set(option names)} for select + radio fields (select's set is
 #                                   extended live as unknown values are accepted)
+#   predefined_select_fields      - {name: owning template name} for the select fields a predefined
+#                                   section template owns; their options must not be extended, so an
+#                                   unknown value rejects the object instead
 #   new_select_options            - {name: [added values]} accumulator of select options to persist to
 #                                   the type after the batch (mutated during validation)
 ImportTypeContext = namedtuple(
@@ -67,6 +76,7 @@ ImportTypeContext = namedtuple(
         'top_level_field_defaults',
         'mds_field_defaults_by_section',
         'field_options',
+        'predefined_select_fields',
         'new_select_options',
     ],
 )
@@ -355,7 +365,9 @@ def _field_options(type_fields: list[dict]) -> dict[str, set]:
     return options
 
 
-def build_import_type_context(type_instance) -> ImportTypeContext:
+def build_import_type_context(
+        type_instance,
+        predefined_select_fields: dict[str, str] | None = None) -> ImportTypeContext:
     """
     Builds the per-import ``ImportTypeContext`` from the target type
 
@@ -367,6 +379,9 @@ def build_import_type_context(type_instance) -> ImportTypeContext:
 
     Args:
         type_instance: The target ``CmdbType`` being imported into
+        predefined_select_fields (dict[str, str] | None): {select field name: owning predefined section
+            template name} whose options the import must not extend (see
+            ``cmdb.framework.section_templates.resolve_predefined_select_fields``); None means none
 
     Returns:
         ImportTypeContext: The derived inputs for ``normalize_and_validate_object``
@@ -403,6 +418,7 @@ def build_import_type_context(type_instance) -> ImportTypeContext:
             for section_id, names in section_fields.items()
         },
         field_options=_field_options(type_fields),
+        predefined_select_fields=predefined_select_fields or {},
         new_select_options={},
     )
 
@@ -414,6 +430,9 @@ def apply_new_select_options(type_instance, new_select_options: dict) -> None:
     For each ``{field name: [values]}`` entry, appends ``{name, label}=value`` to that select field's
     ``options`` - the same list the type builder, the renderer and the frontend read (skipping any
     value already present). The caller is responsible for persisting the mutated type.
+
+    A select field owned by a predefined section template can never appear here: validation rejects an
+    unknown value for such a field instead of recording it (see ``_apply_value_suitability``).
 
     Args:
         type_instance: The target ``CmdbType`` (its select fields' options are extended in place)
@@ -662,8 +681,10 @@ def _apply_value_suitability(entry: dict, type_context: ImportTypeContext, error
     Validates / coerces one field entry's value against its field type (empty values are skipped)
 
     Coerces number / reference / checkbox / date values in place; validates radio against its options;
-    for an unknown select value adds a new option to the type (recorded for persistence). An unsuitable
-    value appends an error (rejecting the object). text / textarea / password accept any value.
+    for an unknown select value adds a new option to the type (recorded for persistence) unless the field
+    belongs to a predefined section template - such a field definition is immutable, so the unknown value
+    is rejected instead. An unsuitable value appends an error (rejecting the object). text / textarea /
+    password accept any value.
 
     Args:
         entry (dict): The field entry ({name, value, ...}) to check (value coerced in place)
@@ -681,6 +702,16 @@ def _apply_value_suitability(entry: dict, type_context: ImportTypeContext, error
     if field_type == FieldType.SELECT.value:
         options = type_context.field_options.get(name, set())
         if value not in options:
+            owning_template: str | None = type_context.predefined_select_fields.get(name)
+
+            if owning_template:
+                # Adding the option would edit a predefined section template's field definition
+                errors.append(
+                    f"Field '{name}': "
+                    f"{PREDEFINED_SELECT_OPTION_REJECTED.format(value=value, template=owning_template)}"
+                )
+                return
+
             options.add(value)  # recognised for the rest of the batch
             type_context.new_select_options.setdefault(name, []).append(value)
         return

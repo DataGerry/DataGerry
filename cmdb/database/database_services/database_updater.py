@@ -20,7 +20,7 @@ from logging import Logger, getLogger
 from typing import Any
 import time
 
-from cmdb.database.database_constants import MIN_CLOUD_UPDATER_VERSION
+from cmdb.database.database_constants import BASELINE_UPDATER_VERSION
 from cmdb.database.database_services.database_services_constants import UpdaterSetting, Updater
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 
@@ -50,9 +50,6 @@ class DatabaseUpdater:
     """
     # Registry of every available migration version; keep in sync with cmdb.database.updater.versions
     __UPDATE_VERSIONS__: list[int] = [
-        20200512,
-        20200513,
-        20240603,
         20250619,
         20251203,
         20260225,
@@ -129,8 +126,9 @@ class DatabaseUpdater:
         """
         Retrieves the current update version stored in the database
 
-        Falls back to MIN_CLOUD_UPDATER_VERSION when no 'updater' section exists yet (seeding it)
-        or when the stored section carries no 'version', so the return value is always an int.
+        Falls back to BASELINE_UPDATER_VERSION when no 'updater' section exists yet (seeding it)
+        or when the stored section carries no 'version', so the return value is always an int. Every
+        registered migration at or below that baseline is therefore never applied to such a database.
 
         Returns:
             int: The current update version stored in the database
@@ -138,14 +136,14 @@ class DatabaseUpdater:
         # First check if there is any Updater-Version
         default_version: dict[str, Any] = {
             UpdaterSetting.ID: UpdaterSetting.SECTION,
-            UpdaterSetting.VERSION: MIN_CLOUD_UPDATER_VERSION
+            UpdaterSetting.VERSION: BASELINE_UPDATER_VERSION
         }
 
         try:
             current_version: dict[str, Any] = self.settings_manager.get_all_values_from_section(
                 UpdaterSetting.SECTION
             )
-            return current_version.get(UpdaterSetting.VERSION, MIN_CLOUD_UPDATER_VERSION)
+            return current_version.get(UpdaterSetting.VERSION, BASELINE_UPDATER_VERSION)
         except SectionError:
             # No Updater Version => Set it
             self.settings_manager.write(_id=UpdaterSetting.SECTION, data=default_version)

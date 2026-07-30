@@ -19,7 +19,7 @@ Unit tests for cmdb.database.database_services.database_updater
 The SettingsManager is mocked at construction so DatabaseUpdater touches no real database, and
 run_updates' dynamic loader / progress bar / sleep are patched. Covers the version bookkeeping
 (getters, availability check), the current-version read (stored / missing-version / no-section
-fallback to MIN_CLOUD_UPDATER_VERSION) and the selective execution of pending updates.
+fallback to BASELINE_UPDATER_VERSION) and the selective execution of pending updates.
 """
 from typing import Any, Iterator
 from unittest.mock import patch, MagicMock
@@ -27,7 +27,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from cmdb.errors.system_config import SectionError
-from cmdb.database.database_constants import MIN_CLOUD_UPDATER_VERSION
+from cmdb.database.database_constants import BASELINE_UPDATER_VERSION
 from cmdb.database.database_services.database_updater import DatabaseUpdater
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -88,20 +88,20 @@ def test_get_current_update_version_returns_stored_version(updater: DatabaseUpda
 
 
 def test_get_current_update_version_defaults_when_version_missing(updater: DatabaseUpdater) -> None:
-    """A section without a 'version' falls back to MIN_CLOUD_UPDATER_VERSION (never None)"""
+    """A section without a 'version' falls back to BASELINE_UPDATER_VERSION (never None)"""
     updater.settings_manager.get_all_values_from_section.return_value = {}
 
-    assert updater.get_current_update_version() == MIN_CLOUD_UPDATER_VERSION
+    assert updater.get_current_update_version() == BASELINE_UPDATER_VERSION
 
 
 def test_get_current_update_version_seeds_default_when_section_missing(updater: DatabaseUpdater) -> None:
-    """With no updater section the default is written and MIN_CLOUD_UPDATER_VERSION is returned"""
+    """With no updater section the default is written and BASELINE_UPDATER_VERSION is returned"""
     updater.settings_manager.get_all_values_from_section.side_effect = SectionError(UPDATER_SECTION)
 
-    assert updater.get_current_update_version() == MIN_CLOUD_UPDATER_VERSION
+    assert updater.get_current_update_version() == BASELINE_UPDATER_VERSION
     updater.settings_manager.write.assert_called_once_with(
         _id=UPDATER_SECTION,
-        data={'_id': UPDATER_SECTION, 'version': MIN_CLOUD_UPDATER_VERSION},
+        data={'_id': UPDATER_SECTION, 'version': BASELINE_UPDATER_VERSION},
     )
 
 # -------------------------------------------------------------------------------------------------------------------- #

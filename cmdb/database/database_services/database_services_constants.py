@@ -63,7 +63,7 @@ class Updater:
 
     PROCESS_BAR_LABEL is the progress label; THROTTLE_SECONDS is the delay between migrations to
     avoid throttling; CLASS_PATH_TEMPLATE is the dotted path of an updater class, formatted with the
-    integer version (e.g. updater_20240603.Update20240603)
+    integer version (e.g. updater_20250619.Update20250619)
     """
     PROCESS_BAR_LABEL: str = 'Process'
     THROTTLE_SECONDS: float = 0.25

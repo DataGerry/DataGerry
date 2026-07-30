@@ -41,6 +41,7 @@ from cmdb.manager import (
     LocationsManager,
     ObjectsManager,
     ReportsManager,
+    SectionTemplatesManager,
     TypesManager,
 )
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
@@ -63,6 +64,10 @@ from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.framework.section_templates import (
+    PREDEFINED_SELECT_OPTION_REJECTED,
+    resolve_predefined_select_fields,
+)
 from cmdb.framework.ipam.enforcement import (
     object_write_requires_ipam_license,
     object_delete_requires_ipam_license,
@@ -201,32 +206,30 @@ def delete_one_cascade(
         handle_sync_config_item_count(request_user, objects_count)
 
 
-def sync_select_field_options(
-        request_user: CmdbUser,
-        target_object: CmdbObject,
-        object_type: CmdbType
-    ) -> None:
+def collect_unknown_select_values(
+        object_fields: list[dict[str, Any]] | None,
+        multi_data_sections: list[dict[str, Any]] | None,
+        type_select_fields: dict[str, dict[str, Any]],
+    ) -> dict[str, set[Any]]:
     """
-    Adds any new free-text select values entered on an object back into its CmdbType
+    Collects the select values an object carries that its type does not list as an option yet
 
-    Walks the object's select fields (both the regular fields and the multi-data-section rows),
-    collects values not yet present in the type's select options and appends them to the type so
-    the option becomes selectable for every object of that type. The type is only persisted when
-    at least one new option was added
+    Walks the object's regular fields and its multi-data-section rows, keeping only entries that are
+    select fields of the type; an empty value and a value the type already offers are both ignored
 
     Args:
-        request_user (CmdbUser): The CmdbUser making the request
-        target_object (CmdbObject): The CmdbObject whose select values are inspected
-        object_type (CmdbType): The CmdbType to extend with newly seen select options
+        object_fields (list[dict[str, Any]] | None): The object's flat ``fields`` list
+        multi_data_sections (list[dict[str, Any]] | None): The object's ``multi_data_sections`` list
+        type_select_fields (dict[str, dict[str, Any]]): {field name: field definition} of the type's
+            select fields (see ``CmdbType.get_fields_with_type``)
+
+    Returns:
+        dict[str, set[Any]]: {select field name: values the type does not know}, empty when there are none
     """
-    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-    type_select_fields: dict[str, dict[str, Any]] = object_type.get_fields_with_type(FieldType.SELECT)
-
-    new_options = {}
+    unknown_values: dict[str, set[Any]] = {}
 
     def process_field(field: dict[str, Any]) -> None:
-        """Records a not-yet-known value of a single select field for later insertion"""
+        """Records a not-yet-known value of a single select field"""
         if field.get(FieldKey.TYPE) != FieldType.SELECT:
             return
 
@@ -241,24 +244,124 @@ def sync_select_field_options(
             return
 
         options = type_select_fields[field_name].get(FieldKey.OPTIONS, [])
-
-        existing_names = {opt["name"] for opt in options}
+        existing_names = {option[FieldKey.NAME] for option in options}
 
         if value not in existing_names:
-            new_options.setdefault(field_name, set()).add(value)
+            unknown_values.setdefault(field_name, set()).add(value)
 
-    # check main fields
-    for field in target_object.fields:
+    for field in object_fields or []:
         process_field(field)
 
-    # check multi data sections
-    for section in target_object.multi_data_sections or []:
-        for row in section.get("values", []):
-            for field in row.get("data", []):
+    for section in multi_data_sections or []:
+        for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
+            for field in row.get(CmdbObjectMdsRowKey.DATA.value, []):
                 process_field(field)
+
+    return unknown_values
+
+
+def guard_predefined_select_options(
+        request_user: CmdbUser,
+        object_fields: list[dict[str, Any]] | None,
+        multi_data_sections: list[dict[str, Any]] | None,
+        object_type: CmdbType,
+    ) -> None:
+    """
+    Refuses an object write whose select value would extend a predefined section template's field
+
+    An unknown select value normally becomes a new option on the type (see
+    ``sync_select_field_options``), but a select field owned by a predefined CmdbSectionTemplate is
+    immutable - the template cannot be edited through the API and any local edit of the type's copy is
+    reverted the next time the template propagates. Such a value is therefore rejected before the
+    object is written. A no-op for a type that uses no predefined template
+
+    The section templates are only read when the object actually carries a value the type does not
+    offer yet, so the ordinary write - every value picked from an existing option - pays no query
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        object_fields (list[dict[str, Any]] | None): The about-to-be-saved object's ``fields`` list
+        multi_data_sections (list[dict[str, Any]] | None): The object's ``multi_data_sections`` list
+        object_type (CmdbType): The CmdbType the object belongs to
+
+    Raises:
+        HTTPException: 400 when a value would have to be added to a predefined template's select field
+    """
+    unknown_values: dict[str, set[Any]] = collect_unknown_select_values(
+        object_fields,
+        multi_data_sections,
+        object_type.get_fields_with_type(FieldType.SELECT),
+    )
+
+    if not unknown_values:
+        return
+
+    section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+        ManagerType.SECTION_TEMPLATES,
+        request_user,
+    )
+
+    protected_select_fields: dict[str, str] = resolve_predefined_select_fields(
+        object_type,
+        section_templates_manager,
+    )
+
+    if not protected_select_fields:
+        return
+
+    rejections: list[str] = [
+        f"Field '{field_name}': "
+        f"{PREDEFINED_SELECT_OPTION_REJECTED.format(value=value, template=protected_select_fields[field_name])}"
+        for field_name, values in unknown_values.items()
+        if field_name in protected_select_fields
+        for value in sorted(values, key=str)
+    ]
+
+    if rejections:
+        abort(400, " ".join(rejections))
+
+
+def sync_select_field_options(
+        request_user: CmdbUser,
+        target_object: CmdbObject,
+        object_type: CmdbType
+    ) -> None:
+    """
+    Adds any new free-text select values entered on an object back into its CmdbType
+
+    Walks the object's select fields (both the regular fields and the multi-data-section rows),
+    collects values not yet present in the type's select options and appends them to the type so
+    the option becomes selectable for every object of that type. The type is only persisted when
+    at least one new option was added
+
+    A select field owned by a predefined CmdbSectionTemplate is never extended - its definition is
+    immutable. Such a value is rejected before the write by ``guard_predefined_select_options``; the
+    filter here keeps the type safe even for a caller that skipped that guard
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        target_object (CmdbObject): The CmdbObject whose select values are inspected
+        object_type (CmdbType): The CmdbType to extend with newly seen select options
+    """
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+    new_options: dict[str, set[Any]] = collect_unknown_select_values(
+        target_object.fields,
+        target_object.multi_data_sections,
+        object_type.get_fields_with_type(FieldType.SELECT),
+    )
 
     if not new_options:
         return
+
+    section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
+        ManagerType.SECTION_TEMPLATES,
+        request_user,
+    )
+    protected_select_fields: dict[str, str] = resolve_predefined_select_fields(
+        object_type,
+        section_templates_manager,
+    )
 
     # apply updates to type
     updated = False
@@ -266,15 +369,15 @@ def sync_select_field_options(
     for field in object_type.fields:
         fname = field[FieldKey.NAME]
 
-        if fname not in new_options:
+        if fname not in new_options or fname in protected_select_fields:
             continue
 
-        field.setdefault(FieldKey.OPTIONS, [])
+        field.setdefault(FieldKey.OPTIONS.value, [])
 
         for value in new_options[fname]:
             field[FieldKey.OPTIONS].append({
-                "name": value,
-                "label": value
+                FieldKey.NAME.value: value,
+                FieldKey.LABEL.value: value,
             })
 
             updated = True
@@ -768,6 +871,14 @@ def apply_object_insert(
     if ipam_errors:
         abort(400, format_errors_for_abort(ipam_errors))
 
+    # An unknown select value may not extend a predefined section template's field - reject before the write
+    guard_predefined_select_options(
+        request_user,
+        new_object_data.get(CmdbObjectKey.FIELDS.value),
+        new_object_data.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value),
+        object_type,
+    )
+
     # Validate the location placement (parent exists) before the object is written
     has_location_field, location_parent = extract_object_location_parent(
         new_object_data.get(CmdbObjectKey.FIELDS.value, [])
@@ -998,6 +1109,14 @@ def apply_object_update(  # pylint: disable=too-many-locals
 
     if ipam_errors:
         abort(400, format_errors_for_abort(ipam_errors))
+
+    # An unknown select value may not extend a predefined section template's field - reject before the write
+    guard_predefined_select_options(
+        request_user,
+        new_data.get(CmdbObjectKey.FIELDS.value),
+        new_data.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value),
+        current_type_instance,
+    )
 
     update_object_instance: CmdbObject = to_normalized_cmdb_object(new_data)
 

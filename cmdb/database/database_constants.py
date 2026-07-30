@@ -21,8 +21,12 @@ This module provides all constants for the Database section
 # Collection storing the public_id counters
 PUBLIC_ID_COUNTER_COLLECTION = "datastorage.counter"
 
-# Minimal Update Version since Cloud-Version
-MIN_CLOUD_UPDATER_VERSION = 20240603
+# Schema baseline assumed for a database that carries no 'updater' settings document yet: it is
+# seeded with this version, so every registered migration at or below it never runs. It is therefore
+# the oldest schema DataGerry can migrate FROM - the migrations up to and including this version were
+# removed on 2026-07-30, so a database below it cannot be brought forward any more. Applies in every
+# mode (it predates cloud mode but is not cloud-specific)
+BASELINE_UPDATER_VERSION = 20240603
 
 # Retry up to x times if duplicate key occurs while creating a document in the database
 MAX_DUPLICATE_KEY_RETRIES = 10
