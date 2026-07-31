@@ -14,17 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-DataGerry is a flexible asset management tool and open-source configurable management database
+Unit tests for the cmdb.models.reports_model package
 """
-import time
-# -------------------------------------------------------------------------------------------------------------------- #
-
-__title__ = 'DataGerry'
-__version__ = '3.2.1'
-__author__ = 'becon GmbH'
-__license__ = 'AGPLv3'
-__copyright__ = 'Copyright 2026 becon GmbH'
-__runtime__: float = time.time()
-__MODE__ = 'INFO'
-__CLOUD_MODE__ = False
-__LOCAL_MODE__ = False

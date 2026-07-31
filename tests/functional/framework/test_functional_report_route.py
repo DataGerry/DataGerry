@@ -33,6 +33,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.reports_model.cmdb_report import CmdbReport
+from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/reports'
@@ -40,6 +41,9 @@ ROUTE_URL: str = '/reports'
 PLAIN_TYPE_ID: int = 8810
 REF_SECTION_TYPE_ID: int = 8811
 MISSING_TYPE_ID: int = 88199
+
+REPORT_CATEGORY_ID: int = 8815
+MISSING_CATEGORY_ID: int = 88159
 
 REPORT_ID_FOR_GET: int = 8820
 REPORT_ID_FOR_UPDATE: int = 8821
@@ -52,6 +56,7 @@ ALL_REPORT_IDS: list[int] = [
     REPORT_ID_FOR_GET, REPORT_ID_FOR_UPDATE, REPORT_ID_FOR_DELETE, REPORT_ID_FOR_RUN, REPORT_ID_FOR_COUNT,
 ]
 ALL_TYPE_IDS: list[int] = [PLAIN_TYPE_ID, REF_SECTION_TYPE_ID]
+BOGUS_PAYLOAD_ID: int = 88888
 
 PLAIN_FIELD: str = 'field-a'
 REF_SECTION_FIELD: str = 'rsf'
@@ -87,7 +92,7 @@ def _report_doc(public_id: int, name: str = ORIGINAL_NAME, type_id: int = PLAIN_
     """Builds a complete CmdbReport doc for direct DB insertion."""
     return {
         'public_id': public_id,
-        'report_category_id': 1,
+        'report_category_id': REPORT_CATEGORY_ID,
         'name': name,
         'type_id': type_id,
         'selected_fields': [PLAIN_FIELD],
@@ -102,15 +107,15 @@ def _report_params(
     name: str = ORIGINAL_NAME,
     type_id: int = PLAIN_TYPE_ID,
     selected_fields: list[str] | None = None,
+    report_category_id: int = REPORT_CATEGORY_ID,
 ) -> dict[str, str]:
     """Builds the query-string params a report Create / Update parses (JSON-encoded list / dict)."""
     return {
-        'report_category_id': '1',
+        'report_category_id': str(report_category_id),
         'name': name,
         'type_id': str(type_id),
         'selected_fields': json.dumps(selected_fields if selected_fields is not None else [PLAIN_FIELD]),
         'conditions': json.dumps(EMPTY_CONDITIONS),
-        'predefined': 'false',
         'mds_mode': 'ROWS',
     }
 
@@ -122,14 +127,21 @@ def _reports(database_manager: MongoDatabaseManager, database_name: str):
 
 @pytest.fixture(scope='module', autouse=True)
 def _seed_types_and_cleanup(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds the report Types once for the module and removes all test types / reports afterwards."""
+    """Seeds the report Types + the report Category once and removes all test data afterwards.
+
+    The category has to exist: a report write verifies both of its foreign keys, so a report pointing
+    at a non-existent CmdbReportCategory is rejected with 400.
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     types.insert_many([
         _type_doc(PLAIN_TYPE_ID, [{'type': 'text', 'name': PLAIN_FIELD, 'label': 'A'}]),
         _type_doc(REF_SECTION_TYPE_ID, [{'type': 'ref-section-field', 'name': REF_SECTION_FIELD, 'label': 'RSF'}]),
     ])
+    categories = database_manager.get_collection(CmdbReportCategory.COLLECTION, database_name)
+    categories.insert_one({'public_id': REPORT_CATEGORY_ID, 'name': 'Functional', 'predefined': False})
     yield
     types.delete_many({'public_id': {'$in': ALL_TYPE_IDS}})
+    categories.delete_one({'public_id': REPORT_CATEGORY_ID})
     _reports(database_manager, database_name).delete_many({'public_id': {'$in': ALL_REPORT_IDS}})
 
 
@@ -166,6 +178,43 @@ class TestPostReport:
         response = rest_api.post(f'{ROUTE_URL}/', query_string=params)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_unknown_report_category_returns_400(self, rest_api) -> None:
+        """A POST whose report_category_id does not resolve to a CmdbReportCategory is rejected."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/', query_string=_report_params(report_category_id=MISSING_CATEGORY_ID),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_create_forces_predefined_false_and_drops_unknown_keys(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """predefined is server-owned, and a parameter outside the write whitelist is not persisted."""
+        params = _report_params(name='sanitised-report')
+        params.update({'predefined': 'true', 'public_id': str(BOGUS_PAYLOAD_ID), 'injected': 'value'})
+
+        response = rest_api.post(f'{ROUTE_URL}/', query_string=params)
+
+        assert response.status_code == HTTPStatus.OK
+        new_id = response.get_json()
+        try:
+            # The payload public_id never reaches the insert - the server assigns the next id
+            assert new_id != BOGUS_PAYLOAD_ID
+            stored = _reports(database_manager, database_name).find_one({'public_id': new_id})
+            assert stored['predefined'] is False
+            assert 'injected' not in stored
+            # report_query is always rebuilt from the conditions, never taken from the request
+            assert 'data' in stored['report_query']
+        finally:
+            _reports(database_manager, database_name).delete_one({'public_id': new_id})
+
+    def test_missing_required_parameter_returns_400(self, rest_api) -> None:
+        """A POST without a required parameter is rejected with 400."""
+        params = _report_params()
+        del params['name']
+
+        assert rest_api.post(f'{ROUTE_URL}/', query_string=params).status_code == HTTPStatus.BAD_REQUEST
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -238,6 +287,34 @@ class TestRunAndCountReport:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
+    @pytest.mark.parametrize('preview_value', ['1', 'yes', 'maybe'])
+    def test_run_with_a_malformed_preview_flag_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, preview_value: str,
+    ) -> None:
+        """An unrecognised ?preview= value is a bad request, not an internal 500."""
+        _reports(database_manager, database_name).insert_one(_report_doc(REPORT_ID_FOR_RUN))
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/run/{REPORT_ID_FOR_RUN}?preview={preview_value}')
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _reports(database_manager, database_name).delete_one({'public_id': REPORT_ID_FOR_RUN})
+
+    def test_run_report_without_a_stored_query_returns_200(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A document that carries no report_query answers an empty result instead of a 500."""
+        legacy_report = _report_doc(REPORT_ID_FOR_RUN)
+        del legacy_report['report_query']
+        _reports(database_manager, database_name).insert_one(legacy_report)
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/run/{REPORT_ID_FOR_RUN}')
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.get_json() == {}
+        finally:
+            _reports(database_manager, database_name).delete_one({'public_id': REPORT_ID_FOR_RUN})
+
     def test_count_reports_of_type_counts_the_seeded_report(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
@@ -271,6 +348,64 @@ class TestPutReport:
 
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
             assert collection.find_one({'public_id': REPORT_ID_FOR_UPDATE})['name'] == UPDATED_NAME
+        finally:
+            collection.delete_one({'public_id': REPORT_ID_FOR_UPDATE})
+
+    def test_update_pins_identity_and_predefined_and_drops_unknown_keys(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A payload public_id / predefined / extra key cannot reach the stored document."""
+        collection = _reports(database_manager, database_name)
+        stored_doc = _report_doc(REPORT_ID_FOR_UPDATE)
+        stored_doc['predefined'] = True
+        collection.insert_one(stored_doc)
+        try:
+            params = _report_params(name=UPDATED_NAME)
+            params.update({'predefined': 'false', 'public_id': str(BOGUS_PAYLOAD_ID), 'injected': 'value'})
+
+            response = rest_api.put(f'{ROUTE_URL}/{REPORT_ID_FOR_UPDATE}', query_string=params)
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+            # Identity pinned to the URL id - the bogus payload id created / moved nothing
+            assert collection.find_one({'public_id': BOGUS_PAYLOAD_ID}) is None
+            stored = collection.find_one({'public_id': REPORT_ID_FOR_UPDATE})
+            assert stored['name'] == UPDATED_NAME
+            # predefined is carried over from the stored report, not taken from the payload
+            assert stored['predefined'] is True
+            assert 'injected' not in stored
+        finally:
+            collection.delete_one({'public_id': REPORT_ID_FOR_UPDATE})
+
+    def test_update_unknown_report_category_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A PUT whose report_category_id does not resolve is rejected with 400."""
+        collection = _reports(database_manager, database_name)
+        collection.insert_one(_report_doc(REPORT_ID_FOR_UPDATE))
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{REPORT_ID_FOR_UPDATE}',
+                query_string=_report_params(report_category_id=MISSING_CATEGORY_ID),
+            )
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            collection.delete_one({'public_id': REPORT_ID_FOR_UPDATE})
+
+    def test_update_response_matches_the_stored_document(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The echoed document equals a re-read of the stored one (the update is a $set of the payload)."""
+        collection = _reports(database_manager, database_name)
+        collection.insert_one(_report_doc(REPORT_ID_FOR_UPDATE))
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{REPORT_ID_FOR_UPDATE}', query_string=_report_params(name=UPDATED_NAME),
+            )
+            echoed: dict[str, Any] = response.get_json()['result']
+            re_read = rest_api.get(f'{ROUTE_URL}/{REPORT_ID_FOR_UPDATE}').get_json()
+
+            assert echoed == re_read
         finally:
             collection.delete_one({'public_id': REPORT_ID_FOR_UPDATE})
 

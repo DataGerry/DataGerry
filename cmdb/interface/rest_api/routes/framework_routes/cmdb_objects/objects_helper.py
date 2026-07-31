@@ -1728,7 +1728,7 @@ def clean_type_reports(
             tmp_report: CmdbReport = CmdbReport.from_data(a_report)
 
             for field in removed_field_names:
-                tmp_report.remove_field_occurences(field)
+                tmp_report.remove_field_occurrences(field)
 
             tmp_report.report_query = build_report_query(tmp_report.conditions, type_instance)
             report_ops.append(

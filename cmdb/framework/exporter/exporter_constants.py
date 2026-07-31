@@ -43,6 +43,11 @@ EXPORT_SUBJECT_NO_OBJECTS: str = 'no-objects'
 # so - it is the cheapest guard against feeding one back into the importer later
 EXPORT_FILENAME_READABLE_MARKER: str = 'readable'
 
+# Closes the name of an object-import template, which carries no data at all: only the header row a user
+# fills in. The type is named by its LABEL here (an export names it by its type name), because a template
+# is a document handed to a person
+EXPORT_FILENAME_TEMPLATE_MARKER: str = 'template'
+
 # A filename part is reduced to these characters; everything else becomes the replacement. CmdbType names
 # are free text, and the value ends up in a Content-Disposition header as well as on a filesystem
 EXPORT_FILENAME_ALLOWED_PATTERN: str = r'[^a-z0-9.-]+'
@@ -54,6 +59,20 @@ EXPORT_FILENAME_MAX_LENGTH: int = 120
 
 # Import path prefix of the export format classes (dynamically loaded by class name via load_class)
 EXPORT_FORMAT_MODULE_PREFIX: str = 'cmdb.framework.exporter.format.'
+
+# Layout of one column header in an object-import template. A column reads
+#   `<Field label> [MDS-<Section label>] [<field name>]`
+# with the MDS part present only for a field of a multi-data-section. The label leads because the file is
+# filled in by a person; the bracketed field name closes it because that is the identifier the import
+# needs, and naming the MDS section (rather than a bare marker) keeps two multi-data-sections apart
+TEMPLATE_MDS_MARKER_TEMPLATE: str = '[MDS-{section}]'
+TEMPLATE_FIELD_NAME_TEMPLATE: str = '[{name}]'
+TEMPLATE_COLUMN_PART_SEPARATOR: str = ' '
+
+# Labels of the two identity columns an import template leads with. They are CmdbObject properties, not
+# CmdbType fields, so there is no label to read from the type
+TEMPLATE_PUBLIC_ID_LABEL: str = 'Public ID'
+TEMPLATE_ACTIVE_LABEL: str = 'Active'
 
 
 class ExporterExtensionKey(BaseStrEnum):

@@ -46,6 +46,7 @@ from cmdb.framework.exporter.exporter_constants import (
     EXPORT_FILENAME_SUBJECT_MAX_LENGTH,
     EXPORT_FILENAME_MAX_LENGTH,
     EXPORT_FILENAME_READABLE_MARKER,
+    EXPORT_FILENAME_TEMPLATE_MARKER,
     EXPORT_KIND_OBJECTS,
     EXPORT_KIND_TYPES,
     EXPORT_SUBJECT_MANY_TYPES_TEMPLATE,
@@ -161,6 +162,33 @@ def build_object_export_filename(
         file_extension,
         human_readable,
     )
+
+
+def build_object_template_filename(type_label: str, file_extension: str) -> str:
+    """
+    Builds the download filename of an object-import template
+
+    The type is named by its LABEL rather than its name: a template is a document handed to a person, and
+    the label is what that person sees in the UI. The name closes with the template marker, so a template
+    and an export of the same type taken in the same second stay distinguishable. A label that sanitises
+    away to nothing leaves the timestamp and the marker, which still identifies the file as a template
+
+    Args:
+        type_label (str): Label of the CmdbType the template is for
+        file_extension (str): The format's file extension, without the leading dot
+
+    Returns:
+        str: e.g. `2026_07_21-13_05_00_router-core_template.csv`
+    """
+    parts: list[str] = [
+        build_export_filename_timestamp(),
+        sanitize_filename_part(type_label),
+        EXPORT_FILENAME_TEMPLATE_MARKER,
+    ]
+
+    stem = EXPORT_FILENAME_PART_SEPARATOR.join(part for part in parts if part)[:EXPORT_FILENAME_MAX_LENGTH]
+
+    return f'{stem}.{file_extension}'
 
 
 def build_type_export_filename(type_count: int, file_extension: str) -> str:
