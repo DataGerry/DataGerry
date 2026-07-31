@@ -17,9 +17,9 @@
         <table>
             <thead>
                 <tr>
-                    <th class="col-identifier">Identifier</th>
-                    <th class="col-source">{{ parserConfig?.header ? 'Header' : 'Index' }}</th>
-                    <th class="col-example">Example</th>
+                    <th class="col-identifier">DataGerry field identifier</th>
+                    <th class="col-source">{{ parserConfig?.header ? 'CSV column name' : 'CSV column number' }}</th>
+                    <th class="col-preview">Preview</th>
                 </tr>
             </thead>
             <tbody>
@@ -47,7 +47,7 @@
                         </div>
                     </td>
                     <td class="col-source">{{ parserConfig?.header ? parsedData?.header[idx] : idx }}</td>
-                    <td class="col-example">{{ parsedData?.entries[previewIndex][idx] }}</td>
+                    <td class="col-preview">{{ parsedData?.entries[previewIndex][idx] }}</td>
                 </tr>
                 }
             </tbody>

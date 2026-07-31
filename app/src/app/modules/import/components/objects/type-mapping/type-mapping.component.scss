@@ -94,10 +94,6 @@
     border-radius: $radius-card;
     overflow: hidden;
 
-    &+& {
-        margin-top: 0.6rem;
-    }
-
     &__head {
         margin: 0;
         padding: 0.6rem 0.85rem;
@@ -108,6 +104,13 @@
         color: $label;
         background: linear-gradient(180deg, #fbfcfd 0%, #f5f7f9 100%);
         border-bottom: 1px solid $hairline;
+        word-break: break-word;
+    }
+
+    /* Keep the type label in its original casing so it stays recognizable. */
+    &__type {
+        text-transform: none;
+        color: $brand;
     }
 
     &__body {
@@ -115,6 +118,8 @@
         flex-direction: column;
         gap: 0.35rem;
         padding: 0.5rem;
+        max-height: min(30rem, 55vh);
+        overflow-y: auto;
     }
 }
 

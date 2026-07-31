@@ -19,7 +19,8 @@
 /** Mirrors the backend's export kinds. */
 export enum ExportKind {
     Objects = 'objects',
-    Types = 'types'
+    Types = 'types',
+    CsvTemplate = 'csv_template'
 }
 
 

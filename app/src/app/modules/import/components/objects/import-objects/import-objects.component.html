@@ -117,25 +117,6 @@
                         </div>
                     </dl>
                 </section>
-
-                @if (defaultImporterConfig?.manually_mapping) {
-                <section class="summary-card">
-                    <h2 class="summary-card__head">
-                        <i class="fas fa-project-diagram" aria-hidden="true"></i> Mapping
-                    </h2>
-                    <dl class="summary-card__body">
-                        @if (!mapping?.length) {
-                        <p class="summary-empty">No fields mapped yet</p>
-                        }
-                        @for (mapEntry of mapping; track mapEntry) {
-                        <div class="summary-row">
-                            <dt>{{ $any(mapEntry)?.name }}</dt>
-                            <dd>{{ $any(mapEntry)?.value }}</dd>
-                        </div>
-                        }
-                    </dl>
-                </section>
-                }
             </aside>
         </div>
     </div>

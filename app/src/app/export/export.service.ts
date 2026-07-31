@@ -75,6 +75,15 @@ export class FileService {
     }
 
 
+    /** Empty CSV carrying the field names of a single type as its header row. */
+    public callExportCsvTemplateRoute(typeID: number) {
+        // Own params object: httpFileOptions is shared and callExportRoute leaves its filter/sort behind
+        const options = { ...httpFileOptions, params: new HttpParams() };
+
+        return this.api.callGet<Blob>(`${this.servicePrefix}/template/${typeID}`, options);
+    }
+
+
     public getTypeFile() {
         return this.api.callPost<any>('export/type/', null, httpFileOptions);
     }
