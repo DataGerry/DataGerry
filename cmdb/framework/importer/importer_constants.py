@@ -30,6 +30,13 @@ DEFAULT_OBJECT_VERSION: str = '1.0.0'
 # one object's data can never discard the objects around it
 UNEXPECTED_OBJECT_IMPORT_ERROR: str = 'Unexpected error while importing this object: {detail}'
 
+# A CSV column header may carry its identifier in a trailing bracketed group, which is what the object
+# import template emits (`<Field label> [MDS-<Section label>] [<field name>]`, built by
+# cmdb.framework.exporter.export_template_helper). The LAST group is the field name, so a template
+# column resolves to the identifier while a plain `<field name>` header is taken verbatim - both
+# notations are accepted, decided per column rather than per file
+CSV_HEADER_IDENTIFIER_PATTERN: str = r'\[([^\[\]]+)\]\s*$'
+
 
 class JsonMappingKey(BaseStrEnum):
     """Top-level keys of the JSON importer's fixed mapping (``JsonObjectImporterConfig.DEFAULT_MAPPING``)"""

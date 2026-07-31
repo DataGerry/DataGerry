@@ -151,6 +151,34 @@ class TestCsvObjectParserResponse:
         assert output['count'] == 1
         assert output['entries'] == [{0: 'a'}]
 
+    def test_raw_header_is_kept_next_to_the_resolved_one(self) -> None:
+        """A decorated (import-template) header travels along untouched for display purposes."""
+        response = CsvObjectParserResponse(
+            count=1,
+            entries=[{0: 'a'}],
+            entry_length=1,
+            header=['hostname'],
+            raw_header=['Hostname [hostname]'],
+        )
+
+        assert response.get_header_list() == ['hostname']
+        assert response.get_raw_header_list() == ['Hostname [hostname]']
+
+    def test_raw_header_defaults_to_the_resolved_header(self) -> None:
+        """A plain header needs no second list, so both are the same - one code path for a consumer."""
+        response = CsvObjectParserResponse(count=1, entries=[{0: 'a'}], entry_length=1, header=['id'])
+
+        assert response.get_raw_header_list() == ['id']
+
+    def test_output_includes_the_raw_header(self) -> None:
+        """The raw header is part of the /parse/ payload (additive - `header` keeps its meaning)."""
+        output = CsvObjectParserResponse(
+            count=1, entries=[{0: 'a'}], entry_length=1, header=['id'], raw_header=['Id [id]'],
+        ).output()
+
+        assert output['header'] == ['id']
+        assert output['raw_header'] == ['Id [id]']
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              ImporterObjectResponse                                                #

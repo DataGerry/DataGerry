@@ -17,7 +17,9 @@
 Unit tests for the concrete object parsers (JsonObjectParser / CsvObjectParser)
 
 Filesystem-only (no DB): each test writes a small file to a tmp_path and parses it. Focus: the
-parsed response shape, auto-casting + index-pairing of CSV rows, honouring the header/delimiter
+parsed response shape, auto-casting + index-pairing of CSV rows, the resolution of a header column to
+its identifier (a plain export header and a decorated import-template header both work, decided per
+column), honouring the header/delimiter
 config, and the shared ParserRuntimeError failure contract (both parsers wrap read/parse errors;
 the CSV 'No content data!' guard is not re-wrapped by the broad handler).
 """
@@ -26,7 +28,11 @@ from pathlib import Path
 import pytest
 
 from cmdb.framework.importer.parser.json_object_parser import JsonObjectParser
-from cmdb.framework.importer.parser.csv_object_parser import CsvObjectParser
+from cmdb.framework.importer.parser.csv_object_parser import (
+    CsvObjectParser,
+    extract_column_identifier,
+    normalize_csv_header,
+)
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
 from cmdb.framework.importer.responses.csv_object_parser_response import CsvObjectParserResponse
 from cmdb.errors.importer import ParserRuntimeError
@@ -157,3 +163,102 @@ class TestCsvObjectParser:
         """The row helper maps column indices to values."""
         # pylint: disable=protected-access
         assert CsvObjectParser._generate_index_pair(['a', 'b', 'c']) == {0: 'a', 1: 'b', 2: 'c'}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        CSV header identifier resolution                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+class TestExtractColumnIdentifier:
+    """One header column resolves to the identifier the import maps it by."""
+
+    @pytest.mark.parametrize('header_cell,expected', [
+        ('public_id', 'public_id'),
+        ('dg-name', 'dg-name'),
+        ('Public ID [public_id]', 'public_id'),
+        ('Hostname [hostname]', 'hostname'),
+        ('Port [MDS-Network Interfaces] [port]', 'port'),
+        ('[port]', 'port'),
+        ('Padded [ port ]', 'port'),
+        ('Trailing [port]   ', 'port'),
+    ], ids=['plain', 'plain-dashed', 'identity', 'labelled', 'mds', 'bare-brackets', 'padded', 'trailing-space'])
+    def test_resolves_both_notations(self, header_cell: str, expected: str) -> None:
+        """A trailing bracketed group is the identifier; anything else already is one."""
+        assert extract_column_identifier(header_cell) == expected
+
+    @pytest.mark.parametrize('header_cell', [
+        'Label []',
+        'Weird [x] label',
+        '',
+        'ends with bracket]',
+    ], ids=['empty-group', 'group-not-at-end', 'empty-cell', 'unbalanced'])
+    def test_keeps_a_cell_that_names_nothing(self, header_cell: str) -> None:
+        """A cell with no usable trailing group stands as it is - never an empty column key."""
+        assert extract_column_identifier(header_cell) == header_cell
+
+    def test_a_non_string_cell_is_returned_untouched(self) -> None:
+        """A malformed header entry does not raise on the way through."""
+        assert extract_column_identifier(None) is None
+
+
+class TestNormalizeCsvHeader:
+    """The whole header row resolves column for column, order preserved."""
+
+    def test_resolves_every_column_in_order(self) -> None:
+        """A mixed header (some columns decorated, some not) resolves entry by entry."""
+        header = ['public_id', 'Active [active]', 'Port [MDS-Ifaces] [port]']
+
+        assert normalize_csv_header(header) == ['public_id', 'active', 'port']
+
+    @pytest.mark.parametrize('header', [None, []], ids=['none', 'empty'])
+    def test_no_header_yields_an_empty_list(self, header: list | None) -> None:
+        """A file parsed without a header row resolves to nothing."""
+        assert normalize_csv_header(header) == []
+
+
+class TestCsvObjectParserHeaderNotations:
+    """The parser hands on resolved identifiers plus the file's original header line."""
+
+    def test_a_plain_header_is_unchanged_and_mirrored_as_raw(self, tmp_path: Path) -> None:
+        """An export-style file behaves exactly as before: header == raw_header == the file's names."""
+        path = _write(tmp_path, 'plain.csv', 'public_id,dg-name\n1,alice\n')
+
+        result = CsvObjectParser().parse(path)
+
+        assert result.get_header_list() == ['public_id', 'dg-name']
+        assert result.get_raw_header_list() == ['public_id', 'dg-name']
+
+    def test_a_template_header_resolves_to_the_identifiers(self, tmp_path: Path) -> None:
+        """A decorated (import-template) header is handed on as the plain field names."""
+        path = _write(
+            tmp_path,
+            'template.csv',
+            'Public ID [public_id],Name [dg-name],Port [MDS-Ifaces] [port]\n1,alice,80\n',
+        )
+
+        result = CsvObjectParser().parse(path)
+
+        assert result.get_header_list() == ['public_id', 'dg-name', 'port']
+
+    def test_a_template_header_keeps_its_labels_in_raw_header(self, tmp_path: Path) -> None:
+        """The labels survive for display, so a client can show them next to the preview."""
+        path = _write(tmp_path, 'template.csv', 'Public ID [public_id],Name [dg-name]\n1,alice\n')
+
+        result = CsvObjectParser().parse(path)
+
+        assert result.get_raw_header_list() == ['Public ID [public_id]', 'Name [dg-name]']
+
+    def test_the_rows_are_untouched_by_the_resolution(self, tmp_path: Path) -> None:
+        """Only the header is resolved - the rows stay index-keyed and auto-cast as before."""
+        path = _write(tmp_path, 'template.csv', 'Public ID [public_id],Name [dg-name]\n1,alice\n')
+
+        result = CsvObjectParser().parse(path)
+
+        assert result.entries == [{0: 1, 1: 'alice'}]
+
+    def test_without_a_header_row_both_lists_stay_empty(self, tmp_path: Path) -> None:
+        """header=False consumes no row, so there is nothing to resolve."""
+        result = CsvObjectParser({'header': False}).parse(_write(tmp_path, 'n.csv', '1,alice\n'))
+
+        assert result.get_header_list() == []
+        assert result.get_raw_header_list() == []
