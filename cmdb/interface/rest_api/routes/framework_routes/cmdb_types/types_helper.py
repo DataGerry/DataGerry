@@ -52,6 +52,7 @@ from cmdb.framework.ipam.special_type_wiring import (
 )
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
+from cmdb.interface.rest_api.routes.report_routes.report_constants import ReportKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     realign_objects_to_type,
     clean_type_reports,
@@ -518,7 +519,7 @@ def verify_type_deletable(
         abort(400, "Delete not possible if Objects of this Type exist!")
 
     # Only possible to delete types when there are no reports using it
-    reports_count = reports_manager.count_documents({CmdbObjectKey.TYPE_ID: public_id})
+    reports_count = reports_manager.count_documents({ReportKey.TYPE_ID: public_id})
 
     if reports_count > 0:
         abort(400, "Delete not possible if Reports exist which are using this Type!")

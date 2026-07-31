@@ -14,13 +14,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the implementation of CmdbReport, which is representing a report in Datagarry
+This module contains the implementation of CmdbReport, a saved query over a CmdbType in DataGerry
+
+A report (collection ``framework.reports``) pairs a CmdbType with the field names to output
+(``selected_fields``) and a filter (``conditions``): a nested tree whose nodes are either groups
+combining child rules with a logical operator or leaf rules naming a field, an operator and a value -
+see ReportConditionKey / ReportConditionLogic / ReportQueryOperator in this package. The compiled
+MongoDB form of that tree is stored alongside it as ``report_query`` and is what a report run
+executes; the REST layer owns building it, so the two are only consistent as long as every writer
+rebuilds the query after touching the conditions.
+
+Besides the usual serialization this module provides the condition-tree surgery that runs when a
+CmdbType loses a field: ``clear_rules_of_field`` strips every rule referencing that field and
+``CmdbReport.remove_field_occurrences`` applies it to a report together with its selected fields.
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
+from cmdb.models.reports_model.report_constants import ReportConditionKey
 
 from cmdb.class_schema.reports_model.cmdb_report_schema import get_cmdb_report_schema
 
@@ -31,21 +43,85 @@ from cmdb.errors.models.cmdb_report import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
+
+def clear_rules_of_field(conditions: dict[str, Any] | None, field_name: str) -> dict[str, Any] | None:
+    """
+    Recursively strips every rule referencing a field from a report's condition tree
+
+    Walks the tree depth-first and rebuilds it without the leaf rules naming ``field_name`` and
+    without the groups those rules leave empty. A group is only kept when it still has at least one
+    rule, so a tree that loses all of its rules collapses to None - which the query builder then
+    compiles into a type-only query, i.e. the report widens to every object of its CmdbType. That is
+    the accepted behaviour: no conditions means no filtering
+
+    The returned tree is a new structure at group level, but the surviving leaf rules are the same
+    dict objects as in the input - callers must not mutate them in place. Malformed nodes are treated
+    conservatively: a group without a logical operator keeps its (missing) operator rather than having
+    one invented, and a leaf without a field name is not the searched field and is therefore kept
+
+    Args:
+        conditions (dict[str, Any] | None): The condition tree (or subtree) to strip
+        field_name (str): Name of the field whose rules should be removed
+
+    Returns:
+        dict[str, Any] | None: The stripped tree, or None when nothing is left of it
+    """
+    if not conditions:
+        return None
+
+    stripped: dict[str, Any] = {ReportConditionKey.CONDITION: conditions.get(ReportConditionKey.CONDITION)}
+    kept_rules: list[dict[str, Any]] = []
+
+    for a_rule in conditions.get(ReportConditionKey.RULES, []):
+        if ReportConditionKey.CONDITION in a_rule:
+            nested: dict[str, Any] | None = clear_rules_of_field(a_rule, field_name)
+
+            if nested:
+                kept_rules.append(nested)
+        elif a_rule.get(ReportConditionKey.FIELD) != field_name:
+            kept_rules.append(a_rule)
+
+    if not kept_rules:
+        return None
+
+    stripped[ReportConditionKey.RULES] = kept_rules
+
+    return stripped
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbReport - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbReport(CmdbDAO):
     """
-    Represents a report object.
-    Manages data relevant to reports including metadata, fields selection, query conditions,
-    and methods to manipulate and serialize report data.
+    Implementation of a CmdbReport in DataGerry
+
+    Holds the report's identity, its CmdbType, the selected output fields, the condition tree, the
+    compiled report query and the MDS render mode, plus the (de)serialization between that state and
+    the stored document
+
+    Extends: CmdbDAO
     """
 
     COLLECTION = 'framework.reports'
     MODEL = 'Report'
     DEFAULT_VERSION: str = '1.0.0'
+
+    # Both keys back an existence / count check that must not scan the collection: 'report_category_id'
+    # serves the delete guard of a CmdbReportCategory (a category may not be deleted while a report
+    # references it) and the category list's per-category counts, 'type_id' serves the report count of a
+    # CmdbType, which the type-delete flow asks for
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [('report_category_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'report_category_id',
+            'unique': False,
+        },
+        {
+            'keys': [('type_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'type_id',
+            'unique': False,
+        },
+    ]
 
     REQUIRED_INIT_KEYS: list[str] = [
         'report_category_id',
@@ -71,21 +147,23 @@ class CmdbReport(CmdbDAO):
         conditions: dict[str, Any] | None,
         report_query: dict[str, Any] | None,
         predefined: bool = False,
-        mds_mode: str = MdsMode.ROWS,
+        mds_mode: MdsMode | str = MdsMode.ROWS,
         **kwargs: Any
     ) -> None:
         """
         Initialize a new CmdbReport instance
 
         Args:
-            report_category_id (int): The ID of the report category
+            report_category_id (int): public_id of the CmdbReportCategory the report belongs to
             name (str): Name of the report
-            type_id (int): The report type identifier
-            selected_fields (list): Fields selected for the report
-            conditions (dict): Conditions applied to the report
-            report_query (dict): Query used to generate the report
-            predefined (bool): Whether the report is predefined. Default is False
-            mds_mode (str): MDS mode, typically 'ROWS' or another display mode
+            type_id (int): public_id of the CmdbType the report runs against
+            selected_fields (list[str]): Names of the type fields the report outputs
+            conditions (dict[str, Any] | None): The report's condition tree, or None for no filter
+            report_query (dict[str, Any] | None): The compiled MongoDB form of the conditions, built
+                by the REST layer and rebuilt whenever the conditions change
+            predefined (bool): True when the report is provided by DataGerry. Defaults to False
+            mds_mode (MdsMode | str): Multi-data-section render mode. The write routes store an
+                MdsMode member; a stored document holds its string value. Defaults to MdsMode.ROWS
             **kwargs: Additional keyword arguments for the parent class
 
         Raises:
@@ -99,82 +177,47 @@ class CmdbReport(CmdbDAO):
             self.conditions: dict[str, Any] | None = conditions
             self.report_query: dict[str, Any] | None = report_query
             self.predefined: bool = predefined
-            self.mds_mode: str = mds_mode
+            self.mds_mode: MdsMode | str = mds_mode
 
             super().__init__(**kwargs)
         except Exception as err:
             raise CmdbReportInitError(str(err)) from err
 
 
-    def get_selected_fields(self) -> list[str]:
+    def remove_field_occurrences(self, field_name: str) -> None:
         """
-        Returns the list of selected fields for the report
+        Removes every occurrence of a field from the report's selected fields and conditions
 
-        Returns:
-            list: A list of selected field names
-        """
-        return self.selected_fields
-
-
-    def remove_field_occurences(self, field_name: str) -> None:
-        """
-        Remove all occurrences of a field from both selected fields and conditions
+        Both attributes are replaced rather than mutated: the selected fields become a new list
+        without the name (all of its occurrences, should the list hold duplicates) and the conditions
+        are rebuilt by clear_rules_of_field. The stored document a report was loaded from therefore
+        stays untouched, and the caller is responsible for rebuilding ``report_query`` from the new
+        conditions before persisting
 
         Args:
             field_name (str): The name of the field to remove
         """
-        # Remove field from selected fields
-        if field_name in self.selected_fields:
-            self.selected_fields.remove(field_name)
-
-        # Remove field from conditions
-        self.conditions = self.clear_rules_of_field(self.conditions, field_name)
-
-
-    def clear_rules_of_field(self, conditions: dict[str, Any] | None, field_name: str) -> dict[str, Any] | None:
-        """
-        Recursively clears rules associated with a specific field from the conditions dictionary
-
-        Args:
-            conditions (dict): The conditions structure from which the field rules should be removed
-            field_name (str): The name of the field to remove
-
-        Returns:
-            dict | None: The updated conditions dictionary or None if all relevant rules were removed
-        """
-        if not conditions:
-            return None
-
-        new_conditions: dict[str, Any] = {'condition': conditions['condition']}
-        new_rules: list[dict[str, Any]] = []
-
-        for a_rule in conditions.get('rules', []):
-            if "condition" in a_rule:
-                result: dict[str, Any] | None = self.clear_rules_of_field(a_rule, field_name)
-
-                if result:
-                    new_rules.append(result)
-            else:
-                if a_rule['field'] == field_name:
-                    pass
-                else:
-                    new_rules.append(a_rule)
-
-        if len(new_rules) > 0:
-            new_conditions['rules'] = new_rules
-            return new_conditions
-
-        return None
+        self.selected_fields = [a_field for a_field in self.selected_fields if a_field != field_name]
+        self.conditions = clear_rules_of_field(self.conditions, field_name)
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
     def from_data(cls, data: dict[str, Any]) -> "CmdbReport":
         """
-        Creates a CmdbReport instance from a dictionary of data
+        Creates a CmdbReport instance from a stored document
+
+        The four keys the validation schema marks as required are read strictly - a document without
+        them is broken and should surface as an error. 'mds_mode' and 'predefined' are optional in the
+        schema and default in the constructor, so they are read leniently: a report written before the
+        MDS mode existed carries neither, and a strict read would fail the whole report list (every
+        row of an iteration is hydrated through this method) instead of that single document
 
         Args:
-            data (dict): A dictionary representing report data
+            data (dict[str, Any]): A dictionary representing report data
+
+        Raises:
+            CmdbReportInitFromDataError: If the instance could not be created from the given data
 
         Returns:
             CmdbReport: An instance of CmdbReport initialized with the provided data
@@ -188,8 +231,8 @@ class CmdbReport(CmdbDAO):
                 selected_fields = data['selected_fields'],
                 conditions = data.get('conditions'),
                 report_query = data.get('report_query'),
-                mds_mode = data['mds_mode'],
-                predefined = data['predefined'],
+                mds_mode = data.get('mds_mode', MdsMode.ROWS),
+                predefined = data.get('predefined', False),
             )
         except Exception as err:
             raise CmdbReportInitFromDataError(str(err)) from err
@@ -202,8 +245,11 @@ class CmdbReport(CmdbDAO):
         Args:
             instance (CmdbReport): The report instance to serialize
 
+        Raises:
+            CmdbReportToJsonError: If the CmdbReport could not be converted to a json compatible dict
+
         Returns:
-            dict: A dictionary representation of the CmdbReport instance
+            dict[str, Any]: A dictionary representation of the CmdbReport instance
         """
         try:
             return {

@@ -19,7 +19,10 @@ Functional tests for the ``/report_categories`` REST routes
 Pins the route-layer behaviour: create forces a server id + predefined=False, the missing-id 404s,
 the GET-list envelope, the update path (identity pinned to the URL id, predefined immutable), and
 the delete guards - missing -> 404, predefined -> 403, in-use-by-report -> 403, otherwise 200. The
-create/update routes read their data from the query string (parse_request_parameters)
+create/update routes read their data from the query string (parse_request_parameters), and both
+sanitise it: a payload without a usable ``name`` is a 400 and every key outside the write whitelist
+is dropped instead of being persisted as a document key. A predefined category is read-only, so it
+can neither be renamed nor deleted
 """
 from http import HTTPStatus
 from typing import Any
@@ -96,6 +99,39 @@ class TestCreateReportCategory:
         finally:
             _categories(database_manager, database_name).delete_one({'public_id': new_id})
 
+    def test_create_trims_the_name_and_drops_unknown_keys(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The name is stored trimmed and a parameter outside the write whitelist is not persisted."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/',
+            query_string={'name': '  Padded Category  ', 'public_id': BOGUS_BODY_ID, 'injected': 'value'},
+        )
+
+        assert response.status_code == HTTPStatus.OK
+        new_id = response.get_json()
+        try:
+            # The payload public_id never reaches the insert - the server assigns the next id
+            assert new_id != BOGUS_BODY_ID
+            stored = _categories(database_manager, database_name).find_one({'public_id': new_id})
+            assert stored['name'] == 'Padded Category'
+            assert 'injected' not in stored
+        finally:
+            _categories(database_manager, database_name).delete_one({'public_id': new_id})
+
+    @pytest.mark.parametrize('query_string', [{}, {'name': ''}, {'name': '   '}], ids=['absent', 'empty', 'blank'])
+    def test_create_without_a_usable_name_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, query_string: dict[str, Any],
+    ) -> None:
+        """A missing / blank name is a 400 and no nameless category reaches the collection."""
+        categories = _categories(database_manager, database_name)
+        before = categories.count_documents({})
+
+        response = rest_api.post(f'{ROUTE_URL}/', query_string=query_string)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert categories.count_documents({}) == before
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       READ                                                           #
@@ -168,6 +204,48 @@ class TestUpdateReportCategory:
         assert stored['name'] == 'Renamed'
         # predefined stays immutable despite predefined=true in the request
         assert stored['predefined'] is False
+
+    def test_update_drops_unknown_keys(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A parameter outside the write whitelist is not written onto the stored document."""
+        _categories(database_manager, database_name).insert_one(_category_doc(CATEGORY_ID_FOR_UPDATE, 'Original'))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}',
+            query_string={'name': '  Renamed  ', 'injected': 'value'},
+        )
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        stored = _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_FOR_UPDATE})
+        assert stored['name'] == 'Renamed'
+        assert 'injected' not in stored
+
+    def test_update_without_a_usable_name_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A missing name is a 400 and the stored name is left untouched."""
+        _categories(database_manager, database_name).insert_one(_category_doc(CATEGORY_ID_FOR_UPDATE, 'Original'))
+
+        response = rest_api.put(f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}', query_string={})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        stored = _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_FOR_UPDATE})
+        assert stored['name'] == 'Original'
+
+    def test_update_of_a_predefined_category_returns_403(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A predefined category is read-only: the rename is refused and the stored name stays."""
+        _categories(database_manager, database_name).insert_one(
+            _category_doc(CATEGORY_ID_PREDEFINED, 'System', predefined=True)
+        )
+
+        response = rest_api.put(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}', query_string={'name': 'Renamed'})
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        stored = _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_PREDEFINED})
+        assert stored['name'] == 'System'
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a missing id returns 404."""

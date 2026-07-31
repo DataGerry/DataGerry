@@ -37,6 +37,7 @@ from cmdb.framework.exporter.export_filename_helper import (
     build_export_filename,
     build_object_export_filename,
     build_object_export_subject,
+    build_object_template_filename,
     build_type_export_filename,
     sanitize_filename_part,
 )
@@ -175,6 +176,42 @@ class TestBuildTypeExportFilename:
         filename = build_type_export_filename(count, 'json')
 
         assert re.fullmatch(f'{TIMESTAMP_PREFIX}_types_{count}\\.json', filename)
+
+
+class TestBuildObjectTemplateFilename:
+    """The object-import template filename: timestamp, the type LABEL, and the template marker."""
+
+    def test_names_the_type_label_and_closes_with_the_marker(self) -> None:
+        """A template is named after the label a user sees, and says that it is a template."""
+        filename = build_object_template_filename('Router', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_router_template\\.csv', filename)
+
+    def test_the_label_is_sanitised_like_every_other_part(self) -> None:
+        """A label is free text and ends up in a Content-Disposition header, so it is reduced."""
+        filename = build_object_template_filename('Router (Core)', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_router-core_template\\.csv', filename)
+
+    def test_an_unusable_label_still_yields_a_recognisable_name(self) -> None:
+        """A label that sanitises away leaves the timestamp and the marker, with no double separator."""
+        filename = build_object_template_filename('???', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_template\\.csv', filename)
+
+    def test_a_template_is_distinguishable_from_an_export_of_the_same_type(self) -> None:
+        """The marker is what keeps a template and an export taken in the same second apart."""
+        template = build_object_template_filename('Router', 'csv')
+        export = build_object_export_filename(['Router'], 'csv')
+
+        assert template != export
+        assert template.endswith('_template.csv')
+
+    def test_the_assembled_name_is_length_capped(self) -> None:
+        """A very long label cannot push the name past the shared cap."""
+        filename = build_object_template_filename('r' * 500, 'csv')
+
+        assert len(filename.rsplit('.', 1)[0]) <= EXPORT_FILENAME_MAX_LENGTH
 
 
 class TestBuildExportFilename:

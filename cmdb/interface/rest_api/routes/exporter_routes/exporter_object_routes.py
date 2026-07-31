@@ -16,18 +16,32 @@
 """
 Implementation of all API routes for CmdbObject exports
 
-Exposes two endpoints under the `/exporter` blueprint: `GET /exporter/extensions` (the catalogue of
-supported export formats) and `GET /exporter/` (the actual object export). The export format is resolved
+Exposes three endpoints under the `/exporter` blueprint: `GET /exporter/extensions` (the catalogue of
+supported export formats), `GET /exporter/` (the actual object export) and
+`GET /exporter/template/<type_id>` (a CmdbType's object-import template). The export format is resolved
 and validated by `exporter_helper.resolve_export_format`, then dynamically loaded and driven by
 `BaseExportWriter`, which streams the result back as a file download.
+
+The template route is the one export that reads no CmdbObject at all: it answers a CSV holding only the
+self-describing header row a user fills in (see `export_template_helper`), so its column layout comes
+from the CmdbType rather than from exported data.
 """
 from logging import Logger, getLogger
 from flask import abort, current_app
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
+from cmdb.manager import TypesManager
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.exporter.config.exporter_config import ExporterConfig
+from cmdb.framework.exporter.export_filename_helper import build_object_template_filename
+from cmdb.framework.exporter.export_template_helper import (
+    build_object_template_header,
+    type_has_template_fields,
+)
+from cmdb.framework.exporter.format.csv_export_format import CsvExportFormat
 from cmdb.framework.exporter.writer.base_export_writer import BaseExportWriter
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
 from cmdb.framework.exporter.exporter_constants import EXPORT_FORMAT_MODULE_PREFIX
@@ -43,6 +57,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.exporter import ExporterError
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
+from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -137,3 +152,64 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
     except Exception as err:
         LOGGER.error("[export_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while exporting Objects!")
+
+
+@exporter_blueprint.route('/template/<int:type_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@exporter_blueprint.protect(auth=True, right='base.export.object.*')
+def export_object_import_template(type_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns the object-import template of a CmdbType as a CSV holding only its header row
+
+    Each column is self-describing - `<Field label> [MDS-<Section label>] [<field name>]` - and the column
+    order mirrors an object CSV export of the same type, so a filled-in template is the same document an
+    export produces. No CmdbObject is read.
+
+    Args:
+        type_id (int): public_id of the CmdbType to build the template for
+        request_user (CmdbUser): The user requesting the template
+
+    Returns:
+        Response: The template as a CSV file download
+
+    Raises:
+        HTTPException: 404 when the CmdbType does not exist, 400 when it declares no field to fill in or
+                       could not be retrieved, 500 on an unexpected failure
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+        type_instance: CmdbType | None = types_manager.get_type_instance(type_id)
+
+        if not type_instance:
+            abort(404, f"The Type with ID:{type_id} was not found!")
+
+        # A type without fields would yield nothing but the two identity columns, which is not a usable
+        # template - and it points at a broken type rather than at a bad request for the template
+        if not type_has_template_fields(type_instance):
+            abort(400, f"The Type with ID: {type_id} has no fields, so no import template can be created!")
+
+        header: list[str] = build_object_template_header(type_instance)
+        # Written through the CSV format itself, so a template and an export share one CSV writer
+        template_content = CsvExportFormat().csv_writer(header, [])
+        filename: str = build_object_template_filename(type_instance.label, CsvExportFormat.FILE_EXTENSION)
+
+        return Response(
+            template_content,
+            mimetype=CsvExportFormat.MIME_TYPE,
+            headers={
+                # Quoted for the same reason as the object export: the name carries a type label, and an
+                # unquoted header value cannot hold a separator
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+    except HTTPException as http_err:
+        raise http_err
+    except TypesManagerGetError as err:
+        LOGGER.error("[export_object_import_template] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the Type with ID: {type_id} from the database!")
+    except Exception as err:
+        LOGGER.error("[export_object_import_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, f"An internal server error occured while creating the import template for Type "
+                   f"with ID: {type_id}!")

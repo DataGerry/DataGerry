@@ -1244,5 +1244,5 @@ class TestCleanTypeReports:
             report_cls.from_data.return_value = report
             clean_type_reports(reports_manager, [{'public_id': 1}], {'gone'}, MagicMock())
 
-        report.remove_field_occurences.assert_called_once_with('gone')
+        report.remove_field_occurrences.assert_called_once_with('gone')
         reports_manager.bulk_write.assert_called_once()
