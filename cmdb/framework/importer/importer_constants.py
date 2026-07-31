@@ -30,6 +30,11 @@ DEFAULT_OBJECT_VERSION: str = '1.0.0'
 # one object's data can never discard the objects around it
 UNEXPECTED_OBJECT_IMPORT_ERROR: str = 'Unexpected error while importing this object: {detail}'
 
+# Reported by every object parser for a file that parsed correctly but carries no entry to import - a
+# header-only CSV or an empty JSON list. The routes turn it into one 400 naming that reason, so the two
+# formats answer the same way
+NO_CONTENT_DATA_MESSAGE: str = '[{parser}]: No content data!'
+
 # A CSV column header may carry its identifier in a trailing bracketed group, which is what the object
 # import template emits (`<Field label> [MDS-<Section label>] [<field name>]`, built by
 # cmdb.framework.exporter.export_template_helper). The LAST group is the field name, so a template

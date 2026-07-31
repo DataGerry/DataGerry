@@ -21,7 +21,19 @@ from cmdb.framework.importer.importer_constants import IMPORTER_KIND_OBJECT
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Re-exported from the framework layer so the route and the importer registry share one source of truth
-__all__: list[str] = ['IMPORTER_KIND_OBJECT', 'ImporterFormField', 'ImporterConfigKey']
+__all__: list[str] = [
+    'IMPORTER_KIND_OBJECT',
+    'ImporterFormField',
+    'ImporterConfigKey',
+    'NO_CONTENT_TO_IMPORT_MESSAGE',
+]
+
+# Answer for a file that parsed correctly but carries no data row - a header-only CSV, which is what a
+# freshly downloaded import template is. Shared by the parse-preview and the import route so both name the
+# real reason instead of blaming the parser configuration
+NO_CONTENT_TO_IMPORT_MESSAGE: str = (
+    "The file contains no data rows to import - only its header. Fill the file in and upload it again!"
+)
 
 
 class ImporterFormField(BaseStrEnum):

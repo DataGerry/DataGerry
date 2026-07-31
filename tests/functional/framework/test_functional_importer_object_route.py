@@ -57,6 +57,10 @@ ALL_TYPE_IDS: list[int] = [ACTIVE_TYPE_ID, INACTIVE_TYPE_ID, OTHER_TYPE_ID]
 EXISTING_OBJECT_ID: int = 47350  # the public_id an overwrite import carries
 
 CSV_BODY: bytes = b'dg-name\nhost-1\n'
+# A header-only file: what a freshly downloaded import template looks like before it is filled in
+HEADER_ONLY_CSV_BODY: bytes = b'dg-name\n'
+# The JSON counterpart of an empty file - answered the same way since the two formats were aligned
+EMPTY_JSON_BODY: bytes = b'[]'
 
 ADMIN_PUBLIC_ID: int = 1  # the user the rest_api fixture authenticates as
 
@@ -164,6 +168,38 @@ class TestParseObjects:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
+    def test_parse_header_only_file_names_the_real_reason(self, rest_api) -> None:
+        """An empty file is a 400 that says it has no data rows - NOT 'check your parser config'.
+
+        A freshly downloaded import template is exactly this file, so the message must point at the
+        file's content instead of at settings that are not at fault.
+        """
+        form = {
+            'file': (BytesIO(HEADER_ONLY_CSV_BODY), 'template.csv'),
+            'file_format': 'csv',
+            'parser_config': json.dumps({}),
+        }
+
+        response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        message = response.get_json()['message']
+        assert 'no data rows' in message
+        assert 'configuration' not in message
+
+    def test_parse_empty_json_list_names_the_real_reason(self, rest_api) -> None:
+        """An empty JSON list is answered exactly like a header-only CSV (the formats are aligned)."""
+        form = {
+            'file': (BytesIO(EMPTY_JSON_BODY), 'empty.json'),
+            'file_format': 'json',
+            'parser_config': json.dumps({}),
+        }
+
+        response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'no data rows' in response.get_json()['message']
+
     def test_parse_unknown_format_returns_400(self, rest_api) -> None:
         """A parse request whose format has no parser is a client error -> 400 (was wrongly 500)."""
         form = {
@@ -237,6 +273,38 @@ class TestImportObjects:
         )
 
         assert response.status_code == HTTPStatus.OK
+
+    def test_import_of_a_header_only_file_returns_400_not_500(self, rest_api) -> None:
+        """An empty file is the caller's doing, so it must not surface as a server error.
+
+        Before this was named separately, the parser's no-content error was wrapped into an
+        ImportRuntimeError and answered with 500 'Failed to import Objects!'.
+        """
+        form = {
+            'file': (BytesIO(HEADER_ONLY_CSV_BODY), 'template.csv'),
+            'file_format': 'csv',
+            'parser_config': json.dumps({}),
+            'importer_config': json.dumps({'type_id': ACTIVE_TYPE_ID}),
+        }
+
+        response = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'no data rows' in response.get_json()['message']
+
+    def test_import_of_an_empty_json_list_returns_400_not_500(self, rest_api) -> None:
+        """JSON no longer imports nothing quietly: an empty file is refused like an empty CSV."""
+        form = {
+            'file': (BytesIO(EMPTY_JSON_BODY), 'empty.json'),
+            'file_format': 'json',
+            'parser_config': json.dumps({}),
+            'importer_config': json.dumps({'type_id': ACTIVE_TYPE_ID}),
+        }
+
+        response = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'no data rows' in response.get_json()['message']
 
     def test_unexpected_type_resolution_error_returns_400(self, rest_api, monkeypatch) -> None:
         """An unexpected error while resolving the target type is a client error -> 400."""

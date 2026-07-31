@@ -32,7 +32,7 @@ from cmdb.framework.importer.helper.improve_object import ImproveObject
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 from cmdb.framework.importer.configs.json_object_importer_config import JsonObjectImporterConfig
 
-from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
+from cmdb.errors.importer import ImportRuntimeError, ParserNoContentError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -145,6 +145,8 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
             ImporterObjectResponse: The response after importing the objects, containing status and data
 
         Raises:
+            ParserNoContentError: If the file carries no entry at all - re-raised as it is, because that
+                is the caller's doing and not an import failure
             ImportRuntimeError: If parsing or importing fails
         """
         try:
@@ -155,6 +157,10 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
             candidates = self._generate_objects(parsed_response, fields=type_fields)
 
             return self._import_for_type(candidates, type_instance)
+        except ParserNoContentError:
+            # The file holds no entry: a caller-actionable condition, not an import failure, so it
+            # travels out untouched for the route to answer with a 400 naming the real reason
+            raise
         except ParserRuntimeError as err:
             LOGGER.error("[start_import] Parsing error: %s", err, exc_info=True)
             raise ImportRuntimeError(f"Parsing failed: {err}") from err

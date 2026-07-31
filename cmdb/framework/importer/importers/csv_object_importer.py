@@ -44,7 +44,7 @@ from cmdb.framework.importer.responses.csv_object_parser_response import CsvObje
 from cmdb.framework.importer.helper.improve_object import ImproveObject
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
 
-from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
+from cmdb.errors.importer import ImportRuntimeError, ParserNoContentError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The first multi-data-section row id handed out on import (the section's highest_id counter is 0-based,
@@ -403,6 +403,8 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             ImporterObjectResponse: The result of the import process
 
         Raises:
+            ParserNoContentError: If the file carries no data row below its header - re-raised as it is,
+                because that is the caller's doing and not an import failure
             ImportRuntimeError: If parsing or importing fails
         """
         try:
@@ -418,6 +420,10 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             )
 
             return self._import_for_type(candidates, type_instance)
+        except ParserNoContentError:
+            # The file holds no data row: a caller-actionable condition, not an import failure, so it
+            # travels out untouched for the route to answer with a 400 naming the real reason
+            raise
         except ParserRuntimeError as err:
             LOGGER.error("[start_import] Parsing error: %s", err, exc_info=True)
             raise ImportRuntimeError(f"Parsing failed: {err}") from err

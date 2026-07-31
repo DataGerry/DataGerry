@@ -35,7 +35,7 @@ from cmdb.framework.importer.parser.csv_object_parser import (
 )
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
 from cmdb.framework.importer.responses.csv_object_parser_response import CsvObjectParserResponse
-from cmdb.errors.importer import ParserRuntimeError
+from cmdb.errors.importer import ParserNoContentError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -69,6 +69,16 @@ class TestJsonObjectParser:
 
         with pytest.raises(ParserRuntimeError):
             JsonObjectParser().parse(path)
+
+    def test_an_empty_list_raises_the_no_content_error(self, tmp_path: Path) -> None:
+        """An empty top-level list holds nothing to import - reported exactly like a header-only CSV,
+        so both formats answer the same 400 instead of JSON silently importing zero objects."""
+        path = _write(tmp_path, 'empty.json', '[]')
+
+        with pytest.raises(ParserNoContentError) as exc_info:
+            JsonObjectParser().parse(path)
+
+        assert 'No content data!' in str(exc_info.value)
 
     def test_non_list_top_level_raises_parser_runtime_error(self, tmp_path: Path) -> None:
         """A top-level JSON object (not a list) is rejected so count stays the object count."""
@@ -133,15 +143,34 @@ class TestCsvObjectParser:
         assert result.entries == [{0: 1, 1: 'alice'}]
 
     def test_empty_file_raises_clean_no_content_error(self, tmp_path: Path) -> None:
-        """A header-only file raises the 'No content data!' error, not a re-wrapped one (B2)."""
+        """A header-only file raises the precise no-content error, not a re-wrapped one (B2).
+
+        The type matters: the routes answer it with 'the file has no data rows' instead of blaming the
+        parser configuration, so it must stay distinguishable from a plain ParserRuntimeError.
+        """
         path = _write(tmp_path, 'empty.csv', 'id,name\n')
 
-        with pytest.raises(ParserRuntimeError) as exc_info:
+        with pytest.raises(ParserNoContentError) as exc_info:
             CsvObjectParser().parse(path)
 
         message = str(exc_info.value)
         assert 'No content data!' in message
         assert 'An error occurred' not in message
+
+    def test_an_undecodable_file_is_a_plain_parser_error(self, tmp_path: Path) -> None:
+        """A real parsing failure (here: the wrong encoding) stays a plain ParserRuntimeError.
+
+        That is the case the generic 'could not parse with the given configuration' answer is for, so it
+        must NOT be reported as an empty file.
+        """
+        path = tmp_path / 'latin1.csv'
+        path.write_bytes(b'id,name\n1,caf\xe9\n')
+
+        with pytest.raises(ParserRuntimeError) as exc_info:
+            CsvObjectParser().parse(str(path))
+
+        assert not isinstance(exc_info.value, ParserNoContentError)
+        assert 'An error occurred' in str(exc_info.value)
 
     def test_missing_file_raises_parser_runtime_error(self, tmp_path: Path) -> None:
         """A missing file is wrapped in ParserRuntimeError."""
