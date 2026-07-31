@@ -64,7 +64,9 @@ EXPORT_FORMAT_MODULE_PREFIX: str = 'cmdb.framework.exporter.format.'
 #   `<Field label> [MDS-<Section label>] [<field name>]`
 # with the MDS part present only for a field of a multi-data-section. The label leads because the file is
 # filled in by a person; the bracketed field name closes it because that is the identifier the import
-# needs, and naming the MDS section (rather than a bare marker) keeps two multi-data-sections apart
+# needs, and naming the MDS section (rather than a bare marker) keeps two multi-data-sections apart.
+# The import side reads that trailing group back via CSV_HEADER_IDENTIFIER_PATTERN
+# (cmdb.framework.importer.importer_constants) - keep the two in step
 TEMPLATE_MDS_MARKER_TEMPLATE: str = '[MDS-{section}]'
 TEMPLATE_FIELD_NAME_TEMPLATE: str = '[{name}]'
 TEMPLATE_COLUMN_PART_SEPARATOR: str = ' '
