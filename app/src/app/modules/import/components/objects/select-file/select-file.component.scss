@@ -15,6 +15,23 @@
     margin: 1rem auto 0;
 }
 
+.step-callout__link {
+    color: $brand;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+
+    i {
+        font-size: 0.7rem;
+        margin-left: 0.2rem;
+    }
+
+    &:hover,
+    &:focus-visible {
+        text-decoration: underline;
+    }
+}
+
 .field {
     display: flex;
     flex-direction: column;
