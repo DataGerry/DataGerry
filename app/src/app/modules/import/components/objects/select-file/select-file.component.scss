@@ -4,6 +4,7 @@
     display: block;
     @include dg-controls;
     @include dg-step-actions;
+    @include dg-callout;
 }
 
 .file-form {

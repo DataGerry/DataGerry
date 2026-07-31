@@ -59,6 +59,11 @@ export class SelectFileComponent implements OnInit, OnDestroy {
         return this.fileForm.get('file');
     }
 
+
+    public get isJsonFormat(): boolean {
+        return (this.fileFormat.value ?? '').toLowerCase() === 'json';
+    }
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */

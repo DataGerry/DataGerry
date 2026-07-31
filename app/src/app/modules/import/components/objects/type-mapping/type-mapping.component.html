@@ -41,30 +41,11 @@
             <div class="col-md-3">
                 <div class="mapping-panel">
                     <h2 class="mapping-panel__head">
-                        Meta values
+                        Possible fields of
+                        <span class="mapping-panel__type">{{ typeInstance?.label }}</span>
                     </h2>
                     <div class="mapping-panel__body">
-                        @for (control of mappingControls | mappingControl: 'type':'property'; track control) {
-                        <div class="mapping-chip" [dndDraggable]="control" [dndEffectAllowed]="allowedEffect"
-                            (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
-                            <i class="fas fa-grip-vertical" aria-hidden="true"></i>
-                            <span>{{ control.label }}</span>
-                        </div>
-                        } @empty {
-                        <p class="panel-empty">
-                            <i class="fas fa-check-circle" aria-hidden="true"></i>
-                            All assigned
-                        </p>
-                        }
-                    </div>
-                </div>
-
-                <div class="mapping-panel">
-                    <h2 class="mapping-panel__head">
-                        Fields
-                    </h2>
-                    <div class="mapping-panel__body">
-                        @for (control of mappingControls | mappingControl: 'type':'field'; track control) {
+                        @for (control of mappingControls; track control) {
                         <div class="mapping-chip" [dndDraggable]="control" [dndEffectAllowed]="allowedEffect"
                             (dndMoved)="onDragged(control, mappingControls, allowedEffect)">
                             <i class="fas fa-grip-vertical" aria-hidden="true"></i>

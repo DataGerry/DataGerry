@@ -5,6 +5,15 @@
         <span class="field__hint">Choose the format of the file you want to import.</span>
     </div>
 
+    @if (isJsonFormat) {
+    <div class="step-callout" role="note">
+        <i class="fas fa-circle-info" aria-hidden="true"></i>
+        <span>
+            The JSON file has to be a DATAGerry object export. Files from other tools cannot be imported.
+        </span>
+    </div>
+    }
+
     <div class="field">
         <app-file-dropzone formControlName="file" label="File" [required]="true"
             [acceptedExtensions]="selectedFileFormat"
