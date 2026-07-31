@@ -28,11 +28,15 @@ from logging import Logger, getLogger
 
 from cmdb.utils.cast import auto_cast
 from cmdb.framework.importer.content_types import CSVContent
-from cmdb.framework.importer.importer_constants import CSV_HEADER_IDENTIFIER_PATTERN, CsvParserConfigKey
+from cmdb.framework.importer.importer_constants import (
+    CSV_HEADER_IDENTIFIER_PATTERN,
+    NO_CONTENT_DATA_MESSAGE,
+    CsvParserConfigKey,
+)
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.csv_object_parser_response import CsvObjectParserResponse
 
-from cmdb.errors.importer import ParserRuntimeError
+from cmdb.errors.importer import ParserNoContentError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -119,7 +123,8 @@ class CsvObjectParser(BaseObjectParser, CSVContent):
             CsvObjectParserResponse: A structured response containing parsed data
 
         Raises:
-            ParserRuntimeError: If the file cannot be read/parsed, or contains no data rows
+            ParserNoContentError: If the file carries no data row below its header
+            ParserRuntimeError: If the file cannot be read/parsed
         """
         run_config = self.get_config()
         header: list | None = None
@@ -147,7 +152,9 @@ class CsvObjectParser(BaseObjectParser, CSVContent):
                     entries.append(self._generate_index_pair([auto_cast(entry) for entry in row]))
 
                 if not entries:
-                    raise ParserRuntimeError(f"[{self.__class__.__name__}]: No content data!")
+                    # The file itself is fine - it just carries no data row (a header-only CSV, e.g. an
+                    # import template that has not been filled in yet)
+                    raise ParserNoContentError(NO_CONTENT_DATA_MESSAGE.format(parser=self.__class__.__name__))
         except ParserRuntimeError:
             raise
         except Exception as err:

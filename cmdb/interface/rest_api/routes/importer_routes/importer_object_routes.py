@@ -71,12 +71,18 @@ from cmdb.interface.rest_api.routes.routes_helper import (
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_constants import (
     IMPORTER_KIND_OBJECT,
+    NO_CONTENT_TO_IMPORT_MESSAGE,
     ImporterFormField,
     ImporterConfigKey,
 )
 
 from cmdb.errors.security import AccessDeniedError
-from cmdb.errors.importer import ImportRuntimeError, ImporterLoadError, ParserLoadError
+from cmdb.errors.importer import (
+    ImportRuntimeError,
+    ImporterLoadError,
+    ParserLoadError,
+    ParserNoContentError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -222,6 +228,11 @@ def parse_objects(request_user: CmdbUser) -> Response:  # pylint: disable=unused
             parsed_output = generate_parsed_output(request_file, file_format, parser_config).output()
         except HTTPException:
             raise
+        except ParserNoContentError as err:
+            # The file parsed fine and simply holds no data row, so the generic message below - which
+            # points at the parser configuration - would name the wrong cause
+            LOGGER.error("[parse_objects] ParserNoContentError: %s", err)
+            abort(400, NO_CONTENT_TO_IMPORT_MESSAGE)
         except Exception as err:
             LOGGER.error("[parse_objects] Error: %s, Type: %s", err, type(err), exc_info=True)
             abort(400, "Could not parse the provided file with the given configuration!")
@@ -494,10 +505,15 @@ def _run_object_import(importer: ObjectImporter) -> ImporterObjectResponse:
         ImporterObjectResponse: The import result (success/failure messages)
 
     Raises:
-        HTTPException: 500 on an import runtime / unexpected error, 403 on access denial
+        HTTPException: 400 when the file carries no data row, 500 on an import runtime / unexpected
+                       error, 403 on access denial
     """
     try:
         return importer.start_import()
+    except ParserNoContentError as err:
+        # An empty file is the caller's, not the server's, problem - it must not surface as a 500
+        LOGGER.error("[import_objects] ParserNoContentError: %s", err)
+        abort(400, NO_CONTENT_TO_IMPORT_MESSAGE)
     except ImportRuntimeError as err:
         LOGGER.error("[import_objects] ImportRuntimeError: %s", err, exc_info=True)
         abort(500, "Failed to import Objects!")

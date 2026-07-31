@@ -28,7 +28,7 @@ import pytest
 
 from cmdb.framework.importer.importers.json_object_importer import JsonObjectImporter
 from cmdb.framework.importer.importers.csv_object_importer import CsvObjectImporter
-from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
+from cmdb.errors.importer import ImportRuntimeError, ParserNoContentError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 # The suite drives the class-under-test's methods directly on a MagicMock ``self`` (unbound calls)
 # pylint: disable=protected-access,no-value-for-parameter
@@ -170,6 +170,14 @@ class TestJsonGenerateObject:
         mock_self.parser.parse.side_effect = ParserRuntimeError("bad json")
 
         with pytest.raises(ImportRuntimeError):
+            JsonObjectImporter.start_import(mock_self)
+
+    def test_start_import_lets_the_no_content_error_through(self) -> None:
+        """An empty file reaches the route as it is, so it is answered with 400 and not with a 500."""
+        mock_self = MagicMock()
+        mock_self.parser.parse.side_effect = ParserNoContentError("no entries")
+
+        with pytest.raises(ParserNoContentError):
             JsonObjectImporter.start_import(mock_self)
 
     def test_start_import_wires_parse_generate_import(self) -> None:
@@ -481,6 +489,15 @@ class TestCsvStartImport:
         mock_self.parser.parse.side_effect = RuntimeError("boom")
 
         with pytest.raises(ImportRuntimeError):
+            CsvObjectImporter.start_import(mock_self)
+
+    def test_no_content_error_travels_out_untouched(self) -> None:
+        """An empty file is NOT an import failure: the precise error reaches the route, which answers
+        400 with the real reason instead of the 500 an ImportRuntimeError would produce."""
+        mock_self = MagicMock()
+        mock_self.parser.parse.side_effect = ParserNoContentError("no rows")
+
+        with pytest.raises(ParserNoContentError):
             CsvObjectImporter.start_import(mock_self)
 
 

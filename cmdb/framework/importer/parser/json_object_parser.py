@@ -21,11 +21,11 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.framework.importer.content_types import JSONContent
-from cmdb.framework.importer.importer_constants import JsonParserConfigKey
+from cmdb.framework.importer.importer_constants import NO_CONTENT_DATA_MESSAGE, JsonParserConfigKey
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
 
-from cmdb.errors.importer import ParserRuntimeError
+from cmdb.errors.importer import ParserNoContentError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -63,6 +63,7 @@ class JsonObjectParser(BaseObjectParser, JSONContent):
                 - entries: The parsed objects (the top-level JSON list)
 
         Raises:
+            ParserNoContentError: If the top-level list is empty, so there is nothing to import
             ParserRuntimeError: If the file cannot be read/parsed, or its top level is not a JSON list
         """
         run_config = self.get_config()
@@ -80,5 +81,10 @@ class JsonObjectParser(BaseObjectParser, JSONContent):
             raise ParserRuntimeError(
                 f"[{self.__class__.__name__}]: expected a JSON list of objects at the top level"
             )
+
+        if not parsed:
+            # An empty list parsed perfectly and simply holds nothing to import - the same condition a
+            # header-only CSV is in, reported the same way so both formats answer alike
+            raise ParserNoContentError(NO_CONTENT_DATA_MESSAGE.format(parser=self.__class__.__name__))
 
         return JsonObjectParserResponse(count=len(parsed), entries=parsed)
