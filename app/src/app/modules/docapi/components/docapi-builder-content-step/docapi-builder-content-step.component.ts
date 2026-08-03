@@ -367,7 +367,11 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
                 this.scheduleHeadingSync(0);
             },
             onEditorContentChanged: () => this.scheduleHeadingSync(),
-            onAiAssistantRequested: () => this.openModalAndInsertContent(DocapiAiAssistantModalComponent, { size: 'xl' }),
+            onAiAssistantRequested: () => this.openModalAndInsertContent(DocapiAiAssistantModalComponent, {
+                size: 'xl',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            }),
             onExternalObjectsRequested: () => this.openModalAndInsertContent(ExternalObjectSelectorModalComponent, { size: 'xl' }),
             onRelationTemplateRequested: () => this.openModalAndInsertContent(RelationTemplateSelectorModalComponent, { size: 'lg' }, { rootTypeId: this.templateTypeId }),
             onReportTemplateRequested: () => this.openModalAndInsertContent(ReportTemplateSelectorModalComponent, { size: 'xl' })
