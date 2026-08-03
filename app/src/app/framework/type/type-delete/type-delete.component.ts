@@ -35,27 +35,26 @@ import { ReportService } from 'src/app/toolbox/reporting/services/report.service
 //TODO: Extract this component in its own component folder
 @Component({
     selector: 'cmdb-type-delete-confirm-modal',
-    styleUrls: ['./type-delete.component.scss'],
+    styleUrls: ['./type-delete-confirm-modal.component.scss'],
     template: `
-    <div class="modal-header">
-        <h4 class="modal-title" id="modal-title">Type deletion</h4>
-        <button
-            type="button"
-            class="btn-close btn-close-white"
-            aria-label="Close"
-            (click)="modal.dismiss('Cross click')">
-            </button>
-    </div>
-    <div class="modal-body">
-        <strong>Are you sure you want to delete <span class="text-primary">{{typeLabel}}</span> type?</strong>
-    
-        <div class="relation-impact-warning">
-            <i class="fas fa-exclamation-triangle warning-icon"></i>
+    <dg-modal
+        icon="fas fa-trash-can"
+        eyebrow="Type"
+        title="Type deletion"
+        [subtitle]="typeLabel"
+        (dismiss)="modal.dismiss('Cross click')">
+
+        <p class="delete-lead">
+            <strong>Are you sure you want to delete <span class="text-primary">{{typeLabel}}</span> type?</strong>
+        </p>
+
+        <div class="relation-impact-warning" role="alert">
+            <i class="fas fa-exclamation-triangle warning-icon" aria-hidden="true"></i>
             <div class="warning-text">
                 This action will remove the type's ID from all relations where it's used in parent/child types.
             </div>
         </div>
-    
+
         <form id="deleteTypeModalForm" [formGroup]="deleteTypeModalForm" class="needs-validation" novalidate autocomplete="off">
             <div class="mb-3">
                 <label for="typeNameInput">Type the name: {{typeName}} <span class="required">*</span></label>
@@ -63,10 +62,8 @@ import { ReportService } from 'src/app/toolbox/reporting/services/report.service
                     type="text"
                     formControlName="name"
                     class="form-control"
-                    [ngClass]="{ 
-                        'is-valid': name.valid && (name.dirty || name.touched),
-                        'is-invalid': name.invalid && (name.dirty || name.touched)
-                    }"
+                    [class.is-valid]="name.valid && (name.dirty || name.touched)"
+                    [class.is-invalid]="name.invalid && (name.dirty || name.touched)"
                     id="typeNameInput"
                     required
                 >
@@ -90,16 +87,25 @@ import { ReportService } from 'src/app/toolbox/reporting/services/report.service
                 <div class="clearfix"></div>
             </div>
         </form>
-    </div>
-    <div class="modal-footer">
-        <button type="button" class="btn btn-outline-dark" (click)="modal.dismiss('cancel')">Cancel</button>
-        <button
+
+        <app-button
+            dgModalFooter
+            [bootstrapClass]="'btn-secondary'"
+            label="Cancel"
             type="button"
-            class="btn btn-danger"
+            (clicked)="modal.dismiss('cancel')">
+        </app-button>
+
+        <app-button
+            dgModalFooter
+            [bootstrapClass]="'btn-danger'"
+            label="Delete"
+            type="button"
+            icon="fas fa-trash-can"
             [disabled]="deleteTypeModalForm.invalid"
-            (click)="modal.close('delete')"
-        >Delete</button>
-    </div>
+            (clicked)="modal.close('delete')">
+        </app-button>
+    </dg-modal>
     `,
     standalone: false
 })
@@ -109,8 +115,8 @@ export class TypeDeleteConfirmModalComponent {
     @Input() typeLabel: string = '';
     public deleteTypeModalForm: UntypedFormGroup;
 
-    public get name() {
-        return this.deleteTypeModalForm.get('name');
+    public get name(): AbstractControl {
+        return this.deleteTypeModalForm.get('name')!;
     }
 
 
@@ -198,7 +204,10 @@ export class TypeDeleteComponent implements OnInit {
             return;
         }
 
-        const deleteModal = this.modalService.open(TypeDeleteConfirmModalComponent);
+        const deleteModal = this.modalService.open(TypeDeleteConfirmModalComponent, {
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         deleteModal.componentInstance.typeID = this.typeID;
         deleteModal.componentInstance.typeName = this.typeInstance.name;
         deleteModal.componentInstance.typeLabel = this.typeInstance.label;

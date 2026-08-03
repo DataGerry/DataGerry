@@ -1,57 +1,22 @@
 // node-details-modal.component.scss
 
-.modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 24px;
-    background: linear-gradient(135deg, #e74c3c, #c0392b);
-    color: white;
-    border-bottom: none;
-    
-    .modal-title {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 600;
-      color: white;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      
-      i {
-        font-size: 20px;
-      }
-    }
-    
-    .close {
-      background: none;
-      border: none;
-      font-size: 20px;
-      cursor: pointer;
-      color: white;
-      opacity: 0.8;
-      transition: opacity 0.2s ease;
-      
-      &:hover {
-        opacity: 1;
-      }
-    }
-  }
-  
-  .modal-body {
-    padding: 0;
-    overflow: hidden;
+:host {
     display: flex;
     flex-direction: column;
-    max-height: 80vh;
-  }
-  
-  .modal-layout {
-    display: flex;
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
   }
-  
+
+  /* Two-pane panel inside the shell body; the panes own the scrolling. */
+  .modal-layout {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+  }
+
   .modal-sidebar {
     width: 320px;
     background: #f8f9fa;
@@ -87,7 +52,7 @@
       gap: 8px;
       
       i {
-        color: #e74c3c;
+        color: var(--dg-brand);
         font-size: 16px;
       }
     }
@@ -140,7 +105,7 @@
   }
   
   .node-type-icon {
-    color: #e74c3c;
+    color: var(--dg-brand);
     font-size: 16px;
   }
   
@@ -324,33 +289,6 @@
     p {
       margin: 0;
       font-size: 14px;
-    }
-  }
-  
-  .modal-footer {
-    padding: 12px 24px;
-    background: #f8f9fa;
-    border-top: 1px solid #e9ecef;
-    display: flex;
-    justify-content: flex-end;
-    
-    .btn {
-      padding: 8px 16px;
-      border: none;
-      border-radius: 4px;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      
-      &.btn-secondary {
-        background: #6c757d;
-        color: white;
-        
-        &:hover {
-          background: #5a6268;
-        }
-      }
     }
   }
   

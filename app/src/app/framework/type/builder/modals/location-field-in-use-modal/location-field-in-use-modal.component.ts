@@ -24,6 +24,7 @@ export type LocationFieldDeletionScope = 'field' | 'section';
 @Component({
     selector: 'cmdb-location-field-in-use-modal',
     templateUrl: './location-field-in-use-modal.component.html',
+    styleUrls: ['./location-field-in-use-modal.component.scss'],
     standalone: false
 })
 export class LocationFieldInUseModalComponent {

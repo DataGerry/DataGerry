@@ -471,7 +471,12 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      */
     public onAddRowClicked(): void{
         this.resetModalValues();
-        this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
+        this.modalRef = this.modalService.open(PreviewModalComponent, {
+            scrollable: true,
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.sections = [this.modalSection];
         this.modalRef.componentInstance.saveValues = true;
         this.applyCandidateValidatorToModal(this.modalRef, null);
@@ -503,7 +508,12 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * @param rowIndex (number): multiDataID of MultiDataSet
      */
     public onRowPreview(rowIndex: number): void {
-        this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
+        this.modalRef = this.modalService.open(PreviewModalComponent, {
+            scrollable: true,
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.activateViewMode = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
     }
@@ -515,7 +525,12 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * @param rowIndex (number): MultiDataID of MultiDataSet
      */
     public onRowEdit(rowIndex: number): void {
-        this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
+        this.modalRef = this.modalService.open(PreviewModalComponent, {
+            scrollable: true,
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.editValues = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
         this.applyCandidateValidatorToModal(this.modalRef, rowIndex);

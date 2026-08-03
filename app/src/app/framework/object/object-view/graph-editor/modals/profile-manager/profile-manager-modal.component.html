@@ -1,13 +1,10 @@
-<div class="modal-header">
-    <h4 class="modal-title">
-        <i class="fas fa-bookmark"></i>
-        Manage Filter Profiles
-    </h4>
-    <button type="button" class="btn-close" (click)="close()">
-    </button>
-</div>
+<dg-modal
+    icon="fas fa-bookmark"
+    eyebrow="Graph filters"
+    title="Manage Filter Profiles"
+    [scrollBody]="false"
+    (dismiss)="close()">
 
-<div class="modal-body">
     <div class="modal-layout">
         <aside class="modal-sidebar">
             <div class="profile-configuration">
@@ -20,9 +17,9 @@
                         <form [formGroup]="profileForm" (ngSubmit)="saveProfile()" class="profile-form">
                             <div class="mb-3">
                                 <label class="input-label">Profile Name *</label>
-                                <input 
-                                    type="text" 
-                                    class="form-control" 
+                                <input
+                                    type="text"
+                                    class="form-control"
                                     formControlName="name"
                                     placeholder="Enter profile name"
                                     [class.is-invalid]="profileForm.get('name')?.invalid && profileForm.get('name')?.touched">
@@ -46,49 +43,34 @@
 
                             <div class="mb-3">
                                 <label class="input-label">Relations</label>
-                                <app-form-select 
-                                    formControlName="relations_filter" 
-                                    [items]="relationOptions" 
+                                <app-form-select
+                                    formControlName="relations_filter"
+                                    [items]="relationOptions"
                                     bindLabel="display_name"
-                                    bindValue="public_id" 
-                                    [multiple]="true" 
+                                    bindValue="public_id"
+                                    [multiple]="true"
                                     [enableSelectAll]="true"
                                     placeholder="Select relation type(s)">
                                 </app-form-select>
                             </div>
 
-                            <!-- <div class="form-actions">
-                                <button type="button" 
-                                        class="btn btn-secondary" 
-                                        (click)="cancelEdit()" 
-                                        *ngIf="editMode">
-                                    Cancel
-                                </button>
-                                <button type="submit" 
-                                        class="btn btn-primary" 
-                                        [disabled]="profileForm.invalid">
-                                    {{ editMode ? 'Update' : 'Create' }}
-                                </button>
-
-                                
-                            </div> -->
                             <div class="form-actions d-flex gap-2">
-                                <app-button 
+                                <app-button
                                   *ngIf="editMode"
-                                  [bootstrapClass]="'btn-secondary'" 
-                                  label="Cancel" 
-                                  type="button" 
+                                  [bootstrapClass]="'btn-secondary'"
+                                  label="Cancel"
+                                  type="button"
                                   (clicked)="cancelEdit()">
                                 </app-button>
-                              
-                                <app-button 
-                                  [bootstrapClass]="'btn-success'" 
-                                  [label]="editMode ? 'Update' : 'Create'" 
-                                  type="submit" 
+
+                                <app-button
+                                  [bootstrapClass]="'btn-success'"
+                                  [label]="editMode ? 'Update' : 'Create'"
+                                  type="submit"
                                   [disabled]="profileForm.invalid">
                                 </app-button>
                               </div>
-                              
+
                         </form>
                     </div>
                 </section>
@@ -119,12 +101,12 @@
                         <i class="fas fa-list"></i>
                         Existing Profiles
                     </legend>
-                    
+
                     <div class="profiles-list" *ngIf="profiles.length > 0; else noProfiles">
-                        <div class="profile-item" 
+                        <div class="profile-item"
                              *ngFor="let profile of profiles; trackBy: trackByProfileId"
                              [class.editing]="editingProfile?.public_id === profile.public_id">
-                            
+
                             <div class="profile-header">
                                 <div class="profile-name-section">
                                     <h6 class="profile-name">{{ profile.name }}</h6>
@@ -139,34 +121,8 @@
                                         </span>
                                     </div>
                                 </div>
-                                
-                                <!-- <div class="profile-actions">
-                                    <button class="icon-margin btn-run" 
-                                            (click)="applyProfile(profile)"
-                                            title="Apply this profile">
-                                        <i class="fas fa-play"></i>
-                                    </button>
-                                    <button class="icon-margin btn-edit" 
-                                            (click)="startEdit(profile)"
-                                            title="Edit profile">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-
-                                    <i class="far fa-edit icon-margin btn-edit" (click)="startEdit(profile)" title="Edit Report"></i>
-                                    <button class="btn-delete" 
-                                            (click)="deleteProfile(profile)"
-                                            title="Delete profile">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div> -->
-
 
                                 <div class="profile-actions">
-                                    <!-- <i class="fas fa-play icon-margin btn-run"
-                                
-                                       [title]="'Apply this profile'"
-                                       (click)="applyProfile(profile)">
-                                    </i> -->
                                     <i class="far fa-edit icon-margin btn-edit"
                                        (click)="startEdit(profile)"
                                        title="Edit profile">
@@ -176,9 +132,9 @@
                                        title="Delete profile">
                                     </i>
                                   </div>
-                                  
+
                             </div>
-                            
+
                             <div class="profile-details" *ngIf="profile.types_filter?.length || profile.relations_filter?.length">
                                 <div class="detail-grid">
                                     <div class="detail-item" *ngIf="profile.types_filter?.length">
@@ -206,18 +162,12 @@
             </div>
         </main>
     </div>
-</div>
 
-<!-- <div class="modal-footer">
-    <button class="btn btn-secondary" (click)="close()">Close</button>
-</div> -->
-
-<div class="modal-footer">
-    <app-button 
-      [bootstrapClass]="'btn-warning'" 
-      label="Close" 
-      type="button" 
-      (clicked)="close()">
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Close"
+        type="button"
+        (clicked)="close()">
     </app-button>
-  </div>
-  
+</dg-modal>
