@@ -71,10 +71,12 @@
             </div>
             }
 
-            <button type="button" class="btn btn-success text-end" [disabled]="!formExport.valid"
-                (click)="this.exportObjectByTypeID()">
-                Go!
-            </button>
+            <app-button label="Export"
+                        type="submit"
+                        bootstrapClass="btn-success"
+                        icon="fas fa-file-export me-1"
+                        [disabled]="formExport.invalid">
+            </app-button>
         </div>
     </div>
 </form>

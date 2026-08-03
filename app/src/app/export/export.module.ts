@@ -31,6 +31,7 @@ import { ExportComponent } from './export.component';
 import { ExportTypesComponent } from './export-types/export-types.component';
 import { ExportObjectsComponent } from './export-objects/export-objects.component';
 import { ExportCsvTemplatesComponent } from './export-csv-templates/export-csv-templates.component';
+import { CsvTemplateGuideComponent } from './export-csv-templates/csv-template-guide/csv-template-guide.component';
 import { CoreModule } from '../core/core.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
@@ -49,7 +50,8 @@ import { CoreModule } from '../core/core.module';
         NgSelectModule,
         FontAwesomeModule,
         AuthModule,
-        CoreModule
+        CoreModule,
+        CsvTemplateGuideComponent
     ]
 })
 export class ExportModule {}

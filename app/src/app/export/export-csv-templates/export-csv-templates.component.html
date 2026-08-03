@@ -3,6 +3,15 @@
 <form [formGroup]="formExport" (ngSubmit)="exportTemplate()">
     <div class="card">
         <div class="card-body">
+            <cmdb-csv-template-guide>
+                <a *permissionLink="'base.import.object.*'"
+                   class="csv-template__import-link"
+                   routerLink="/import/object">
+                    Go to object import
+                    <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                </a>
+            </cmdb-csv-template-guide>
+
             <app-form-select label="Select Object Type"
                              placeholder="Choose your option"
                              [items]="typeOptions"
@@ -21,7 +30,7 @@
             <app-button label="Export"
                         type="submit"
                         bootstrapClass="btn-success"
-                        icon="fas fa-file-csv me-1"
+                        icon="fas fa-file-export me-1"
                         [disabled]="formExport.invalid">
             </app-button>
         </div>
