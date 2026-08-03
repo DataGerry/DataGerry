@@ -42,16 +42,18 @@
         <input type="text" formControlName="label" class="form-control" [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched),
                  'is-invalid': label.invalid && (label.dirty || label.touched)}" id="typeLabelInput"
           aria-describedby="typeLabelInputHelp" required>
-        <div id="typeLabelInputHelp" class="form-text text-start">Displayed name</div>
-        @if (label.invalid && (label.dirty || label.touched)) {
-        <div class="invalid-feedback">
-          @if (label.errors.required) {
-          <div class="text-end">
-            Label is required.
+        <div class="field-footer">
+          <div id="typeLabelInputHelp" class="form-text text-start">Displayed name</div>
+          @if (label.invalid && (label.dirty || label.touched)) {
+          <div class="invalid-feedback">
+            @if (label.errors.required) {
+            <div>
+              Label is required.
+            </div>
+            }
           </div>
           }
         </div>
-        }
       </div>
 
       <!-- Icon Picker -->
