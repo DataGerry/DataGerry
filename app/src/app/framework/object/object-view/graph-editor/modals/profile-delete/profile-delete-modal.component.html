@@ -1,22 +1,25 @@
-<!-- profile-delete-modal.component.html -->
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">Delete Profile: {{profile?.name}}</h4>
-    <button 
-    type="button" 
-    class="btn-close btn-close-white" 
-    aria-label="Close" 
-    (click)="activeModal.close(0)">
-  </button>  
-  </div>
-  
-  <div class="modal-body">
-    <div class="delete-warning-content">
-      <p class="lead">Are you sure you want to delete this profile?</p>
-    
-    </div>
-  </div>
-  
-  <div class="modal-footer">
-    <button type="button" class="btn btn-outline-dark" (click)="activeModal.close(0)">Close</button>
-    <button type="submit" class="btn btn-outline-danger" (click)="activeModal.close(profile?.public_id)">Delete</button>
-  </div>
+<dg-modal
+    icon="fas fa-trash-can"
+    eyebrow="Filter profile"
+    [title]="'Delete Profile: ' + (profile?.name ?? '')"
+    (dismiss)="activeModal.close(0)">
+
+    <p class="delete-lead">Are you sure you want to delete this profile?</p>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.close(0)">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-danger'"
+        label="Delete"
+        type="button"
+        icon="fas fa-trash-can"
+        (clicked)="activeModal.close(profile?.public_id)">
+    </app-button>
+</dg-modal>

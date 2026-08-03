@@ -1,28 +1,32 @@
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">
-        <i class="fas fa-exclamation-triangle me-2"></i>
-        {{ title }}
-    </h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close"
-        (click)="activeModal.dismiss('cancel')"></button>
-</div>
+<dg-modal
+    icon="fas fa-triangle-exclamation"
+    eyebrow="Location field"
+    [title]="title"
+    [scrollBody]="false"
+    (dismiss)="activeModal.dismiss('cancel')">
 
-<div class="modal-body">
-    <p>{{ message }}</p>
+    <p class="in-use-message">{{ message }}</p>
 
-    <p class="fw-semibold mb-2">Affected objects:</p>
-    <ul class="list-group">
-        @for (id of objectPublicIds; track id) {
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-            <a href="javascript:void(0)" class="text-decoration-none" (click)="openObject(id)">
-                Object #{{ id }}
-            </a>
-            <i class="fas fa-external-link-alt text-muted small"></i>
-        </li>
-        }
-    </ul>
-</div>
+    <p class="in-use-label">Affected objects:</p>
 
-<div class="modal-footer">
-    <app-button label="Close" bootstrapClass="btn-outline-dark" (clicked)="activeModal.close('close')"></app-button>
-</div>
+    <div class="in-use-list">
+        <ul class="list-group">
+            @for (id of objectPublicIds; track id) {
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <button type="button" class="in-use-link" (click)="openObject(id)">
+                    Object #{{ id }}
+                </button>
+                <i class="fas fa-external-link-alt text-muted small" aria-hidden="true"></i>
+            </li>
+            }
+        </ul>
+    </div>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.close('close')">
+    </app-button>
+</dg-modal>

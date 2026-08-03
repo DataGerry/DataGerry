@@ -101,7 +101,11 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
                 next: (response: GlobalTemplateCounts) => {
                     let counts: GlobalTemplateCounts = response
 
-                    this.modalRef = this.modalService.open(SectionTemplateDeleteModalComponent, { size: 'lg' });
+                    this.modalRef = this.modalService.open(SectionTemplateDeleteModalComponent, {
+                        size: 'lg',
+                        windowClass: 'dg-modal-window',
+                        backdropClass: 'dg-modal-window-backdrop'
+                    });
                     this.modalRef.componentInstance.sectionTemplate = sectionTemplate;
                     this.modalRef.componentInstance.templateCounts = counts;
 
@@ -131,7 +135,11 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * @param sectionTemplate instance of section template which should be transformed
      */
     showTransformModal(sectionTemplate: CmdbSectionTemplate) {
-        this.modalRef = this.modalService.open(SectionTemplateTransformModalComponent, { size: 'lg' });
+        this.modalRef = this.modalService.open(SectionTemplateTransformModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.sectionTemplate = sectionTemplate;
 
         this.modalRef.result.then((sectionTemplateID: number) => {
@@ -170,7 +178,11 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * @param sectionTemplate instance of section template which should be cloned
      */
     public showCloneModal(sectionTemplate: CmdbSectionTemplate) {
-        this.modalRef = this.modalService.open(SectionTemplateCloneModalComponent, { size: 'lg' });
+        this.modalRef = this.modalService.open(SectionTemplateCloneModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.sectionTemplate = sectionTemplate;
 
         this.modalRef.result.then((values: any) => {
@@ -211,7 +223,11 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * @param sectionTemplate The section template which should be previewed
      */
     public showTemplatePreview(sectionTemplate: CmdbSectionTemplate) {
-        const previewModal = this.modalService.open(PreviewModalComponent, { scrollable: true });
+        const previewModal = this.modalService.open(PreviewModalComponent, {
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         previewModal.componentInstance.sections = [sectionTemplate];
     }
 

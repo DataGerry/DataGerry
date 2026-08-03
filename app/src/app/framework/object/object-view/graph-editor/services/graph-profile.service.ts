@@ -131,7 +131,9 @@ export class GraphProfileService extends BaseApiService<FilterProfile> {
 
     const modalRef = this.fullscreenModalService.open(modalService, ProfileManagerModalComponent, {
       size: 'xl',
-      backdrop: 'static'
+      backdrop: 'static',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
 
     modalRef.componentInstance.initializeOptions(typeOptionList, relationOptionList);
@@ -177,7 +179,9 @@ export class GraphProfileService extends BaseApiService<FilterProfile> {
     const modalRef = this.fullscreenModalService.open(modalService, ProfileManagerModalComponent, {
       size: 'xl',
       backdrop: 'static',
-      scrollable: true
+      scrollable: true,
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
 
     modalRef.componentInstance.initializeOptions(typeOptionList, relationOptionList);

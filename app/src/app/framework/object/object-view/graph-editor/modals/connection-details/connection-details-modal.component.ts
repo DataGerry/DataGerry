@@ -95,6 +95,15 @@ export class ConnectionDetailsModalComponent implements OnInit {
     }
   }
 
+  /** Header subtitle; empty when the nodes share no connections. */
+  get connectionSummary(): string {
+    if (!this.hasConnections()) {
+      return '';
+    }
+
+    return `${this.connections.length} connection${this.connections.length !== 1 ? 's' : ''} between nodes`;
+  }
+
   close(): void {
     this.activeModal.dismiss();
   }
