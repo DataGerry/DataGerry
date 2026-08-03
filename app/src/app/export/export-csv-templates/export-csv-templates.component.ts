@@ -35,6 +35,7 @@ import { ExportTypeOption } from '../export-types/export-type-option.model';
 @Component({
     selector: 'cmdb-export-csv-templates',
     templateUrl: './export-csv-templates.component.html',
+    styleUrls: ['./export-csv-templates.component.scss'],
     standalone: false
 })
 export class ExportCsvTemplatesComponent implements OnInit {
