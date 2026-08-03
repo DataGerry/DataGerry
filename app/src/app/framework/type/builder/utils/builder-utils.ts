@@ -83,7 +83,11 @@ export class BuilderUtils {
      * @param sections The sections to pass to the modal.
      */
     static openPreview(modalService: NgbModal, sections: Array<any>): void {
-        const previewModal = modalService.open(PreviewModalComponent, { scrollable: true });
+        const previewModal = modalService.open(PreviewModalComponent, {
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         previewModal.componentInstance.sections = sections;
     }
 

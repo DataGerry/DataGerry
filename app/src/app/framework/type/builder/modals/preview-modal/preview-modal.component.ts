@@ -106,6 +106,34 @@ export class PreviewModalComponent implements OnInit, OnDestroy {
         return this.activateViewMode ? CmdbMode.View : CmdbMode.Create;
     }
 
+
+    /** Header title; the modal doubles as the add/edit form for multi data sections. */
+    get modalTitle(): string {
+        if (this.saveValues) {
+            return 'Add new entry';
+        }
+
+        if (this.editValues) {
+            return 'Edit entry';
+        }
+
+        return 'Preview';
+    }
+
+
+    /** Header icon matching {@link modalTitle}. */
+    get modalIcon(): string {
+        if (this.saveValues) {
+            return 'fas fa-plus';
+        }
+
+        if (this.editValues) {
+            return 'fas fa-pen';
+        }
+
+        return 'fas fa-eye';
+    }
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private applyValidationResult(result: PreviewModalValidationResult): void {
