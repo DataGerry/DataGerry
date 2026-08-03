@@ -1187,6 +1187,8 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
       size: 'xl',
       backdrop: 'static',
       scrollable: true,
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
 
     modalRef.componentInstance.loadNode(node);
@@ -1329,7 +1331,9 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
     const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
-      scrollable: true
+      scrollable: true,
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
 
     modalRef.componentInstance.sourceNode = {
@@ -1388,7 +1392,9 @@ modalRef.componentInstance.connections = [{
     const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
-      scrollable: true
+      scrollable: true,
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
 
     modalRef.componentInstance.sourceNode = {
@@ -1472,7 +1478,9 @@ modalRef.componentInstance.connections = [{
     const modalRef = this.fullscreenModalService.open(this.modalService, ConnectionDetailsModalComponent, {
       size: 'lg',
       backdrop: 'static',
-      scrollable: true
+      scrollable: true,
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
 
     modalRef.componentInstance.sourceNode = {

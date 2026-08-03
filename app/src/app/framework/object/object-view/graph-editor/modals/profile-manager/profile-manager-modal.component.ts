@@ -173,6 +173,8 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
     const modalRef: NgbModalRef = this.fullscreenModalService.open(this.modalService, ProfileDeleteModalComponent, {
       size: 'md',
       centered: false,
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
     modalRef.componentInstance.profile = profile;
 
