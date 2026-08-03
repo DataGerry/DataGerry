@@ -109,7 +109,11 @@ export class LocationFieldDeletionService {
 
 
     private openInUseModal(scope: LocationFieldDeletionScope, usage: LocationFieldUsageResponse): void {
-        const modalRef = this.modalService.open(LocationFieldInUseModalComponent, { scrollable: true });
+        const modalRef = this.modalService.open(LocationFieldInUseModalComponent, {
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         const instance = modalRef.componentInstance as LocationFieldInUseModalComponent;
         instance.scope = scope;
         instance.objectPublicIds = usage?.object_public_ids ?? [];

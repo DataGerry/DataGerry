@@ -97,7 +97,11 @@ export class BuilderUtils {
      * @param sections The sections to pass to the modal.
      */
     static openDiagnostic(modalService: NgbModal, sections: Array<any>): void {
-        const diagnosticModal = modalService.open(DiagnosticModalComponent, { scrollable: true });
+        const diagnosticModal = modalService.open(DiagnosticModalComponent, {
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         diagnosticModal.componentInstance.data = sections;
     }
 
