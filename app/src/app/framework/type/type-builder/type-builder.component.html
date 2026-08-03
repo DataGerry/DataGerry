@@ -1,6 +1,9 @@
 <div id="type-builder" class="row">
     <div class="col-md-9">
         <aw-wizard
+            dgStepper
+            tone="validity"
+            [invalidSteps]="invalidSteps"
             [defaultStepIndex]="stepIndex"
             [navBarLayout]="'large-empty-symbols'"
             [awNavigationMode]
@@ -13,7 +16,7 @@
                 <cmdb-type-basic-step
                     [mode]="mode"
                     [typeInstance]="typeInstance"
-                    (validateChange)="basicValid = $event"
+                    (validateChange)="onBasicValidityChange($event)"
                 ></cmdb-type-basic-step>
                 <hr/>
                 <button class="btn btn-primary next" type="button" awNextStep [disabled]="!basicValid">
@@ -28,7 +31,7 @@
                     [mode]="mode"
                     [typeInstance]="typeInstance"
                     [types]="types"
-                    (validateChange)="contentValid = $event"
+                    (validateChange)="onContentValidityChange($event)"
                 ></cmdb-type-fields-step>
                 <hr/>
                 <button class="btn btn-primary prev" type="button" awPreviousStep>
@@ -65,7 +68,7 @@
                 <cmdb-type-acl-step
                     [typeInstance]="typeInstance"
                     [groups]="groups"
-                    (validateChange)="accessValid = $event"
+                    (validateChange)="onAccessValidityChange($event)"
                 ></cmdb-type-acl-step>
                 <hr/>
                 <button class="btn btn-primary prev" type="button" awPreviousStep>

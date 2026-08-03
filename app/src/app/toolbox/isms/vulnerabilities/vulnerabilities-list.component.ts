@@ -32,7 +32,7 @@ import { Column, Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
 import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
-import { Vulnerability } from '../models/vulnerability.model';
+import { Vulnerability, VulnerabilityBulkDeleteResult } from '../models/vulnerability.model';
 import { VulnerabilityService } from '../services/vulnerability.service';
 
 @Component({
@@ -55,6 +55,10 @@ export class VulnerabilitiesListComponent implements OnInit {
 
     public threats: Vulnerability[] = [];
     public totalThreats = 0;
+
+    // Vulnerabilities currently selected in the table for bulk actions
+    public selectedVulnerabilities: Vulnerability[] = [];
+
     public page = 1;
     public limit = 10;
     public loading = false;
@@ -252,26 +256,84 @@ export class VulnerabilitiesListComponent implements OnInit {
     }
 
 
+    /*
+    * Keep track of the vulnerabilities selected in the table.
+    */
+    public onSelectedChange(selected: Vulnerability[]): void {
+        this.selectedVulnerabilities = selected ?? [];
+    }
+
+
+    /*
+    * Delete all currently selected vulnerabilities. Vulnerabilities that are
+    * still assigned to a Risk are reported back as skipped.
+    */
+    public onDeleteSelected(): void {
+        const publicIds = this.selectedVulnerabilities
+            .map((vulnerability) => vulnerability.public_id)
+            .filter((id): id is number => id != null);
+
+        if (!publicIds.length) {
+            return;
+        }
+
+        const isPlural = publicIds.length > 1;
+        const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+        modalRef.componentInstance.title = 'Delete Vulnerabilities';
+        modalRef.componentInstance.item = this.selectedVulnerabilities;
+        modalRef.componentInstance.itemType = 'Vulnerabilities';
+        modalRef.componentInstance.itemName = `${publicIds.length} selected Vulnerabilit${isPlural ? 'ies' : 'y'}`;
+        modalRef.componentInstance.warningMessage =
+            'Vulnerabilities assigned to a Risk cannot be deleted and will be skipped.';
+
+        modalRef.result.then(
+            (result) => {
+                if (result !== 'confirmed') {
+                    return;
+                }
+                this.loaderService.show();
+                this.vulnerabilityService.deleteVulnerabilities(publicIds)
+                    .pipe(finalize(() => this.loaderService.hide()))
+                    .subscribe({
+                        next: (response) => {
+                            this.notifyBulkDeleteResult(response);
+                            this.selectedVulnerabilities = [];
+                            this.loadThreats();
+                        },
+                        error: (err) => {
+                            this.toast.error(err?.error?.message);
+                        }
+                    });
+            },
+            () => { }
+        );
+    }
+
+
     /* --------------------------------------------------- Pagination, sorting, and search handlers --------------------------------------------------- */
 
 
     onPageChange(page: number): void {
+        this.selectedVulnerabilities = [];
         this.page = page;
         this.loadThreats();
     }
 
     onPageSizeChange(limit: number): void {
+        this.selectedVulnerabilities = [];
         this.limit = limit;
         this.page = 1;
         this.loadThreats();
     }
 
     onSortChange(sort: Sort): void {
+        this.selectedVulnerabilities = [];
         this.sort = sort;
         this.loadThreats();
     }
 
     onSearchChange(search: string): void {
+        this.selectedVulnerabilities = [];
         this.filter = search;
         this.page = 1;
         this.loadThreats();
@@ -283,5 +345,38 @@ export class VulnerabilitiesListComponent implements OnInit {
     getSourceNames(sourceIds: number): string {
         const option = this.sourceOptions.find(opt => opt.public_id === sourceIds);
         return option?.value;
+    }
+
+    /* --------------------------------------------------- PRIVATE FUNCTIONS --------------------------------------------------- */
+
+    /*
+    * Surface the outcome of a bulk delete: how many vulnerabilities were removed
+    * and which ones were skipped because they are still assigned to a Risk.
+    */
+    private notifyBulkDeleteResult(result: VulnerabilityBulkDeleteResult): void {
+        const deletedCount = result?.successfully?.length ?? 0;
+        const inUseIds = result?.in_use ?? [];
+
+        if (deletedCount > 0) {
+            this.toast.success(`${deletedCount} Vulnerabilit${deletedCount > 1 ? 'ies' : 'y'} deleted successfully.`);
+        }
+
+        if (inUseIds.length) {
+            const names = inUseIds.map((id) => this.getVulnerabilityName(id)).join(', ');
+            const isPlural = inUseIds.length > 1;
+            this.toast.warning(
+                `${inUseIds.length} Vulnerabilit${isPlural ? 'ies' : 'y'} could not be deleted because ` +
+                `${isPlural ? 'they are' : 'it is'} assigned to a Risk: ${names}.`
+            );
+        }
+    }
+
+
+    /*
+    * Resolve a vulnerability's display name by its public id, falling back to the id.
+    */
+    private getVulnerabilityName(publicId: number): string {
+        const vulnerability = this.threats.find((item) => item.public_id === publicId);
+        return vulnerability?.name ?? `#${publicId}`;
     }
 }

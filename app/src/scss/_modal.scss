@@ -1,0 +1,69 @@
+
+.dg-modal-window {
+    .modal-content {
+        border: none;
+        border-radius: var(--dg-radius-card);
+        overflow: hidden; // clips the rounded corners
+        box-shadow: var(--dg-shadow-modal);
+        max-height: calc(100vh - 3.5rem);
+        display: flex;
+        flex-direction: column;
+    }
+}
+
+.dg-modal-window-backdrop.modal-backdrop {
+    background: rgba(17, 24, 39, 0.55);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+
+    &.show {
+        opacity: 1;
+    }
+}
+
+/* Footer action buttons — global because they are projected into the shell's footer slot. */
+.dg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1.25rem;
+    border: 1px solid transparent;
+    border-radius: 0.6rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+.dg-btn-light {
+    background: #fff;
+    border-color: var(--dg-border);
+    color: var(--dg-label);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+
+    &:hover {
+        background: var(--dg-surface);
+    }
+}
+
+.dg-btn-primary {
+    background: var(--dg-brand);
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+
+    &:hover {
+        background: var(--dg-brand-strong);
+    }
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+}

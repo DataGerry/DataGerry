@@ -30,7 +30,6 @@ import { CmdbMode } from '../../modes.enum';
 import { CmdbObject } from '../../models/cmdb-object';
 import { RenderResult } from '../../models/cmdb-render';
 import { CmdbType } from '../../models/cmdb-type';
-import { APIUpdateMultiResponse } from '../../../services/models/api-response';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { finalize } from 'rxjs';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -133,20 +132,23 @@ export class ObjectCopyComponent implements OnInit, OnDestroy {
                 }
             });
 
+            // The location is created by the backend from the dg_location field; its label
+            // rides along as location_name and is only sent when a parent was selected.
+            if (this.newLocationParentID > 0) {
+                newObjectInstance.location_name = this.locationService.locationTreeName;
+            }
+
             let ack = null;
             this.objectService.postObject(newObjectInstance).pipe(finalize(() => this.loaderService.hide()))
                 .subscribe({
                     next: (newObjectID) => {
                         ack = newObjectID;
-
-                        if (this.newLocationParentID > 0) {
-                            this.createNewObjectLocation(ack);
-                        }
                     },
                     error: (e) => {
                         this.toastService.error(e?.error?.message);
                     },
                     complete: () => {
+                        this.locationService.locationTreeName = "";
                         this.router.navigate(['/framework/object/view/' + ack]);
                         this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
                         this.toastService.success(`Object ${this.objectID} was successfully copied into ${ack}!`);
@@ -166,26 +168,6 @@ export class ObjectCopyComponent implements OnInit, OnDestroy {
             });
     }
 
-
-    private createNewObjectLocation(newObjectID: number) {
-        let params = {
-            "object_id": newObjectID,
-            "parent": this.newLocationParentID,
-            "name": this.locationService.locationTreeName,
-            "type_id": this.typeInstance.public_id
-        }
-
-        this.locationService.postLocation(params)
-            .subscribe({
-                next: (res: APIUpdateMultiResponse) => {
-                    this.locationService.locationTreeName = "";
-                },
-                error: (error) => {
-                    this.toastService.error(error?.error?.message);
-                }
-            }
-            );
-    }
 
     /* ------------------------------------------------- HELPER SECTION ------------------------------------------------- */
 

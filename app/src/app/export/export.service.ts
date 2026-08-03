@@ -55,10 +55,14 @@ export class FileService {
         }
 
         if (params.optional !== undefined) {
-            const {classname, zip, metadata} = (params.optional as any);
+            const {classname, zip, metadata, human_readable} = (params.optional as any);
             httpParams = httpParams.set('classname', classname);
             httpParams = httpParams.set('zip', zip);
             httpParams = httpParams.set('metadata', JSON.stringify(metadata));
+
+            if (human_readable) {
+                httpParams = httpParams.set('human_readable', 'true');
+            }
         }
 
         httpParams = httpParams.set('sort', params.sort);
@@ -68,6 +72,15 @@ export class FileService {
         options.params = httpParams;
 
         return this.api.callGet<any>(this.servicePrefix + '/', options);
+    }
+
+
+    /** Empty CSV carrying the field names of a single type as its header row. */
+    public callExportCsvTemplateRoute(typeID: number) {
+        // Own params object: httpFileOptions is shared and callExportRoute leaves its filter/sort behind
+        const options = { ...httpFileOptions, params: new HttpParams() };
+
+        return this.api.callGet<Blob>(`${this.servicePrefix}/template/${typeID}`, options);
     }
 
 

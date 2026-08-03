@@ -23,7 +23,6 @@ import { finalize, takeUntil } from 'rxjs/operators';
 
 import { ObjectService } from '../../services/object.service';
 import { FileService } from '../../../export/export.service';
-import { FileSaverService } from 'ngx-filesaver';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { SidebarService } from '../../../layout/services/sidebar.service';
 import { UserSettingsDBService } from '../../../management/user-settings/services/user-settings-db.service';
@@ -44,6 +43,8 @@ import { ObjectsDeleteModalComponent } from '../modals/objects-delete-modal/obje
 import { UserSetting } from '../../../management/user-settings/models/user-setting';
 import { SupportedExporterExtension } from '../../../export/export-objects/model/supported-exporter-extension';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -121,7 +122,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         private route: ActivatedRoute,
         private objectService: ObjectService,
         private fileService: FileService,
-        private fileSaverService: FileSaverService,
+        private exportDownloadService: ExportDownloadService,
         private toastService: ToastService,
         private sidebarService: SidebarService,
         private modalService: NgbModal,
@@ -627,6 +628,23 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
 
     /**
+     * Clamps the current page to the last page that still holds data after a deletion.
+     * Prevents pagination from getting stuck on a now-empty, out-of-range page when a
+     * bulk delete removes every object on the current (or last) page.
+     *
+     * @param deletedCount number of objects removed by the delete operation
+     */
+    private clampPageToRemaining(deletedCount: number): void {
+        const remaining = Math.max(0, this.totalResults - deletedCount);
+        const lastPage = Math.max(this.initPage, Math.ceil(remaining / this.limit));
+
+        if (this.page > lastPage) {
+            this.page = lastPage;
+        }
+    }
+
+
+    /**
      * Creates a regex statement that iterates over all field values and searches for the search term.
      * @param content search term
      * @param field optional, limits the search to a specific field
@@ -1063,10 +1081,15 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             ];
         }
 
-        this.fileService.callExportRoute(exportAPI, see.view)
-            .subscribe(res => {
-                this.fileSaverService.save(res.body, new Date().toISOString() + '.' + see.label);
-            });
+        this.loaderService.show();
+
+        this.fileService.callExportRoute(exportAPI, see.view).pipe(
+            takeUntil(this.subscriber),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: res => this.exportDownloadService.save(res, { kind: ExportKind.Objects, extension: see.label }),
+            error: () => this.toastService.error('The objects could not be exported. Please try again.')
+        });
     }
 
 
@@ -1089,15 +1112,21 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
     public onManyObjectDeletes() {
         if (this.selectedObjects.length > 0) {
-            this.deleteManyModalRef = this.modalService.open(ObjectsDeleteModalComponent, { size: 'lg' });
+            this.deleteManyModalRef = this.modalService.open(ObjectsDeleteModalComponent, {
+                size: 'lg',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            });
 
             this.deleteManyModalRef.result.then((response: string) => {
                 if (response === 'delete') {
                     this.loaderService.show();
                     this.objectService.deleteManyObjects(this.selectedObjectsIDs.toString())
                         .pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide())).subscribe(() => {
-                            this.toastService.success(`Deleted ${this.selectedObjects.length} objects successfully`);
+                            const deletedCount = this.selectedObjects.length;
+                            this.toastService.success(`Deleted ${deletedCount} objects successfully`);
                             this.sidebarService.updateTypeCounter(this.type.public_id);
+                            this.clampPageToRemaining(deletedCount);
                             this.selectedObjects = [];
                             this.objectsTableComponent.selectedItems = [];
                             this.loadObjects();

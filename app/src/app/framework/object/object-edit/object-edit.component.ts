@@ -24,16 +24,15 @@ import { ObjectService } from '../../services/object.service';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { TypeService } from '../../services/type.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
-import { LocationService } from '../../services/location.service';
 
 import { CmdbMode } from '../../modes.enum';
-import { CmdbObject, MultiDataSectionEntry } from '../../models/cmdb-object';
+import { CmdbObject, MultiDataSectionEntry, MultiDataSectionFieldValue, ObjectPatchPayload } from '../../models/cmdb-object';
 import { RenderResult } from '../../models/cmdb-render';
 import { CmdbType } from '../../models/cmdb-type';
-import { APIUpdateMultiResponse } from '../../../services/models/api-response';
 import { Column } from 'src/app/layout/table/table.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { finalize } from 'rxjs';
+import { buildObjectPatchPayload } from './object-patch.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -52,9 +51,11 @@ export class ObjectEditComponent implements OnInit {
     private objectID: number;
     public activeState: boolean;
 
+    // Object state as loaded from the backend, used to diff the PATCH payload
+    private originalSnapshot: CmdbObject;
+
     public selectedLocation: number = -1;
     public locationTreeName: string;
-    public locationForObjectExists: boolean = false;
     public isLoading$ = this.loaderService.isLoading$;
 
     // Table Template: Type actions column
@@ -74,7 +75,6 @@ export class ObjectEditComponent implements OnInit {
         private route: ActivatedRoute,
         private router: Router,
         private toastService: ToastService,
-        private locationService: LocationService,
         private sidebarService: SidebarService,
         private _location: Location,
         private loaderService: LoaderService,
@@ -104,6 +104,8 @@ export class ObjectEditComponent implements OnInit {
             complete: () => {
                 this.objectService.getObject<CmdbObject>(this.objectID, true).subscribe(ob => {
                     this.objectInstance = ob;
+                    // Snapshot the pristine state so editObject() can build a minimal PATCH diff.
+                    this.originalSnapshot = JSON.parse(JSON.stringify(ob));
                 });
 
                 this.typeService.getType(this.renderResult.type_information.type_id).subscribe((value: CmdbType) => {
@@ -135,102 +137,46 @@ export class ObjectEditComponent implements OnInit {
     }
 
 
-    /**
-     * Adds the MultiDataSectionEntry data to the object instance
-     * @param multiDataSection (MultiDataSectionEntry):  the new data of the section 
-     */
-    handleMultiDataSection(multiDataSection: MultiDataSectionEntry) {
-        const existingSection = this.objectInstance.multi_data_sections.find(
-            s => s.section_id === multiDataSection.section_id
-        );
-        
-        if (existingSection) {
-            // Update existing section
-            existingSection.values = multiDataSection.values;
-        } else {
-            // Add new section
-            this.objectInstance.multi_data_sections.push(multiDataSection);
-        }
-    }
-
-
     public editObject(): void {
         this.renderForm.markAllAsTouched();
 
-        if (this.renderForm.valid) {
-            this.loaderService.show()
-            const patchValue = [];
+        // Guard against a save fired before the pristine object finished loading: without the
+        // snapshot the diff cannot be trusted, so bail out instead of dereferencing undefined.
+        if (!this.renderForm.valid || !this.objectInstance || !this.originalSnapshot) {
+            return;
+        }
 
-            Object.keys(this.renderForm.value).forEach((key: string) => {
-                let val = this.renderForm.value[key];
+        const { fields, sections } = this.collectFormValues();
 
-                if (key == 'dg_location') {
-                    this.selectedLocation = val;
-                } else if (key.startsWith('dg-mds-')) {
-                    if (val && !val.section_id) {
-                        const matchedSectionId = key.replace('dg-mds-', '');
-                        val.section_id = matchedSectionId;
-                    }
-                    this.handleMultiDataSection(val);
-                    // The mds control is UI-only; its data ships in multi_data_sections, not in fields.
-                    return;
-                }
-                else if (key == 'locationTreeName') {
-                    this.locationTreeName = val;
-                    return;
-                } else if (key == 'locationForObjectExists') {
-                    this.locationForObjectExists = String(val).toLowerCase() === 'true' ? true : false;
-                    return;
-                }
+        const { payload, hasChanges } = buildObjectPatchPayload({
+            originalFields: this.originalSnapshot?.fields ?? [],
+            editedFields: fields,
+            originalSections: this.originalSnapshot?.multi_data_sections ?? [],
+            editedSections: sections,
+            comment: this.commitForm.get('comment')?.value
+        });
 
-                if (val === undefined || val == null) {
-                    val = '';
+        // Location is persisted through the object patch itself: dg_location rides along in the
+        // fields and its label is carried by location_name. The backend creates, updates or
+        // removes the location based on the dg_location value, so no separate call is needed.
+        const locationChanged = this.applyLocationToPayload(payload);
 
-                    if (key == "dg_location") {
-                        patchValue.push({
-                            name: key,
-                            value: null
-                        });
-                    }
-                } else {
-                    patchValue.push({
-                        name: key,
-                        value: val
-                    });
-                }
-            });
+        // Nothing changed on the object itself; only the active state may differ.
+        if (!hasChanges && !locationChanged) {
+            this.finalizeObjectUpdate();
+            return;
+        }
 
-            this.handleLocation(this.objectInstance.public_id,
-                this.selectedLocation,
-                this.locationTreeName,
-                this.objectInstance.type_id);
-
-            this.objectInstance.fields = patchValue;
-            this.objectInstance.comment = this.commitForm.get('comment').value;
-            this.objectInstance.active = this.activeState;
-
-            this.objectService.putObject(this.objectID, this.objectInstance).pipe(finalize(() => this.loaderService.hide())).subscribe({
-                next: (res: APIUpdateMultiResponse) => {
-                    if (res.failed.length === 0) {
-                        this.objectService.changeState(this.objectID, this.activeState).subscribe((resp: boolean) => {
-                            this.sidebarService.ReloadSideBarData();
-                            this.toastService.success('Object was successfully updated!');
-                            this.router.navigate(['/framework/object/view/' + this.objectID]);
-                        });
-                    } else {
-                        for (const err of res.failed) {
-                            this.toastService.error(err.error_message);
-                        }
-
-                        this.router.navigate(['/framework/object/type/' + this.objectInstance.type_id]);
-                    }
-                },
+        this.loaderService.show();
+        this.objectService.patchObject(this.objectID, payload)
+            .pipe(finalize(() => this.loaderService.hide()))
+            .subscribe({
+                next: () => this.finalizeObjectUpdate(),
                 error: e => {
                     this.toastService.error(e?.error?.message);
                     this.router.navigate(['/framework/object/type/' + this.objectInstance.type_id]);
                 }
             });
-        }
     }
 
 
@@ -240,54 +186,89 @@ export class ObjectEditComponent implements OnInit {
     }
 
 
-    private handleLocation(object_id: number, parent: number, name: string = "", type_id: number) {
-        let params = {
-            "object_id": object_id,
-            "parent": parent,
-            "name": name,
-            "type_id": type_id
+    /**
+     * Folds the object's location into the patch payload. When a location is selected the
+     * dg_location field is guaranteed to be present (so a rename-only change still reaches the
+     * backend) and its label is attached as location_name. Returns whether the location has to
+     * be sent, so a location-only change still triggers the patch.
+     */
+    private applyLocationToPayload(payload: ObjectPatchPayload): boolean {
+        if (!this.selectedLocation || this.selectedLocation <= 0) {
+            return false;
         }
 
-        //a parent is selected and there is no existing location for this object => create it
-        if (parent && parent > 0 && !this.locationForObjectExists) {
-            this.locationService.postLocation(params).subscribe({
-                next: () => {
+        payload.fields = payload.fields ?? [];
 
+        if (!payload.fields.some((field) => field.name === 'dg_location')) {
+            payload.fields.push({ name: 'dg_location', value: this.selectedLocation });
+        }
+
+        payload.location_name = this.locationTreeName ?? '';
+
+        return true;
+    }
+
+
+    /**
+     * Walks the render form once, splitting the controls into object fields and
+     * multi_data_section entries. dg_location is kept in the field list so it is diffed and
+     * patched like any other field; the location label and the UI-only existence flag are
+     * captured as a side effect and never sent as object fields.
+     */
+    private collectFormValues(): { fields: MultiDataSectionFieldValue[]; sections: MultiDataSectionEntry[] } {
+        const fields: MultiDataSectionFieldValue[] = [];
+        const sections: MultiDataSectionEntry[] = [];
+
+        Object.keys(this.renderForm.value).forEach((key: string) => {
+            const value = this.renderForm.value[key];
+
+            if (key.startsWith('dg-mds-')) {
+                if (value) {
+                    if (!value.section_id) {
+                        value.section_id = key.replace('dg-mds-', '');
+                    }
+                    sections.push(value);
+                }
+                return;
+            }
+
+            if (key === 'locationTreeName') {
+                this.locationTreeName = value;
+                return;
+            }
+
+            // UI-only helper control written onto the form value by the location field.
+            if (key === 'locationForObjectExists') {
+                return;
+            }
+
+            if (key === 'dg_location') {
+                this.selectedLocation = value;
+            }
+
+            fields.push({ name: key, value: value === undefined || value === null ? '' : value });
+        });
+
+        return { fields, sections };
+    }
+
+
+    /**
+     * Persists the active state and routes to the object view once the update is done.
+     */
+    private finalizeObjectUpdate(): void {
+        this.loaderService.show();
+        this.objectService.changeState(this.objectID, this.activeState)
+            .pipe(finalize(() => this.loaderService.hide()))
+            .subscribe({
+                next: () => {
+                    this.sidebarService.ReloadSideBarData();
+                    this.toastService.success('Object was successfully updated!');
+                    this.router.navigate(['/framework/object/view/' + this.objectID]);
                 },
-                error: error => {
-                    this.toastService.error(error?.error?.message);
+                error: e => {
+                    this.toastService.error(e?.error?.message);
                 }
             });
-
-            return;
-        }
-
-        //a parent is selected and location for this object exists => update existing location
-        if (parent && parent > 0 && this.locationForObjectExists) {
-            this.locationService.updateLocationForObject(params).subscribe({
-                next: () => {
-
-                },
-                error: error => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
-
-            return;
-        }
-
-        //parent is removed but location still exists => delete location
-        if (!parent && this.locationForObjectExists) {
-            this.locationService.deleteLocationForObject(object_id).subscribe({
-                next: () => {
-
-                },
-                error: error => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
-
-            return;
-        }
     }
 }

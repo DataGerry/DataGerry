@@ -23,11 +23,15 @@ import { RenderResult } from '../../../../models/cmdb-render';
 import { APIGetMultiResponse } from '../../../../../services/models/api-response';
 import {Column, Sort, SortDirection, TableState, TableStatePayload} from '../../../../../layout/table/table.types';
 import { CollectionParameters } from '../../../../../services/models/api-parameter';
-import { takeUntil } from 'rxjs/operators';
+import { finalize, takeUntil } from 'rxjs/operators';
 import { DatePipe } from '@angular/common';
+import { HttpResponse } from '@angular/common/http';
 import { SupportedExporterExtension } from '../../../../../export/export-objects/model/supported-exporter-extension';
-import { FileSaverService } from 'ngx-filesaver';
 import { FileService } from '../../../../../export/export.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 import {ActivatedRoute, Data, Router} from '@angular/router';
 import {UserSetting} from '../../../../../management/user-settings/models/user-setting';
 import {
@@ -153,13 +157,16 @@ export class ObjectReferencesTableComponent implements OnDestroy {
     return this.tableStateSubject.getValue() as TableState;
   }
 
+  public isLoading$ = this.loaderService.isLoading$;
 
-  constructor(private objectService: ObjectService, private datePipe: DatePipe,
-              private fileSaverService: FileSaverService, private fileService: FileService,
+
+  constructor(private objectService: ObjectService,
+              private exportDownloadService: ExportDownloadService, private fileService: FileService,
               private route: ActivatedRoute, private router: Router,
               private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
               private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
-              private changesRef: ChangeDetectorRef) {
+              private changesRef: ChangeDetectorRef,
+              private loaderService: LoaderService, private toastService: ToastService) {
     this.route.data.pipe(takeUntil(this.subscriber)).subscribe((data: Data) => {
       if (data.userSetting) {
         const userSettingPayloads = (data.userSetting as UserSetting<TableStatePayload>).payloads
@@ -508,22 +515,31 @@ export class ObjectReferencesTableComponent implements OnDestroy {
    * @param see the filetype to be zipped
    */
   public exportingFiles(see: SupportedExporterExtension) {
+    if (this.selectedObjects.length === 0) {
+      return;
+    }
+
     const filter = {public_id: {$in: this.selectedObjectIDs}};
     const optional = {classname: see.extension, zip: true};
     const exportAPI: CollectionParameters = {filter, optional, order: this.sort.order, sort: this.sort.name};
-    if (this.selectedObjects.length !== 0) {
-      this.fileService.callExportRoute(exportAPI)
-        .subscribe(res => this.downLoadFile(res));
-    }
+
+    this.loaderService.show();
+
+    this.fileService.callExportRoute(exportAPI).pipe(
+      takeUntil(this.subscriber),
+      finalize(() => this.loaderService.hide())
+    ).subscribe({
+      next: res => this.downLoadFile(res),
+      error: () => this.toastService.error('The references could not be exported. Please try again.')
+    });
   }
 
   /**
    * Downloads file
-   * @param data the file data to be downloaded
+   * @param response Carries the filename assigned by the backend.
    */
-  public downLoadFile(data: any) {
-    const timestamp = this.datePipe.transform(new Date(), 'MM_dd_yyyy_hh_mm_ss');
-    this.fileSaverService.save(data.body, timestamp + '.' + 'zip');
+  public downLoadFile(response: HttpResponse<Blob>) {
+    this.exportDownloadService.save(response, { kind: ExportKind.Objects, extension: 'zip' });
   }
 
   /**

@@ -250,6 +250,16 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
 
 
     /**
+     * trackBy for the default-value options. Uses the stable object id when present
+     * and falls back to the index so the list keeps working even if the backend
+     * response shape changes.
+     */
+    public trackByObjectId(index: number, obj: RenderResult): number {
+        return obj?.object_information?.object_id ?? index;
+    }
+
+
+    /**
      * Name converter on ng model change.
      * @param name
      */

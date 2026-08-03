@@ -1,0 +1,34 @@
+<cmdb-content-header title="Export CSV Templates" />
+
+<form [formGroup]="formExport" (ngSubmit)="exportTemplate()">
+    <div class="card">
+        <div class="card-body">
+            <app-form-select label="Select Object Type"
+                             placeholder="Choose your option"
+                             [items]="typeOptions"
+                             bindLabel="label"
+                             bindValue="public_id"
+                             [required]="true"
+                             formControlName="type">
+            </app-form-select>
+
+            @if (isSubmitted && type.errors?.required) {
+                <div class="cross-validation-error-message alert alert-danger">
+                    Please select a type
+                </div>
+            }
+
+            <app-button label="Export"
+                        type="submit"
+                        bootstrapClass="btn-success"
+                        icon="fas fa-file-csv me-1"
+                        [disabled]="formExport.invalid">
+            </app-button>
+        </div>
+    </div>
+</form>
+
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+></app-loading-popup>

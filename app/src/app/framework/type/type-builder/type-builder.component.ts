@@ -85,6 +85,9 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
     // ACL step valid
     public accessValid: boolean = true;
 
+    // 1-based positions of the steps the stepper has to mark as failing
+    public invalidSteps: Array<number> = [];
+
     isNameValid = true;
     isLabelValid = true;
     isValid$: Observable<boolean>;
@@ -212,6 +215,26 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
         }
     }
 
+    /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    public onBasicValidityChange(valid: boolean): void {
+        this.basicValid = valid;
+        this.refreshInvalidSteps();
+    }
+
+
+    public onContentValidityChange(valid: boolean): void {
+        this.contentValid = valid;
+        this.refreshInvalidSteps();
+    }
+
+
+    public onAccessValidityChange(valid: boolean): void {
+        this.accessValid = valid;
+        this.refreshInvalidSteps();
+    }
+
+
     /* ----------------------------------------------- CSS CLASS HANDLERS ------------------------------------------------ */
 
 
@@ -221,6 +244,33 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
 
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
+
+    /**
+     * Collects the failing steps for the stepper, by the position the wizard renders them in:
+     * basic information, content, meta, access.
+     */
+    private refreshInvalidSteps(): void {
+        const failing: Array<number> = [];
+
+        if (!this.basicValid) {
+            failing.push(1);
+        }
+
+        if (!this.contentValid) {
+            failing.push(2);
+        }
+
+        if (!this.metaValid) {
+            failing.push(3);
+        }
+
+        if (!this.accessValid) {
+            failing.push(4);
+        }
+
+        this.invalidSteps = failing;
+    }
+
 
     /**
      * Check ACL group assignment.

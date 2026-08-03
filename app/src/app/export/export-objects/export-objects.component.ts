@@ -17,10 +17,9 @@
 */
 import { Component, OnInit } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
-import { DatePipe } from '@angular/common';
+import { HttpResponse } from '@angular/common/http';
 
 import { TypeService } from '../../framework/services/type.service';
-import { FileSaverService } from 'ngx-filesaver';
 import { FileService } from '../export.service';
 
 import { CmdbType } from '../../framework/models/cmdb-type';
@@ -28,6 +27,8 @@ import { SupportedExporterExtension } from './model/supported-exporter-extension
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 import { finalize } from 'rxjs';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
@@ -43,20 +44,23 @@ export class ExportObjectsComponent implements OnInit {
     public isVisible: boolean;
     public isLoading$ = this.loaderService.isLoading$;
 
+    /** Export formats (class names) for which a human-readable export is supported by the backend. */
+    private readonly humanReadableFormats: string[] = ['CsvExportFormat', 'XlsxExportFormat'];
+
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
     constructor(
         private exportService: FileService,
-        private datePipe: DatePipe,
         private typeService: TypeService,
-        private fileSaverService: FileSaverService,
+        private exportDownloadService: ExportDownloadService,
         private toastService: ToastService,
         private loaderService: LoaderService,
     ) {
         this.formExport = new UntypedFormGroup({
             type: new UntypedFormControl(null, Validators.required),
-            format: new UntypedFormControl(null, Validators.required)
+            format: new UntypedFormControl(null, Validators.required),
+            humanReadable: new UntypedFormControl(false)
         });
     }
 
@@ -83,6 +87,16 @@ export class ExportObjectsComponent implements OnInit {
         return this.formExport.get('format');
     }
 
+
+    get humanReadable() {
+        return this.formExport.get('humanReadable');
+    }
+
+
+    get isHumanReadableFormat(): boolean {
+        return this.humanReadableFormats.includes(this.format?.value);
+    }
+
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
     private resetForm() {
@@ -101,13 +115,19 @@ export class ExportObjectsComponent implements OnInit {
 
         const typeID = this.formExport.get('type').value;
         const fileExtension: any = this.formExport.get('format').value;
+        const humanReadable = this.isHumanReadableFormat && this.formExport.get('humanReadable').value;
 
         // Reset FormGroup
         this.resetForm();
 
         if (fileExtension != null && typeID != null) {
             const filter = { type_id: typeID };
-            const optional = { classname: fileExtension, zip: false };
+            const optional: any = { classname: fileExtension, zip: false };
+
+            if (humanReadable) {
+                optional.human_readable = true;
+            }
+
             const exportAPI: CollectionParameters = { filter, optional, order: 1, sort: 'public_id' };
 
             this.loaderService.show();
@@ -123,10 +143,10 @@ export class ExportObjectsComponent implements OnInit {
     }
 
 
-    public downLoadFile(data: any, exportType: any) {
+    public downLoadFile(response: HttpResponse<Blob>, exportType: string) {
         this.isVisible = false;
-        const timestamp = this.datePipe.transform(new Date(), 'MM_dd_yyyy_hh_mm_ss');
-        const extension = this.formatList.find(x => x.extension === exportType);
-        this.fileSaverService.save(data.body, timestamp + '.' + extension.label);
+        const format = this.formatList.find(entry => entry.extension === exportType);
+
+        this.exportDownloadService.save(response, { kind: ExportKind.Objects, extension: format?.label });
     }
 }

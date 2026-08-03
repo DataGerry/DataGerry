@@ -1,0 +1,151 @@
+<dg-modal icon="fas fa-sitemap" eyebrow="Locations" title="Organize locations"
+    subtitle="Drag a location onto a new parent, or tick several and move them together" [scrollBody]="false"
+    (dismiss)="activeModal.dismiss()">
+
+    <!-- Fixed toolbar: search + selection summary + the top-level drop target -->
+    <div class="lto-toolbar">
+        <div class="lto-search-wrap">
+            <i class="fas fa-search lto-search-icon" aria-hidden="true"></i>
+            <input ngbAutofocus type="text" class="lto-search" placeholder="Search locations..." autocomplete="off"
+                aria-label="Search locations" [(ngModel)]="searchString">
+            @if (searchString) {
+            <button type="button" class="lto-search-clear" (click)="handleSearchReset()" aria-label="Clear search">
+                <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+            }
+        </div>
+
+        @if (selected.size > 0) {
+        <div class="lto-selection-bar" role="status" aria-live="polite">
+            <span class="lto-selection-count">
+                <i class="fas fa-check-double" aria-hidden="true"></i>
+                {{ selected.size }} selected
+            </span>
+            <button type="button" class="lto-selection-clear" (click)="clearSelection()">Clear</button>
+        </div>
+        }
+
+        @if (!inSearchMode && !isLoadingRoots && !errorMessage) {
+        <div class="lto-root" [class.is-drop-valid]="dropTargetId === root.public_id && dropTargetValid"
+            [class.is-drop-invalid]="dropTargetId === root.public_id && !dropTargetValid"
+            (dragover)="onDragOver($event, root.public_id)" (dragleave)="onDragLeave(root.public_id)"
+            (drop)="onDrop($event, root.public_id)">
+            <span class="lto-root-chip"><i [class]="root.icon" aria-hidden="true"></i></span>
+            <span class="lto-root-body">
+                <span class="lto-root-title">{{ root.name }}</span>
+                <span class="lto-root-sub">Top level — drop here to remove the parent location</span>
+            </span>
+            @if (canEdit && canMoveSelectionTo(root.public_id)) {
+            <button type="button" class="lto-move-here" (click)="moveSelectionTo(root.public_id)"
+                aria-label="Move selected locations to the top level">
+                <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here
+            </button>
+            }
+        </div>
+        }
+    </div>
+
+    <!-- Scroll region: only the tree scrolls -->
+    <div class="lto-tree">
+        @if (errorMessage) {
+        <div class="lto-status is-error" role="alert">
+            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            <span>{{ errorMessage }}</span>
+        </div>
+        } @else if (isLoadingRoots || isSearching) {
+        <div class="lto-status" aria-live="polite">
+            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+            <span>{{ isSearching ? 'Searching…' : 'Loading…' }}</span>
+        </div>
+        } @else if (inSearchMode ? hasSearchResults : hasLocations) {
+        <mat-tree [dataSource]="dataSource" [treeControl]="treeControl" class="lto-mat-tree" aria-label="Locations">
+
+            <!-- Leaf node -->
+            <mat-nested-tree-node *matTreeNodeDef="let node">
+                <div class="lto-node" [class.is-selected]="isSelected(node)"
+                    [class.is-drop-valid]="dropTargetId === node.public_id && dropTargetValid"
+                    [class.is-drop-invalid]="dropTargetId === node.public_id && !dropTargetValid"
+                    [draggable]="canEdit" (dragstart)="onDragStart($event, node)" (dragend)="onDragEnd()"
+                    (dragover)="onDragOver($event, node.public_id)" (dragleave)="onDragLeave(node.public_id)"
+                    (drop)="onDrop($event, node.public_id)">
+                    <input type="checkbox" class="lto-check" [checked]="isSelected(node)" (change)="toggleSelect(node)"
+                        [attr.aria-label]="'Select ' + node.name">
+                    <span class="lto-indent"></span>
+                    <i class="lto-node-icon" [class]="node.icon" aria-hidden="true"></i>
+                    <span class="lto-node-text">{{ node.name }}</span>
+                    <i class="lto-grip fas fa-grip-vertical" aria-hidden="true"></i>
+                    @if (canEdit && canMoveSelectionTo(node.public_id)) {
+                    <button type="button" class="lto-move-here" (click)="moveSelectionTo(node.public_id)"
+                        [attr.aria-label]="'Move selected locations into ' + node.name">
+                        <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here
+                    </button>
+                    }
+                </div>
+            </mat-nested-tree-node>
+
+            <!-- Parent node -->
+            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild">
+                <div class="lto-node" [class.is-selected]="isSelected(node)"
+                    [class.is-disabled-target]="!node.selectable"
+                    [class.is-drop-valid]="dropTargetId === node.public_id && dropTargetValid"
+                    [class.is-drop-invalid]="dropTargetId === node.public_id && !dropTargetValid"
+                    [draggable]="canEdit" [attr.title]="!node.selectable ? nonSelectableHint : null"
+                    (dragstart)="onDragStart($event, node)"
+                    (dragend)="onDragEnd()" (dragover)="onDragOver($event, node.public_id)"
+                    (dragleave)="onDragLeave(node.public_id)" (drop)="onDrop($event, node.public_id)">
+                    <input type="checkbox" class="lto-check" [checked]="isSelected(node)" (change)="toggleSelect(node)"
+                        [attr.aria-label]="'Select ' + node.name">
+                    <button type="button" class="lto-toggle" [class.is-open]="treeControl.isExpanded(node)"
+                        tabindex="-1" [disabled]="node.loading"
+                        [attr.aria-label]="(treeControl.isExpanded(node) ? 'Collapse ' : 'Expand ') + node.name"
+                        (click)="toggleNode(node)">
+                        @if (node.loading) {
+                        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                        } @else {
+                        <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                        }
+                    </button>
+                    <i class="lto-node-icon" [class]="node.icon" aria-hidden="true"></i>
+                    <span class="lto-node-text">{{ node.name }}</span>
+                    <i class="lto-grip fas fa-grip-vertical" aria-hidden="true"></i>
+                    @if (canEdit && canMoveSelectionTo(node.public_id)) {
+                    <button type="button" class="lto-move-here" (click)="moveSelectionTo(node.public_id)"
+                        [attr.aria-label]="'Move selected locations into ' + node.name">
+                        <i class="fas fa-arrow-turn-down" aria-hidden="true"></i> Move here
+                    </button>
+                    }
+                </div>
+                <div class="lto-children" role="group" [class.is-collapsed]="!treeControl.isExpanded(node)">
+                    <ng-container matTreeNodeOutlet></ng-container>
+                </div>
+            </mat-nested-tree-node>
+        </mat-tree>
+        } @else if (inSearchMode) {
+        <div class="lto-status">
+            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+            <span>No location found</span>
+        </div>
+        } @else {
+        <div class="lto-status">
+            <i class="fas fa-diagram-project" aria-hidden="true"></i>
+            <span>No location was configured</span>
+        </div>
+        }
+    </div>
+
+    <!-- Footer actions projected into the shell's footer slot -->
+    <span dgModalFooter class="lto-footer-hint">
+        <i class="fas fa-hand-pointer" aria-hidden="true"></i>
+        Drag onto a parent, or tick rows and use “Move here”
+    </span>
+    <button dgModalFooter type="button" class="dg-btn dg-btn-light" (click)="activeModal.close()">Done</button>
+</dg-modal>
+
+@if (dropHint) {
+<div class="lto-drop-hint" [style.left.px]="dropHintX" [style.top.px]="dropHintY" role="status" aria-live="assertive">
+    <i class="fas fa-ban" aria-hidden="true"></i>
+    <span>{{ dropHint }}</span>
+</div>
+}
+
+<app-loading-popup [isVisible]="isProcessing" message="We're Processing the Data..."></app-loading-popup>

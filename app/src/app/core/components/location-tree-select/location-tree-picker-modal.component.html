@@ -1,0 +1,121 @@
+<div class="modal-header ltp-header">
+    <div class="ltp-header-main">
+        <span class="ltp-header-chip"><i class="fas fa-sitemap" aria-hidden="true"></i></span>
+        <div class="ltp-header-titles">
+            <h4 class="modal-title ltp-title">{{ title }}</h4>
+            <p class="ltp-subtitle">Choose where this object sits in the hierarchy</p>
+        </div>
+    </div>
+    <button type="button" class="btn-close" aria-label="Close" (click)="activeModal.dismiss()"></button>
+</div>
+
+<div class="modal-body ltp-body">
+
+    <!-- Fixed toolbar: search + the top-level choice + a label for the tree below -->
+    <div class="ltp-toolbar">
+        <div class="ltp-search-wrap">
+            <i class="fas fa-search ltp-search-icon" aria-hidden="true"></i>
+            <input ngbAutofocus type="text" class="ltp-search" placeholder="Search locations..." autocomplete="off"
+                aria-label="Search locations" [(ngModel)]="searchString" (keydown)="onSearchKeydown($event)">
+            @if (searchString) {
+            <button type="button" class="ltp-search-clear" (click)="handleSearchReset()" aria-label="Clear search">
+                <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+            }
+        </div>
+
+        @if (!inSearchMode && !isLoadingRoots && !errorMessage) {
+        <button type="button" class="ltp-root" [class.is-selected]="selectedId === root.public_id"
+            [attr.aria-pressed]="selectedId === root.public_id" (click)="selectRoot()">
+            <span class="ltp-root-chip"><i [class]="root.icon" aria-hidden="true"></i></span>
+            <span class="ltp-root-body">
+                <span class="ltp-root-title">{{ root.name }}</span>
+                <span class="ltp-root-sub">Top level — the object has no parent location</span>
+            </span>
+            @if (selectedId === root.public_id) {
+            <i class="ltp-check fas fa-check" aria-hidden="true"></i>
+            }
+        </button>
+
+        @if (hasLocations) {
+        <div class="ltp-section">Or place it inside a location</div>
+        }
+        }
+    </div>
+
+    <!-- Scroll region: only the tree scrolls -->
+    <div class="ltp-tree" #treeContainer>
+        @if (errorMessage) {
+        <div class="ltp-status is-error" role="alert">
+            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            <span>{{ errorMessage }}</span>
+        </div>
+        } @else if (isLoadingRoots || isSearching) {
+        <div class="ltp-status" aria-live="polite">
+            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+            <span>{{ isSearching ? 'Searching…' : 'Loading…' }}</span>
+        </div>
+        } @else if (inSearchMode ? hasSearchResults : hasLocations) {
+        <mat-tree [dataSource]="dataSource" [treeControl]="treeControl" class="ltp-mat-tree" aria-label="Locations">
+
+            <!-- Leaf node: nested node type keeps the tree consistent (avoids the flat/nested conflict warning) -->
+            <mat-nested-tree-node *matTreeNodeDef="let node" [attr.aria-selected]="node.public_id === selectedId"
+                [attr.aria-disabled]="(!node.selectable || node.excluded) || null" (keydown.enter)="selectNode(node)">
+                <div class="ltp-node" [class.is-selected]="node.public_id === selectedId"
+                    [class.is-disabled]="!node.selectable || node.excluded"
+                    [attr.title]="!node.selectable ? nonSelectableHint : null" (click)="selectNode(node)">
+                    <span class="ltp-indent"></span>
+                    <i class="ltp-node-icon" [class]="node.icon" aria-hidden="true"></i>
+                    <span class="ltp-node-text">{{ node.name }}</span>
+                    @if (node.public_id === selectedId) {
+                    <i class="ltp-check fas fa-check" aria-hidden="true"></i>
+                    }
+                </div>
+            </mat-nested-tree-node>
+
+            <!-- Parent node -->
+            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild"
+                [attr.aria-selected]="node.public_id === selectedId"
+                [attr.aria-disabled]="(!node.selectable || node.excluded) || null" (keydown.enter)="selectNode(node)">
+                <div class="ltp-node" [class.is-selected]="node.public_id === selectedId"
+                    [class.is-disabled]="!node.selectable || node.excluded"
+                    [attr.title]="!node.selectable ? nonSelectableHint : null" (click)="selectNode(node)">
+                    <button type="button" class="ltp-toggle" [class.is-open]="treeControl.isExpanded(node)" tabindex="-1"
+                        [disabled]="node.loading"
+                        [attr.aria-label]="(treeControl.isExpanded(node) ? 'Collapse ' : 'Expand ') + node.name"
+                        (click)="toggleNode(node); $event.stopPropagation()">
+                        @if (node.loading) {
+                        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                        } @else {
+                        <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                        }
+                    </button>
+                    <i class="ltp-node-icon" [class]="node.icon" aria-hidden="true"></i>
+                    <span class="ltp-node-text">{{ node.name }}</span>
+                    @if (node.public_id === selectedId) {
+                    <i class="ltp-check fas fa-check" aria-hidden="true"></i>
+                    }
+                </div>
+                <div class="ltp-children" role="group" [class.is-collapsed]="!treeControl.isExpanded(node)">
+                    <ng-container matTreeNodeOutlet></ng-container>
+                </div>
+            </mat-nested-tree-node>
+        </mat-tree>
+        } @else if (inSearchMode) {
+        <div class="ltp-status">
+            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+            <span>No location found</span>
+        </div>
+        } @else {
+        <div class="ltp-status">
+            <i class="fas fa-diagram-project" aria-hidden="true"></i>
+            <span>No sub-locations yet</span>
+        </div>
+        }
+    </div>
+</div>
+
+<div class="modal-footer ltp-footer">
+    <span class="ltp-footer-hint">Click a location to select it</span>
+    <button type="button" class="btn btn-secondary" (click)="activeModal.dismiss()">Cancel</button>
+</div>

@@ -13,23 +13,18 @@
                     </button>
                 </div>
             </div>
-            <small class="form-text text-muted text-start">Use a unique identifier</small>
-            @if (!isIdentifierValid || (nameControl.invalid && (nameControl.dirty || nameControl.touched))) {
-            <div class="invalid-feedback">
-                @if (!isIdentifierValid) {
-                <div class="text-end">
+            <cmdb-identifier-hint [control]="nameControl" hint="Use a unique identifier"></cmdb-identifier-hint>
+            @if ((!isIdentifierValid && !nameControl.errors?.reservedPrefix) || (nameControl.errors?.required && (nameControl.dirty || nameControl.touched))) {
+            <div class="d-flex justify-content-end">
+                @if (!isIdentifierValid && !nameControl.errors?.reservedPrefix) {
+                <small class="form-text text-danger text-end">
                     Identifier must be unique
-                </div>
+                </small>
                 }
                 @if (nameControl.errors?.required) {
-                <div class="text-end">
+                <small class="form-text text-danger text-end">
                     Identifier is a required field
-                </div>
-                }
-                @if (nameControl.errors?.reservedPrefix) {
-                <div class="text-end">
-                    Identifier cannot start with "dg-" or "dg_" (reserved prefix)
-                </div>
+                </small>
                 }
             </div>
             }

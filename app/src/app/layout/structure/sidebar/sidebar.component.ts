@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, Renderer2 } from '@angular/core';
+import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, Renderer2 } from '@angular/core';
 import { UntypedFormControl } from '@angular/forms';
 
 import { ReplaySubject, Subscription, takeUntil } from 'rxjs';
@@ -34,13 +34,16 @@ import { LicenseFeature } from 'src/app/settings/license-management/models/licen
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+// Persists the user's collapsed-rail preference across reloads and layout re-renders.
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dg-sidebar-collapsed';
+
 @Component({
     selector: 'cmdb-sidebar',
     templateUrl: './sidebar.component.html',
     styleUrls: ['./sidebar.component.scss'],
     standalone: false
 })
-export class SidebarComponent implements OnInit, OnDestroy {
+export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
 
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
@@ -98,7 +101,7 @@ export class SidebarComponent implements OnInit, OnDestroy {
     public ngOnInit(): void {
         this.renderer.addClass(document.body, 'sidebar-fixed');
 
-        this.isSidebarCollapsed = false; // default state
+        this.isSidebarCollapsed = this.readCollapsedState();
 
         if (this.user) {
             this.sidebarService.loadCategoryTree();
@@ -127,6 +130,15 @@ export class SidebarComponent implements OnInit, OnDestroy {
                 this.ipamAvailable = available;
                 this.cdRed.markForCheck();
             });
+    }
+
+
+    public ngAfterViewInit(): void {
+        // The class binding restores the collapsed rail visually, but the sidebar width and
+        // the #main margin are applied imperatively — reconcile them for the restored state.
+        if (this.isSidebarCollapsed) {
+            this.applySidebarWidth();
+        }
     }
 
 
@@ -252,11 +264,35 @@ export class SidebarComponent implements OnInit, OnDestroy {
     toggleSidebar(): void {
         this.isSidebarCollapsed = !this.isSidebarCollapsed;
         this.cdRed.markForCheck();
+        this.applySidebarWidth();
+        this.persistCollapsedState(this.isSidebarCollapsed);
+    }
+
+
+    private applySidebarWidth(): void {
         const w = this.isSidebarCollapsed ? '75px' : '230px';
         this.setSidebarWidth(w);
         this.updateDynamicStyles(w);
     }
-    
+
+
+    private readCollapsedState(): boolean {
+        try {
+            return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
+        } catch {
+            return false;
+        }
+    }
+
+
+    private persistCollapsedState(collapsed: boolean): void {
+        try {
+            localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
+        } catch {
+            // Storage may be unavailable (private mode / quota); a UI preference is non-critical.
+        }
+    }
+
     private flyoutCloseTimeout: ReturnType<typeof setTimeout> | null = null;
     
     private clearFlyoutCloseTimeout(): void {

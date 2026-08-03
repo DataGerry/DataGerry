@@ -1,0 +1,25 @@
+<div class="dg-modal__header">
+    @if (icon(); as iconClass) {
+    <span class="dg-modal__chip"><i [class]="iconClass" aria-hidden="true"></i></span>
+    }
+    <div class="dg-modal__titles">
+        @if (eyebrow(); as eyebrowText) {
+        <span class="dg-modal__eyebrow">{{ eyebrowText }}</span>
+        }
+        <h2 class="dg-modal__title">{{ title() }}</h2>
+        @if (subtitle(); as subtitleText) {
+        <p class="dg-modal__subtitle">{{ subtitleText }}</p>
+        }
+    </div>
+    <button type="button" class="dg-modal__close" aria-label="Close" (click)="dismiss.emit()">
+        <i class="fas fa-times" aria-hidden="true"></i>
+    </button>
+</div>
+
+<div class="dg-modal__body" [class.dg-modal__body--scroll]="scrollBody()">
+    <ng-content></ng-content>
+</div>
+
+<div class="dg-modal__footer">
+    <ng-content select="[dgModalFooter]"></ng-content>
+</div>
