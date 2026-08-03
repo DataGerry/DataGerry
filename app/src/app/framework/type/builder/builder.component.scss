@@ -10,6 +10,7 @@ $tb-line: #ece8e4;
 $tb-line-2: #f3efeb;
 $tb-surface: #faf8f6;
 $tb-surface-2: #fdfcfb;
+$tb-surface-hover: #f4f0ec;
 $tb-drop-line: #d8d2cb;
 $tb-drop-line-strong: #cfc7bf;
 
@@ -52,7 +53,7 @@ $tb-dur: 200ms;
 
     .card {
       border: 0;
-      border-bottom: 1px solid $tb-line-2;
+      border-bottom: 1px solid $tb-line;
       border-radius: 0;
       background: transparent;
 
@@ -61,28 +62,42 @@ $tb-dur: 200ms;
       }
     }
 
+
+    .card:has(> .collapse.show) > .card-header {
+      border-bottom: 1px solid $tb-line;
+
+      a.btn-link {
+        color: $tb-accent;
+      }
+    }
+
+    // Header surface and label typography mirror the Validation card header.
     .card-header {
       padding: 0;
       border: 0;
-      background: transparent;
+      background: $tb-surface;
 
       a.btn-link {
         display: flex;
         align-items: center;
         justify-content: space-between;
         width: 100%;
-        padding: 0.85rem 1rem;
-        font-size: 0.76rem;
+        padding: 0.9rem 1.1rem;
+        font-size: 0.72rem;
         font-weight: 700;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.07em;
         text-transform: uppercase;
-        color: $tb-ink-2;
-        text-decoration: none;
+        color: $tb-ink-3;
+        // `.btn` centers text, which only shows on labels long enough to wrap.
+        text-align: left;
+        text-decoration: underline;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
         transition: color $tb-dur $tb-ease, background $tb-dur $tb-ease;
 
         &:hover {
           color: $tb-accent;
-          background: $tb-surface;
+          background: $tb-surface-hover;
         }
 
         // CSS chevron; Bootstrap toggles `.collapsed` on the closed trigger.

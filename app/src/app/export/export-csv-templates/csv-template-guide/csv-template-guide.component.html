@@ -1,0 +1,147 @@
+<details class="csv-guide">
+    <summary class="csv-guide__summary">
+        <i class="fas fa-circle-info csv-guide__summary-icon" aria-hidden="true"></i>
+        <span class="csv-guide__summary-text">
+            The template contains <strong>only the header row</strong> &mdash; fill in your data below it and leave the
+            headers unchanged.
+        </span>
+        <span class="csv-guide__toggle">
+            <span class="csv-guide__toggle-show">Show how to fill it in</span>
+            <span class="csv-guide__toggle-hide">Hide details</span>
+            <i class="fas fa-chevron-down csv-guide__chevron" aria-hidden="true"></i>
+        </span>
+    </summary>
+
+    <div class="csv-guide__body">
+        <section>
+            <h2 class="csv-guide__title">Columns</h2>
+            <ul class="csv-guide__list">
+                <li>
+                    The template comes in a fixed order: <code>Public ID</code>, <code>Active</code>, then the type's
+                    own fields, then one column per Multi Data Section field, grouped by section. That is the same
+                    order a CSV export produces, so an export can be re-imported unchanged.
+                </li>
+                <li>
+                    A header reads <code>Label [MDS-Section] [field_name]</code> &mdash; the last bracket group is the
+                    field name. Plain <code>field_name</code> headers also work, and both notations may be mixed.
+                </li>
+                <li>
+                    Keep the header row and each column's field name &mdash; the import maps a column by that name, so
+                    renaming it breaks the mapping.
+                </li>
+            </ul>
+        </section>
+
+        <section>
+            <h2 class="csv-guide__title">Multi Data Sections: one object over several rows</h2>
+            <p class="csv-guide__lead">Only relevant if the selected type has a Multi Data Section.</p>
+            <div class="csv-guide__table-wrap">
+                <table class="csv-guide__table">
+                    <caption>
+                        <code>web-01</code> has three network interfaces and two disks, so it occupies three rows.
+                        Rows&nbsp;2 and&nbsp;3 leave <code>Public ID</code> empty to continue the same object, and the
+                        disk columns stay blank once that section runs out of entries. <code>db-01</code> has no
+                        Multi Data Section entries and <code>app-01</code> has exactly one per section, so a single row
+                        is enough for both. Blank cells are genuinely empty cells.
+                    </caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Public ID [public_id]</th>
+                            <th scope="col">Hostname [hostname]</th>
+                            <th scope="col">NIC Name [MDS-Network Interfaces] [nic_name]</th>
+                            <th scope="col">NIC IP [MDS-Network Interfaces] [nic_ip]</th>
+                            <th scope="col">Slot [MDS-Disks] [disk_slot]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td>web-01</td>
+                            <td>eth0</td>
+                            <td>10.0.0.11</td>
+                            <td>1</td>
+                        </tr>
+                        <tr>
+                            <td></td>
+                            <td></td>
+                            <td>eth1</td>
+                            <td>10.0.1.11</td>
+                            <td>2</td>
+                        </tr>
+                        <tr>
+                            <td></td>
+                            <td></td>
+                            <td>mgmt</td>
+                            <td>192.168.50.11</td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td>db-01</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td>app-01</td>
+                            <td>eth0</td>
+                            <td>10.0.0.13</td>
+                            <td>1</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <ul class="csv-guide__list">
+                <li>
+                    An object needs as many rows as its largest Multi Data Section has entries. Fill one entry per row.
+                </li>
+                <li>
+                    An empty <code>Public ID</code> means "this row continues the object above". All identity and
+                    regular columns stay empty on those rows; only Multi Data Section columns carry data.
+                </li>
+                <li>
+                    A row where all of a section's columns are empty adds no entry to that section. Entries are numbered
+                    automatically in file order &mdash; there is no column for it.
+                </li>
+                <li>
+                    Give every Multi Data Section field its own column. Do not put a whole section into one cell as JSON.
+                </li>
+            </ul>
+        </section>
+
+        <section>
+            <h2 class="csv-guide__title">Values</h2>
+            <ul class="csv-guide__list">
+                <li>An empty cell means "no value" and the field's default from the type applies.</li>
+                <li>Quote any value containing a comma: <code>"Rack 4, Row B"</code>.</li>
+                <li>Booleans accept <code>true</code>/<code>false</code>, <code>yes</code>/<code>no</code> and
+                    <code>1</code>/<code>0</code>, case-insensitively.</li>
+                <li>
+                    For dates <code>YYYY-MM-DD</code> is safest; <code>DD.MM.YYYY</code>, <code>YYYY/MM/DD</code>,
+                    <code>YYYY.MM.DD</code> and the <code>&hellip; HH:MM[:SS]</code> variants also parse.
+                </li>
+                <li>Save the file as UTF-8, comma-separated, with <code>"</code> as the quote character.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2 class="csv-guide__title">Before you import</h2>
+            <ul class="csv-guide__list">
+                <li>
+                    Never leave <code>Public ID</code> empty on an object's first row &mdash; a column that is blank
+                    everywhere collapses the whole file into a single object.
+                </li>
+                <li>
+                    <code>Public ID</code> is only a grouping key: new IDs are assigned on import unless you enable
+                    overwrite, which replaces the existing object with that ID instead.
+                </li>
+                <li>Reference fields cannot be resolved from a CSV &mdash; those columns are imported empty.</li>
+                <li>A file containing only the header row is rejected; add at least one data row.</li>
+            </ul>
+
+            <ng-content />
+        </section>
+    </div>
+</details>

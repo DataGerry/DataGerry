@@ -39,9 +39,12 @@
       </div>
       }
 
-      <button type="button" class="btn btn-success text-end"
-              (click)="this.export()"
-              [disabled]="!formExport.valid">Go!</button>
+      <app-button label="Export"
+                  type="submit"
+                  bootstrapClass="btn-success"
+                  icon="fas fa-file-export me-1"
+                  [disabled]="formExport.invalid">
+      </app-button>
     </div>
   </div>
 </form>
