@@ -15,112 +15,170 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of CsvObjectParser
+
+Besides reading the rows, the parser resolves each header column to the IDENTIFIER the rest of the
+import works with: a column may either be a plain field name (what a CSV export emits) or carry its
+name in a trailing bracketed group (what the object-import template emits, so a person filling the
+file in reads a label). Both notations are accepted, decided per column, and the file's original
+header line is handed on untouched next to the resolved one.
 """
 import csv
+import re
 from logging import Logger, getLogger
 
 from cmdb.utils.cast import auto_cast
 from cmdb.framework.importer.content_types import CSVContent
+from cmdb.framework.importer.importer_constants import (
+    CSV_HEADER_IDENTIFIER_PATTERN,
+    NO_CONTENT_DATA_MESSAGE,
+    CsvParserConfigKey,
+)
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.csv_object_parser_response import CsvObjectParserResponse
 
-from cmdb.errors.importer import ParserRuntimeError
+from cmdb.errors.importer import ParserNoContentError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Compiled once: the header of every parsed CSV runs through it
+_HEADER_IDENTIFIER_REGEX = re.compile(CSV_HEADER_IDENTIFIER_PATTERN)
+
+
+def extract_column_identifier(header_cell: str) -> str:
+    """
+    Resolves one CSV header column to the identifier the import maps it by
+
+    A column ending in a bracketed group carries its field name there - that is the object-import
+    template's notation (`Port [MDS-Interfaces] [port]` -> `port`), and the LAST group wins so the MDS
+    marker never shadows the name. Anything else is an identifier already and is returned verbatim, which
+    is what a plain export header is. A bracketed group that holds only whitespace names nothing, so the
+    cell stands as it is rather than resolving to an empty column key
+
+    Args:
+        header_cell (str): One raw header column, as read from the file
+
+    Returns:
+        str: The column's identifier
+    """
+    if not isinstance(header_cell, str):
+        return header_cell
+
+    match = _HEADER_IDENTIFIER_REGEX.search(header_cell)
+
+    if not match:
+        return header_cell
+
+    identifier = match.group(1).strip()
+
+    return identifier or header_cell
+
+
+def normalize_csv_header(header: list | None) -> list:
+    """
+    Resolves every column of a CSV header row to its identifier
+
+    Args:
+        header (list | None): The raw header row, or None when the file carries none
+
+    Returns:
+        list: The resolved header, column for column and in the same order (empty when there was none)
+    """
+    return [extract_column_identifier(column) for column in header or []]
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                CsvObjectParser - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class CsvObjectParser(BaseObjectParser, CSVContent):
     """
-    Parser for CSV files that extracts structured data from CSV content.
-    
+    Parser for CSV files that extracts structured data from CSV content
+
     Attributes:
-        BYTE_ORDER_MARK (str): Unicode BOM character used in some CSV files
-        BAD_DELIMITERS (list): Characters that are problematic as delimiters
         DEFAULT_QUOTE_CHAR (str): Default quote character for CSV parsing
         DEFAULT_CONFIG (dict): Default configuration for CSV parsing
     """
-    BYTE_ORDER_MARK = '\ufeff'
-    BAD_DELIMITERS = ['\r', '\n', '"', BYTE_ORDER_MARK]
-    DEFAULT_QUOTE_CHAR = '"'
-    DEFAULT_CONFIG = {
-        'delimiter': ',',
-        'newline': '',
-        'quoteChar': DEFAULT_QUOTE_CHAR,
-        'escapeChar': None,
-        'header': True
+    DEFAULT_QUOTE_CHAR: str = '"'
+    DEFAULT_CONFIG: dict = {
+        CsvParserConfigKey.DELIMITER.value: ',',
+        CsvParserConfigKey.NEWLINE.value: '',
+        CsvParserConfigKey.QUOTE_CHAR.value: DEFAULT_QUOTE_CHAR,
+        CsvParserConfigKey.ESCAPE_CHAR.value: None,
+        CsvParserConfigKey.HEADER.value: True,
+        CsvParserConfigKey.ENCODING.value: 'utf-8',
     }
 
-    def __init__(self, parser_config: dict = None):
-        """
-        Initializes the CsvObjectParser with an optional parser configuration
-
-        Args:
-            parser_config (dict | None): Configuration dictionary for the parser
-        """
-        super().__init__(parser_config)
-
-
-    def parse(self, file) -> CsvObjectParserResponse:
+    def parse(self, file: str) -> CsvObjectParserResponse:
         """
         Parses a CSV file and returns structured data
-        
+
+        The returned ``header`` holds the resolved column IDENTIFIERS (see extract_column_identifier), so
+        a template's decorated columns and a plain export header are indistinguishable to every consumer.
+        The file's original header line travels along as ``raw_header`` for anything that wants to show
+        the labels
+
         Args:
             file (str): Path to the CSV file
 
-        Raises:
-            ParserRuntimeError: If an error occurs while reading or parsing the file
-
         Returns:
             CsvObjectParserResponse: A structured response containing parsed data
+
+        Raises:
+            ParserNoContentError: If the file carries no data row below its header
+            ParserRuntimeError: If the file cannot be read/parsed
         """
         run_config = self.get_config()
-        parsed = {
-            'count': 0,
-            'header': None,
-            'entries': [],
-            'entry_length': 0
-        }
+        header: list | None = None
+        entries: list[dict] = []
+
         try:
-            with open(file, 'r', encoding='utf-8', newline=run_config.get('newline')) as csv_file:
+            with open(
+                file,
+                'r',
+                encoding=run_config.get(CsvParserConfigKey.ENCODING.value),
+                newline=run_config.get(CsvParserConfigKey.NEWLINE.value),
+            ) as csv_file:
                 csv_reader = csv.reader(
                     csv_file,
-                    delimiter=run_config.get('delimiter'),
-                    quotechar=run_config.get('quoteChar'),
-                    escapechar=run_config.get('escapeChar'),
-                    skipinitialspace=True
+                    delimiter=run_config.get(CsvParserConfigKey.DELIMITER.value),
+                    quotechar=run_config.get(CsvParserConfigKey.QUOTE_CHAR.value),
+                    escapechar=run_config.get(CsvParserConfigKey.ESCAPE_CHAR.value),
+                    skipinitialspace=True,
                 )
 
-                if run_config.get('header'):
-                    parsed['header'] = next(csv_reader, None)
+                if run_config.get(CsvParserConfigKey.HEADER.value):
+                    header = next(csv_reader, None)
 
                 for row in csv_reader:
-                    row_list = [auto_cast(entry) for entry in row]
-                    parsed['entries'].append(self.__generate_index_pair(row_list))
-                    parsed['count'] += 1
+                    entries.append(self._generate_index_pair([auto_cast(entry) for entry in row]))
 
-                if parsed['entries']:
-                    parsed['entry_length'] = len(parsed['entries'][0])
-                else:
-                    raise ParserRuntimeError(f"[{self.__class__.__name__}]: No content data!")
+                if not entries:
+                    # The file itself is fine - it just carries no data row (a header-only CSV, e.g. an
+                    # import template that has not been filled in yet)
+                    raise ParserNoContentError(NO_CONTENT_DATA_MESSAGE.format(parser=self.__class__.__name__))
+        except ParserRuntimeError:
+            raise
         except Exception as err:
             LOGGER.error("Error parsing CSV file: %s", err)
             raise ParserRuntimeError(f"[{self.__class__.__name__}]: An error occurred: {err}") from err
 
-        return CsvObjectParserResponse(**parsed)
+        return CsvObjectParserResponse(
+            count=len(entries),
+            entries=entries,
+            entry_length=len(entries[0]),
+            header=normalize_csv_header(header),
+            raw_header=header,
+        )
 
 
     @staticmethod
-    def __generate_index_pair(row: list) -> dict:
+    def _generate_index_pair(row: list) -> dict:
         """
         Generates a dictionary mapping index positions to row values
-        
+
         Args:
-            row (list[str]): A list representing a single row of CSV data
-        
+            row (list): A list representing a single row of CSV data
+
         Returns:
-            dict[int, str]: A dictionary mapping column indices to values
+            dict: A dictionary mapping column indices to values
         """
         return dict(enumerate(row))

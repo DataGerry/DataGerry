@@ -19,16 +19,24 @@ Unit tests for cmdb.manager.base_manager.BaseManager
 Pure tests: no Mongo. Each method is invoked unbound with a MagicMock standing in for the manager
 instance, so self.dbm / self.query_builder / self.aggregate are stubbed and only the method's own
 logic (id assignment, total extraction, criteria defaulting, the col / collection branches, the
-delete boolean and the exception mapping) is exercised. Only the logic-bearing methods are covered;
-the thin one-line dbm delegations are intentionally left out
+delete boolean and the exception mapping) is exercised. The logic-bearing methods get dedicated
+tests; the thin dbm delegations are covered by the parametrized error-mapping table at the bottom,
+which pins that each one rewraps its database error as the matching BaseManager* error
 """
 from unittest.mock import MagicMock
 
 import pytest
 
 from cmdb.manager.base_manager import BaseManager
-from cmdb.errors.database import DocumentGetError, DocumentUpdateError, DocumentDeleteError
+from cmdb.errors.database import (
+    DocumentInsertError,
+    DocumentGetError,
+    DocumentUpdateError,
+    DocumentDeleteError,
+    DocumentAggregationError,
+)
 from cmdb.errors.manager import (
+    BaseManagerInitError,
     BaseManagerInsertError,
     BaseManagerGetError,
     BaseManagerUpdateError,
@@ -194,7 +202,7 @@ def test_find_defaults_criteria_to_empty_dict_when_none() -> None:
 
     BaseManager.find(mgr)
 
-    mgr.dbm.find.assert_called_once_with(collection=COLLECTION, db_name=DB_NAME, filter={})
+    mgr.dbm.find.assert_called_once_with(COLLECTION, DB_NAME, filter={})
 
 
 def test_find_passes_given_criteria_and_returns_list() -> None:
@@ -205,7 +213,7 @@ def test_find_passes_given_criteria_and_returns_list() -> None:
 
     result = BaseManager.find(mgr, criteria={'type_id': 5})
 
-    mgr.dbm.find.assert_called_once_with(collection=COLLECTION, db_name=DB_NAME, filter={'type_id': 5})
+    mgr.dbm.find.assert_called_once_with(COLLECTION, DB_NAME, filter={'type_id': 5})
     assert result == docs
 
 
@@ -236,11 +244,11 @@ def test_update_uses_manager_collection_by_default() -> None:
     )
 
 
-def test_update_uses_given_collection_when_col_set() -> None:
-    """A col argument overrides the target collection"""
+def test_update_uses_given_collection_when_collection_set() -> None:
+    """A collection argument overrides the target collection"""
     mgr = _mock_manager()
 
-    BaseManager.update(mgr, {'public_id': 1}, {'name': 'x'}, col='other.collection')
+    BaseManager.update(mgr, {'public_id': 1}, {'name': 'x'}, collection='other.collection')
 
     assert mgr.dbm.update.call_args.args[0] == 'other.collection'
 
@@ -340,3 +348,78 @@ def test_delete_many_wraps_document_delete_error() -> None:
 
     with pytest.raises(BaseManagerDeleteError):
         BaseManager.delete_many(mgr, {'public_id': 5})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       __init__ + fully-uncovered delegations                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_init_wraps_failure_as_base_manager_init_error() -> None:
+    """A failure while wiring the manager (here: a None dbm with no db_name) becomes BaseManagerInitError"""
+    with pytest.raises(BaseManagerInitError):
+        BaseManager(COLLECTION, None, None)
+
+
+def test_get_distinct_delegates_and_returns_values() -> None:
+    """get_distinct forwards the key + criteria to the dbm layer and returns the distinct values"""
+    mgr = _mock_manager()
+    mgr.dbm.get_distinct.return_value = ['a', 'b']
+
+    result = BaseManager.get_distinct(mgr, 'type_id', {'active': True})
+
+    mgr.dbm.get_distinct.assert_called_once_with(COLLECTION, DB_NAME, 'type_id', {'active': True})
+    assert result == ['a', 'b']
+
+
+def test_delete_many_raw_delegates_with_filter_query() -> None:
+    """delete_many_raw forwards the raw filter as filter_query and returns the delete result"""
+    mgr = _mock_manager()
+    sentinel = MagicMock(name='delete_result')
+    mgr.dbm.delete_many_raw.return_value = sentinel
+
+    result = BaseManager.delete_many_raw(mgr, {'public_id': {'$in': [1, 2]}})
+
+    mgr.dbm.delete_many_raw.assert_called_once_with(
+        collection=COLLECTION, db_name=DB_NAME, filter_query={'public_id': {'$in': [1, 2]}}
+    )
+    assert result is sentinel
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   delegation error-mapping (database -> manager)                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+# (method, args, dbm_attribute, raised database error, expected manager error)
+_ERROR_MAPPING_CASES = [
+    ('insert', ({},), 'insert', DocumentInsertError, BaseManagerInsertError),
+    ('get_distinct', ('k', {}), 'get_distinct', DocumentGetError, BaseManagerGetError),
+    ('get_one', (), 'find_one', DocumentGetError, BaseManagerGetError),
+    ('get_one_from_other_collection', ('other', 5), 'find_one', DocumentGetError, BaseManagerGetError),
+    ('get_many_from_other_collection', ('other',), 'find_all', DocumentGetError, BaseManagerGetError),
+    ('get', (), 'find', DocumentGetError, BaseManagerGetError),
+    ('get_one_by', ({'x': 1},), 'find_one_by', DocumentGetError, BaseManagerGetError),
+    ('get_many', (), 'find_all', DocumentGetError, BaseManagerGetError),
+    ('aggregate', ([],), 'aggregate', DocumentAggregationError, BaseManagerIterationError),
+    ('aggregate_from_other_collection', ('other', []), 'aggregate',
+     DocumentAggregationError, BaseManagerIterationError),
+    ('get_next_public_id', (), 'get_next_public_id', DocumentGetError, BaseManagerGetError),
+    ('reserve_public_ids', (5,), 'reserve_public_ids', DocumentGetError, BaseManagerGetError),
+    ('count_documents', (), 'count', DocumentGetError, BaseManagerGetError),
+    ('update_many', ({'x': 1}, {'y': 2}), 'update_many', DocumentUpdateError, BaseManagerUpdateError),
+    ('update_many_pull', ({'x': 1}, {'$pull': {}}), 'update_many_pull', DocumentUpdateError, BaseManagerUpdateError),
+    ('update_many_raw', ({'x': 1}, {'$set': {}}), 'update_many_raw', DocumentUpdateError, BaseManagerUpdateError),
+    ('bulk_write', ([],), 'bulk_write', DocumentInsertError, BaseManagerUpdateError),
+    ('delete_many_raw', ({'x': 1},), 'delete_many_raw', DocumentDeleteError, BaseManagerDeleteError),
+]
+
+
+@pytest.mark.parametrize(
+    'method, args, dbm_attr, db_error, expected_error',
+    _ERROR_MAPPING_CASES,
+    ids=[case[0] for case in _ERROR_MAPPING_CASES],
+)
+def test_delegation_wraps_database_error(method, args, dbm_attr, db_error, expected_error) -> None:
+    """Each thin delegation rewraps its database-layer error as the matching BaseManager* error"""
+    mgr = _mock_manager()
+    getattr(mgr.dbm, dbm_attr).side_effect = db_error('boom')
+
+    with pytest.raises(expected_error):
+        getattr(BaseManager, method)(mgr, *args)

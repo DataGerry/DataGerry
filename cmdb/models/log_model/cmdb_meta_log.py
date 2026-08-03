@@ -18,6 +18,7 @@ Implementation of CmdbMetaLog
 """
 from logging import Logger, getLogger
 from datetime import datetime
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.log_model.log_action_enum import LogAction
@@ -32,6 +33,28 @@ class CmdbMetaLog(CmdbDAO):
     """CmdbMetaLog"""
     COLLECTION = 'framework.logs'
     MODEL = 'CmdbLog'
+
+    # This collection only grows - one document per object create / edit / delete, each carrying a full
+    # rendered snapshot - and it is read on every object's log tab, so the two query shapes the REST
+    # routes issue must not scan it:
+    #   - `{object_id: X}` sorted by log_time (the per-object log list); the compound index serves the
+    #     match AND the sort, so a busy object's newest logs are read straight off the index
+    #   - `{log_type: X, action: Y}` (the delete-log list, and the exists / notexists split, which both
+    #     match on log_type plus an action condition before joining framework.objects)
+    # Existing installations pick these up on the next start: the collection validator reconciles a
+    # model's declared indexes on every pass, not only when the collection is created
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [('object_id', CmdbDAO.DAO_ASCENDING), ('log_time', CmdbDAO.DAO_DESCENDING)],
+            'name': 'object_id_log_time',
+            'unique': False,
+        },
+        {
+            'keys': [('log_type', CmdbDAO.DAO_ASCENDING), ('action', CmdbDAO.DAO_ASCENDING)],
+            'name': 'log_type_action',
+            'unique': False,
+        },
+    ]
 
     #pylint: disable=too-many-positional-arguments
     def __init__(self, public_id: int, log_type, log_time: datetime, action: LogAction, action_name: str):

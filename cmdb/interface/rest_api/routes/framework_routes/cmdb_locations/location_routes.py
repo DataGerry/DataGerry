@@ -46,11 +46,19 @@ from cmdb.interface.rest_api.responses import (
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     resolve_location_name,
     build_location_forest,
+    build_location_level,
     parse_required_int,
+    delete_location_with_reparenting,
+    normalize_parent_id,
+    validate_object_location_change,
+    validate_object_location_move,
+    move_object_location,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import LocationRight
+from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault, LocationKey
 
 from cmdb.errors.manager.types_manager import TypesManagerGetError
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
 from cmdb.errors.manager.locations_manager import (
     LocationsManagerInsertError,
     LocationsManagerGetError,
@@ -69,7 +77,7 @@ location_blueprint = APIBlueprint('locations', __name__)
 @location_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right='base.framework.object.edit')
+@location_blueprint.protect(auth=True, right=LocationRight.ADD.value)
 @location_blueprint.parse_request_body()
 def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -135,7 +143,7 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
 @location_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 @location_blueprint.parse_collection_parameters()
 def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -174,8 +182,8 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
 
 @location_blueprint.route('/tree', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 @location_blueprint.parse_collection_parameters()
 def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -213,10 +221,175 @@ def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser
         abort(500, "An internal server error occured while requesting the Location tree!")
 
 
+@location_blueprint.route('/tree/roots', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning the first level of the location tree
+
+    Returns the direct children of the root location, each flagged with ``has_children`` so the
+    frontend can lazily expand deeper levels via ``/tree/<public_id>/children`` instead of loading
+    the whole forest at once
+
+    Args:
+        request_user (CmdbUser): User requesting the data
+
+    Returns:
+        Response: The root location's direct children, each with has_children (DefaultResponse)
+    """
+    try:
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        children: list[dict[str, Any]] = [
+            CmdbLocation.to_json(location)
+            for location in locations_manager.get_locations_by(parent=RootLocationDefault.PUBLIC_ID)
+        ]
+
+        return DefaultResponse(build_location_level(children, locations_manager)).make_response()
+    except LocationsManagerGetError as err:
+        LOGGER.error("[get_cmdb_location_tree_roots] LocationsManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the root Locations from the database!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_location_tree_roots] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while requesting the root Locations!")
+
+
+@location_blueprint.route('/tree/search', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning a pruned location tree matching a search query
+
+    Reproduces the sidebar tree's search on the backend so it works without loading the whole
+    forest: every location whose name matches the ``query`` (case-insensitive, literal substring)
+    is returned together with its ancestor chain, assembled into a nested forest. Non-matching
+    descendants of a match are excluded, so the response is the filtered tree view ready to render.
+    Each node carries a ``has_children`` flag reflecting whether it has direct children in the FULL
+    tree (even ones the prune left out) so the frontend can still offer to expand them. An empty
+    ``query`` yields an empty forest
+
+    Args:
+        request_user (CmdbUser): User requesting the data
+
+    Returns:
+        Response: The pruned location forest of matches and their ancestors (DefaultResponse)
+    """
+    try:
+        query: str = request.args.get('query', '', type=str)
+
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        matches_and_ancestors: list[dict[str, Any]] = locations_manager.search_locations_with_ancestors(query)
+
+        # has_children reflects real direct children (some may be pruned out of the search result)
+        node_ids: list[int] = [location[LocationKey.PUBLIC_ID.value] for location in matches_and_ancestors]
+        parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids)
+
+        forest: list[dict[str, Any]] = build_location_forest(matches_and_ancestors, parents_with_children)
+
+        return DefaultResponse(forest).make_response()
+    except LocationsManagerGetError as err:
+        LOGGER.error("[search_cmdb_location_tree] LocationsManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to search the Location tree!")
+    except Exception as err:
+        LOGGER.error("[search_cmdb_location_tree] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while searching the Location tree!")
+
+
+@location_blueprint.route('/tree/path/<int:public_id>', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+def get_cmdb_location_tree_path(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning the location tree pre-expanded to one location
+
+    Powers the location picker when editing an object that already has a location: given the
+    selected location's ``public_id`` (the value stored in the object's location field) it returns
+    the forest opened all the way down to that node in ONE call - every root plus the full set of
+    siblings at each level along the ancestor path to the target - instead of forcing the frontend
+    to walk the lazy ``/tree/roots`` + ``/tree/<id>/children`` levels itself. Each node carries a
+    ``has_children`` flag (real children in the FULL tree, so untouched branches stay expandable).
+    The target's own children are not expanded; they load on demand like the rest of the lazy tree.
+    The caller already knows which node is selected (it is ``public_id``), so no node is flagged
+
+    Args:
+        public_id (int): public_id of the selected CmdbLocation to open the tree to
+        request_user (CmdbUser): User requesting the data
+
+    Returns:
+        Response: The forest expanded to the selected location, each node with has_children
+                  (DefaultResponse)
+    """
+    try:
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        path_locations: list[dict[str, Any]] = locations_manager.get_locations_on_path_to(public_id)
+
+        if not path_locations:
+            abort(404, f"The Location with ID:{public_id} was not found!")
+
+        # has_children reflects real direct children in the FULL tree (deeper levels are not fetched)
+        node_ids: list[int] = [location[LocationKey.PUBLIC_ID.value] for location in path_locations]
+        parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids)
+
+        forest: list[dict[str, Any]] = build_location_forest(path_locations, parents_with_children)
+
+        return DefaultResponse(forest).make_response()
+    except HTTPException:
+        raise
+    except LocationsManagerGetError as err:
+        LOGGER.error("[get_cmdb_location_tree_path] LocationsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the Location tree path to Location with ID:{public_id}!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_location_tree_path] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, f"An internal server error occured while requesting the path to Location with ID:{public_id}!")
+
+
+@location_blueprint.route('/tree/<int:public_id>/children', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+def get_cmdb_location_tree_children(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route returning the direct children of one location in the tree
+
+    Powers the lazy expand of the sidebar location tree, one level at a time. Each returned node
+    carries a ``has_children`` flag so a further expand control can be shown without fetching its
+    subtree
+
+    Args:
+        public_id (int): public_id of the CmdbLocation whose direct children should be returned
+        request_user (CmdbUser): User requesting the data
+
+    Returns:
+        Response: The location's direct children, each with has_children (DefaultResponse)
+    """
+    try:
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        children: list[dict[str, Any]] = [
+            CmdbLocation.to_json(location)
+            for location in locations_manager.get_locations_by(parent=public_id)
+        ]
+
+        return DefaultResponse(build_location_level(children, locations_manager)).make_response()
+    except LocationsManagerGetError as err:
+        LOGGER.error("[get_cmdb_location_tree_children] LocationsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the child Locations of Location with ID:{public_id}!")
+    except Exception as err:
+        LOGGER.error("[get_cmdb_location_tree_children] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, f"An internal server error occured while requesting children of Location with ID:{public_id}!")
+
+
 @location_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbLocation
@@ -249,8 +422,8 @@ def get_cmdb_location(public_id: int, request_user: CmdbUser) -> Response:
 
 @location_blueprint.route('/<int:object_id>/object', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to return the selected CmdbLocation for a given object_id (public_id of CmdbObject)
@@ -283,8 +456,8 @@ def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Resp
 
 @location_blueprint.route('/<int:object_id>/parent', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to return the parent CmdbLocation for a given object_id (public_id of CmdbObject)
@@ -325,8 +498,8 @@ def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response
 
 @location_blueprint.route('/<int:object_id>/children', methods=['GET'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.view')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to get all direct child CmdbLocations for a given object_id
@@ -367,11 +540,15 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
 @location_blueprint.route('/update_location', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right='base.framework.object.edit')
+@location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
 @location_blueprint.parse_request_body()
 def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update the CmdbLocation linked to an object
+
+    The new parent is validated (must exist, be selectable-as-parent and not create a cycle) before
+    the write. Both sides of the object<->location mirror are updated: the CmdbLocation node's
+    parent/name and the owning object's location field value, so they cannot desync
 
     Args:
         data (dict[str, Any]): JSON payload with the location parameters
@@ -395,6 +572,9 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
         if not to_update_location:
             abort(404, f"The Location for Object with ID:{object_id} was not found!")
 
+        # Reject an invalid new parent (missing / not selectable-as-parent / cycle) before writing
+        validate_object_location_change(object_id, location_update_params['parent'], locations_manager)
+
         location_update_params['name'] = resolve_location_name(
             data.get('name'),
             object_id,
@@ -404,25 +584,136 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
 
         locations_manager.update_location(object_id, location_update_params)
 
+        # Keep the mirror in sync: the object's location field holds the same parent id as the node
+        objects_manager.set_location_field_for_objects([object_id], location_update_params['parent'])
+
         return UpdateSingleResponse(data).make_response()
     except HTTPException as http_err:
         raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_location_for_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the linked Object from the database!")
-    except LocationsManagerUpdateError as err:
-        LOGGER.error("[update_cmdb_location_for_object] LocationsManagerUpdateError: %s", err, exc_info=True)
+    except (LocationsManagerUpdateError, ObjectsManagerUpdateError) as err:
+        LOGGER.error("[update_cmdb_location_for_object] Update error: %s", err, exc_info=True)
         abort(400, "Failed to update the Location in the database!")
     except Exception as err:
         LOGGER.error("[update_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while updating a Location!")
 
+# ---------------------------------------------- CRUD - MOVE (drag & drop) ------------------------------------------- #
+
+@location_blueprint.route('/<int:object_id>/parent', methods=['PATCH'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
+def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `PATCH` route to move a single object's location placement to a new parent
+
+    Powers a drag-and-drop of one node in the location tree. The body carries ``{parent}`` - the new
+    parent CmdbLocation id (the root id to place at the top level, or null / a non-positive id to
+    remove the placement). The move is validated (parent exists, is selectable-as-parent, no cycle)
+    and mirrored to both the object's location field and its CmdbLocation node; an invalid drop is
+    rejected 400 so the frontend can revert it
+
+    Args:
+        object_id (int): public_id of the CmdbObject whose placement moves
+        request_user (CmdbUser): The user making the request
+
+    Returns:
+        Response: Echo of the applied move ({object_id, parent}) (DefaultResponse)
+    """
+    try:
+        body: dict[str, Any] = request.get_json(silent=True) or {}
+        parent: int | None = normalize_parent_id(body.get('parent'))
+
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        move_object_location(object_id, parent, request_user, objects_manager, locations_manager)
+
+        return DefaultResponse({'object_id': object_id, 'parent': parent}).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except (ObjectsManagerGetError, ObjectsManagerUpdateError) as err:
+        LOGGER.error("[move_cmdb_location_for_object] ObjectsManager error: %s", err, exc_info=True)
+        abort(400, f"Failed to move the Location of Object with ID:{object_id}!")
+    except (LocationsManagerGetError, LocationsManagerUpdateError) as err:
+        LOGGER.error("[move_cmdb_location_for_object] LocationsManager error: %s", err, exc_info=True)
+        abort(400, f"Failed to move the Location of Object with ID:{object_id}!")
+    except Exception as err:
+        LOGGER.error("[move_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, f"An internal server error occured while moving the Location of Object with ID:{object_id}!")
+
+
+@location_blueprint.route('/parents', methods=['PATCH'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
+def move_cmdb_locations(request_user: CmdbUser) -> Response:
+    """
+    HTTP `PATCH` route to move several objects' location placements under one common parent
+
+    Powers a multi-select drag-and-drop. The body carries ``{object_ids: [...], parent}``. Every
+    listed object is validated FIRST (object exists + has a location field, parent exists, is
+    selectable-as-parent, no cycle); if any target is invalid the whole batch is rejected 400 and
+    nothing is written. Otherwise every placement is moved and mirrored. ``parent`` null /
+    non-positive removes the placement from each listed object
+
+    Args:
+        request_user (CmdbUser): The user making the request
+
+    Returns:
+        Response: Echo of the applied moves ({object_ids, parent}) (DefaultResponse)
+    """
+    try:
+        body: dict[str, Any] = request.get_json(silent=True) or {}
+        raw_object_ids: Any = body.get('object_ids')
+
+        if not isinstance(raw_object_ids, list) or not raw_object_ids:
+            abort(400, "The 'object_ids' body field must be a non-empty list!")
+
+        try:
+            object_ids: list[int] = [int(object_id) for object_id in raw_object_ids]
+        except (TypeError, ValueError):
+            abort(400, "The 'object_ids' list must contain only integers!")
+
+        parent: int | None = normalize_parent_id(body.get('parent'))
+
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        # Atomic pre-flight: validate every target before writing any (also resolves each type once
+        # so the apply pass below does not re-fetch it)
+        validated_types: dict[int, CmdbType] = {
+            object_id: validate_object_location_move(object_id, parent, objects_manager, locations_manager)
+            for object_id in object_ids
+        }
+
+        for object_id in object_ids:
+            move_object_location(
+                object_id, parent, request_user, objects_manager, locations_manager, validated_types[object_id]
+            )
+
+        return DefaultResponse({'object_ids': object_ids, 'parent': parent}).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except (ObjectsManagerGetError, ObjectsManagerUpdateError) as err:
+        LOGGER.error("[move_cmdb_locations] ObjectsManager error: %s", err, exc_info=True)
+        abort(400, "Failed to move the Locations of the requested Objects!")
+    except (LocationsManagerGetError, LocationsManagerUpdateError) as err:
+        LOGGER.error("[move_cmdb_locations] LocationsManager error: %s", err, exc_info=True)
+        abort(400, "Failed to move the Locations of the requested Objects!")
+    except Exception as err:
+        LOGGER.error("[move_cmdb_locations] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while moving the Locations of the requested Objects!")
+
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @location_blueprint.route('/<int:object_id>/object', methods=['DELETE'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@location_blueprint.protect(auth=True, right='base.framework.object.edit')
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@location_blueprint.protect(auth=True, right=LocationRight.DELETE.value)
 def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete the CmdbLocation linked to the given object_id
@@ -436,20 +727,17 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
     """
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         to_delete_location = locations_manager.get_location_for_object(object_id)
 
         if not to_delete_location:
             abort(404, f"The Location linked to Object with ID: {object_id} was not found in the database!")
 
-        location_public_id = to_delete_location['public_id']
-
-        # A location with child locations must not be deleted - it would orphan the whole subtree
-        if locations_manager.location_has_children(location_public_id):
-            abort(403, f"The Location linked to Object with ID: {object_id} has child Locations and "
-                       "cannot be deleted!")
-
-        ack = locations_manager.delete_location(location_public_id)
+        # Deleting a location promotes its direct children - both the location nodes and the mirrored
+        # object location fields - onto this location's own parent, so a location with children is
+        # deletable (see delete_location_with_reparenting)
+        ack = delete_location_with_reparenting(to_delete_location, locations_manager, objects_manager)
 
         return DefaultResponse(ack).make_response()
     except HTTPException as http_err:

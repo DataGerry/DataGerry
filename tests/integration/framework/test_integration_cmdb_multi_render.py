@@ -21,6 +21,7 @@ pinning the render output that the whole application depends on: object/type inf
 values, date coercion, the expanded reference (object_id + referenced type), the summary line, and the
 get_mds_reference / get_user_name helpers (incl. the fix that get_mds_reference always returns a dict).
 """
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -42,6 +43,7 @@ MAIN_OBJ_ID: int = 88111
 REF_OBJ_ID: int = 88112
 REFSEC_OBJ_ID: int = 88113
 MAIN_OBJ_ID_2: int = 88114
+REFSEC_OBJ_ID_NULL: int = 88115
 
 NAME_FIELD: str = 'dg-name'
 REF_FIELD: str = 'ref-field'
@@ -55,7 +57,7 @@ REF_NAME_VALUE: str = 'Ref-Target'
 DATE_VALUE: str = '2024-01-02'
 
 ALL_TYPE_IDS: list[int] = [MAIN_TYPE_ID, REF_TYPE_ID, REFSEC_TYPE_ID]
-ALL_OBJ_IDS: list[int] = [MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2]
+ALL_OBJ_IDS: list[int] = [MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2, REFSEC_OBJ_ID_NULL]
 
 
 @pytest.fixture(autouse=True)
@@ -145,6 +147,12 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
             {'type': 'ref', 'name': REF_FIELD, 'value': REF_OBJ_ID},
             {'type': 'date', 'name': DATE_FIELD, 'value': DATE_VALUE},
         ]),
+        # A refsec object with NO object referenced yet (value None) - mirrors an object cleaned
+        # after a ref-section was added to its type
+        _obj_doc(REFSEC_OBJ_ID_NULL, REFSEC_TYPE_ID, [
+            {'type': 'text', 'name': NAME_FIELD, 'value': 'NoRef'},
+            {'type': 'ref', 'name': REFSEC_REF_FIELD, 'value': None},
+        ]),
     ])
     yield
     _purge()
@@ -197,6 +205,26 @@ class TestRenderResult:
         reference = _field(result.fields, REF_FIELD)['reference']
         assert reference['object_id'] == REF_OBJ_ID
         assert reference['type_id'] == REF_TYPE_ID
+
+    def test_mds_reference_without_nested_line_renders_cleanly(self, full_access_user,
+                                                              database_manager, database_name, caplog) -> None:
+        """get_mds_reference for a ref with no nested summary line resolves with line=None, no log.
+
+        Regression for the DEBUG-log spam: line_requires_fields' regex raised on a None line, which
+        was caught and logged ("Could not fill summary line") for every such reference. Option A: no
+        crash, no log, line stays None, and the reference still resolves (summaries clearing is the
+        deferred Option B, so summaries stay a list here).
+        """
+        render = _render_main(full_access_user, database_manager, database_name)
+
+        with caplog.at_level(logging.DEBUG, logger='cmdb.framework.rendering.cmdb_multi_render'):
+            reference = render.get_mds_reference(REF_OBJ_ID)
+
+        assert reference['object_id'] == REF_OBJ_ID
+        assert reference['line'] is None
+        assert isinstance(reference['summaries'], list)
+        # The None-line no longer trips line_requires_fields' regex, so nothing is logged
+        assert 'Could not fill summary line' not in caplog.text
 
     def test_render_without_ref_render_does_not_crash(self, full_access_user,
                                                       database_manager, database_name) -> None:
@@ -276,6 +304,24 @@ class TestReferenceSection:
         assert ref_field['references']['type_id'] == REF_TYPE_ID
         merged = _field(ref_field['references']['fields'], NAME_FIELD)
         assert merged['value'] == REF_NAME_VALUE
+
+    def test_ref_section_field_survives_when_no_object_is_referenced(self, full_access_user,
+                                                                     database_manager, database_name) -> None:
+        """Regression: a null-reference ref-section still emits its field so the frontend shows the section.
+
+        The ref target type is loaded only via the ref-section scan here (no referenced object pulls it
+        into the cache), so before the fix __merge_fields_value dropped the field and the section vanished.
+        """
+        doc = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .find_one({'public_id': REFSEC_OBJ_ID_NULL})
+        refsec_obj = CmdbObject.from_data(doc)
+
+        result = CmdbMultiRender([refsec_obj], full_access_user, True).result(single_object=True)
+
+        ref_field = next((field for field in result.fields if field['name'] == REFSEC_REF_FIELD), None)
+        assert ref_field is not None
+        assert ref_field['value'] is None
+        assert ref_field['references']['type_id'] == REF_TYPE_ID
 
 
 class TestHelpers:

@@ -17,8 +17,6 @@
 This module contains the implementation of CmdbReportCategory, which is representing
 a category of a CmdbReport in DataGarry
 """
-from logging import Logger, getLogger
-
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.class_schema.reports_model.cmdb_report_category_schema import get_cmdb_report_category_schema
@@ -29,8 +27,6 @@ from cmdb.errors.models.cmdb_report_category import (
     CmdbReportCategoryToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              CmdbReportCategory - CLASS                                              #

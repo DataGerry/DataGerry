@@ -19,12 +19,14 @@ Implementation of TokenValidator
 from logging import Logger, getLogger
 import time
 
-from authlib.jose import jwt, JsonWebToken
-from authlib.jose.errors import BadSignatureError, InvalidClaimError
+from joserfc import jwt
+from joserfc.jwk import RSAKey
+from joserfc.errors import JoseError
 
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.security.key.holder import KeyHolder
+from cmdb.security.token.token_constants import TokenAlgorithm, TokenTimeClaim
 
 from cmdb.errors.security import TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -48,12 +50,15 @@ class TokenValidator:
         self.key_holder = KeyHolder(dbm)
 
 
-    def decode_token(self, token: JsonWebToken | str | dict) -> dict:
+    def decode_token(self, token: str | bytes) -> dict:
         """
-        Decodes a given JWT token
+        Decodes a given JWT token and verifies its RSA signature
+
+        The token must be signed with the algorithm whitelisted in TokenAlgorithm; any other
+        algorithm is rejected before the signature is checked.
 
         Args:
-            token (JsonWebToken | str | dict): The JWT token to be decoded
+            token (str | bytes): The encoded JWT token to be decoded
 
         Returns:
             dict: The decoded JWT claims
@@ -62,26 +67,31 @@ class TokenValidator:
             TokenValidationError: If the token is invalid, malformed, or has a bad signature
         """
         try:
-            public_key = self.key_holder.get_public_key()
-            decoded_token = jwt.decode(token, key=public_key)
+            public_key = RSAKey.import_key(self.key_holder.get_public_key())
+            decoded_token = jwt.decode(token, public_key, algorithms=[TokenAlgorithm.RS512])
 
-            # LOGGER.debug(f"decoded_token type: {type(decoded_token)}")
-            return decoded_token
-        except (BadSignatureError, Exception) as err:
+            return decoded_token.claims
+        except Exception as err:
             raise TokenValidationError(err) from err
 
 
-    def validate_token(self, token: JsonWebToken | str | dict):
+    def validate_token(self, token: dict) -> None:
         """
-        Validates a given token regarding its expiration
+        Validates the decoded token claims regarding their expiration
 
-        Params:
-            token(JsonWebToken | str | dict): the given token
+        Only the registered time claims (TokenTimeClaim) are validated, mirroring the previous
+        authlib behaviour which did not enforce a format on DataGerry's structured 'iss' and
+        'DATAGERRY' claims.
 
-        Returns:
-            JWTClaims: decoded token
+        Args:
+            token (dict): The decoded JWT claims returned by decode_token
+
+        Raises:
+            TokenValidationError: If a time claim is invalid or the token has expired
         """
         try:
-            token.validate(time.time())
-        except InvalidClaimError as err:
+            time_claims = {claim.value: token[claim.value] for claim in TokenTimeClaim if claim.value in token}
+            claims_registry = jwt.JWTClaimsRegistry(now=int(time.time()))
+            claims_registry.validate(time_claims)
+        except JoseError as err:
             raise TokenValidationError(err) from err

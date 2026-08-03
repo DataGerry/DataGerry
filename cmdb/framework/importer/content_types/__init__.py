@@ -18,11 +18,9 @@ This module provides all content types for imports
 """
 from cmdb.framework.importer.content_types.csv_content import CSVContent
 from cmdb.framework.importer.content_types.json_content import JSONContent
-from cmdb.framework.importer.content_types.xlsx_content import XLSXContent
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'CSVContent',
     'JSONContent',
-    'XLSXContent',
 ]

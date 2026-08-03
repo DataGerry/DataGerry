@@ -34,13 +34,20 @@ class CmdbObjectKey(BaseStrEnum):
     Top-level dict keys of a CmdbObject document
 
     These appear at the outermost level of the document and reference identity, type linkage,
-    the active flag, the top-level field list and the multi-data-section list
+    the active flag, the top-level field list, the multi-data-section list and the lifecycle timestamps
     """
     PUBLIC_ID = 'public_id'
     TYPE_ID = 'type_id'
     ACTIVE = 'active'
     FIELDS = 'fields'
     MULTI_DATA_SECTIONS = 'multi_data_sections'
+    CREATION_TIME = 'creation_time'
+    LAST_EDIT_TIME = 'last_edit_time'
+    AUTHOR_ID = 'author_id'
+    VERSION = 'version'
+    EDITOR_ID = 'editor_id'
+    SPECIAL_TYPE = 'special_type'
+    CI_EXPLORER_TOOLTIP = 'ci_explorer_tooltip'
 
 
 class CmdbObjectFieldKey(BaseStrEnum):

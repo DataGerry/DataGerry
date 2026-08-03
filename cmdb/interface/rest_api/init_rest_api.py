@@ -182,8 +182,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     user management, ISMS, IPAM, OpenCelium, ...) and registered under stable URL prefixes such
     as ``/objects``, ``/isms/risks`` or ``/ipam/subnet`` that the frontend depends on. Pylint
     rules R0914 (too many locals) and R0915 (too many statements) are disabled because the
-    registration list is intentionally flat for readability. The DEBUG-only ``debug_blueprint``
-    is appended last and is only loaded when ``cmdb.__MODE__`` is DEBUG
+    registration list is intentionally flat for readability
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -206,10 +205,11 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.user_management_routes.rights_routes import rights_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
     from cmdb.interface.rest_api.routes.exporter_routes.exporter_object_routes import exporter_blueprint
-    from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_routes import type_export_blueprint
+    from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_routes import exporter_type_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs import logs_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.setting_routes import settings_blueprint
-    from cmdb.interface.rest_api.routes.importer_routes.import_routes import importer_blueprint
+    from cmdb.interface.rest_api.routes.settings_routes.system_routes import system_blueprint
+    from cmdb.interface.rest_api.routes.importer_routes.importer_type_routes import importer_type_blueprint
+    from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes import importer_object_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_routes import (
         docapi_blueprint,
         docs_blueprint,
@@ -282,10 +282,11 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(rights_blueprint, url_prefix='/rights')
     app.register_blueprint(search_blueprint)
     app.register_blueprint(exporter_blueprint, url_prefix='/exporter')
-    app.register_blueprint(type_export_blueprint)
+    app.register_blueprint(exporter_type_blueprint, url_prefix='/export/type')
     app.register_blueprint(logs_blueprint, url_prefix='/logs')
-    app.register_blueprint(settings_blueprint)
-    app.register_blueprint(importer_blueprint)
+    app.register_blueprint(system_blueprint, url_prefix='/settings/system')
+    app.register_blueprint(importer_type_blueprint, url_prefix='/import/type')
+    app.register_blueprint(importer_object_blueprint, url_prefix='/import/object')
     app.register_blueprint(docapi_blueprint)
     app.register_blueprint(docs_blueprint, url_prefix='/docs')
     app.register_blueprint(media_file_blueprint)
@@ -408,10 +409,6 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(oc_schedulers_blueprint, url_prefix='/open_celium')
     app.register_blueprint(oc_licenses_blueprint, url_prefix='/open_celium')
     app.register_blueprint(oc_connection_log_blueprint, url_prefix='/open_celium')
-
-    if cmdb.__MODE__ == 'DEBUG':
-        from cmdb.interface.rest_api.routes.debug_routes import debug_blueprint
-        app.register_blueprint(debug_blueprint)
 
     # LOGGER.debug(f"routes: {app.url_map}")
 

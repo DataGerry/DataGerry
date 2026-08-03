@@ -17,7 +17,7 @@
 Flask app that serves the bundled Angular SPA at the dispatcher's root mount
 
 `create_app()` produces the WSGI application `WebCmdbService._run` mounts at `/` inside the
-`DispatcherMiddleware` (alongside `/docs` and `/rest`). The app's job is narrow: serve the
+`DispatcherMiddleware` (alongside `/rest`). The app's job is narrow: serve the
 compiled Angular bundle that `make webapp` copies into `cmdb/interface/net_app/datagerry-app/`,
 plus two top-level static files (`favicon.ico`, `browserconfig.xml`) read from the package's
 `_static/` directory, and fall back to `index.html` on any 404 so the browser can resolve

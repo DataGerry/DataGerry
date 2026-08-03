@@ -121,7 +121,7 @@ class TestInsertType:
 #                                                        GET                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGetType:
-    """``TypesManager.get_type`` returns the doc by id and respects ``as_dict``."""
+    """``get_type`` returns the raw doc by id and ``get_type_instance`` the hydrated CmdbType."""
 
     @pytest.fixture(autouse=True)
     def _seed_one(
@@ -135,23 +135,24 @@ class TestGetType:
         yield
         _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_GET)
 
-    def test_returns_dict_by_default(self, types_manager: TypesManager) -> None:
-        """Default ``as_dict=True`` returns the doc as a dict."""
+    def test_get_type_returns_the_raw_document(self, types_manager: TypesManager) -> None:
+        """``get_type`` returns the stored doc as a dict."""
         result = types_manager.get_type(TYPE_ID_FOR_GET)
 
         assert isinstance(result, dict)
         assert result['public_id'] == TYPE_ID_FOR_GET
 
-    def test_returns_cmdb_type_when_as_dict_false(self, types_manager: TypesManager) -> None:
-        """``as_dict=False`` returns a ``CmdbType`` instance instead of a raw dict."""
-        result = types_manager.get_type(TYPE_ID_FOR_GET, as_dict=False)
+    def test_get_type_instance_returns_a_cmdb_type(self, types_manager: TypesManager) -> None:
+        """``get_type_instance`` returns a ``CmdbType`` instead of a raw dict."""
+        result = types_manager.get_type_instance(TYPE_ID_FOR_GET)
 
         assert isinstance(result, CmdbType)
         assert result.public_id == TYPE_ID_FOR_GET
 
     def test_returns_none_for_missing_id(self, types_manager: TypesManager) -> None:
-        """A missing id returns None rather than raising."""
+        """A missing id returns None rather than raising, in both read modes."""
         assert types_manager.get_type(MISSING_TYPE_ID) is None
+        assert types_manager.get_type_instance(MISSING_TYPE_ID) is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -43,17 +43,24 @@ from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.database.predefined_data.predefined_data_constants import LocationKey
 from cmdb.framework.ipam.special_type_wiring import (
     handle_special_types,
     cleanup_type_references_from_all_types,
-    cleanup_special_type_references,
+    cleanup_special_type_template_references,
 )
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
+from cmdb.interface.rest_api.routes.report_routes.report_constants import ReportKey
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+    realign_objects_to_type,
+    clean_type_reports,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TYPE_NOT_FOUND_MESSAGE,
     TypeUserDataKey,
-    TypeCleanStatusKey,
+    TypeOverviewKey,
 )
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -79,29 +86,53 @@ def enforce_special_type_license(request_user: CmdbUser, is_special_type: bool) 
         abort_if_feature_locked(LicenseFeature.IPAM, request_user)
 
 
-def get_type_or_404(
-    types_manager: TypesManager,
-    public_id: int,
-    as_dict: bool = True,
-) -> dict[str, Any] | CmdbType:
+def get_type_or_404(types_manager: TypesManager, public_id: int) -> dict[str, Any]:
     """
-    Fetches a CmdbType by public_id, aborting the request with HTTP 404 when it does not exist
+    Fetches a CmdbType document by public_id, aborting the request with HTTP 404 when it does not exist
 
     Centralizes the "look it up or 404" pattern shared by the CmdbType read / update routes so
-    the lookup and its not-found message stay identical across them
+    the lookup and its not-found message stay identical across them. Use
+    `get_type_instance_or_404` when a CmdbType object is needed instead
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         public_id (int): public_id of the CmdbType to fetch
-        as_dict (bool): When True returns the raw document, otherwise a CmdbType instance
+
+    Raises:
+        HTTPException: 404 if no CmdbType has that public_id
 
     Returns:
-        dict[str, Any] | CmdbType: The requested CmdbType (never None - aborts 404 instead)
+        dict[str, Any]: The requested CmdbType document (never None - aborts 404 instead)
     """
-    target_type: dict[str, Any] | CmdbType | None = types_manager.get_type(public_id, as_dict=as_dict)
+    target_type: dict[str, Any] | None = types_manager.get_type(public_id)
 
     if not target_type:
-        abort(404, f"The Type with ID:{public_id} was not found!")
+        abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
+
+    return target_type
+
+
+def get_type_instance_or_404(types_manager: TypesManager, public_id: int) -> CmdbType:
+    """
+    Fetches a CmdbType by public_id as a hydrated CmdbType, aborting with HTTP 404 when it is missing
+
+    The CmdbType counterpart of `get_type_or_404`, sharing its not-found message so the two are
+    indistinguishable to the caller
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        public_id (int): public_id of the CmdbType to fetch
+
+    Raises:
+        HTTPException: 404 if no CmdbType has that public_id
+
+    Returns:
+        CmdbType: The requested CmdbType (never None - aborts 404 instead)
+    """
+    target_type: CmdbType | None = types_manager.get_type_instance(public_id)
+
+    if not target_type:
+        abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
     return target_type
 
@@ -290,6 +321,48 @@ def apply_type_changes_to_mds(request_user: CmdbUser, old_type: CmdbType, update
         objects_manager.bulk_update_multi_data_sections(objects_to_update)
 
 
+def realign_type_objects_if_fields_changed(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    updated_type: CmdbType,
+) -> None:
+    """
+    Re-aligns a CmdbType's objects and reports with its field set, only when the field names changed
+
+    A pure metadata edit (label / icon / regex / default value / section reorder) leaves the set of
+    field names unchanged, so the potentially large object sweep is skipped. When a field name was
+    added or removed, every object of the type gains the newly declared fields (seeded with their
+    default ``value``) and loses the fields the type no longer declares, and the removed field names
+    are stripped from the type's reports. The matching MDS-row alignment is handled separately by
+    ``apply_type_changes_to_mds`` (this reconciles the flat ``fields`` list; that reconciles the
+    ``multi_data_sections`` rows)
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        updated_type (CmdbType): The re-read CmdbType after the base update
+    """
+    old_field_names: set[str] = {field[FieldKey.NAME] for field in old_type.fields}
+    new_field_names: set[str] = {field[FieldKey.NAME] for field in updated_type.fields}
+
+    # Gate: only reconcile objects when the set of field names actually changed (add/remove)
+    if old_field_names == new_field_names:
+        return
+
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
+
+    reports_for_type: list[dict[str, Any]] = objects_manager.get_many_from_other_collection(
+        CmdbReport.COLLECTION,
+        type_id=updated_type.public_id,
+    )
+
+    # Re-align every object of the type with its current field set, then strip any removed field
+    # from the type's reports once
+    removed_field_names: set[str] = realign_objects_to_type(objects_manager, updated_type)
+    clean_type_reports(reports_manager, reports_for_type, removed_field_names, updated_type)
+
+
 def get_objects_using_location_field(
     request_user: CmdbUser,
     target_type: CmdbType,
@@ -329,6 +402,91 @@ def get_objects_using_location_field(
     return [obj[CmdbObjectKey.PUBLIC_ID] for obj in matching_objects]
 
 
+def build_location_usage_payload(request_user: CmdbUser, target_type: CmdbType) -> dict[str, Any]:
+    """
+    Builds the shared "is this Type's location placement in use" pre-check payload
+
+    Resolves the CmdbObjects of the given CmdbType that currently store a location value and packs
+    them into the {in_use, count, object_public_ids} shape returned by the location-field-usage and
+    selectable-as-parent-usage GET routes. Both routes answer the same underlying question - are any
+    objects of this type placed in the location tree - so they share this builder
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        target_type (CmdbType): The CmdbType to inspect
+
+    Returns:
+        dict[str, Any]: {in_use: bool, count: int, object_public_ids: list[int]}
+    """
+    object_public_ids: list[int] = get_objects_using_location_field(request_user, target_type)
+
+    return {
+        'in_use': bool(object_public_ids),
+        'count': len(object_public_ids),
+        'object_public_ids': object_public_ids,
+    }
+
+
+def selectable_as_parent_change_blocker(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    new_type: CmdbType,
+) -> str | None:
+    """
+    Reports why an update may not turn 'selectable_as_parent' off, if it may not
+
+    A CmdbType may only stop being selectable as a parent once no CmdbObject of that type is placed
+    in the location tree; otherwise a placed object of a now-non-selectable type would remain in the
+    tree (and could still act as a parent) while its type forbids it. Only the true -> false
+    transition is guarded - keeping it off, or turning it on, is always allowed. The reason is
+    returned instead of raised so both write paths can use it: the route aborts with it
+    (`guard_selectable_as_parent_change`), the type import reports it per entry
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Returns:
+        str | None: The reason the change is refused, or None when the update is allowed
+    """
+    turning_off: bool = old_type.selectable_as_parent and not new_type.selectable_as_parent
+
+    if not turning_off:
+        return None
+
+    object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
+
+    if not object_public_ids:
+        return None
+
+    return (
+        "Cannot disable 'selectable as parent': "
+        f"{len(object_public_ids)} Object(s) of this Type are placed in the location tree. "
+    )
+
+
+def guard_selectable_as_parent_change(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+    """
+    Aborts 400 when an update turns 'selectable_as_parent' off while objects of the type are placed
+
+    The route-level wrapper around `selectable_as_parent_change_blocker`. 400 follows the codebase
+    convention for business-rule rejections (the same as the location-field removal guard)
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Raises:
+        HTTPException: 400 when 'selectable_as_parent' may not be turned off
+    """
+    blocker: str | None = selectable_as_parent_change_blocker(request_user, old_type, new_type)
+
+    if blocker:
+        abort(400, blocker)
+
+
 def verify_type_deletable(
     request_user: CmdbUser,
     public_id: int,
@@ -352,7 +510,7 @@ def verify_type_deletable(
     reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
     if not to_delete_type:
-        abort(404, f"The Type with ID:{public_id} was not found!")
+        abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
     objects_count = objects_manager.count_documents({CmdbObjectKey.TYPE_ID: public_id})
 
@@ -361,7 +519,7 @@ def verify_type_deletable(
         abort(400, "Delete not possible if Objects of this Type exist!")
 
     # Only possible to delete types when there are no reports using it
-    reports_count = reports_manager.count_documents({CmdbObjectKey.TYPE_ID: public_id})
+    reports_count = reports_manager.count_documents({ReportKey.TYPE_ID: public_id})
 
     if reports_count > 0:
         abort(400, "Delete not possible if Reports exist which are using this Type!")
@@ -379,9 +537,9 @@ def type_deletion_followup(
     groups and the 'types' arrays of all CmdbCategories, and strips it from every other
     CmdbType's field-level 'ref_types' arrays so no surviving type still offers the
     deleted type as a reference target. When the deleted type carried a SpecialType
-    marker, additionally drops the id from any 'ref_types' arrays that
-    handle_special_types had cross-wired on the IPAM section template, so newly added
-    'dg-ipam-interface' sections no longer offer it either
+    marker, the 'dg-ipam-interface' section template - the one document that type-level
+    sweep cannot reach - is un-wired too, so newly added 'dg-ipam-interface' sections no
+    longer offer it either
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -418,45 +576,75 @@ def type_deletion_followup(
             public_id, updated_count,
         )
 
-    # Drop the deleted type's id from cross-wired SpecialType 'ref_types' arrays
+    # The type-level sweep above cannot reach the 'dg-ipam-interface' section template document, so a
+    # deleted SpecialType is additionally un-wired there (template-only, no overlap with the sweep)
     if special_type:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
             ManagerType.SECTION_TEMPLATES,
             request_user,
         )
-        cleanup_special_type_references(
-            types_manager,
+        cleanup_special_type_template_references(
             section_templates_manager,
             special_type,
             public_id,
         )
 
 
-def guard_location_field_removal(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+def location_field_removal_blocker(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    new_type: CmdbType,
+) -> str | None:
     """
-    Aborts 400 when an update removes the location field while CmdbObjects still hold a location value
+    Reports why an update may not remove the CmdbType's location field, if it may not
 
     A CmdbType's location field may only be dropped once no CmdbObject of that type still stores a
-    location value, otherwise those stored values would be silently orphaned
+    location value, otherwise those stored values would be silently orphaned. The reason is returned
+    instead of raised so both write paths can use it: the route aborts with it
+    (`guard_location_field_removal`), the type import reports it per entry
 
     Args:
         request_user (CmdbUser): User performing the request
         old_type (CmdbType): State of the CmdbType before the update
         new_type (CmdbType): State of the CmdbType the update would persist
+
+    Returns:
+        str | None: The reason the removal is refused, or None when the update is allowed
     """
     removing_location_field: bool = get_location_field(old_type) is not None and get_location_field(new_type) is None
 
     if not removing_location_field:
-        return
+        return None
 
     object_public_ids: list[int] = get_objects_using_location_field(request_user, old_type)
 
-    if object_public_ids:
-        abort(
-            400,
-            "Cannot remove the location field: "
-            f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
-        )
+    if not object_public_ids:
+        return None
+
+    return (
+        "Cannot remove the location field: "
+        f"{len(object_public_ids)} Object(s) of this Type still have a location value. "
+    )
+
+
+def guard_location_field_removal(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+    """
+    Aborts 400 when an update removes the location field while CmdbObjects still hold a location value
+
+    The route-level wrapper around `location_field_removal_blocker`
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Raises:
+        HTTPException: 400 when the location field may not be removed
+    """
+    blocker: str | None = location_field_removal_blocker(request_user, old_type, new_type)
+
+    if blocker:
+        abort(400, blocker)
 
 
 def compute_removed_global_templates(
@@ -517,36 +705,27 @@ def apply_removed_global_template_cleanup(
         )
 
 
-def build_types_clean_status_items(
+def build_types_overview_items(
     types: list[dict[str, Any]],
-    field_name_sets_by_type: dict[int, list[set[str]]],
     user_lookup: dict[int, CmdbUser],
 ) -> list[dict[str, Any]]:
     """
-    Builds the per-type clean-status response items for the with_clean_status listing
+    Builds the per-type response items for the types overview listing
 
-    A CmdbType is 'clean' when every CmdbObject of that type carries exactly the field set the
-    type defines; any divergence marks it unclean. The object field sets are pre-aggregated (and
-    deduplicated) per type by ``ObjectsManager.get_object_field_name_sets_by_type``, so a type with
-    no objects (absent from the mapping) is clean by definition
+    Each item bundles the CmdbType document with its resolved author/editor display block, so the
+    overview can render author/editor names without a per-type user lookup (they are pre-resolved
+    from a single bulk ``get_user_lookup``)
 
     Args:
-        types (list[dict[str, Any]]): The CmdbType documents to evaluate
-        field_name_sets_by_type (dict[int, list[set[str]]]): Distinct object field-name sets per
-            type public_id, as returned by get_object_field_name_sets_by_type
+        types (list[dict[str, Any]]): The CmdbType documents to bundle
         user_lookup (dict[int, CmdbUser]): Lookup of the relevant author / editor CmdbUsers
 
     Returns:
-        list[dict[str, Any]]: One {type_data, user_data, clean_status} item per type
+        list[dict[str, Any]]: One {type_data, user_data} item per type
     """
     response_items: list[dict[str, Any]] = []
 
     for type_data in types:
-        expected_fields: set[str] = {f[FieldKey.NAME] for f in type_data[TypeSchemaKey.FIELDS]}
-        object_field_sets: list[set[str]] = field_name_sets_by_type.get(type_data[TypeSchemaKey.PUBLIC_ID], [])
-
-        clean: bool = all(field_set == expected_fields for field_set in object_field_sets)
-
         types_user_data: dict[str, Any] = get_types_user_data(
             user_lookup,
             type_data.get(TypeSchemaKey.AUTHOR_ID),
@@ -554,9 +733,8 @@ def build_types_clean_status_items(
         )
 
         response_items.append({
-            TypeCleanStatusKey.TYPE_DATA: type_data,
-            TypeCleanStatusKey.USER_DATA: types_user_data,
-            TypeCleanStatusKey.CLEAN_STATUS: clean,
+            TypeOverviewKey.TYPE_DATA: type_data,
+            TypeOverviewKey.USER_DATA: types_user_data,
         })
 
     return response_items
@@ -603,5 +781,9 @@ def apply_type_update_side_effects(
     # Propagate label/icon/selectable changes to the type's CmdbLocations
     apply_type_changes_to_locations(request_user, old_type, updated_type)
 
-    # Apply MDS field add/remove changes to the type's CmdbObjects
+    # Apply MDS field add/remove changes to the type's CmdbObjects (multi_data_sections rows)
     apply_type_changes_to_mds(request_user, old_type, CmdbType.to_json(updated_type))
+
+    # Re-align the objects' flat field set (and the type's reports) when the field names changed -
+    # this replaces the former manual "clean" step, applied automatically and only when needed
+    realign_type_objects_if_fields_changed(request_user, old_type, updated_type)

@@ -33,6 +33,12 @@ from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_BULK_DELETE_DELETED_KEY,
+    RISK_BULK_DELETED_RA_KEY,
+    RISK_BULK_DELETED_CMA_KEY,
+)
+from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -41,6 +47,7 @@ from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
     UpdateSingleResponse,
     DeleteSingleResponse,
+    DefaultResponse,
 )
 
 from cmdb.errors.manager.risk_manager import (
@@ -262,6 +269,51 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     except Exception as err:
         LOGGER.error("[delete_isms_risk] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while deleting the Risk with ID: {public_id}!")
+
+
+@risk_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@risk_blueprint.protect(auth=True, right='base.isms.risk.delete')
+def delete_many_isms_risks(public_ids: str, request_user: CmdbUser) -> Response:
+    """
+    HTTP `DELETE` route to bulk-delete IsmsRisks by a comma-separated id list
+
+    Unlike the other ISMS bulk deletes (which refuse a still-referenced item), deleting a Risk is an
+    unconditional CASCADE: every deleted Risk takes its RiskAssessments (referencing it via risk_id)
+    and, beneath them, their ControlMeasureAssignments with it - the same cascade the single-delete
+    performs, batched over the whole list. Non-existent ids are silently ignored. The response reports
+    the deleted Risk ids plus how many RiskAssessments and ControlMeasureAssignments the cascade
+    removed alongside them
+
+    Args:
+        public_ids (str): Comma-separated IsmsRisk public_ids to delete
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        DefaultResponse: {'successfully': [deleted Risk ids], 'deleted_risk_assessments': int,
+                          'deleted_control_measure_assignments': int}
+    """
+    try:
+        risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
+
+        requested_ids: list[int] = extract_public_ids(public_ids)
+
+        deleted_ids, deleted_ras, deleted_cmas = risk_manager.delete_many_with_follow_up(requested_ids)
+
+        return DefaultResponse({
+            ISMS_BULK_DELETE_DELETED_KEY: sorted(deleted_ids),
+            RISK_BULK_DELETED_RA_KEY: deleted_ras,
+            RISK_BULK_DELETED_CMA_KEY: deleted_cmas,
+        }).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except RiskManagerDeleteError as err:
+        LOGGER.error("[delete_many_isms_risks] RiskManagerDeleteError: %s", err, exc_info=True)
+        abort(400, "Failed to bulk-delete the requested Risks!")
+    except Exception as err:
+        LOGGER.error("[delete_many_isms_risks] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while bulk-deleting Risks!")
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

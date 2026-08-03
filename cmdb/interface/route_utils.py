@@ -22,8 +22,6 @@ import functools
 import json
 from logging import Logger, getLogger
 from datetime import datetime, timezone
-import time
-import hashlib
 from typing import Any, Callable
 import requests
 from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
@@ -147,10 +145,10 @@ def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
             return func(*args, **kwargs)
         except DocumentNetworkError as err:
             LOGGER.error("[DB Network Error] %s: %s", type(err), err, exc_info=True)
-            abort(500, "Database connection issue. Please try again!")
+            abort(503, "Database connection issue. Please try again!")
         except DocumentLockTimeoutError as err:
             LOGGER.error("[DB Lock Timeout] %s: %s", type(err), err, exc_info=True)
-            abort(500, "Database collection currently in use. Please try again!")
+            abort(423, "Database collection currently in use. Please try again!")
 
     return wrapper
 
@@ -191,6 +189,48 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
                 abort(500, message)
         return wrapper
     return decorator
+
+
+def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: disable=unused-argument
+    # '**optional' is an extensibility placeholder, matching the other parameter decorators
+    """
+    Decorator to parse and extract query parameters from an HTTP request
+
+    Returns a decorator that:
+    - Extracts query parameters from the current request (via `request.args.to_dict()`)
+    - Injects them as the FIRST positional argument of the decorated function
+    - Forwards any remaining positional/keyword arguments (e.g. a `request_user` injected by an
+      inner decorator) unchanged
+    - Aborts with a 400 Bad Request if the parameters cannot be parsed
+
+    Used only by the DataGerry assistant route. It lived on the former `RootBlueprint` as a
+    classmethod; it is a plain request decorator like the others here, so it belongs with them rather
+    than on a blueprint type
+
+    Args:
+        **optional: Placeholder for optional keyword arguments (currently unused)
+
+    Raises:
+        HTTPException: 400 if the request arguments could not be accessed or parsed
+
+    Returns:
+        Callable: A decorator that injects parsed request parameters into the decorated function
+    """
+    def _parse(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def _decorate(*args: Any, **kwargs: Any) -> Any:
+            try:
+                location_args = request.args.to_dict()
+            except Exception as err:
+                LOGGER.error("[parse_assistant_parameters] Exception: %s. Type: %s",
+                             err, type(err), exc_info=True)
+                abort(400, "Failed to parse the request arguments!")
+
+            return func(location_args, *args, **kwargs)
+
+        return _decorate
+
+    return _parse
 
 
 def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -299,7 +339,7 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
                     # Set the user as request User
                     if required_api_level != ApiLevel.SUPER_ADMIN:
                         set_admin_user(user_instance, user_instance['subscriptions'][0])
-                        user_model = retrive_user(user_instance, user_instance['subscriptions'][0]['database'])
+                        user_model = retrieve_user(user_instance, user_instance['subscriptions'][0]['database'])
 
                         if user_model:
                             kwargs.update({'request_user': user_model})
@@ -349,10 +389,10 @@ def __get_request_api_user() -> dict[str, str] | None:
             auth_type, auth_info = value.split(None, 1)
             auth_type = auth_type.lower()
         except ValueError:
-            auth_type = b"bearer"
+            auth_type = "bearer"
             auth_info = value
 
-        if auth_type in (b"basic","basic"):
+        if auth_type == "basic":
             email, password = base64.b64decode(auth_info).split(b":", 1)
 
             with current_app.app_context():
@@ -467,12 +507,16 @@ def right_required(required_right: str):
 def parse_authorization_header(header):
     """
     Parses the HTTP Auth Header to a JWT Token
+
+    Basic credentials are authenticated (via the service portal in cloud mode) and exchanged for a
+    freshly generated JWT; a bearer token is validated and returned unchanged. Anything else yields None
+
     Args:
         header: Authorization header of the HTTP Request
     Examples:
         request.headers['Authorization'] or something same
     Returns:
-        Valid JWT token
+        Valid JWT token, or None when the header is missing/unsupported or authentication fails
     """
     if not header:
         return None
@@ -484,78 +528,101 @@ def parse_authorization_header(header):
         auth_type = auth_type.lower()
     except ValueError:
         # Fallback for old versions
-        auth_type = b"bearer"
+        auth_type = "bearer"
         auth_info = value
 
-    if auth_type in (b"basic","basic"):
-        try:
-            username, password = base64.b64decode(auth_info).split(b":", 1)
+    if auth_type == "basic":
+        return _authenticate_basic(auth_info)
 
-            with current_app.app_context():
-                username = username.decode("utf-8")
-                password = password.decode("utf-8")
-
-                db_name = None
-                if current_app.cloud_mode:
-                    user_data = check_user_in_service_portal(username, password)
-
-                    if not user_data:
-                        return None
-
-                    if current_app.local_mode:
-                        # Test API only with user with 1 subscription
-                        db_name = user_data['subscriptions'][0]['database']
-                    else:
-                        db_name = user_data['database']
-
-                users_manager = UsersManager(current_app.database_manager, db_name)
-                security_manager = SecurityManager(current_app.database_manager, db_name)
-                settings_manager = SettingsManager(current_app.database_manager, db_name)
-
-                auth_settings = settings_manager.get_all_values_from_section('auth', AuthModule.__DEFAULT_SETTINGS__)
-                auth_module = AuthModule(auth_settings,
-                                         security_manager=security_manager,
-                                         users_manager=users_manager)
-
-                try:
-                    user_instance = auth_module.login(username, password)
-                except Exception:
-                    return None
-
-                if user_instance:
-                    tg = TokenGenerator(current_app.database_manager)
-
-                    token_payload = {
-                                        'user': {
-                                            'public_id': user_instance.get_public_id()
-                                        }
-                                    }
-
-                    if current_app.cloud_mode:
-                        token_payload['user']['database'] = user_instance.database
-
-                    return tg.generate_token(payload=token_payload)
-
-                return None
-        except SetDatabaseError as err:
-            LOGGER.error("[parse_authorization_header] SetDatabaseError: %s", err)
-            return None
-        except Exception as err:
-            LOGGER.error("[parse_authorization_header] Exception: %s", err)
-            return None
-
-    if auth_type in ("bearer", b"bearer"):
-        try:
-            with current_app.app_context():
-                tv = TokenValidator(current_app.database_manager)
-                decoded_token = tv.decode_token(auth_info)
-                tv.validate_token(decoded_token)
-
-            return auth_info
-        except Exception:
-            return None
+    if auth_type == "bearer":
+        return _validate_bearer(auth_info)
 
     return None
+
+
+def _authenticate_basic(auth_info: str) -> str | None:
+    """
+    Authenticates Basic credentials and exchanges them for a freshly generated JWT
+
+    Decodes the ``email:password`` pair, resolves the target database (via the service portal in
+    cloud mode), logs in through the AuthModule and returns a new JWT for the authenticated user
+
+    Args:
+        auth_info (str): The base64-encoded ``email:password`` portion of a Basic Authorization header
+
+    Returns:
+        str | None: A freshly generated JWT, or None when the credentials are invalid or an error occurs
+    """
+    try:
+        username, password = base64.b64decode(auth_info).split(b":", 1)
+
+        with current_app.app_context():
+            username = username.decode("utf-8")
+            password = password.decode("utf-8")
+
+            db_name = None
+            if current_app.cloud_mode:
+                user_data = check_user_in_service_portal(username, password)
+
+                if not user_data:
+                    return None
+
+                if current_app.local_mode:
+                    # Test API only with user with 1 subscription
+                    db_name = user_data['subscriptions'][0]['database']
+                else:
+                    db_name = user_data['database']
+
+            users_manager = UsersManager(current_app.database_manager, db_name)
+            security_manager = SecurityManager(current_app.database_manager, db_name)
+            settings_manager = SettingsManager(current_app.database_manager, db_name)
+
+            auth_settings = settings_manager.get_all_values_from_section('auth', AuthModule.__DEFAULT_SETTINGS__)
+            auth_module = AuthModule(auth_settings,
+                                     security_manager=security_manager,
+                                     users_manager=users_manager)
+
+            try:
+                user_instance = auth_module.login(username, password)
+            except Exception:
+                return None
+
+            if not user_instance:
+                return None
+
+            token_payload = {'user': {'public_id': user_instance.get_public_id()}}
+
+            if current_app.cloud_mode:
+                token_payload['user']['database'] = user_instance.database
+
+            return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
+    except SetDatabaseError as err:
+        LOGGER.error("[_authenticate_basic] SetDatabaseError: %s", err)
+        return None
+    except Exception as err:
+        LOGGER.error("[_authenticate_basic] Exception: %s", err)
+        return None
+
+
+def _validate_bearer(auth_info: str) -> str | None:
+    """
+    Validates a bearer token and returns it unchanged when valid
+
+    Args:
+        auth_info (str): The bearer token from the Authorization header
+
+    Returns:
+        str | None: The token when it decodes and validates, otherwise None
+    """
+    try:
+        with current_app.app_context():
+            tv = TokenValidator(current_app.database_manager)
+            decoded_token = tv.decode_token(auth_info)
+            tv.validate_token(decoded_token)
+
+        return auth_info
+    except Exception:
+        return None
 
 # ------------------------------------------------------ HELPER ------------------------------------------------------ #
 
@@ -606,7 +673,8 @@ def check_user_in_service_portal(
     Args:
         email (str): The user's email address
         password (str): The user's password
-        x_api_key (dict | None): API key for authentication. Defaults to None
+        x_api_key (str | None): API key for authentication. Defaults to None
+        api_key_required (bool): When True, the request is rejected unless an ``x_api_key`` is supplied
 
     Raises:
         NoAccessTokenError: If the service portal authentication fails due to a missing access token
@@ -619,20 +687,7 @@ def check_user_in_service_portal(
         dict | None: A dictionary representing the user if authentication is successful, otherwise None
     """
     if current_app.local_mode:
-        try:
-            with open('etc/test_users.json', 'r', encoding='utf-8') as users_file:
-                users_data = json.load(users_file)
-
-                if email in users_data:
-                    user = users_data[email]
-
-                    if user["password"] == password:
-                        return user
-
-                return None
-        except Exception as err:
-            LOGGER.debug("[check_user_in_service_portal] Exception: %s, Type: %s", err, type(err))
-            return None
+        return _load_local_test_user(email, password)
 
     # Validation through service portal
     try:
@@ -656,59 +711,19 @@ def check_user_in_service_portal(
             if cached_user:
                 return cached_user
 
-        # 2. Not cached or invalid data → validate against portal
-        user_data: dict[str, Any] = validate_subscrption_user(email, password, x_api_key, api_key_required)
+        # 2. Not cached or invalid data → validate against portal, then sync the cache
+        user_data: dict[str, Any] = validate_subscription_user(email, password, x_api_key, api_key_required)
 
         if user_data:
             user_data["password"] = security_manager.generate_hmac(user_data["password"])
 
             if api_key_required and x_api_key:
-                # External API → only one subscription is returned from portal
-
-                if user_exists_in_cache:
-                    cached_user_manager.update_cached_user_api_key(
-                        email,
-                        user_data['subscriptions'][0]['database'],
-                        x_api_key
-                    )
-                else:
-                    # Only create if the database of user exists
-                    if check_db_exists(user_data['subscriptions'][0]['database']):
-                        # Since the user is using external API first retrieve all subscriptions
-                        full_user_data: dict[str, Any] = validate_subscrption_user(email, password)
-
-                        if full_user_data:
-                            # Set the api_key on the matching subscription
-                            target_db = user_data['subscriptions'][0]['database']
-                            for sub in full_user_data["subscriptions"]:
-                                if sub["database"] == target_db:
-                                    sub["api_key"] = x_api_key
-                                    break
-
-                            cached_user_manager.insert_cached_user(full_user_data)
+                _sync_api_cached_user(
+                    cached_user_manager, security_manager, email, password, x_api_key,
+                    user_data, user_exists_in_cache
+                )
             else:
-                # Frontend login → cache all subscriptions
-                if user_exists_in_cache:
-                    cached_user = cached_user_manager.get_cached_user(email)
-
-                    if cached_user:
-                        # Build a lookup of cached api_keys by database
-                        cached_api_keys: dict[Any, Any] = {
-                            sub["database"]: sub.get("api_key")
-                            for sub in cached_user.get("subscriptions", [])
-                            if sub.get("api_key")
-                        }
-
-                        # Apply fresh subscription data, but restore api_key if it existed
-                        for sub in user_data["subscriptions"]:
-                            db_name: str = sub["database"]
-
-                            if db_name in cached_api_keys:
-                                sub["api_key"] = cached_api_keys[db_name]
-
-                        cached_user_manager.update_cached_user(email, user_data)
-                else:
-                    cached_user_manager.insert_cached_user(user_data)
+                _sync_frontend_cached_user(cached_user_manager, email, user_data, user_exists_in_cache)
 
         return user_data
     except (NoAccessTokenError, MissingApiKeyError, InvalidCloudUserError, RequestTimeoutError, RequestError) as err:
@@ -716,6 +731,158 @@ def check_user_in_service_portal(
     except Exception as err:
         #TODO: ERROR-FIX (proper exception required)
         raise Exception(err) from err
+
+
+def _load_local_test_user(email: str, password: str) -> dict[str, Any] | None:
+    """
+    Validates credentials against the local ``etc/test_users.json`` fixture (local mode only)
+
+    Args:
+        email (str): The user's email address (key into the fixture)
+        password (str): The user's password to match
+
+    Returns:
+        dict[str, Any] | None: The matching test user, or None when unknown / wrong password / on error
+    """
+    try:
+        with open('etc/test_users.json', 'r', encoding='utf-8') as users_file:
+            users_data = json.load(users_file)
+
+        user = users_data.get(email)
+
+        if user and user["password"] == password:
+            return user
+
+        return None
+    except Exception as err:
+        LOGGER.debug("[_load_local_test_user] Exception: %s, Type: %s", err, type(err))
+        return None
+
+
+def _sync_api_cached_user(
+    cached_user_manager: CachedUserManager,
+    security_manager: SecurityManager,
+    email: str,
+    password: str,
+    x_api_key: str,
+    user_data: dict[str, Any],
+    user_exists_in_cache: bool,
+) -> None:
+    """
+    Syncs the cached user for an external-API (x-api-key) login
+
+    The portal returns a single subscription for an API login. An already-cached user just gets the
+    api_key stamped onto the matching subscription; an uncached user is only created when its database
+    exists, and then from the FULL subscription list (a second portal call) with the api_key applied.
+    The password of a newly cached user is HMAC-hashed before storage so it matches what
+    `CachedUserManager.get_validated_user_data` compares against (which hashes the login password) -
+    otherwise the cached entry never validates and every request falls back to the portal.
+
+    Args:
+        cached_user_manager (CachedUserManager): The cached-user store
+        security_manager (SecurityManager): Used to HMAC the password before it is cached
+        email (str): The user's email
+        password (str): The user's (plain) password, for the full-subscription portal call
+        x_api_key (str): The API key to associate with the matching subscription
+        user_data (dict[str, Any]): The single-subscription user data from the portal
+        user_exists_in_cache (bool): Whether the user is already cached
+    """
+    target_db = user_data['subscriptions'][0]['database']
+
+    if user_exists_in_cache:
+        # A cached entry whose password is the current HMAC only lacked this api_key (frontend-first
+        # then API case) - just stamp the key. Otherwise the entry is stale (e.g. a legacy plaintext
+        # password from before the hashing fix), so drop it and fall through to recreate it correctly.
+        if _cached_password_is_current(cached_user_manager, security_manager, email, password):
+            cached_user_manager.update_cached_user_api_key(email, target_db, x_api_key)
+            return
+
+        cached_user_manager.delete_cached_user(email)
+
+    # Only create if the user's database exists
+    if not check_db_exists(target_db):
+        return
+
+    # External API returns one subscription, so re-fetch the full subscription list to cache
+    full_user_data: dict[str, Any] = validate_subscription_user(email, password)
+
+    if full_user_data:
+        # Store the password as its HMAC (the cache validation hashes the login password to compare)
+        full_user_data["password"] = security_manager.generate_hmac(full_user_data["password"])
+
+        for sub in full_user_data["subscriptions"]:
+            if sub["database"] == target_db:
+                sub["api_key"] = x_api_key
+                break
+
+        cached_user_manager.insert_cached_user(full_user_data)
+
+
+def _cached_password_is_current(
+    cached_user_manager: CachedUserManager,
+    security_manager: SecurityManager,
+    email: str,
+    password: str,
+) -> bool:
+    """
+    Reports whether the cached user's stored password is the current HMAC of the login password
+
+    Used to distinguish a still-valid cached entry (only missing an api_key) from a stale one that must
+    be rewritten - e.g. a legacy entry stored with a plaintext password before the hashing fix.
+
+    Args:
+        cached_user_manager (CachedUserManager): The cached-user store
+        security_manager (SecurityManager): Used to HMAC the login password for comparison
+        email (str): The user's email
+        password (str): The (plain) login password to hash and compare
+
+    Returns:
+        bool: True if a cached entry exists and its stored password equals the HMAC of the login password
+    """
+    cached_user = cached_user_manager.get_cached_user(email)
+
+    return bool(cached_user) and cached_user.get("password") == security_manager.generate_hmac(password)
+
+
+def _sync_frontend_cached_user(
+    cached_user_manager: CachedUserManager,
+    email: str,
+    user_data: dict[str, Any],
+    user_exists_in_cache: bool,
+) -> None:
+    """
+    Syncs the cached user for a frontend login (all subscriptions cached)
+
+    A new user is cached as-is; an existing cached user is refreshed with the fresh subscription data,
+    restoring any api_key that was previously stored for a given database
+
+    Args:
+        cached_user_manager (CachedUserManager): The cached-user store
+        email (str): The user's email
+        user_data (dict[str, Any]): The full (all-subscriptions) user data from the portal
+        user_exists_in_cache (bool): Whether the user is already cached
+    """
+    if not user_exists_in_cache:
+        cached_user_manager.insert_cached_user(user_data)
+        return
+
+    cached_user = cached_user_manager.get_cached_user(email)
+
+    if not cached_user:
+        return
+
+    # Restore any previously-cached api_key onto the matching fresh subscription
+    cached_api_keys: dict[Any, Any] = {
+        sub["database"]: sub.get("api_key")
+        for sub in cached_user.get("subscriptions", [])
+        if sub.get("api_key")
+    }
+
+    for sub in user_data["subscriptions"]:
+        if sub["database"] in cached_api_keys:
+            sub["api_key"] = cached_api_keys[sub["database"]]
+
+    cached_user_manager.update_cached_user(email, user_data)
 
 
 def check_db_exists(db_name: str) -> bool:
@@ -748,7 +915,20 @@ def init_db_routine(db_name: str) -> None:
 
 
 def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> None:
-    """Creates a new admin user"""
+    """
+    Ensures an admin user exists for a subscription's database (cloud mode)
+
+    Creates the admin user in the subscription's database when it is missing; otherwise updates the
+    existing user's database, api_level and config_items_limit from the subscription
+
+    Args:
+        user_data (dict[str, Any]): The portal user data (email, user_name, password)
+        subscription (dict[str, Any]): The subscription providing database, api_level and config_item_limit
+
+    Raises:
+        UsersManagerGetError: If reading the existing user fails
+        UsersManagerInsertError: If creating/updating the admin user fails
+    """
     with current_app.app_context():
         users_manager = UsersManager(current_app.database_manager, subscription['database'])
         scm = SecurityManager(current_app.database_manager, subscription['database'])
@@ -790,7 +970,7 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
         raise UsersManagerInsertError(err) from err
 
 
-def retrive_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
+def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
     """
     Retrieve a user from the database by email
 
@@ -801,7 +981,7 @@ def retrive_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
         database (str): The name of the database to query
 
     Returns:
-        dict | None: A dictionary representing the user if found, or None if an error occurs
+        CmdbUser | None: The matching user if found, or None if it does not exist / an error occurs
     """
     with current_app.app_context():
         users_manager = UsersManager(current_app.database_manager, database)
@@ -809,7 +989,7 @@ def retrive_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
     try:
         return users_manager.get_user_by({'email': user_data['email']})
     except UsersManagerGetError as err:
-        LOGGER.debug("[retrive_user] Exception: %s, Type: %s", err, type(err))
+        LOGGER.debug("[retrieve_user] Exception: %s, Type: %s", err, type(err))
         return None
 
 
@@ -836,14 +1016,34 @@ def delete_database(db_name: str) -> None:
         raise DatabaseNotFoundError(db_name) from err
 
 
-def validate_subscrption_user(
+def validate_subscription_user(
     email: str,
     password: str,
     x_api_key: str | None = None,
     api_key_required: bool = False
 ) -> dict[str , Any]:
     """
-    Validates the user credentials
+    Validates user credentials against the DataGerry service portal
+
+    Posts the credentials (and optionally the API key) to the portal's auth endpoint and returns the
+    portal's user payload on success. The endpoint switched to ``/datagerry/auth/subscription`` when an
+    ``x_api_key`` is supplied
+
+    Args:
+        email (str): The user's email address
+        password (str): The user's password
+        x_api_key (str | None): API key for a subscription-scoped login. Defaults to None
+        api_key_required (bool): When True, the request is rejected unless an ``x_api_key`` is supplied
+
+    Raises:
+        MissingApiKeyError: If an API key is required but not provided
+        NoAccessTokenError: If the ``X-ACCESS-TOKEN`` env var is not set
+        RequestError: If no portal URL is configured or the request fails
+        RequestTimeoutError: If the portal request times out
+        InvalidCloudUserError: If the portal rejects the credentials
+
+    Returns:
+        dict[str, Any]: The portal's user payload on successful authentication
     """
     if api_key_required and not x_api_key:
         raise MissingApiKeyError("No API-KEY provided!")
@@ -870,9 +1070,6 @@ def validate_subscrption_user(
 
         target: str = f"{base_url}/datagerry/auth/subscription"
 
-    if not target:
-        raise RequestError("No service portal URL configured")
-
     try:
         response = requests.post(target, headers=headers, json=payload, timeout=3)
 
@@ -888,59 +1085,3 @@ def validate_subscrption_user(
         raise RequestTimeoutError(str(err)) from err
     except requests.exceptions.RequestException as err:
         raise RequestError(str(err)) from err
-
-# --------------------------------------------------- USER CACHING --------------------------------------------------- #
-
-# Cache: { cache_key: {"data": dict, "timestamp": float } }
-USER_CACHE: dict[str, dict] = {}
-CACHE_TTL = 3600  # 1 hour
-
-
-def make_cache_key(email: str, password: str, x_api_key: str | None, api_key_required: bool) -> str:
-    """
-    Generate a safe cache key for email+password+x_api_key+api_key_required
-    """
-    raw: str = f"{email}:{password}:{x_api_key or ''}:{api_key_required}"
-
-    return hashlib.sha256(raw.encode()).hexdigest()
-
-
-def get_cached_user(
-    email: str,
-    password: str,
-    x_api_key: str | None,
-    api_key_required: bool
-) -> dict | None:
-    """TODO: document"""
-    now: float = time.time()
-    # LOGGER.debug(f"[get_cached_user] USER_CACHE: {USER_CACHE}")
-    # Remove expired entries first
-    expired_keys: list[str] = [k for k, v in USER_CACHE.items() if now - v["timestamp"] >= CACHE_TTL]
-    for k in expired_keys:
-        USER_CACHE.pop(k, None)
-
-    key: str = make_cache_key(email, password, x_api_key, api_key_required)
-    cached: dict | None = USER_CACHE.get(key)
-
-    if cached:
-        return cached["data"]
-
-    return None
-
-
-def set_cached_user(
-    email: str,
-    password: str,
-    x_api_key: str | None,
-    api_key_required: bool,
-    data: dict
-) -> None:
-    """TODO: document"""
-    key: str = make_cache_key(email, password, x_api_key, api_key_required)
-
-    USER_CACHE[key] = {
-        "data": data,
-        "timestamp": time.time()
-    }
-
-    # LOGGER.debug(f"[set_cached_user] USER_CACHE: {USER_CACHE}")

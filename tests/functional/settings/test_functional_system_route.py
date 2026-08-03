@@ -16,12 +16,17 @@
 """
 Functional smoke for the ``/settings/system`` REST routes.
 
-Covers the general system-information endpoint and the config-information endpoint.
+Covers the general system-information endpoint and the config-information endpoint, including the
+section serialization (the harness itself runs config-less, so the sections are stubbed) and the
+failure -> 500 mappings of both routes.
 """
 from http import HTTPStatus
+from types import SimpleNamespace
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 # -------------------------------------------------------------------------------------------------------------------- #
+
+SYSTEM_ROUTES: str = 'cmdb.interface.rest_api.routes.settings_routes.system_routes'
 
 
 class TestSystemInformation:
@@ -65,3 +70,31 @@ class TestConfigInformation:
         body = response.get_json()
         assert 'path' in body
         assert isinstance(body['properties'], list)
+
+    def test_sections_are_serialized_as_key_value_pairs(self, rest_api, monkeypatch) -> None:
+        """Each config section is emitted as [name, [[key, value], ...]] in reader order."""
+        reader = SimpleNamespace(
+            config_file='/etc/cmdb.conf',
+            get_sections=lambda: ['Database', 'WebServer'],
+            get_all_values_from_section=lambda section: (
+                {'host': 'localhost', 'port': '27017'} if section == 'Database' else {'port': '4000'}
+            ),
+        )
+        monkeypatch.setattr(f'{SYSTEM_ROUTES}.SystemConfigReader', lambda *_a, **_k: reader)
+
+        body = rest_api.get('/settings/system/config/').get_json()
+
+        assert body['path'] == '/etc/cmdb.conf'
+        assert body['properties'] == [
+            ['Database', [['host', 'localhost'], ['port', '27017']]],
+            ['WebServer', [['port', '4000']]],
+        ]
+
+    def test_reader_failure_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected failure reading the configuration is reported as 500."""
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError('boom')
+
+        monkeypatch.setattr(f'{SYSTEM_ROUTES}.SystemConfigReader', _boom)
+
+        assert rest_api.get('/settings/system/config/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

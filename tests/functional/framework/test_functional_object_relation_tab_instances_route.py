@@ -19,13 +19,15 @@ Functional coverage for GET /object_relations/tabs/<object_id>/instances
 Verifies the paginated per-tab instances route: the {total, count, results} envelope, per-row
 public_id / relation_id / field_values, the server-resolved counterpart (object_id + type_label +
 icon + summary_line), a null counterpart when the other object is missing/hidden, pagination, the
-required relation_id/role params, and the manager-error mapping.
+required relation_id/role params, the pagination-parameter validation (an unbounded page and an
+unusable sort direction are refused), and the manager-error mapping.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
 
 import pytest
+from flask import abort
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectRelationsManager
@@ -148,3 +150,42 @@ class TestTabInstancesRoute:
                             _raiser(ObjectRelationsManagerIterationError('boom')))
 
         assert rest_api.get(_url(MAIN_OBJ, 'parent')).status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestTabInstancesPagination:
+    """The route refuses pagination parameters it cannot serve, instead of guessing."""
+
+    @pytest.mark.parametrize(
+        'query',
+        ['limit=0', 'limit=-1', 'limit=1001', 'limit=ten', 'page=0', 'page=none', 'order=5', 'order=desc'],
+        ids=['limit-zero', 'limit-negative', 'limit-above-max', 'limit-word',
+             'page-zero', 'page-word', 'order-unknown', 'order-word'],
+    )
+    def test_rejects_unusable_pagination(self, rest_api, query: str) -> None:
+        """limit=0 used to mean 'no limit' and order=desc silently sorted ascending (regression)."""
+        url = f'{BASE_URL}/{MAIN_OBJ}/instances?relation_id={RELATION_ID}&role=parent&{query}'
+
+        assert rest_api.get(url).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_serves_a_descending_page(self, rest_api) -> None:
+        """The documented descending direction reverses the page order."""
+        ascending = rest_api.get(f'{_url(MAIN_OBJ, "parent")}&order=1').get_json()['results']
+        descending = rest_api.get(f'{_url(MAIN_OBJ, "parent")}&order=-1').get_json()['results']
+
+        assert [row['public_id'] for row in ascending] == list(
+            reversed([row['public_id'] for row in descending]))
+
+    def test_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An error nobody anticipated surfaces as 500."""
+        monkeypatch.setattr(ObjectRelationsManager, 'get_relation_tab_instances', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(_url(MAIN_OBJ, 'parent')).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_passes_an_http_exception_through(self, rest_api, monkeypatch) -> None:
+        """An HTTPException raised inside the handler keeps its status instead of becoming a 500."""
+        def _abort_418(*_args, **_kwargs):
+            abort(HTTPStatus.IM_A_TEAPOT)
+
+        monkeypatch.setattr(ObjectRelationsManager, 'get_relation_tab_instances', _abort_418)
+
+        assert rest_api.get(_url(MAIN_OBJ, 'parent')).status_code == HTTPStatus.IM_A_TEAPOT

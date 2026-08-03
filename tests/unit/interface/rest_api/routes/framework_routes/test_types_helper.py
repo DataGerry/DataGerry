@@ -34,12 +34,19 @@ from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.database.predefined_data.predefined_data_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeCleanStatusKey
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeOverviewKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    get_type_or_404,
+    get_type_instance_or_404,
     guard_location_field_removal,
+    guard_selectable_as_parent_change,
+    location_field_removal_blocker,
+    selectable_as_parent_change_blocker,
+    build_location_usage_payload,
     compute_removed_global_templates,
     apply_removed_global_template_cleanup,
-    build_types_clean_status_items,
+    build_types_overview_items,
+    realign_type_objects_if_fields_changed,
     apply_type_update_side_effects,
     verify_type_is_unique,
     verify_type_deletable,
@@ -66,6 +73,43 @@ def _type_with_location(has_location: bool) -> SimpleNamespace:
         fields.append({FieldKey.NAME.value: 'loc', FieldKey.TYPE.value: FieldType.LOCATION.value})
 
     return SimpleNamespace(get_fields=lambda: fields)
+
+
+# ------------------------------------------ get_type_or_404 / get_type_instance_or_404 ------------------------------ #
+
+def test_get_type_or_404_returns_the_document() -> None:
+    """An existing type is returned as the raw document from the dict-mode lookup."""
+    types_manager = MagicMock()
+    types_manager.get_type.return_value = {TypeSchemaKey.PUBLIC_ID.value: 1}
+
+    assert get_type_or_404(types_manager, 1) == {TypeSchemaKey.PUBLIC_ID.value: 1}
+    types_manager.get_type.assert_called_once_with(1)
+
+
+def test_get_type_instance_or_404_returns_the_instance() -> None:
+    """An existing type is returned hydrated from the instance-mode lookup."""
+    types_manager = MagicMock()
+    types_manager.get_type_instance.return_value = 'hydrated'
+
+    assert get_type_instance_or_404(types_manager, 1) == 'hydrated'
+    types_manager.get_type_instance.assert_called_once_with(1)
+
+
+@pytest.mark.parametrize(
+    'helper, manager_method',
+    [(get_type_or_404, 'get_type'), (get_type_instance_or_404, 'get_type_instance')],
+    ids=['dict', 'instance'],
+)
+def test_missing_type_aborts_404_in_both_modes(helper: Any, manager_method: str) -> None:
+    """Both helpers abort 404 with the same message when the type does not exist."""
+    types_manager = MagicMock()
+    getattr(types_manager, manager_method).return_value = None
+
+    with pytest.raises(HTTPException) as exc:
+        helper(types_manager, 4711)
+
+    assert exc.value.code == 404
+    assert '4711' in exc.value.description
 
 
 # ------------------------------------------------- guard_location_field_removal ------------------------------------- #
@@ -102,6 +146,93 @@ def test_guard_location_field_removal_allows_when_no_objects_use_it() -> None:
         guard_location_field_removal(MagicMock(), old_type, new_type)  # must not raise
 
 
+def test_location_field_removal_blocker_reports_the_reason() -> None:
+    """The blocker hands the reason back instead of aborting, so the type import can report it."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2]):
+        blocker = location_field_removal_blocker(
+            MagicMock(), _type_with_location(True), _type_with_location(False),
+        )
+
+    assert blocker is not None
+    assert '2 Object(s)' in blocker
+
+
+def test_location_field_removal_blocker_is_none_when_allowed() -> None:
+    """No reason means the removal is allowed - what the route turns into 'do not abort'."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        assert location_field_removal_blocker(
+            MagicMock(), _type_with_location(True), _type_with_location(False),
+        ) is None
+
+
+# ------------------------------------------------- guard_selectable_as_parent_change -------------------------------- #
+
+def _type_selectable(value: bool) -> SimpleNamespace:
+    """Builds a CmdbType stand-in carrying only the selectable_as_parent flag the guard reads."""
+    return SimpleNamespace(selectable_as_parent=value)
+
+
+@pytest.mark.parametrize('old_value, new_value', [(True, True), (False, True), (False, False)])
+def test_guard_selectable_as_parent_change_noop_unless_turning_off(old_value: bool, new_value: bool) -> None:
+    """No usage lookup runs unless the flag transitions true -> false."""
+    with patch(f'{PATH}.get_objects_using_location_field') as mock_usage:
+        guard_selectable_as_parent_change(MagicMock(), _type_selectable(old_value), _type_selectable(new_value))
+
+    mock_usage.assert_not_called()
+
+
+def test_guard_selectable_as_parent_change_aborts_when_objects_placed() -> None:
+    """Turning selectable_as_parent off while objects of the type are placed aborts 400."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2]):
+        with pytest.raises(HTTPException) as exc_info:
+            guard_selectable_as_parent_change(MagicMock(), _type_selectable(True), _type_selectable(False))
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+def test_guard_selectable_as_parent_change_allows_when_no_objects_placed() -> None:
+    """Turning selectable_as_parent off is allowed when no object of the type is placed."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        guard_selectable_as_parent_change(MagicMock(), _type_selectable(True), _type_selectable(False))  # no raise
+
+
+def test_selectable_as_parent_change_blocker_reports_the_reason() -> None:
+    """The blocker hands the reason back instead of aborting, so the type import can report it."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[1, 2, 3]):
+        blocker = selectable_as_parent_change_blocker(
+            MagicMock(), _type_selectable(True), _type_selectable(False),
+        )
+
+    assert blocker is not None
+    assert '3 Object(s)' in blocker
+
+
+def test_selectable_as_parent_change_blocker_is_none_when_allowed() -> None:
+    """No reason means the change is allowed - what the route turns into 'do not abort'."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        assert selectable_as_parent_change_blocker(
+            MagicMock(), _type_selectable(True), _type_selectable(False),
+        ) is None
+
+
+# ------------------------------------------------- build_location_usage_payload ------------------------------------- #
+
+def test_build_location_usage_payload_reports_not_in_use_when_empty() -> None:
+    """With no placed objects the payload reports in_use False, count 0, empty id list."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[]):
+        payload = build_location_usage_payload(MagicMock(), SimpleNamespace())
+
+    assert payload == {'in_use': False, 'count': 0, 'object_public_ids': []}
+
+
+def test_build_location_usage_payload_reports_in_use_with_ids() -> None:
+    """With placed objects the payload reports in_use True, the count, and the ids."""
+    with patch(f'{PATH}.get_objects_using_location_field', return_value=[7, 8, 9]):
+        payload = build_location_usage_payload(MagicMock(), SimpleNamespace())
+
+    assert payload == {'in_use': True, 'count': 3, 'object_public_ids': [7, 8, 9]}
+
+
 # ------------------------------------------------- compute_removed_global_templates --------------------------------- #
 
 def test_compute_removed_global_templates_snapshots_present_sections() -> None:
@@ -136,7 +267,7 @@ def test_apply_removed_global_template_cleanup_uses_hints_with_fallback() -> Non
     assert manager.cleanup_global_section_from_type.call_count == 2
 
 
-# ------------------------------------------------- build_types_clean_status_items ----------------------------------- #
+# ------------------------------------------------- build_types_overview_items --------------------------------------- #
 
 def _type_doc(public_id: int, field_names: list[str]) -> dict[str, Any]:
     """Builds a CmdbType document with the given field names."""
@@ -146,40 +277,69 @@ def _type_doc(public_id: int, field_names: list[str]) -> dict[str, Any]:
     }
 
 
-def test_build_types_clean_status_items_marks_clean_and_unclean() -> None:
-    """A type is clean only when every object field set matches the type's field set."""
-    clean_type = _type_doc(1, ['a', 'b'])
-    unclean_type = _type_doc(2, ['a', 'b'])
-    field_name_sets_by_type: dict[int, list[set[str]]] = {
-        1: [{'a', 'b'}],
-        2: [{'a'}],  # missing 'b' -> unclean
-    }
+def test_build_types_overview_items_bundles_type_and_user_data() -> None:
+    """Each item bundles the type document with a resolved user-data block (no clean status)."""
+    items = build_types_overview_items([_type_doc(1, ['a', 'b'])], {})
 
-    items = build_types_clean_status_items([clean_type, unclean_type], field_name_sets_by_type, {})
-
-    by_id = {item[TypeCleanStatusKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value]: item for item in items}
-    assert by_id[1][TypeCleanStatusKey.CLEAN_STATUS] is True
-    assert by_id[2][TypeCleanStatusKey.CLEAN_STATUS] is False
+    assert items[0][TypeOverviewKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value] == 1
+    assert isinstance(items[0][TypeOverviewKey.USER_DATA], dict)
+    assert 'clean_status' not in items[0]
 
 
-def test_build_types_clean_status_items_unclean_when_any_signature_diverges() -> None:
-    """Multiple distinct object signatures mark the type unclean if any one diverges."""
-    items = build_types_clean_status_items([_type_doc(1, ['a', 'b'])], {1: [{'a', 'b'}, {'a'}]}, {})
+def test_build_types_overview_items_one_item_per_type() -> None:
+    """One overview item is produced per input type, in order."""
+    items = build_types_overview_items([_type_doc(1, ['a']), _type_doc(2, ['b'])], {})
 
-    assert items[0][TypeCleanStatusKey.CLEAN_STATUS] is False
+    assert [item[TypeOverviewKey.TYPE_DATA][TypeSchemaKey.PUBLIC_ID.value] for item in items] == [1, 2]
 
 
-def test_build_types_clean_status_items_is_clean_with_no_objects() -> None:
-    """A type with no objects (absent from the mapping) is clean (vacuously)."""
-    items = build_types_clean_status_items([_type_doc(1, ['a'])], {}, {})
+# --------------------------------------------- realign_type_objects_if_fields_changed ------------------------------- #
 
-    assert items[0][TypeCleanStatusKey.CLEAN_STATUS] is True
+def _type_with_field_names(public_id: int, field_names: list[str]) -> SimpleNamespace:
+    """A minimal CmdbType stub exposing .fields (name dicts) and .public_id for the realign gate."""
+    return SimpleNamespace(
+        public_id=public_id,
+        fields=[{FieldKey.NAME.value: name} for name in field_names],
+    )
+
+
+def test_realign_skips_when_field_names_unchanged() -> None:
+    """A metadata-only edit (same field names) triggers no object/report reconciliation."""
+    old_type = _type_with_field_names(1, ['a', 'b'])
+    updated_type = _type_with_field_names(1, ['a', 'b'])
+
+    with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get, \
+         patch(f'{PATH}.realign_objects_to_type') as mock_realign, \
+         patch(f'{PATH}.clean_type_reports') as mock_reports:
+        realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
+
+    mock_get.assert_not_called()
+    mock_realign.assert_not_called()
+    mock_reports.assert_not_called()
+
+
+@pytest.mark.parametrize('old_names, new_names', [
+    (['a'], ['a', 'b']),        # field added
+    (['a', 'b'], ['a']),        # field removed
+])
+def test_realign_runs_when_field_set_changed(old_names: list[str], new_names: list[str]) -> None:
+    """Adding or removing a field name reconciles the type's objects and reports."""
+    old_type = _type_with_field_names(1, old_names)
+    updated_type = _type_with_field_names(1, new_names)
+
+    with patch(f'{PATH}.ManagerProvider.get_manager'), \
+         patch(f'{PATH}.realign_objects_to_type', return_value=set()) as mock_realign, \
+         patch(f'{PATH}.clean_type_reports') as mock_reports:
+        realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
+
+    mock_realign.assert_called_once()
+    mock_reports.assert_called_once()
 
 
 # ------------------------------------------------- apply_type_update_side_effects ----------------------------------- #
 
 def test_apply_type_update_side_effects_skips_special_wiring_without_marker() -> None:
-    """A non-special type runs cleanup + location/MDS propagation but not special-type wiring."""
+    """A non-special type runs cleanup + location/MDS/field-realign propagation but no special wiring."""
     updated_type = SimpleNamespace(public_id=7, special_type=None)
 
     with patch(f'{PATH}.ManagerProvider.get_manager'), \
@@ -187,12 +347,14 @@ def test_apply_type_update_side_effects_skips_special_wiring_without_marker() ->
          patch(f'{PATH}.handle_special_types') as mock_special, \
          patch(f'{PATH}.apply_type_changes_to_locations') as mock_locations, \
          patch(f'{PATH}.apply_type_changes_to_mds') as mock_mds, \
+         patch(f'{PATH}.realign_type_objects_if_fields_changed') as mock_realign, \
          patch.object(types_helper.CmdbType, 'to_json', return_value={}):
         apply_type_update_side_effects(MagicMock(), MagicMock(), MagicMock(), updated_type, (set(), {}))
 
     mock_cleanup.assert_called_once()
     mock_locations.assert_called_once()
     mock_mds.assert_called_once()
+    mock_realign.assert_called_once()
     mock_special.assert_not_called()
 
 
@@ -205,6 +367,7 @@ def test_apply_type_update_side_effects_runs_special_wiring_with_marker() -> Non
          patch(f'{PATH}.handle_special_types') as mock_special, \
          patch(f'{PATH}.apply_type_changes_to_locations'), \
          patch(f'{PATH}.apply_type_changes_to_mds'), \
+         patch(f'{PATH}.realign_type_objects_if_fields_changed'), \
          patch.object(types_helper.CmdbType, 'to_json', return_value={}):
         apply_type_update_side_effects(MagicMock(), MagicMock(), MagicMock(), updated_type, (set(), {}))
 
@@ -410,7 +573,7 @@ def test_type_deletion_followup_runs_generic_cleanup_without_special_type() -> N
     with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: managers.setdefault(
         mtype, MagicMock())), \
          patch(f'{PATH}.cleanup_type_references_from_all_types', return_value=0) as cleanup_refs, \
-         patch(f'{PATH}.cleanup_special_type_references') as cleanup_special:
+         patch(f'{PATH}.cleanup_special_type_template_references') as cleanup_special:
         type_deletion_followup(MagicMock(), 7, special_type=None)
 
     managers[ManagerType.RELATIONS].remove_type_from_relations.assert_called_once_with(7)
@@ -420,10 +583,10 @@ def test_type_deletion_followup_runs_generic_cleanup_without_special_type() -> N
 
 
 def test_type_deletion_followup_runs_special_type_cleanup_with_marker() -> None:
-    """A deleted special type additionally triggers the special-type ref_types un-wiring."""
+    """A deleted special type additionally triggers the template-only ref_types un-wiring."""
     with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: MagicMock()), \
          patch(f'{PATH}.cleanup_type_references_from_all_types', return_value=0), \
-         patch(f'{PATH}.cleanup_special_type_references') as cleanup_special:
+         patch(f'{PATH}.cleanup_special_type_template_references') as cleanup_special:
         type_deletion_followup(MagicMock(), 7, special_type='SUBNET')
 
     cleanup_special.assert_called_once()

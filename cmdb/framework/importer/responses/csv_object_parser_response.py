@@ -16,12 +16,8 @@
 """
 Implementation of CsvObjectParserResponse
 """
-from logging import Logger, getLogger
-
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            CsvObjectParserResponse - CLASS                                           #
@@ -32,7 +28,14 @@ class CsvObjectParserResponse(ObjectParserResponse):
 
     Extends: ObjectParserResponse
     """
-    def __init__(self, count: int, entries: list, entry_length: int, header: dict = None):
+    def __init__(
+        self,
+        count: int,
+        entries: list,
+        entry_length: int,
+        header: list | None = None,
+        raw_header: list | None = None,
+    ) -> None:
         """
         Initializes a CsvObjectParserResponse instance
 
@@ -40,10 +43,15 @@ class CsvObjectParserResponse(ObjectParserResponse):
             count (int): The total number of parsed entries
             entries (list): A list of parsed entries
             entry_length (int): The number of fields in each entry
-            header (dict, optional): A dictionary representing the CSV header mapping. Defaults to an empty dictionary
+            header (list | None): The resolved header - one column IDENTIFIER per entry, which is what
+                the mapping and the MDS reassembly work with. Defaults to an empty list
+            raw_header (list | None): The file's original header line, column for column. Only differs
+                from `header` for a decorated (import-template) header; defaults to `header` so a
+                consumer always has both
         """
         self.entry_length: int = entry_length
-        self.header: dict = header or {}
+        self.header: list = header or []
+        self.raw_header: list = raw_header if raw_header is not None else list(self.header)
         super().__init__(count=count, entries=entries)
 
 
@@ -57,11 +65,21 @@ class CsvObjectParserResponse(ObjectParserResponse):
         return self.entry_length
 
 
-    def get_header_list(self) -> dict:
+    def get_header_list(self) -> list:
         """
-        Retrieves the header mapping
+        Retrieves the resolved header row
 
         Returns:
-            dict: The CSV header as a dictionary
+            list: The CSV header as a list of column identifiers (empty when no header was parsed)
         """
         return self.header
+
+
+    def get_raw_header_list(self) -> list:
+        """
+        Retrieves the file's original header row
+
+        Returns:
+            list: The CSV header exactly as it was read, labels and all (empty when none was parsed)
+        """
+        return self.raw_header

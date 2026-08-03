@@ -17,20 +17,26 @@
 Implementation of BaseExportWriter
 """
 from logging import Logger, getLogger
-import datetime
 from flask import Response
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import ObjectsManager
+from cmdb.manager.locations_manager import LocationsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.exporter.config.exporter_config import ExporterConfig
-from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
+from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat, TYPE_INFO_NAME_KEY
+from cmdb.framework.exporter.exporter_constants import ExporterOptionKey
+from cmdb.framework.exporter.export_filename_helper import build_object_export_filename
+
+from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -38,9 +44,10 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BaseExportWriter - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-class  BaseExportWriter:
+class BaseExportWriter:
     """
-    The base class for export writers
+    Drives an object export: fetches + renders the objects from the database, then serializes them
+    through a chosen export format into a downloadable Flask Response
     """
 
     def __init__(self, export_format: BaseExporterFormat, export_config: ExporterConfig):
@@ -54,6 +61,10 @@ class  BaseExportWriter:
         self.export_format: BaseExporterFormat = export_format
         self.export_config: ExporterConfig = export_config
         self.data: list[RenderResult] = [] #Storage for exportable data
+        # Kept from `from_database` so a human-readable export can resolve location names (the format
+        # classes have no database access)
+        self._dbm: MongoDatabaseManager | None = None
+        self._db_name: str | None = None
 
 
     def from_database(
@@ -64,13 +75,20 @@ class  BaseExportWriter:
             db_name: str | None = None
         ) -> None:
         """
-        Retrieves all objects from the collection and processes them for export
+        Retrieves the objects matching the export filter and renders them for export
+
+        The objects are fetched (honouring the configured filter / sort / order and the user's ACL
+        permission) and rendered into `self.data` ready for the export format to serialize.
 
         Args:
             dbm (MongoDatabaseManager): The database manager instance
             user (CmdbUser): The user requesting the data
-            permission (AccessControlPermission): The user's access permissions
+            permission (AccessControlPermission): The access permission enforced while fetching objects
+            db_name (str | None): Target database name (cloud mode); None uses the default database
         """
+        self._dbm = dbm
+        self._db_name = db_name
+
         objects_manager = ObjectsManager(dbm, db_name)
         export_params = self.export_config.parameters
 
@@ -95,17 +113,89 @@ class  BaseExportWriter:
             Response: A Flask Response object containing the exported data
         """
         conf_option = self.export_config.options
-        timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
+        human_readable: bool = BaseExporterFormat.is_human_readable(conf_option)
+
+        # A human-readable export needs location field values resolved to names; the format classes have
+        # no database access, so resolve the {public_id: name} map here and pass it through the options
+        if human_readable:
+            conf_option = {**(conf_option or {}),
+                           ExporterOptionKey.LOCATION_NAMES.value: self._resolve_location_names()}
 
         # Generate the export content
-        export_content  = self.export_format.export(self.data, conf_option)
+        export_content = self.export_format.export(self.data, conf_option)
 
         file_extension = self.export_format.__class__.FILE_EXTENSION
+        mimetype = self.export_format.__class__.MIME_TYPE
+
+        # The filename names what was exported, so it is derived from the RENDERED objects (the export
+        # config only carries a raw filter, which says nothing about the types it matched)
+        filename: str = build_object_export_filename(
+            self._exported_type_names(), file_extension, human_readable,
+        )
 
         return Response(
             export_content,
-            mimetype="text/" + self.export_format.__class__.FILE_EXTENSION,
+            mimetype=mimetype,
             headers={
-                "Content-Disposition": f"attachment; filename={timestamp}.{file_extension}"
+                # Quoted: the name now carries a type name, and an unquoted header value cannot hold a
+                # separator. sanitize_filename_part keeps the value ASCII, so no filename* is needed
+                "Content-Disposition": f'attachment; filename="{filename}"'
             }
         )
+
+
+    def _exported_type_names(self) -> list[str]:
+        """
+        Collects the distinct CmdbType names of the objects being exported
+
+        Read off the rendered data rather than the export config: the config carries the raw object
+        filter, which does not say which types it ended up matching. The order follows first appearance
+        so a single-type export always yields that one name
+
+        Returns:
+            list[str]: The distinct type names, empty when the export matched no object
+        """
+        type_names: list[str] = []
+
+        for render_result in self.data:
+            # getattr, not attribute access: naming the file must never be able to fail an export whose
+            # content is already serialised
+            type_name = (getattr(render_result, 'type_information', None) or {}).get(TYPE_INFO_NAME_KEY)
+
+            if type_name and type_name not in type_names:
+                type_names.append(type_name)
+
+        return type_names
+
+
+    def _resolve_location_names(self) -> dict:
+        """
+        Resolves the names of every location referenced by a location field across the export data
+
+        Collects the location public_ids from all location-typed fields and looks up their
+        ``CmdbLocation.name`` (the label shown in the location tree) in a single query. A lookup
+        failure is logged and degrades to an empty map so it never fails the export.
+
+        Returns:
+            dict: A `{location public_id: location name}` map (empty when there are no locations)
+        """
+        location_ids = {
+            field.get(FieldKey.VALUE.value)
+            for obj in self.data
+            for field in obj.fields
+            if field.get(FieldKey.TYPE.value) == FieldType.LOCATION.value
+            and field.get(FieldKey.VALUE.value) not in (None, '')
+        }
+
+        if not location_ids:
+            return {}
+
+        try:
+            locations_manager = LocationsManager(self._dbm, self._db_name)
+            locations = locations_manager.get_locations_by(public_id={'$in': list(location_ids)})
+
+            return {location.public_id: location.name for location in locations}
+        except LocationsManagerGetError as err:
+            LOGGER.error("[_resolve_location_names] Could not resolve location names: %s", err)
+
+            return {}

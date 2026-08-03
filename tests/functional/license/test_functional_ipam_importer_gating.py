@@ -20,6 +20,10 @@ The bulk object importer bypasses enforce_object_invariants, so it carries its o
 objects whose target CmdbType is an IPAM special type is rejected with HTTP 403 when IPAM is not
 licensed (the guard fires right after the type is resolved, before any parsing). Importing into an
 ordinary type is never gated. When IPAM is licensed the import proceeds past the guard
+
+The TYPE importer carries the same gate in its own shape: uploading a CmdbType that declares a
+special_type would install an IPAM type outright, so an unlicensed instance reports that entry in the
+partial-report body (HTTP 200 + a per-entry error) rather than aborting the whole upload.
 """
 import json
 from http import HTTPStatus
@@ -38,6 +42,9 @@ from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 IMPORT_URL: str = '/import/object/'
+TYPE_IMPORT_URL: str = '/import/type/create/'
+
+IMPORTED_TYPE_NAME: str = 'lic-import-uploaded-special'
 
 SPECIAL_TYPE_ID: int = 47201
 NORMAL_TYPE_ID: int = 47202
@@ -107,3 +114,73 @@ def test_import_into_special_type_allowed_when_licensed(rest_api, monkeypatch: p
     response = rest_api.post(IMPORT_URL, data=_import_form(SPECIAL_TYPE_ID), content_type='multipart/form-data')
 
     assert response.status_code != HTTPStatus.FORBIDDEN
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          type import: same gate, per entry                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _type_upload(special_type: str | None) -> dict[str, Any]:
+    """Builds the type-import form carrying a single uploaded type."""
+    payload = make_type_doc(0, IMPORTED_TYPE_NAME, special_type)
+    payload.pop('public_id')
+
+    return {'uploadFile': json.dumps([payload], default=str)}
+
+
+def _type_import_errors(response) -> list[str]:
+    """Every error message the type import's partial report collected."""
+    return [error for failure in response.get_json()['failed_imports'] for error in failure['errors']]
+
+
+def test_uploading_special_type_blocked_without_license(
+    rest_api, database_manager: MongoDatabaseManager, database_name: str
+) -> None:
+    """An uploaded special type is reported per entry and never inserted when IPAM is unlicensed."""
+    response = rest_api.post(
+        TYPE_IMPORT_URL, data=_type_upload(SpecialType.SUBNET), content_type='multipart/form-data'
+    )
+
+    assert response.status_code == HTTPStatus.OK  # partial report, not an abort
+    (message,) = _type_import_errors(response)
+    assert 'not licensed' in message
+    stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+        .find_one({'name': IMPORTED_TYPE_NAME})
+    assert stored is None
+
+
+def test_uploading_ordinary_type_allowed_without_license(
+    rest_api, database_manager: MongoDatabaseManager, database_name: str
+) -> None:
+    """A type carrying no special_type imports normally on an unlicensed instance."""
+    response = rest_api.post(TYPE_IMPORT_URL, data=_type_upload(None), content_type='multipart/form-data')
+
+    assert response.status_code == HTTPStatus.OK
+    assert _type_import_errors(response) == []
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    assert types.find_one({'name': IMPORTED_TYPE_NAME}) is not None
+    types.delete_many({'name': IMPORTED_TYPE_NAME})
+
+
+def test_uploading_special_type_allowed_when_licensed(
+    rest_api, database_manager: MongoDatabaseManager, database_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With IPAM licensed the uploaded special type is imported like any other.
+
+    Uses SUPERNET rather than SUBNET: the seeded type already claims SUBNET, and a special type can
+    only exist once, so a second SUBNET would be refused by the uniqueness rule instead of the licence.
+    """
+    monkeypatch.setattr(
+        LicenseService,
+        'has_feature',
+        lambda _self, feature: feature == LicenseFeature.IPAM,
+    )
+
+    response = rest_api.post(
+        TYPE_IMPORT_URL, data=_type_upload(SpecialType.SUPERNET), content_type='multipart/form-data'
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert _type_import_errors(response) == []
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    assert types.find_one({'name': IMPORTED_TYPE_NAME}) is not None
+    types.delete_many({'name': IMPORTED_TYPE_NAME})

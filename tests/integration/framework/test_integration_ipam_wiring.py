@@ -20,7 +20,11 @@ Runs handle_special_types against real type / section-template documents: wiring
 SpecialType updates the dg-ipam-interface template's subnet reference (and propagates it into
 a user type that already inlined the section), the VLAN type's subnet reference and the
 SUBNET's own parent-supernet reference; wiring a new SUPERNET updates the SUBNET type's
-parent reference. Kept in its own module: handle_special_types resolves SpecialTypes via
+parent reference. The un-wiring half is covered against the same topology: the type-level sweep
+(one server-side $pull) strips a deleted id from every referencing CmdbType, and the template-only
+SpecialType cleanup removes it from the dg-ipam-interface template AND propagates that into the type
+that inlined the section - asserted on its own, without the type sweep, so the propagation is proven
+rather than masked. Kept in its own module: handle_special_types resolves SpecialTypes via
 get_one_by, so no other module-scoped SUBNET / SUPERNET seed may be alive at the same time
 """
 from datetime import datetime, timezone
@@ -41,7 +45,11 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
 )
-from cmdb.framework.ipam.special_type_wiring import handle_special_types
+from cmdb.framework.ipam.special_type_wiring import (
+    cleanup_special_type_template_references,
+    cleanup_type_references_from_all_types,
+    handle_special_types,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 WIRE_SUPERNET_TYPE_ID: int = 9850
@@ -186,3 +194,87 @@ def test_handle_special_types_wires_a_new_supernet_into_the_subnet_type(
     subnet_doc = types.find_one({CmdbObjectKey.PUBLIC_ID: WIRE_SUBNET_TYPE_ID})
 
     assert _field_def(subnet_doc, SubnetField.PARENT_SUPERNET)['ref_types'] == [WIRE_SUPERNET_TYPE_ID]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     UN-WIRING                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.usefixtures('wiring_topology')
+def test_cleanup_type_references_strips_a_deleted_id_from_every_type(
+    database_manager: MongoDatabaseManager, database_name: str,
+    types_manager: TypesManager,
+) -> None:
+    """After wiring, the type-level sweep removes the deleted SUBNET id from every referencing type"""
+    section_templates_manager = SectionTemplatesManager(database_manager, database_name)
+    handle_special_types(types_manager, SpecialType.SUBNET, section_templates_manager, WIRE_SUBNET_TYPE_ID)
+
+    updated_count = cleanup_type_references_from_all_types(types_manager, WIRE_SUBNET_TYPE_ID)
+
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    vlan_doc = types.find_one({CmdbObjectKey.PUBLIC_ID: WIRE_VLAN_TYPE_ID})
+    user_doc = types.find_one({CmdbObjectKey.PUBLIC_ID: WIRE_USER_TYPE_ID})
+
+    assert updated_count == 2  # the VLAN type and the type that inlined the interface section
+    assert _field_def(vlan_doc, VlanField.SUBNET_REF)['ref_types'] == []
+    assert _field_def(user_doc, InterfaceField.SUBNET)['ref_types'] == []
+
+
+@pytest.mark.usefixtures('wiring_topology')
+def test_cleanup_type_references_leaves_other_ids_in_place(
+    database_manager: MongoDatabaseManager, database_name: str,
+    types_manager: TypesManager,
+) -> None:
+    """The sweep pulls only the deleted id - a co-referenced type keeps its own entry"""
+    section_templates_manager = SectionTemplatesManager(database_manager, database_name)
+    handle_special_types(types_manager, SpecialType.SUBNET, section_templates_manager, WIRE_SUBNET_TYPE_ID)
+    handle_special_types(types_manager, SpecialType.SUPERNET, section_templates_manager, WIRE_SUPERNET_TYPE_ID)
+
+    cleanup_type_references_from_all_types(types_manager, WIRE_SUBNET_TYPE_ID)
+
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    subnet_doc = types.find_one({CmdbObjectKey.PUBLIC_ID: WIRE_SUBNET_TYPE_ID})
+
+    assert _field_def(subnet_doc, SubnetField.PARENT_SUPERNET)['ref_types'] == [WIRE_SUPERNET_TYPE_ID]
+
+
+@pytest.mark.usefixtures('wiring_topology')
+def test_cleanup_template_references_unwires_the_template_and_propagates(
+    database_manager: MongoDatabaseManager, database_name: str,
+    types_manager: TypesManager,
+) -> None:
+    """The template-only cleanup also refreshes the type that inlined the section (W3 symmetry)"""
+    section_templates_manager = SectionTemplatesManager(database_manager, database_name)
+    handle_special_types(types_manager, SpecialType.SUBNET, section_templates_manager, WIRE_SUBNET_TYPE_ID)
+
+    # deliberately WITHOUT the type-level sweep, so only the propagation can clean the using type
+    cleanup_special_type_template_references(
+        section_templates_manager, SpecialType.SUBNET, WIRE_SUBNET_TYPE_ID,
+    )
+
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    templates = database_manager.get_collection(CmdbSectionTemplate.COLLECTION, database_name)
+
+    template_doc = templates.find_one({CmdbObjectKey.PUBLIC_ID: WIRE_TEMPLATE_ID})
+    user_doc = types.find_one({CmdbObjectKey.PUBLIC_ID: WIRE_USER_TYPE_ID})
+
+    assert _field_def(template_doc, InterfaceField.SUBNET)['ref_types'] == []
+    assert _field_def(user_doc, InterfaceField.SUBNET)['ref_types'] == []
+
+
+@pytest.mark.usefixtures('wiring_topology')
+def test_cleanup_template_references_ignores_a_deleted_supernet(
+    database_manager: MongoDatabaseManager, database_name: str,
+    types_manager: TypesManager,
+) -> None:
+    """Nothing in the template points at a SUPERNET, so the template is left untouched"""
+    section_templates_manager = SectionTemplatesManager(database_manager, database_name)
+    handle_special_types(types_manager, SpecialType.SUBNET, section_templates_manager, WIRE_SUBNET_TYPE_ID)
+
+    cleanup_special_type_template_references(
+        section_templates_manager, SpecialType.SUPERNET, WIRE_SUPERNET_TYPE_ID,
+    )
+
+    templates = database_manager.get_collection(CmdbSectionTemplate.COLLECTION, database_name)
+    template_doc = templates.find_one({CmdbObjectKey.PUBLIC_ID: WIRE_TEMPLATE_ID})
+
+    assert _field_def(template_doc, InterfaceField.SUBNET)['ref_types'] == [WIRE_SUBNET_TYPE_ID]

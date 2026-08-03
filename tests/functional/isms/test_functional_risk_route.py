@@ -50,11 +50,22 @@ MISSING_RISK_ID: int = 98199
 CASCADE_RISK_ASSESSMENT_ID: int = 98150
 CASCADE_CONTROL_ASSIGNMENT_ID: int = 98151
 
+# bulk-delete fixtures: two risks, each with its own RiskAssessment + ControlMeasureAssignment
+RISK_BULK_A: int = 98111
+RISK_BULK_B: int = 98112
+BULK_RA_A: int = 98161
+BULK_RA_B: int = 98162
+BULK_CMA_A: int = 98171
+BULK_CMA_B: int = 98172
+
 CATEGORY_ID: int = 1
 
-ALL_RISK_IDS: list[int] = [RISK_ID_FOR_GET, RISK_ID_FOR_UPDATE, RISK_ID_FOR_DELETE, RISK_ID_FOR_CASCADE]
-ALL_RISK_ASSESSMENT_IDS: list[int] = [CASCADE_RISK_ASSESSMENT_ID]
-ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CASCADE_CONTROL_ASSIGNMENT_ID]
+ALL_RISK_IDS: list[int] = [
+    RISK_ID_FOR_GET, RISK_ID_FOR_UPDATE, RISK_ID_FOR_DELETE, RISK_ID_FOR_CASCADE,
+    RISK_BULK_A, RISK_BULK_B,
+]
+ALL_RISK_ASSESSMENT_IDS: list[int] = [CASCADE_RISK_ASSESSMENT_ID, BULK_RA_A, BULK_RA_B]
+ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CASCADE_CONTROL_ASSIGNMENT_ID, BULK_CMA_A, BULK_CMA_B]
 
 
 def _risk_payload(public_id: int, risk_type: str = RiskType.THREAT, name: str = 'Risk') -> dict[str, Any]:
@@ -223,6 +234,43 @@ class TestDeleteRisk:
             .find_one({'public_id': CASCADE_CONTROL_ASSIGNMENT_ID}) is None
 
 
+class TestDeleteManyRisks:
+    """DELETE /isms/risks/delete/<ids> bulk-deletes Risks and cascades their RAs + CMAs, reporting counts."""
+
+    def test_bulk_delete_cascades_and_reports_counts(self, rest_api,
+                                                    database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+        """Both Risks + their RiskAssessments + ControlMeasureAssignments go; counts are reported."""
+        for risk_id, ra_id, cma_id in (
+            (RISK_BULK_A, BULK_RA_A, BULK_CMA_A),
+            (RISK_BULK_B, BULK_RA_B, BULK_CMA_B),
+        ):
+            _insert_risk(database_manager, database_name, risk_id)
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+                .insert_one({'public_id': ra_id, 'risk_id': risk_id})
+            database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+                .insert_one({'public_id': cma_id, 'risk_assessment_id': ra_id})
+
+        ids = f'{RISK_BULK_A},{RISK_BULK_B},{MISSING_RISK_ID}'
+        response = rest_api.delete(f'{ROUTE_URL}/delete/{ids}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        body = response.get_json()
+        assert body['successfully'] == sorted([RISK_BULK_A, RISK_BULK_B])
+        assert body['deleted_risk_assessments'] == 2
+        assert body['deleted_control_measure_assignments'] == 2
+        assert rest_api.get(f'{ROUTE_URL}/{RISK_BULK_A}').status_code == HTTPStatus.NOT_FOUND
+        assert database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+            .find_one({'public_id': BULK_RA_A}) is None
+        assert database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+            .find_one({'public_id': BULK_CMA_A}) is None
+
+    def test_bulk_delete_invalid_id_returns_400(self, rest_api) -> None:
+        """A non-integer id in the list is rejected with 400."""
+        assert rest_api.delete(f'{ROUTE_URL}/delete/{RISK_BULK_A},not-an-int')\
+            .status_code == HTTPStatus.BAD_REQUEST
+
+
 def _raiser(exc: Exception):
     """Returns a function that ignores its args and raises the given exception."""
     def _fail(*_args, **_kwargs):
@@ -270,3 +318,85 @@ class TestErrorMapping:
         monkeypatch.setattr(RiskManager, 'delete_with_follow_up', _raiser(RiskManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created item cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(RiskManager, 'insert_item', lambda *_a, **_k: RISK_ID_FOR_GET)
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: None)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'insert_item', lambda *_a, **_k: RISK_ID_FOR_GET)
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{RISK_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', json=_risk_payload(RISK_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: {'public_id': RISK_ID_FOR_UPDATE})
+        monkeypatch.setattr(RiskManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', json=_risk_payload(RISK_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(RiskManager, 'get_item', _raiser(RiskManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: {'public_id': RISK_ID_FOR_DELETE})
+        monkeypatch.setattr(RiskManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+    def test_update_incomplete_data_returns_400(self, rest_api, monkeypatch,
+                                               database_manager: MongoDatabaseManager,
+                                               database_name: str) -> None:
+        """An update whose risk data fails the completeness check surfaces as 400."""
+        _insert_risk(database_manager, database_name, RISK_ID_FOR_UPDATE)
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.isms_routes.risk_routes.is_risk_data_valid',
+            lambda *_a, **_k: False,
+        )
+
+        assert rest_api.put(f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}',
+                            json=_risk_payload(RISK_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST

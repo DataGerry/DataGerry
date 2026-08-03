@@ -40,8 +40,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     emit_object_update_events,
     apply_object_update,
     sync_select_field_options,
+    collect_unknown_select_values,
+    guard_predefined_select_options,
     handle_delete_object_location,
-    handle_delete_location_and_child_locations,
     build_type_object_counts,
     handle_sync_config_item_count,
     validate_object_patch_payload,
@@ -50,6 +51,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     edit_patch_multi_data_rows,
     delete_patch_multi_data_rows,
     build_patched_object_data,
+    guard_object_delete,
+    emit_object_state_change_events,
+    realign_objects_to_type,
+    clean_type_reports,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.models.object_model import CmdbObject
@@ -58,6 +63,10 @@ from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
+
+# A select field owned by a predefined section template: its options may not be extended by a write
+PREDEFINED_TEMPLATE: str = 'dg-ipam-interface'
+PROTECTED_SELECT_FIELD: str = 'dg-interface-type'
 
 
 def _make_object(fields: list[dict[str, Any]], special_type: Any = None, public_id: int = 1) -> CmdbObject:
@@ -407,6 +416,7 @@ class TestSyncSelectFieldOptions:
         """A type carrying one select field 'os' whose only known option is 'Windows'."""
         object_type = MagicMock()
         object_type.public_id = 1
+        object_type.global_template_ids = []  # no global section template -> nothing is protected
         object_type.get_fields_with_type.return_value = {
             'os': {'name': 'os', 'type': FieldType.SELECT, 'options': [{'name': 'Windows', 'label': 'Windows'}]}
         }
@@ -458,81 +468,195 @@ class TestSyncSelectFieldOptions:
 
         types_manager.update_type.assert_called_once()
 
+    def test_a_predefined_template_select_field_is_never_extended(self) -> None:
+        """A select field owned by a predefined section template is skipped, so the type is not written."""
+        object_type = self._object_type()
+        target_object = SimpleNamespace(
+            fields=[{'name': 'os', 'type': FieldType.SELECT, 'value': 'Linux'}],
+            multi_data_sections=[],
+        )
+        types_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=types_manager), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields', return_value={'os': PREDEFINED_TEMPLATE}):
+            sync_select_field_options(MagicMock(), target_object, object_type)
+
+        types_manager.update_type.assert_not_called()
+        assert {opt['name'] for opt in object_type.fields[0]['options']} == {'Windows'}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            collect_unknown_select_values                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCollectUnknownSelectValues:
+    """collect_unknown_select_values reports the select values a type does not offer yet."""
+
+    TYPE_SELECT_FIELDS: dict[str, Any] = {
+        'os': {'name': 'os', 'type': FieldType.SELECT, 'options': [{'name': 'Windows', 'label': 'Windows'}]},
+    }
+
+    def test_unknown_top_level_value_is_collected(self) -> None:
+        """A regular field's unknown value is reported under its field name."""
+        fields = [{'name': 'os', 'type': FieldType.SELECT, 'value': 'Linux'}]
+
+        assert collect_unknown_select_values(fields, None, self.TYPE_SELECT_FIELDS) == {'os': {'Linux'}}
+
+    def test_unknown_mds_row_value_is_collected(self) -> None:
+        """An MDS row's unknown value is reported the same way."""
+        mds = [{'values': [{'data': [{'name': 'os', 'type': FieldType.SELECT, 'value': 'Linux'}]}]}]
+
+        assert collect_unknown_select_values([], mds, self.TYPE_SELECT_FIELDS) == {'os': {'Linux'}}
+
+    def test_known_value_is_ignored(self) -> None:
+        """A value the type already offers is not reported."""
+        fields = [{'name': 'os', 'type': FieldType.SELECT, 'value': 'Windows'}]
+
+        assert collect_unknown_select_values(fields, [], self.TYPE_SELECT_FIELDS) == {}
+
+    @pytest.mark.parametrize('value', [None, '', [], {}])
+    def test_empty_value_is_ignored(self, value: Any) -> None:
+        """An empty value never becomes an option."""
+        fields = [{'name': 'os', 'type': FieldType.SELECT, 'value': value}]
+
+        assert collect_unknown_select_values(fields, [], self.TYPE_SELECT_FIELDS) == {}
+
+    def test_field_the_type_does_not_define_is_ignored(self) -> None:
+        """A select entry naming a field the type has no select definition for is skipped."""
+        fields = [{'name': 'other', 'type': FieldType.SELECT, 'value': 'x'}]
+
+        assert collect_unknown_select_values(fields, [], self.TYPE_SELECT_FIELDS) == {}
+
+    def test_non_select_entry_is_ignored(self) -> None:
+        """Only select entries are inspected."""
+        fields = [{'name': 'os', 'type': FieldType.TEXT, 'value': 'Linux'}]
+
+        assert collect_unknown_select_values(fields, [], self.TYPE_SELECT_FIELDS) == {}
+
+    def test_missing_field_list_is_tolerated(self) -> None:
+        """A payload without fields / multi_data_sections yields nothing."""
+        assert collect_unknown_select_values(None, None, self.TYPE_SELECT_FIELDS) == {}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           guard_predefined_select_options                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGuardPredefinedSelectOptions:
+    """guard_predefined_select_options refuses a write that would edit a predefined template's field."""
+
+    @staticmethod
+    def _object_type() -> MagicMock:
+        """A type whose select field 'dg-interface-type' only offers 'ipv4' / 'ipv6'."""
+        object_type = MagicMock()
+        object_type.public_id = 1
+        object_type.global_template_ids = [PREDEFINED_TEMPLATE]
+        object_type.get_fields_with_type.return_value = {
+            PROTECTED_SELECT_FIELD: {
+                'name': PROTECTED_SELECT_FIELD,
+                'type': FieldType.SELECT,
+                'options': [{'name': 'ipv4', 'label': 'IPv4'}, {'name': 'ipv6', 'label': 'IPv6'}],
+            },
+        }
+        return object_type
+
+    def test_unknown_value_aborts_400(self) -> None:
+        """An unknown value on the protected field is rejected before the object is written."""
+        fields = [{'name': PROTECTED_SELECT_FIELD, 'type': FieldType.SELECT, 'value': 'IPv4'}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields',
+                   return_value={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}):
+            with pytest.raises(HTTPException) as err:
+                guard_predefined_select_options(MagicMock(), fields, None, self._object_type())
+
+        assert err.value.code == 400
+        assert PREDEFINED_TEMPLATE in err.value.description
+        assert 'IPv4' in err.value.description
+
+    def test_unknown_value_in_an_mds_row_aborts_400(self) -> None:
+        """The MDS rows of the predefined section are checked too."""
+        mds = [{'values': [{'data': [{'name': PROTECTED_SELECT_FIELD,
+                                     'type': FieldType.SELECT, 'value': 'IPv6'}]}]}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields',
+                   return_value={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}):
+            with pytest.raises(HTTPException) as err:
+                guard_predefined_select_options(MagicMock(), [], mds, self._object_type())
+
+        assert err.value.code == 400
+
+    def test_known_value_passes(self) -> None:
+        """A value the predefined template offers is written without complaint."""
+        fields = [{'name': PROTECTED_SELECT_FIELD, 'type': FieldType.SELECT, 'value': 'ipv6'}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields',
+                   return_value={PROTECTED_SELECT_FIELD: PREDEFINED_TEMPLATE}):
+            guard_predefined_select_options(MagicMock(), fields, None, self._object_type())  # must not raise
+
+    def test_unprotected_field_passes(self) -> None:
+        """An unknown value of a normal select field is left to sync_select_field_options."""
+        fields = [{'name': PROTECTED_SELECT_FIELD, 'type': FieldType.SELECT, 'value': 'IPv4'}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields', return_value={}):
+            guard_predefined_select_options(MagicMock(), fields, None, self._object_type())  # must not raise
+
+    def test_known_values_only_skips_the_template_lookup(self) -> None:
+        """With nothing to add there is nothing to protect - the section templates are not read."""
+        fields = [{'name': PROTECTED_SELECT_FIELD, 'type': FieldType.SELECT, 'value': 'ipv4'}]
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager') as get_manager, \
+             patch(f'{HELPER_PATH}.resolve_predefined_select_fields') as resolver:
+            guard_predefined_select_options(MagicMock(), fields, None, self._object_type())
+
+        get_manager.assert_not_called()
+        resolver.assert_not_called()
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             handle_delete_object_location                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestHandleDeleteObjectLocation:
-    """handle_delete_object_location deletes a childless location and refuses a parent one with 400."""
+    """handle_delete_object_location deletes the object's location, promoting its direct children."""
 
-    def test_deletes_childless_location(self) -> None:
-        """A location with no children is removed."""
+    def test_deletes_location_via_reparenting_helper(self) -> None:
+        """The object's location is handed to the re-parenting delete helper."""
+        location = {'public_id': 50, 'parent': 1}
         locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = {'public_id': 50}
-        locations_manager.get_one_by.return_value = None
+        locations_manager.get_location_for_object.return_value = location
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
+             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
             handle_delete_object_location(MagicMock(), 5)
 
-        locations_manager.delete_location.assert_called_once_with(50)
-
-    def test_parent_location_aborts_400(self) -> None:
-        """A location that still parents other locations is refused with 400 (business rule)."""
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = {'public_id': 50}
-        locations_manager.get_one_by.return_value = [{'public_id': 60}]
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
-            with pytest.raises(HTTPException) as exc_info:
-                handle_delete_object_location(MagicMock(), 5)
-
-        assert exc_info.value.code == 400
-        locations_manager.delete_location.assert_not_called()
+        reparent.assert_called_once()
+        assert reparent.call_args.args[0] == location
 
     def test_no_location_is_noop(self) -> None:
         """When the object has no location nothing is deleted."""
         locations_manager = MagicMock()
         locations_manager.get_location_for_object.return_value = None
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
+             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
             handle_delete_object_location(MagicMock(), 5)
 
-        locations_manager.delete_location.assert_not_called()
+        reparent.assert_not_called()
 
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                     handle_delete_location_and_child_locations                                      #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestHandleDeleteLocationAndChildLocations:
-    """The helper deletes the location subtree and returns the surviving child objects' ids."""
-
-    def test_returns_descendant_object_ids_and_deletes_subtree(self) -> None:
-        """Descendant location object_ids are returned; child locations and own location are deleted."""
+    def test_passed_in_managers_skip_the_provider_lookup(self) -> None:
+        """When both managers are supplied (e.g. a bulk loop) no ManagerProvider lookup happens."""
+        location = {'public_id': 50, 'parent': 1}
         locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = {'public_id': 50, 'object_id': 5}
-        descendants = [
-            {'public_id': 51, 'object_id': 6},
-            {'public_id': 52, 'object_id': 7},
-        ]
-        locations_manager.get_all_descendant_locations.return_value = descendants
+        locations_manager.get_location_for_object.return_value = location
+        objects_manager = MagicMock()
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
-            result = handle_delete_location_and_child_locations(MagicMock(), 5)
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager') as get_manager, \
+             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
+            handle_delete_object_location(MagicMock(), 5, locations_manager, objects_manager)
 
-        assert result == [6, 7]
-        locations_manager.delete_locations.assert_called_once_with(descendants)
-        locations_manager.delete_location.assert_called_once_with(50)
-
-    def test_no_location_returns_empty_list(self) -> None:
-        """When the object has no location the helper returns [] and deletes nothing."""
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = None
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
-            result = handle_delete_location_and_child_locations(MagicMock(), 5)
-
-        assert result == []
-        locations_manager.delete_location.assert_not_called()
+        get_manager.assert_not_called()
+        reparent.assert_called_once_with(location, locations_manager, objects_manager)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -609,7 +733,7 @@ class TestBuildTypeObjectCounts:
         with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
             result = build_type_object_counts(MagicMock())
 
-        assert result == []
+        assert not result
         types_manager.get_types_lookup.assert_not_called()
 
     def test_skips_type_missing_from_lookup(self) -> None:
@@ -927,3 +1051,198 @@ class TestBuildPatchedObjectData:
 
         section = result['multi_data_sections'][0]
         assert {row['multi_data_id'] for row in section['values']} == {1}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    PATCH new-field type backfill (boundary)                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestPatchNewFieldTypeBackfill:
+    """A PATCH-added field the stored object lacks is a name+value pair after merge; the shared update
+    pipeline then backfills its type from the type schema (or rejects an undeclared field), so no field
+    with a missing type is ever persisted. This locks why the merge_patch_fields 2-tuple is safe.
+    """
+
+    @staticmethod
+    def _manager(type_schema: dict[str, Any]) -> MagicMock:
+        """A MagicMock ObjectsManager whose get_object_type returns the given type schema."""
+        manager = MagicMock()
+        manager.get_object_type.return_value = type_schema
+        return manager
+
+    def test_merge_appends_new_field_without_a_type(self) -> None:
+        """build_patched_object_data appends a stored-missing field as a name+value pair (no type yet)."""
+        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
+
+        result = build_patched_object_data(current, {'fields': [{'name': 'fresh', 'value': 5}]}, set())
+
+        fresh = next(field for field in result['fields'] if field['name'] == 'fresh')
+        assert 'type' not in fresh
+
+    def test_pipeline_backfills_the_new_field_type(self) -> None:
+        """The merged object run through validate_and_fill_object_fields becomes a full name+value+type triple."""
+        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
+        merged = build_patched_object_data(current, {'fields': [{'name': 'fresh', 'value': 5}]}, set())
+        manager = self._manager({'fields': [
+            {'name': 'stored', 'type': 'text'}, {'name': 'fresh', 'type': 'number'},
+        ]})
+
+        validate_and_fill_object_fields(manager, merged)
+
+        fresh = next(field for field in merged['fields'] if field['name'] == 'fresh')
+        assert fresh == {'name': 'fresh', 'value': 5, 'type': 'number'}
+
+    def test_pipeline_rejects_new_field_not_declared_by_the_type(self) -> None:
+        """A PATCH-added field the type does not declare is rejected 400 (never persisted as a 2-tuple)."""
+        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
+        merged = build_patched_object_data(current, {'fields': [{'name': 'ghost', 'value': 5}]}, set())
+        manager = self._manager({'fields': [{'name': 'stored', 'type': 'text'}]})
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_and_fill_object_fields(manager, merged)
+
+        assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              guard_object_delete                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGuardObjectDelete:
+    """guard_object_delete combines the IPAM license guard and the IPAM delete invariants."""
+
+    def test_passes_when_no_license_gate_and_no_invariant_errors(self) -> None:
+        """A non-gated object with no dangling references is a no-op (no abort)."""
+        with patch(f'{HELPER_PATH}.guard_object_delete_license') as license_guard, \
+             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[]) as delete_guards:
+            guard_object_delete(MagicMock(), MagicMock(), MagicMock(), {'public_id': 1})
+
+        license_guard.assert_called_once()
+        delete_guards.assert_called_once()
+
+    def test_aborts_400_on_invariant_violation(self) -> None:
+        """A non-empty delete-guard error list aborts with 400."""
+        with patch(f'{HELPER_PATH}.guard_object_delete_license'), \
+             patch(f'{HELPER_PATH}.enforce_delete_guards', return_value=[{'error': 'still referenced'}]), \
+             patch(f'{HELPER_PATH}.format_errors_for_abort', return_value='still referenced'):
+            with pytest.raises(HTTPException) as exc_info:
+                guard_object_delete(MagicMock(), MagicMock(), MagicMock(), {'public_id': 1})
+
+        assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        emit_object_state_change_events                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestEmitObjectStateChangeEvents:
+    """emit_object_state_change_events emits the UPDATE webhook and writes the ACTIVE_CHANGE log."""
+
+    def _objects(self) -> tuple[CmdbObject, CmdbObject]:
+        """Builds a before/after CmdbObject pair for the state-change events."""
+        before = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}], public_id=5)
+        after = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}], public_id=5)
+        return before, after
+
+    def test_emits_webhook_and_writes_log(self) -> None:
+        """The webhook fires and an ACTIVE_CHANGE log is inserted with the old/new change dict."""
+        before, after = self._objects()
+        logs_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook:
+            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, True)
+
+        webhook.assert_called_once()
+        logs_manager.insert_log.assert_called_once()
+        assert logs_manager.insert_log.call_args.kwargs['changes'] == {'old': False, 'new': True}
+
+    def test_webhook_failure_does_not_block_log(self) -> None:
+        """A webhook exception is swallowed; the log is still written."""
+        before, after = self._objects()
+        logs_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')):
+            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, False)
+
+        logs_manager.insert_log.assert_called_once()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            realign_objects_to_type                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestRealignObjectsToType:
+    """realign_objects_to_type drops stale fields, adds missing ones, returns removed names."""
+
+    @staticmethod
+    def _type(fields: list[dict[str, Any]], public_id: int = 1) -> SimpleNamespace:
+        """A CmdbType stand-in exposing only .fields and .public_id."""
+        return SimpleNamespace(fields=fields, public_id=public_id)
+
+    @staticmethod
+    def _object(field_names: list[str], public_id: int) -> MagicMock:
+        """A CmdbObject stand-in whose get_all_fields returns name-only field dicts."""
+        obj = MagicMock()
+        obj.public_id = public_id
+        obj.get_all_fields.return_value = [{'name': name} for name in field_names]
+        return obj
+
+    def test_removes_stale_and_adds_missing(self) -> None:
+        """An object with a stale field and a missing field yields one bulk write + the removed name."""
+        objects_manager = MagicMock()
+        objects_manager.get_objects_by.return_value = [self._object(['keep', 'stale'], public_id=11)]
+
+        type_instance = self._type([
+            {'name': 'keep', 'type': 'text'},
+            {'name': 'added', 'type': 'text', 'value': 'def'},
+        ])
+
+        removed = realign_objects_to_type(objects_manager, type_instance)
+
+        assert removed == {'stale'}
+        objects_manager.bulk_write.assert_called_once()
+
+    def test_no_drift_writes_nothing(self) -> None:
+        """An object already matching the type produces no bulk write and an empty removed set."""
+        objects_manager = MagicMock()
+        objects_manager.get_objects_by.return_value = [self._object(['keep'], public_id=12)]
+
+        removed = realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
+
+        assert removed == set()
+        objects_manager.bulk_write.assert_not_called()
+
+    def test_bulk_write_failure_aborts_500(self) -> None:
+        """A bulk-write failure surfaces as a 500."""
+        objects_manager = MagicMock()
+        objects_manager.get_objects_by.return_value = [self._object(['stale'], public_id=13)]
+        objects_manager.bulk_write.side_effect = RuntimeError('boom')
+
+        with pytest.raises(HTTPException) as exc_info:
+            realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
+
+        assert exc_info.value.code == 500
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               clean_type_reports                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCleanTypeReports:
+    """clean_type_reports strips removed fields from a type's reports and bulk-writes them."""
+
+    def test_noop_when_nothing_removed(self) -> None:
+        """No removed field names means no report write."""
+        reports_manager = MagicMock()
+
+        clean_type_reports(reports_manager, [{'public_id': 1}], set(), MagicMock())
+
+        reports_manager.bulk_write.assert_not_called()
+
+    def test_cleans_and_writes_reports(self) -> None:
+        """Each report has the removed field stripped, its query rebuilt, and is bulk-written."""
+        reports_manager = MagicMock()
+        report = MagicMock()
+
+        with patch(f'{HELPER_PATH}.CmdbReport') as report_cls, \
+             patch(f'{HELPER_PATH}.build_report_query', return_value={}):
+            report_cls.from_data.return_value = report
+            clean_type_reports(reports_manager, [{'public_id': 1}], {'gone'}, MagicMock())
+
+        report.remove_field_occurrences.assert_called_once_with('gone')
+        reports_manager.bulk_write.assert_called_once()

@@ -27,17 +27,17 @@ from typing import Any
 class MapEntry:
     """
     Represents an entry in a mapping, where a name is associated with a value
-    and additional options. This class encapsulates the mapping of data to 
+    and additional options. This class encapsulates the mapping of data to
     respective memory areas (e.g., fields)
     """
-    def __init__(self, name: Any, value: Any, **options: dict):
+    def __init__(self, name: Any, value: Any, **options: Any) -> None:
         """
         Initialises the MapEntry
 
         Args:
             name (Any): The name or key associated with this mapping entry
             value (Any): The value or data associated with the name
-            options (dict[str, Any]): Optional additional configuration options for this entry.
+            options (Any): Optional additional configuration options for this entry
         """
         self.name: Any = name
         self.value: Any = value

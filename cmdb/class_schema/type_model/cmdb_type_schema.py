@@ -72,7 +72,7 @@ def get_cmdb_type_schema() -> dict[str, Any]:
             'type': 'boolean',
             'default': True
         },
-        'global_template_ids': {  # The public_id's of global CmdbSectionTemplates used by this CmdbType
+        'global_template_ids': {  # The names of the global CmdbSectionTemplates used by this CmdbType
             'type': 'list',
             'required': False,
             'schema': {

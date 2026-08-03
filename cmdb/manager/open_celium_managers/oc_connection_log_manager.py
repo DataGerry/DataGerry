@@ -16,11 +16,8 @@
 """
 Implementation of OpenCelium ConnectionLogManager
 """
-import json
 from logging import Logger, getLogger
 from typing import Any
-
-from requests import Response
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
@@ -55,12 +52,11 @@ class OcConnectionLogManager(OcBaseManager):
         Returns:
             dict[str, Any]: The retrieved details of Method or Operator
         """
-        target_connection_response: Response = self.oc_connector.oc_get(f"{EXECUTION_LOG_URL}/{target_id}/details")
-
-        if self.is_valid_response(target_connection_response):
-            return json.loads(target_connection_response.text)
-
-        raise OcConnectionLogGetError(f"Failed to retrieve Method/Operator with ID: {target_id}")
+        return self.parse_response(
+            self.oc_connector.oc_get(f"{EXECUTION_LOG_URL}/{target_id}/details"),
+            OcConnectionLogGetError,
+            f"Failed to retrieve Method/Operator with ID: {target_id}",
+        )
 
 
     def get_operator_children(self, target_id: int, loop_index: int) -> dict[str, Any]:
@@ -76,14 +72,11 @@ class OcConnectionLogManager(OcBaseManager):
         Returns:
             dict[str, Any]: The retrieved children of the Operator
         """
-        target_connection_response: Response = self.oc_connector.oc_get(
-            f"{EXECUTION_LOG_URL}/{target_id}/children?loopIndex={loop_index}"
+        return self.parse_response(
+            self.oc_connector.oc_get(f"{EXECUTION_LOG_URL}/{target_id}/children?loopIndex={loop_index}"),
+            OcConnectionLogGetError,
+            "Failed to retrieve Operator children!",
         )
-
-        if self.is_valid_response(target_connection_response):
-            return json.loads(target_connection_response.text)
-
-        raise OcConnectionLogGetError("Failed to retrieve Operator children!")
 
 
     def get_flowcharts(self, execution_id: int) -> dict[str, Any]:
@@ -99,12 +92,11 @@ class OcConnectionLogManager(OcBaseManager):
         Returns:
             dict[str, Any]: The retrieved flowcharts
         """
-        target_connection_response: Response = self.oc_connector.oc_get(f"{EXECUTION_LOG_URL}/{execution_id}/children")
-
-        if self.is_valid_response(target_connection_response):
-            return json.loads(target_connection_response.text)
-
-        raise OcConnectionLogGetError(f"Failed to retrieve Flowcharts of Execution ID: {execution_id}")
+        return self.parse_response(
+            self.oc_connector.oc_get(f"{EXECUTION_LOG_URL}/{execution_id}/children"),
+            OcConnectionLogGetError,
+            f"Failed to retrieve Flowcharts of Execution ID: {execution_id}",
+        )
 
 
     def get_first_level_logs(self, flowchart_id: int) -> dict[str, Any]:
@@ -120,12 +112,11 @@ class OcConnectionLogManager(OcBaseManager):
         Returns:
             dict[str, Any]: The retrieved first level logs
         """
-        target_connection_response: Response = self.oc_connector.oc_get(f"{EXECUTION_LOG_URL}/{flowchart_id}/children")
-
-        if self.is_valid_response(target_connection_response):
-            return json.loads(target_connection_response.text)
-
-        raise OcConnectionLogGetError(f"Failed to retrieve first level Logs of Execution ID: {flowchart_id}")
+        return self.parse_response(
+            self.oc_connector.oc_get(f"{EXECUTION_LOG_URL}/{flowchart_id}/children"),
+            OcConnectionLogGetError,
+            f"Failed to retrieve first level Logs of Execution ID: {flowchart_id}",
+        )
 
 
     def get_log_list(self, connection_id: int, scheduler_id: int, status: Any) -> dict[str, Any]:
@@ -142,14 +133,13 @@ class OcConnectionLogManager(OcBaseManager):
         Returns:
             dict[str, Any]: The retrieved log list
         """
-        target_connection_response: Response = self.oc_connector.oc_get(
-            f"{EXECUTION_LOG_LIST_URL}?connectionId={connection_id}&schedulerId={scheduler_id}&status={status}"
+        return self.parse_response(
+            self.oc_connector.oc_get(
+                f"{EXECUTION_LOG_LIST_URL}?connectionId={connection_id}&schedulerId={scheduler_id}&status={status}"
+            ),
+            OcConnectionLogGetError,
+            "Failed to retrieve the execution log list!",
         )
-
-        if self.is_valid_response(target_connection_response):
-            return json.loads(target_connection_response.text)
-
-        raise OcConnectionLogGetError("Failed to retrieve the execution log list!")
 
 # -------------------------------------------------- DELETE - ROUTES ------------------------------------------------- #
 
@@ -166,9 +156,7 @@ class OcConnectionLogManager(OcBaseManager):
         Returns:
             bool: True if deletion was a success
         """
-        delete_connection_response: Response = self.oc_connector.oc_delete(f"{EXECUTION_URL}/{execution_id}")
-
-        if self.is_valid_response(delete_connection_response):
+        if self.is_valid_response(self.oc_connector.oc_delete(f"{EXECUTION_URL}/{execution_id}")):
             return True
 
         raise OcConnectionLogDeleteError("Failed to delete Logs!")

@@ -43,7 +43,10 @@ from cmdb.models.person_group_model.person_reference_type_enum import PersonRefe
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    get_item_or_404,
+    guard_required_risk_assessment_fields,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -158,9 +161,16 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
     """
     HTTP `POST` route to insert an IsmsRiskAssessment into the database
 
+    The mandatory fields (see REQUIRED_RISK_ASSESSMENT_FIELDS) must all carry a value; the treatment and
+    audit blocks belong to later lifecycle stages and stay optional
+
     Args:
         data (IsmsRiskAssessment.SCHEMA): Data of the IsmsRiskAssessment which should be inserted
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 when a required field is missing (every missing field is named), when an
+            unknown ControlMeasure is referenced or when the insert fails
 
     Returns:
         InsertSingleResponse: The new IsmsRiskAssessment and its public_id
@@ -174,6 +184,9 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
                                                                             ManagerType.CONTROL_MEASURE_ASSIGNMENT,
                                                                             request_user
                                                                        )
+        # Refuse an incomplete assessment before anything is written
+        guard_required_risk_assessment_fields(data)
+
         _coerce_costs_for_implementation(data)
 
         cm_assignments = data.pop('control_measure_assignments', []) or []
@@ -226,12 +239,21 @@ def duplicate_isms_risk_assessment(
     """
     HTTP `POST` route to duplicate an IsmsRiskAssessment into the database
 
+    Every duplicate is built from the submitted source payload, so it has to satisfy the same mandatory
+    fields as a create - otherwise one incomplete source would produce a whole batch of incomplete
+    assessments
+
     Args:
         data (IsmsRiskAssessment.SCHEMA): Data of the IsmsRiskAssessment which should be inserted
         request_user (CmdbUser): User requesting this data
         duplicate_mode (str): Three possible cases: risk, object or object_group
         public_ids (str): The comma separated public_ids of the IsmsRisks, CmdbObjects or CmdbObjectGroups
                           referenced in `duplicate_mode` which should be duplicated. Example '1,3,4,5'
+
+    Raises:
+        HTTPException: 400 on an invalid duplication target, a required field missing (every missing
+            field is named), a missing source public_id, no valid target public_ids or a
+            duplicate_mode that contradicts 'object_id_ref_type'
 
     Returns:
         DefaultResponse: All created public_ids of IsmsRiskAssessments
@@ -246,6 +268,9 @@ def duplicate_isms_risk_assessment(
 
         copy_cma = request.args.get('copy_cma', 'true').lower() == 'true'
 
+        # The source payload becomes every duplicate, so it has to satisfy the same required fields
+        guard_required_risk_assessment_fields(data)
+
         # Extract the public_id
         initial_risk_assessment_id = data.pop('public_id', None)
 
@@ -257,47 +282,51 @@ def duplicate_isms_risk_assessment(
         if not target_ids:
             abort(400, "No valid public_ids were provided for duplication.")
 
+        # The duplicate mode depends only on the source payload, not the targets, so validate it once
+        if duplicate_mode == "object" and data.get('object_id_ref_type') != ObjectReferenceType.OBJECT:
+            abort(400, "object_id_ref_type must be 'OBJECT' to duplicate in object mode.")
+        if duplicate_mode == "object_group" and data.get('object_id_ref_type') != ObjectReferenceType.OBJECT_GROUP:
+            abort(400, "object_id_ref_type must be 'OBJECT_GROUP' to duplicate in object_group mode.")
+
         risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
             ManagerType.RISK_ASSESSMENT, request_user
         )
 
+        # Fetch the source assignments and the assignment manager once, not per duplicated target
         if copy_cma:
             original_assignments = risk_assessment_manager.get_many_from_other_collection(
                                                                 IsmsControlMeasureAssignment.COLLECTION,
                                                                 risk_assessment_id=initial_risk_assessment_id
                                                             )
+            cma_manager: ControlMeasureAssignmentManager | None = ManagerProvider.get_manager(
+                ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user
+            )
         else:
             original_assignments = []
+            cma_manager = None
+
+        # 'risk' mode retargets the risk_id; 'object'/'object_group' modes retarget the object_id
+        target_field = 'risk_id' if duplicate_mode == "risk" else 'object_id'
 
         created_risk_assessment_ids = []
 
         for target_id in target_ids:
             new_data = data.copy()
-
-            if duplicate_mode == "risk":
-                new_data['risk_id'] = target_id
-            elif duplicate_mode == "object":
-                if new_data.get('object_id_ref_type') != ObjectReferenceType.OBJECT:
-                    abort(400, "object_id_ref_type must be 'OBJECT' to duplicate in object mode.")
-                new_data['object_id'] = target_id
-            elif duplicate_mode == "object_group":
-                if new_data.get('object_id_ref_type') != ObjectReferenceType.OBJECT_GROUP:
-                    abort(400, "object_id_ref_type must be 'OBJECT_GROUP' to duplicate in object_group mode.")
-                new_data['object_id'] = target_id
+            new_data[target_field] = target_id
 
             new_risk_assessment_id = risk_assessment_manager.insert_item(new_data)
             created_risk_assessment_ids.append(new_risk_assessment_id)
 
-            if copy_cma:
-                cma_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
-                    ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user
-                )
-
+            # Copy the source assignments onto the new RiskAssessment in a single batched insert
+            if original_assignments:
+                new_assignments = []
                 for assignment in original_assignments:
                     new_assignment = assignment.copy()
                     new_assignment.pop('public_id', None)
                     new_assignment['risk_assessment_id'] = new_risk_assessment_id
-                    cma_manager.insert_item(new_assignment)
+                    new_assignments.append(new_assignment)
+
+                cma_manager.insert_many(new_assignments)
 
         return DefaultResponse(created_risk_assessment_ids).make_response()
     except HTTPException as http_err:
@@ -529,10 +558,18 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskAssessment
 
+    The payload is the whole document (there are no partial-update semantics), so the mandatory fields
+    are enforced exactly as on create - an assessment cannot be saved into an incomplete state
+
     Args:
         public_id (int): public_id of the IsmsRiskAssessment which should be updated
         data (IsmsRiskAssessment.SCHEMA): New IsmsRiskAssessment data
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 when the IsmsRiskAssessment does not exist; 400 when a required field is
+            missing (every missing field is named), when an unknown ControlMeasure is referenced or when
+            a ControlMeasureAssignment does not belong to this IsmsRiskAssessment
 
     Returns:
         UpdateSingleResponse: The new data of the IsmsRiskAssessment
@@ -549,6 +586,9 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
 
         get_item_or_404(risk_assessment_manager, public_id,
                         f"The RiskAssessment with ID:{public_id} was not found!", as_dict=False)
+
+        # Refuse an incomplete assessment before anything is written (the payload is the whole document)
+        guard_required_risk_assessment_fields(data)
 
         _coerce_costs_for_implementation(data)
 

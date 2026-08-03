@@ -16,11 +16,8 @@
 """
 Implementation of OpenCelium TemplateManager
 """
-import json
 from logging import Logger, getLogger
-from typing import Any, Optional
-
-from requests import Response
+from typing import Any
 
 from cmdb.manager.open_celium_managers.oc_base_manager import OcBaseManager
 
@@ -56,12 +53,11 @@ class OcTemplateManager(OcBaseManager):
             dict[str, Any]: The data of the created OcTemplate
         """
 
-        target_template_response: Response = self.oc_connector.oc_post(template_data, TEMPLATE_URL)
-
-        if self.is_valid_response(target_template_response):
-            return json.loads(target_template_response.text)
-
-        raise OcTemplateCreateError("Failed to create the OpenCelium Template")
+        return self.parse_response(
+            self.oc_connector.oc_post(template_data, TEMPLATE_URL),
+            OcTemplateCreateError,
+            "Failed to create the OpenCelium Template",
+        )
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -82,15 +78,14 @@ class OcTemplateManager(OcBaseManager):
         if not template_id:
             raise OcTemplateGetError("No templateId for Template provided!")
 
-        target_template_response: Response = self.oc_connector.oc_get(f"{TEMPLATE_URL}/{template_id}")
+        return self.parse_response(
+            self.oc_connector.oc_get(f"{TEMPLATE_URL}/{template_id}"),
+            OcTemplateGetError,
+            f"Failed to retrieve OpenCelium Template with ID: {template_id}",
+        )
 
-        if self.is_valid_response(target_template_response):
-            return json.loads(target_template_response.text)
 
-        raise OcTemplateGetError(f"Failed to retrieve OpenCelium Template with ID: {template_id}")
-
-
-    def get_all_templates(self, from_connector: int = None, to_connector: int = None) -> Optional[list[dict[str, Any]]]:
+    def get_all_templates(self, from_connector: int = None, to_connector: int = None) -> list[dict[str, Any]] | None:
         """
         Retrieves all busines templates from OpenCelium
 
@@ -110,19 +105,13 @@ class OcTemplateManager(OcBaseManager):
         if from_connector and to_connector:
             target = f"{ALL_TEMPLATES_URL}/{from_connector}/{to_connector}"
 
-        all_templates_response: Response = self.oc_connector.oc_get(target)
+        all_templates_response = self.oc_connector.oc_get(target)
 
-        # LOGGER.debug(f"[get_all_templates] response: {all_templates_response}")
-        # LOGGER.debug(f"[get_all_templates] status_code: {all_templates_response.status_code}")
-        # LOGGER.debug(f"[get_all_templates] headers: {all_templates_response.headers}")
-        # LOGGER.debug(f"[get_all_templates] body: {all_templates_response.text}")
-
-        if self.is_valid_response(all_templates_response):
-            if all_templates_response.text:
-                templates = json.loads(all_templates_response.text)
-
-                return templates
-
+        if self.is_valid_response(all_templates_response) and not all_templates_response.text:
             return None
 
-        raise OcTemplateGetError("Failed to retrieve Business Templates from OpenCelium!")
+        return self.parse_response(
+            all_templates_response,
+            OcTemplateGetError,
+            "Failed to retrieve Business Templates from OpenCelium!",
+        )

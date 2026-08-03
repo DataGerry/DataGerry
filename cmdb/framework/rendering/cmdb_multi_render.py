@@ -42,7 +42,6 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME
 from cmdb.framework.rendering.render_result import RenderResult
 
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.models.cmdb_type import CmdbTypeFieldNotFoundError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -101,7 +100,7 @@ class CmdbMultiRender:
         self.users_cache.update(self.get_all_linked_users())
 
 
-    def result(self, level: int = 3, single_object: bool = False) -> list[RenderResult] | RenderResult:
+    def result(self, level: int = 3, single_object: bool = False) -> list[RenderResult] | RenderResult | None:
         """
         Renders every object in ``to_render_objects`` into a RenderResult
 
@@ -115,7 +114,8 @@ class CmdbMultiRender:
             single_object (bool): When True return the first RenderResult instead of a list
 
         Returns:
-            list[RenderResult] | RenderResult: The rendered result(s)
+            list[RenderResult] | RenderResult | None: The rendered result(s); when ``single_object`` is
+            set, the single RenderResult, or None when nothing rendered (e.g. the object's type is missing)
         """
         render_results: list[RenderResult] = []
 
@@ -141,7 +141,7 @@ class CmdbMultiRender:
             render_results.append(result)
 
         if single_object:
-            return render_results[0]
+            return render_results[0] if render_results else None
 
         return render_results
 
@@ -396,8 +396,14 @@ class CmdbMultiRender:
 
     def get_all_linked_types(self) -> dict[int, CmdbType]:
         """
-        Collect the type ids of the rendered objects and of every referenced object, and return them
-        as a single bulk lookup (one query) keyed by public_id
+        Collect the types needed to render every object and return them as a bulk lookup by public_id
+
+        Loads three groups in at most two queries: the rendered objects' own types, the types of every
+        referenced object already in the cache, and the target type of every ref-section declared by
+        those types. The ref-section target must be loaded even when no object is referenced yet (value
+        None) - otherwise __merge_fields_value drops the ref-section field and the frontend hides the
+        whole section. Only the direct ref-section targets are pulled here; deeper reference chains are
+        resolved by the nested render that runs once an object is actually referenced
 
         Returns:
             dict[int, CmdbType]: Lookup of type public_id -> CmdbType (empty when none are referenced)
@@ -414,12 +420,44 @@ class CmdbMultiRender:
         # Only fetch the types not already cached (a nested render reuses the outer cache)
         type_ids -= set(self.types_cache)
 
-        if not type_ids:
-            return {}
+        linked_types: dict[int, CmdbType] = {}
 
-        linked_types: dict[int, CmdbType] = self.types_manager.get_types_lookup(list(type_ids))
+        if type_ids:
+            linked_types = self.types_manager.get_types_lookup(list(type_ids))
+
+        # Every ref-section renders fields from a target type regardless of whether an object is
+        # referenced, so that target must be cached too. Scan the loaded (and already cached) types
+        # for their ref-section targets and bulk-fetch the ones still missing.
+        known_types: dict[int, CmdbType] = {**self.types_cache, **linked_types}
+        missing_ref_type_ids: set[int] = self.__collect_ref_section_type_ids(list(known_types.values())) \
+                                         - set(known_types)
+
+        if missing_ref_type_ids:
+            linked_types.update(self.types_manager.get_types_lookup(list(missing_ref_type_ids)))
 
         return linked_types
+
+
+    @staticmethod
+    def __collect_ref_section_type_ids(types: list[CmdbType]) -> set[int]:
+        """
+        Collect the reference target type_id of every ref-section declared by the given types
+
+        Args:
+            types (list[CmdbType]): The types whose render_meta sections should be scanned
+
+        Returns:
+            set[int]: The type_ids referenced by any ref-section (empty when there are none)
+        """
+        ref_type_ids: set[int] = set()
+
+        for type_instance in types:
+            for section in type_instance.render_meta.sections:
+                if isinstance(section, TypeReferenceSection) and section.reference \
+                        and section.reference.type_id is not None:
+                    ref_type_ids.add(section.reference.type_id)
+
+        return ref_type_ids
 
 
     def get_all_linked_objects(self) -> dict[int, CmdbObject]:
@@ -433,6 +471,9 @@ class CmdbMultiRender:
             return {}
 
         reference_ids: set[int] = set()
+        # Fallback lookup for legacy fields missing a 'type' key: fetch each object's type at most
+        # once (keyed by type_id) instead of re-querying it per untyped field (avoids an N+1)
+        fallback_types: dict[int, CmdbType | None] = {}
 
         # Collect referenced object IDs
         for obj in self.to_render_objects:
@@ -445,7 +486,10 @@ class CmdbMultiRender:
                         obj.public_id,
                         field.get('name')
                     )
-                    type_instance: CmdbType = self.types_manager.get_type(obj.get_type_id(), False)
+                    type_id = obj.get_type_id()
+                    if type_id not in fallback_types:
+                        fallback_types[type_id] = self.types_manager.get_type_instance(type_id)
+                    type_instance: CmdbType | None = fallback_types[type_id]
 
                     if not type_instance:
                         LOGGER.debug("Type of Object: %s not found!", obj.public_id)
@@ -556,15 +600,57 @@ class CmdbMultiRender:
                             self.__merge_reference_section_fields(merged_field_content, ref_section_fields, level)
                         else:
                             ref_section_fields.append(merged_field_content)
-            except (Exception, TypeError, ObjectsManagerGetError) as err:
+            except Exception as err:
                 LOGGER.debug("[__merge_reference_section_fields] Exception: %s. Type: %s", err, type(err).__name__)
 
         return ref_section_fields
 
 
+    @staticmethod
+    def _build_reference_summaries(
+        ref_type: CmdbType,
+        ref_object: CmdbObject,
+        nested_summaries: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str], str | None]:
+        """
+        Build the reference summaries, their string values and the nested summary line
+
+        The summary fields are the type's configured nested summary fields when a nested summary is
+        set, otherwise the type's default summary fields; each summary value is read from the
+        referenced object
+
+        Args:
+            ref_type (CmdbType): The referenced object's type
+            ref_object (CmdbObject): The referenced object providing the values
+            nested_summaries (list[dict[str, Any]]): The field's configured nested summaries
+
+        Returns:
+            tuple[list[dict[str, Any]], list[str], str | None]: (summaries, summary values, summary line)
+        """
+        nested_summary_line: str | None = ref_type.get_nested_summary_line(nested_summaries)
+        nested_summary_fields = nested_summaries
+
+        try:
+            nested_summary_fields = ref_type.get_nested_summary_fields(nested_summaries)
+        except CmdbTypeFieldNotFoundError as error:
+            LOGGER.warning('Summary setting refers to non-existent field(s), Error %s', error)
+
+        summary_fields = nested_summary_fields \
+            if (nested_summary_line or nested_summary_fields) else ref_type.get_summary().fields
+
+        summaries: list[dict[str, Any]] = []
+        summary_values: list[str] = []
+
+        for field in summary_fields:
+            ref_value = next((x['value'] for x in ref_object.fields if x['name'] == field['name']), '')
+            summary_value = str(ref_value)
+            summaries.append({"value": summary_value, "type": field.get('type')})
+            summary_values.append(summary_value)
+
+        return summaries, summary_values, nested_summary_line
+
+
     def __merge_references(self, current_field: dict[str, Any]) -> dict[str, Any]:
-        # Reference resolution assembles several intermediate summary structures in one place
-        # pylint: disable=too-many-locals
         """
         Merges reference data for a given field
 
@@ -580,69 +666,51 @@ class CmdbMultiRender:
         """
         reference = TypeReference(type_id=0, object_id=0, type_label='', line='')
 
-        if current_field['value']:
-            ref_object: CmdbObject | None = self.objects_cache.get(int(current_field['value']))
+        # No value on the field - return an empty reference rather than None (callers expect a dict)
+        if not current_field['value']:
+            return TypeReference.to_json(reference)
 
-            if not ref_object:
+        ref_object: CmdbObject | None = self.objects_cache.get(int(current_field['value']))
+        if not ref_object:
+            return TypeReference.to_json(reference)
+
+        try:
+            ref_type: CmdbType | None = self.types_cache.get(ref_object.get_type_id())
+            if not ref_type:
                 return TypeReference.to_json(reference)
 
+            nested_summaries = current_field.get('summaries', [])
+            summaries, summary_values, nested_summary_line = self._build_reference_summaries(
+                ref_type, ref_object, nested_summaries
+            )
+
+            reference.type_id = ref_type.get_public_id()
+            reference.object_id = int(current_field['value'])
+            reference.type_label = ref_type.label
+            reference.icon = ref_type.get_icon()
+            reference.prefix = ref_type.has_nested_prefix(nested_summaries)
+            reference.summaries = summaries
+
             try:
-                ref_type: CmdbType | None = self.types_cache.get(ref_object.get_type_id())
+                # fill the summary line with summaries value data
+                reference.line = nested_summary_line
 
-                if not ref_type:
-                    return TypeReference.to_json(reference)
-
-                _summary_fields = []
-                _nested_summaries = current_field.get('summaries', [])
-                _nested_summary_line = ref_type.get_nested_summary_line(_nested_summaries)
-                _nested_summary_fields = _nested_summaries
-
-                try:
-                    _nested_summary_fields = ref_type.get_nested_summary_fields(_nested_summaries)
-                except CmdbTypeFieldNotFoundError as error:
-                    LOGGER.warning('Summary setting refers to non-existent field(s), Error %s',error)
-
-                reference.type_id = ref_type.get_public_id()
-                reference.object_id = int(current_field['value'])
-                reference.type_label = ref_type.label
-                reference.icon = ref_type.get_icon()
-                reference.prefix = ref_type.has_nested_prefix(_nested_summaries)
-
-                _summary_fields = _nested_summary_fields \
-                    if (_nested_summary_line or _nested_summary_fields) else ref_type.get_summary().fields
-
-                summaries = []
-                summary_values = []
-
-                for field in _summary_fields:
-                    ref_value = next(
-                        (x['value'] for x in ref_object.fields if x['name'] == field['name']), ''
-                    )
-                    summary_value = str(ref_value)
-                    summaries.append({"value": summary_value, "type": field.get('type')})
-                    summary_values.append(summary_value)
-
-                reference.summaries = summaries
-
-                try:
-                    # fill the summary line with summaries value data
-                    reference.line = _nested_summary_line
-
+                # Only evaluate the line when one is configured. A None nested summary line
+                # (the default when the ref field has no custom line) has no placeholders to
+                # check or fill, so skip it - line_requires_fields' regex would otherwise raise
+                # on a None line (caught, but it spammed DEBUG logs on every such reference)
+                if nested_summary_line:
                     if not reference.line_requires_fields():
                         reference.summaries = []
 
-                    if _nested_summary_line:
-                        reference.fill_line(summary_values)
-                except Exception as err:
-                    LOGGER.debug("[__merge_references] Could not fill summary line: %s", err)
-
-                return TypeReference.to_json(reference)
+                    reference.fill_line(summary_values)
             except Exception as err:
-                LOGGER.debug("[__merge_references] Exception: %s. Type: %s", err, type(err).__name__)
-                return TypeReference.to_json(reference)
+                LOGGER.debug("[__merge_references] Could not fill summary line: %s", err)
 
-        # No value on the field - return an empty reference rather than None (callers expect a dict)
-        return TypeReference.to_json(reference)
+            return TypeReference.to_json(reference)
+        except Exception as err:
+            LOGGER.debug("[__merge_references] Exception: %s. Type: %s", err, type(err).__name__)
+            return TypeReference.to_json(reference)
 
 
     def __merge_field_content_section(self, t_field: dict[str, Any], object_instance: CmdbObject) -> dict[str, Any]:
@@ -660,9 +728,16 @@ class CmdbMultiRender:
         # live dict), so mutating it directly would corrupt the cache and bleed values across renders
         t_field = dict(t_field)
 
-        obj_field: dict[str, Any] = [x for x in object_instance.fields if x['name'] == t_field['name']][0]
+        obj_field: dict[str, Any] | None = next(
+            (x for x in object_instance.fields if x['name'] == t_field['name']), None
+        )
 
-        if obj_field['name'] == t_field['name'] and t_field.get('value'):
+        # The object may not carry this field yet (e.g. a type field added after its last save);
+        # leave the type's default value in place rather than raising
+        if obj_field is None:
+            return t_field
+
+        if t_field.get('value'):
             t_field['default'] = t_field['value']
 
         t_field['value'] = obj_field['value']
@@ -742,11 +817,11 @@ class CmdbMultiRender:
         type_instance: CmdbType,
         level: int = 3
     ) -> list[dict[str, Any]]:
-        # Field/section merging is inherently branchy (field-sections, MDS, and reference-sections each
-        # with their own reference-resolution paths); the reference expansions are already extracted
-        # pylint: disable=too-many-locals, too-many-branches, too-many-statements, too-many-nested-blocks
         """
         Merge all field values with references extended
+
+        Delegates each render_meta section to the matching helper: plain field/MDS sections to
+        ``_merge_plain_section_fields`` and reference sections to ``_merge_reference_section``
 
         Args:
             object_instance (CmdbObject): The object whose values are merged into the type's fields
@@ -760,107 +835,182 @@ class CmdbMultiRender:
         if level == 0:
             return field_map
 
-        for idx, section in enumerate(type_instance.render_meta.sections):
+        for section in type_instance.render_meta.sections:
             if isinstance(section, (TypeFieldSection, TypeMultiDataSection)):
-                for sf_name in section.fields:
-                    field = {}
-                    try:
-                        field: dict[str, Any] = type_instance.get_field(sf_name)
-                        field = self.__merge_field_content_section(field, object_instance)
-
-                        if (field['type'] in (FieldType.REFERENCE, FieldType.LOCATION)) and \
-                           (not self.ref_render or 'summaries' not in field):
-                            ref_field_name: str = field['name']
-                            # copy: get_field returns the live cached dict (see __merge_field_content_section)
-                            field: dict[str, Any] = dict(type_instance.get_field(ref_field_name))
-                            reference_id: int = object_instance.get_value(ref_field_name)
-                            field['value'] = reference_id
-
-                            if field['type'] == FieldType.REFERENCE:
-                                reference = self._build_reference_expansion(reference_id)
-
-                                # Only expand when the referenced object/type resolve (they do not when
-                                # ref_render is off); preserves the prior value=None otherwise
-                                if reference is None:
-                                    field['value'] = None
-                                else:
-                                    field['reference'] = reference
-
-                            if field['type'] == FieldType.LOCATION:
-                                field['reference'] = self._build_location_reference(reference_id)
-
-                    except Exception as err:
-                        LOGGER.debug("[__merge_fields_value] field '%s' merge failed: %s", sf_name, err)
-                        field['value'] = None
-
-                    field_map.append(field)
-
+                field_map.extend(self._merge_plain_section_fields(section, object_instance, type_instance))
             elif isinstance(section, TypeReferenceSection):
-                try:
-                    ref_field_name: str = f'{section.name}-field'
-                    # copy: get_field returns the live cached dict (see __merge_field_content_section)
-                    ref_field: dict[str, Any] = dict(type_instance.get_field(ref_field_name))
-                except CmdbTypeFieldNotFoundError as err:
-                    LOGGER.debug("[__merge_fields_value] CmdbTypeFieldNotFoundError: %s", err)
-                    continue
-
-                try:
-                    reference_id: int = object_instance.get_value(ref_field_name)
-                    ref_field['value'] = reference_id
-                    reference_object: CmdbObject | None = self.objects_cache.get(reference_id)
-                except Exception as err:
-                    LOGGER.debug("[__merge_fields_value] could not resolve reference object: %s", err)
-                    reference_object = None
-
-                try:
-                    ref_type: CmdbType | None = self.types_cache.get(section.reference.type_id)
-                    if not ref_type:
-                        continue
-
-                    ref_section = ref_type.get_section(section.reference.section_name)
-                    ref_field['references'] = {
-                        'type_id': ref_type.public_id,
-                        'type_name': ref_type.name,
-                        'type_label': ref_type.label,
-                        'type_icon': ref_type.get_icon(),
-                        'fields': []
-                    }
-                except Exception as err:
-                    LOGGER.debug("[__merge_fields_value] reference section build failed: %s", err)
-                    continue
-
-                if not ref_section:
-                    continue
-
-                if not section.reference.selected_fields or len(section.reference.selected_fields) == 0:
-                    selected_ref_fields = ref_section.fields
-                    section.reference.selected_fields = selected_ref_fields
-                    type_instance.render_meta.sections[idx] = section
-                else:
-                    selected_ref_fields = [f for f in ref_section.fields if f in section.reference.selected_fields]
-
-                for ref_section_field_name in selected_ref_fields:
-                    try:
-                        # copy: get_field returns the live cached dict (see __merge_field_content_section)
-                        ref_section_field = dict(ref_type.get_field(ref_section_field_name))
-                        if reference_object:
-                            ref_section_field = self.__merge_field_content_section(ref_section_field, reference_object)
-                            if level > 0:
-                                ref_section_fields = self.__merge_reference_section_fields(
-                                                                ref_section_field,
-                                                                [],
-                                                                level
-                                                           )
-                                ref_section_field.get('references', {'fields': []})['fields'] = ref_section_fields
-                    except Exception as err:
-                        LOGGER.debug("[__merge_fields_value] ref-section field '%s' skipped: %s",
-                                     ref_section_field_name, err)
-                        continue
-                    ref_field['references']['fields'].append(ref_section_field)
-
-                field_map.append(ref_field)
+                ref_field = self._merge_reference_section(section, object_instance, type_instance, level)
+                if ref_field is not None:
+                    field_map.append(ref_field)
 
         return field_map
+
+
+    def _merge_plain_section_fields(
+        self,
+        section: TypeFieldSection | TypeMultiDataSection,
+        object_instance: CmdbObject,
+        type_instance: CmdbType
+    ) -> list[dict[str, Any]]:
+        """
+        Merge the field values of a plain field or multi-data section
+
+        Each field is merged with the object's value; reference/location fields not already expanded
+        by the merge get their reference expansion filled here. A field that fails to merge degrades
+        to a null value rather than aborting the section
+
+        Args:
+            section (TypeFieldSection | TypeMultiDataSection): The section whose fields are merged
+            object_instance (CmdbObject): The object providing the field values
+            type_instance (CmdbType): The object's type, providing the field definitions
+
+        Returns:
+            list[dict[str, Any]]: The merged fields of the section
+        """
+        fields: list[dict[str, Any]] = []
+
+        for sf_name in section.fields:
+            field: dict[str, Any] = {}
+            try:
+                field = type_instance.get_field(sf_name)
+                field = self.__merge_field_content_section(field, object_instance)
+
+                if field['type'] in (FieldType.REFERENCE, FieldType.LOCATION) and \
+                   (not self.ref_render or 'summaries' not in field):
+                    field = self._expand_reference_field(field['name'], object_instance, type_instance)
+            except Exception as err:
+                LOGGER.debug("[_merge_plain_section_fields] field '%s' merge failed: %s", sf_name, err)
+                field['value'] = None
+
+            fields.append(field)
+
+        return fields
+
+
+    def _expand_reference_field(
+        self,
+        field_name: str,
+        object_instance: CmdbObject,
+        type_instance: CmdbType
+    ) -> dict[str, Any]:
+        """
+        Build the reference/location expansion for a reference- or location-typed field
+
+        Args:
+            field_name (str): The name of the reference/location field
+            object_instance (CmdbObject): The object providing the referenced id
+            type_instance (CmdbType): The object's type, providing the field definition
+
+        Returns:
+            dict[str, Any]: The field with its reference expansion (value cleared when unresolvable)
+        """
+        # copy: get_field returns the live cached dict (see __merge_field_content_section)
+        field: dict[str, Any] = dict(type_instance.get_field(field_name))
+        reference_id: int = object_instance.get_value(field_name)
+        field['value'] = reference_id
+
+        if field['type'] == FieldType.REFERENCE:
+            reference = self._build_reference_expansion(reference_id)
+
+            # Only expand when the referenced object/type resolve (they do not when ref_render is
+            # off); preserves the prior value=None otherwise
+            if reference is None:
+                field['value'] = None
+            else:
+                field['reference'] = reference
+
+        if field['type'] == FieldType.LOCATION:
+            field['reference'] = self._build_location_reference(reference_id)
+
+        return field
+
+
+    def _merge_reference_section(
+        self,
+        section: TypeReferenceSection,
+        object_instance: CmdbObject,
+        type_instance: CmdbType,
+        level: int
+    ) -> dict[str, Any] | None:
+        # Resolving a reference section threads several intermediate lookups (field, object, type,
+        # section, selected fields) through one method; the nested merges are already extracted
+        # pylint: disable=too-many-locals
+        """
+        Merge one reference section into a single reference field for the render
+
+        Resolves the section's implicit reference field, the referenced object (when any) and the
+        referenced type/section, then merges each selected referenced field (recursively resolving
+        nested ref-section fields). Returns None when the section cannot be rendered (missing field,
+        missing referenced type or missing referenced section) so the caller can skip it
+
+        Args:
+            section (TypeReferenceSection): The reference section to merge
+            object_instance (CmdbObject): The object being rendered
+            type_instance (CmdbType): The object's type, providing the reference field definition
+            level (int): The reference-resolution depth
+
+        Returns:
+            dict[str, Any] | None: The merged reference field, or None when the section is skipped
+        """
+        try:
+            ref_field_name: str = f'{section.name}-field'
+            # copy: get_field returns the live cached dict (see __merge_field_content_section)
+            ref_field: dict[str, Any] = dict(type_instance.get_field(ref_field_name))
+        except CmdbTypeFieldNotFoundError as err:
+            LOGGER.debug("[_merge_reference_section] CmdbTypeFieldNotFoundError: %s", err)
+            return None
+
+        try:
+            reference_id: int = object_instance.get_value(ref_field_name)
+            ref_field['value'] = reference_id
+            reference_object: CmdbObject | None = self.objects_cache.get(reference_id)
+        except Exception as err:
+            LOGGER.debug("[_merge_reference_section] could not resolve reference object: %s", err)
+            reference_object = None
+
+        try:
+            ref_type: CmdbType | None = self.types_cache.get(section.reference.type_id)
+            if not ref_type:
+                return None
+
+            ref_section = ref_type.get_section(section.reference.section_name)
+            ref_field['references'] = {
+                'type_id': ref_type.public_id,
+                'type_name': ref_type.name,
+                'type_label': ref_type.label,
+                'type_icon': ref_type.get_icon(),
+                'fields': []
+            }
+        except Exception as err:
+            LOGGER.debug("[_merge_reference_section] reference section build failed: %s", err)
+            return None
+
+        if not ref_section:
+            return None
+
+        # Select the configured fields, else every field of the referenced section. Compute this
+        # locally - writing it back onto section.reference would mutate the shared cached type
+        if section.reference.selected_fields:
+            selected_ref_fields = [f for f in ref_section.fields if f in section.reference.selected_fields]
+        else:
+            selected_ref_fields = ref_section.fields
+
+        for ref_section_field_name in selected_ref_fields:
+            try:
+                # copy: get_field returns the live cached dict (see __merge_field_content_section)
+                ref_section_field = dict(ref_type.get_field(ref_section_field_name))
+                if reference_object:
+                    ref_section_field = self.__merge_field_content_section(ref_section_field, reference_object)
+                    if level > 0:
+                        ref_section_fields = self.__merge_reference_section_fields(ref_section_field, [], level)
+                        ref_section_field.get('references', {'fields': []})['fields'] = ref_section_fields
+            except Exception as err:
+                LOGGER.debug("[_merge_reference_section] ref-section field '%s' skipped: %s",
+                             ref_section_field_name, err)
+                continue
+            ref_field['references']['fields'].append(ref_section_field)
+
+        return ref_field
 
 
     def get_mds_reference(self, field_value: int) -> dict:

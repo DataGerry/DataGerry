@@ -60,9 +60,15 @@ class DgServicePortalManager:
     def __init__(self) -> None:
         """
         Initialises the DgServicePortalManager
+
+        In cloud (non-local) mode the ``X-ACCESS-TOKEN`` and ``DG_SP_BASE_URL`` environment variables
+        are read and required; outside that mode both stay None (the manager is only used in cloud mode)
+
+        Raises:
+            NoAccessTokenError: If the access token or the Service Portal base URL is missing in cloud mode
         """
-        self.x_access_token: str = None
-        self.base_url: str = None
+        self.x_access_token: str | None = None
+        self.base_url: str | None = None
 
         if current_app.cloud_mode and not current_app.local_mode:
             self.x_access_token = os.getenv("X-ACCESS-TOKEN")
@@ -79,6 +85,9 @@ class DgServicePortalManager:
     def get_headers(self, password: str = None) -> dict[str, str]:
         """
         Retrieves the headers for DG-SP API calls
+
+        Args:
+            password (str): Optional master password; when given it is added as ``x-master-password``
 
         Returns:
             dict[str, str]: The headers dictionary
@@ -114,6 +123,7 @@ class DgServicePortalManager:
         Args:
             target (str): target URL of POST request
             payload (dict[str, Any]): payload for the POST request
+            password (str): Optional master password forwarded as the ``x-master-password`` header
 
         Returns:
             Response: The response for the POST request
@@ -188,10 +198,91 @@ class DgServicePortalManager:
 
         response: Response = self.sp_post(CHECK_MASTER_PW_URL, payload, password)
 
-        if self.is_valid_response(response):
-            return True
+        return self.is_valid_response(response)
 
-        return False
+# --------------------------------------------- GENERIC ENTITY-ID HELPERS -------------------------------------------- #
+
+    def _save_entity_id(self, base_url: str, entity_id: int, email: str, db_name: str) -> bool:
+        """
+        Saves an OpenCelium entity id (connector/connection/scheduler) in the Service Portal
+
+        Args:
+            base_url (str): The entity's save endpoint
+            entity_id (int): The id to store
+            email (str): email of the user
+            db_name (str): database name of the user
+
+        Returns:
+            bool: True if the id got saved, else False
+        """
+        payload: dict[str, Any] = {
+                "id": entity_id,
+                "userEmail": email,
+                "databaseName": db_name
+        }
+
+        return self.is_valid_response(self.sp_post(base_url, payload))
+
+
+    def _get_entity_ids(self, list_url: str, email: str, db_name: str) -> list[int]:
+        """
+        Retrieves all ids of an OpenCelium entity from the Service Portal for the user
+
+        Args:
+            list_url (str): The entity's list endpoint
+            email (str): email of the user
+            db_name (str): database name of the user
+
+        Returns:
+            list[int]: All ids for the entity, or an empty list on an invalid response
+        """
+        response: Response = self.sp_get(f"{list_url}?userEmail={email}&databaseName={db_name}")
+
+        if self.is_valid_response(response):
+            data: dict[str, Any] = json.loads(response.text)
+
+            raw_ids = data.get("ids", [])
+
+            return [int(x) for x in raw_ids if isinstance(x, (str, int))]
+
+        return []
+
+
+    def _delete_entity_id(self, base_url: str, entity_id: int, email: str, db_name: str) -> bool:
+        """
+        Deletes an OpenCelium entity id (connector/connection/scheduler) in the Service Portal
+
+        Args:
+            base_url (str): The entity's base endpoint (the id is appended)
+            entity_id (int): The id to delete
+            email (str): email of the user
+            db_name (str): database name of the user
+
+        Returns:
+            bool: True if the id got deleted, else False
+        """
+        payload: dict[str, Any] = {
+                "userEmail": email,
+                "databaseName": db_name
+        }
+
+        return self.is_valid_response(self.sp_delete(f"{base_url}/{entity_id}", payload))
+
+
+    def _check_entity_in_sub(self, list_url: str, entity_id: int, email: str, db_name: str) -> bool:
+        """
+        Checks whether an OpenCelium entity id belongs to the user's subscription
+
+        Args:
+            list_url (str): The entity's list endpoint
+            entity_id (int): target id
+            email (str): users email
+            db_name (str): user database name
+
+        Returns:
+            bool: True if the id belongs to the user's subscription, else False
+        """
+        return entity_id in self._get_entity_ids(list_url, email, db_name)
 
 # ------------------------------------------------ CONNECTOR FUNCTIONS ----------------------------------------------- #
 
@@ -207,18 +298,7 @@ class DgServicePortalManager:
         Returns:
             bool: True if the ID got saved, else False
         """
-        payload: dict[str, Any] = {
-                "id": connector_id,
-                "userEmail": email,
-                "databaseName": db_name
-        }
-
-        response: Response = self.sp_post(CONNECTOR_ID_URL, payload)
-
-        if self.is_valid_response(response):
-            return True
-
-        return False
+        return self._save_entity_id(CONNECTOR_ID_URL, connector_id, email, db_name)
 
 
     def get_connector_ids(self, email: str, db_name: str) -> list[int]:
@@ -230,18 +310,9 @@ class DgServicePortalManager:
             db_name (str): database name of the user
 
         Returns:
-            list[int]: All connectorIds
+            list[int]: All connectorIds, or an empty list on an invalid response
         """
-        connections_resp: Response = self.sp_get(f"{GET_CONNECTOR_IDS}?userEmail={email}&databaseName={db_name}")
-
-        if self.is_valid_response(connections_resp):
-            data: dict[str, Any] = json.loads(connections_resp.text)
-
-            raw_ids = data.get("ids", [])
-
-            return [int(x) for x in raw_ids if isinstance(x, (str, int))]
-
-        return False
+        return self._get_entity_ids(GET_CONNECTOR_IDS, email, db_name)
 
 
     def delete_connector_id(self, connector_id: int, email: str, db_name: str) -> bool:
@@ -256,17 +327,7 @@ class DgServicePortalManager:
         Returns:
             bool: True if the ID got deleted, else False
         """
-        payload: dict[str, Any] = {
-                "userEmail": email,
-                "databaseName": db_name
-        }
-
-        response: Response = self.sp_delete(f"{CONNECTOR_ID_URL}/{connector_id}", payload)
-
-        if self.is_valid_response(response):
-            return True
-
-        return False
+        return self._delete_entity_id(CONNECTOR_ID_URL, connector_id, email, db_name)
 
 
     def check_connector_in_sub(self, connector_id: int, email: str, db_name: str) -> bool:
@@ -281,9 +342,7 @@ class DgServicePortalManager:
         Returns:
             bool: True if connectorId belongs to the users subscription else False
         """
-        connector_ids: list[int] = self.get_connector_ids(email, db_name)
-
-        return connector_id in connector_ids
+        return self._check_entity_in_sub(GET_CONNECTOR_IDS, connector_id, email, db_name)
 
 # ----------------------------------------------- CONNECTION FUNCTIONS ----------------------------------------------- #
 
@@ -299,18 +358,7 @@ class DgServicePortalManager:
         Returns:
             bool: True if the ID got saved, else False
         """
-        payload: dict[str, Any] = {
-                "id": connection_id,
-                "userEmail": email,
-                "databaseName": db_name
-        }
-
-        response: Response = self.sp_post(CONNECTION_ID_URL, payload)
-
-        if self.is_valid_response(response):
-            return True
-
-        return False
+        return self._save_entity_id(CONNECTION_ID_URL, connection_id, email, db_name)
 
 
     def get_connection_ids(self, email: str, db_name: str) -> list[int]:
@@ -322,18 +370,9 @@ class DgServicePortalManager:
             db_name (str): database name of the user
 
         Returns:
-            list[int]: All connectionIds
+            list[int]: All connectionIds, or an empty list on an invalid response
         """
-        connections_resp: Response = self.sp_get(f"{GET_CONNECTION_IDS}?userEmail={email}&databaseName={db_name}")
-
-        if self.is_valid_response(connections_resp):
-            data: dict[str, Any] = json.loads(connections_resp.text)
-
-            raw_ids = data.get("ids", [])
-
-            return [int(x) for x in raw_ids if isinstance(x, (str, int))]
-
-        return False
+        return self._get_entity_ids(GET_CONNECTION_IDS, email, db_name)
 
 
     def delete_connection_id(self, connection_id: int, email: str, db_name: str) -> bool:
@@ -348,17 +387,7 @@ class DgServicePortalManager:
         Returns:
             bool: True if the ID got deleted, else False
         """
-        payload: dict[str, Any] = {
-                "userEmail": email,
-                "databaseName": db_name
-        }
-
-        response: Response = self.sp_delete(f"{CONNECTION_ID_URL}/{connection_id}", payload)
-
-        if self.is_valid_response(response):
-            return True
-
-        return False
+        return self._delete_entity_id(CONNECTION_ID_URL, connection_id, email, db_name)
 
 
     def check_connection_in_sub(self, connection_id: int, email: str, db_name: str) -> bool:
@@ -373,9 +402,7 @@ class DgServicePortalManager:
         Returns:
             bool: True if connectionId belongs to the users subscription else False
         """
-        connection_ids: list[int] = self.get_connection_ids(email, db_name)
-
-        return connection_id in connection_ids
+        return self._check_entity_in_sub(GET_CONNECTION_IDS, connection_id, email, db_name)
 
 # ------------------------------------------------ SCHEDULER FUNCTIONS ----------------------------------------------- #
 
@@ -391,18 +418,7 @@ class DgServicePortalManager:
         Returns:
             bool: True if the ID got saved, else False
         """
-        payload: dict[str, Any] = {
-                "id": scheduler_id,
-                "userEmail": email,
-                "databaseName": db_name
-        }
-
-        response: Response = self.sp_post(SCHEDULER_ID_URL, payload)
-
-        if self.is_valid_response(response):
-            return True
-
-        return False
+        return self._save_entity_id(SCHEDULER_ID_URL, scheduler_id, email, db_name)
 
 
     def get_scheduler_ids(self, email: str, db_name: str) -> list[int]:
@@ -414,18 +430,9 @@ class DgServicePortalManager:
             db_name (str): database name of the user
 
         Returns:
-            list[int]: All Ids
+            list[int]: All Ids, or an empty list on an invalid response
         """
-        schedulers_response: Response = self.sp_get(f"{GET_SCHEDULER_IDS}?userEmail={email}&databaseName={db_name}")
-
-        if self.is_valid_response(schedulers_response):
-            data: dict[str, Any] = json.loads(schedulers_response.text)
-
-            raw_ids = data.get("ids", [])
-
-            return [int(x) for x in raw_ids if isinstance(x, (str, int))]
-
-        return False
+        return self._get_entity_ids(GET_SCHEDULER_IDS, email, db_name)
 
 
     def delete_scheduler_id(self, scheduler_id: int, email: str, db_name: str) -> bool:
@@ -440,17 +447,7 @@ class DgServicePortalManager:
         Returns:
             bool: True if the ID got deleted, else False
         """
-        payload: dict[str, Any] = {
-                "userEmail": email,
-                "databaseName": db_name
-        }
-
-        response: Response = self.sp_delete(f"{SCHEDULER_ID_URL}/{scheduler_id}", payload)
-
-        if self.is_valid_response(response):
-            return True
-
-        return False
+        return self._delete_entity_id(SCHEDULER_ID_URL, scheduler_id, email, db_name)
 
 
     def check_scheduler_in_sub(self, scheduler_id: int, email: str, db_name: str) -> bool:
@@ -465,14 +462,23 @@ class DgServicePortalManager:
         Returns:
             bool: True if schedulerId belongs to the users subscription else False
         """
-        scheduler_ids: list[int] = self.get_scheduler_ids(email, db_name)
-
-        return scheduler_id in scheduler_ids
+        return self._check_entity_in_sub(GET_SCHEDULER_IDS, scheduler_id, email, db_name)
 
 # ----------------------------------------------------- USER DATA ---------------------------------------------------- #
 
     def get_dg_sp_user_data(self, email: str) -> dict[str, Any]:
-        """TODO: document"""
+        """
+        Retrieves the Service Portal user data for the given email
+
+        Args:
+            email (str): email of the user to look up
+
+        Raises:
+            DgServicePortalGetError: If the Service Portal responds with a non-2xx status
+
+        Returns:
+            dict[str, Any]: The user data returned by the Service Portal
+        """
         payload: dict[str, Any] = {
                 "email": email,
         }
@@ -501,6 +507,10 @@ class DgServicePortalManager:
 
         Alongside the total count it reports the send timestamp and a per-type breakdown (each entry
         holds the CmdbType label and its object count)
+
+        Unlike the other Service Portal calls (which let transport errors propagate to the route-level
+        ``handle_oc_errors`` decorator), this one swallows any error and returns False: it is
+        fire-and-forget telemetry that must never fail the API request that triggered it
 
         Args:
             request_user (CmdbUser): The user which is using the API route
@@ -561,17 +571,17 @@ class DgServicePortalManager:
 
     def is_valid_response(self, response: Response) -> bool:
         """
-        Determine whether the OpenCelium response indicates success.
+        Determine whether the DG Service Portal response indicates success.
 
         A response is considered valid if its HTTP status code is in the
         range 200-299 (inclusive). Any status code outside this range is
         treated as invalid.
 
         Args:
-            Response: A response from OpenCelium
+            response (Response): A response from the DG Service Portal
 
         Returns:
             bool: True if the response status code is between 200 and 299,
                 False otherwise.
         """
-        return response.status_code >= 200 and response.status_code < 300
+        return 200 <= response.status_code < 300

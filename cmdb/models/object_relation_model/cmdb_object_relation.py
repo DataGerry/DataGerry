@@ -61,6 +61,27 @@ class CmdbObjectRelation(CmdbDAO):
             'keys': [('relation_child_type_id', CmdbDAO.DAO_ASCENDING)],
             'name': 'relation_child_type_id',
             'unique': False
+        },
+        # A relation tab is exactly one (relation_id, side) group, paged and sorted by public_id. With
+        # only the single-field indexes above MongoDB serves the match from one of them and then sorts
+        # the whole group in memory; these two cover match + sort of both tabs from one index each
+        {
+            'keys': [
+                ('relation_id', CmdbDAO.DAO_ASCENDING),
+                ('relation_parent_id', CmdbDAO.DAO_ASCENDING),
+                ('public_id', CmdbDAO.DAO_ASCENDING),
+            ],
+            'name': 'relation_parent_tab',
+            'unique': False
+        },
+        {
+            'keys': [
+                ('relation_id', CmdbDAO.DAO_ASCENDING),
+                ('relation_child_id', CmdbDAO.DAO_ASCENDING),
+                ('public_id', CmdbDAO.DAO_ASCENDING),
+            ],
+            'name': 'relation_child_tab',
+            'unique': False
         }
     ]
 

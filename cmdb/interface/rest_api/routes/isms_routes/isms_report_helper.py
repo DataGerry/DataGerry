@@ -21,8 +21,155 @@ two identical fragments: resolving the assessed object (object / object group / 
 resolving each risk_calculation matrix cell to its risk class. These builders keep both reports in
 sync from a single definition.
 """
+import re
 from typing import Any
+
+from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Resolved (post-lookup) display fields the RiskAssessment report free-text search matches against.
+# These are projected field names, so the search stage must run after the report's final $project.
+RA_REPORT_SEARCH_FIELDS: list[str] = ["risk_title", "risk_category", "protection_goals"]
+
+
+def build_ra_report_search_stage(search: str) -> dict[str, Any]:
+    """
+    Builds a $match stage for a free-text search over the RiskAssessment report's display fields.
+
+    The term is matched case-insensitively as a literal substring (it is regex-escaped) against each
+    field in ``RA_REPORT_SEARCH_FIELDS``, OR'd together. ``protection_goals`` is an array of names, so
+    the regex matches when any element contains the term. The stage must be appended after the
+    report's final $project (so the display fields exist) and before the paging facet, so that both
+    the returned page and the reported total reflect the search.
+
+    Args:
+        search (str): The free-text search term (already stripped of surrounding whitespace)
+
+    Returns:
+        dict[str, Any]: The $match stage matching the term across the searchable display fields
+    """
+    pattern: str = re.escape(search)
+
+    return {
+        "$match": {
+            "$or": [
+                {field: {"$regex": pattern, "$options": "i"}}
+                for field in RA_REPORT_SEARCH_FIELDS
+            ]
+        }
+    }
+
+
+def build_report_pagination_stages(params: CollectionParameters) -> list[dict[str, Any]]:
+    """
+    Builds the trailing $sort / $skip / $limit stages that paginate a report pipeline.
+
+    The stages are meant to be appended after the report's final $project so the sort can target the
+    projected (display) field names. ``public_id`` is added as a stable tiebreaker whenever it is not
+    already the primary sort key, keeping pagination deterministic when two rows share the same sort
+    value - the caller must therefore keep ``public_id`` on the documents until after these stages.
+
+    A ``limit`` of ``0`` is the codebase convention for "no limit" (used by the export flow), so no
+    ``$limit`` stage is emitted in that case (``{'$limit': 0}`` is rejected by MongoDB).
+
+    Args:
+        params (CollectionParameters): Parsed collection parameters (sort, order, skip, limit)
+
+    Returns:
+        list[dict[str, Any]]: The $sort / $skip / $limit stages, in pipeline order
+    """
+    if params.sort == "public_id":
+        sort_spec: dict[str, int] = {"public_id": params.order}
+    else:
+        sort_spec = {params.sort: params.order, "public_id": 1}
+
+    stages: list[dict[str, Any]] = [
+        {"$sort": sort_spec},
+        {"$skip": params.skip},
+    ]
+
+    if params.limit:
+        stages.append({"$limit": params.limit})
+
+    return stages
+
+
+def build_report_facet_stage(params: CollectionParameters) -> dict[str, Any]:
+    """
+    Builds the final $facet stage that both pages a report pipeline and counts its full result set.
+
+    The ``data`` branch sorts / skips / limits the rows (see ``build_report_pagination_stages``) and
+    then drops the ``public_id`` tiebreaker so the row shape stays unchanged. The ``total`` branch
+    counts every row that survived the pipeline - deriving the total from the pipeline (rather than a
+    plain collection count) keeps it accurate even when an earlier stage drops rows, e.g. a hard
+    ``$unwind`` on a lookup that did not resolve.
+
+    The caller must keep ``public_id`` on the documents (project it in the report's own $project) so
+    the sort tiebreaker resolves before it is dropped here.
+
+    Args:
+        params (CollectionParameters): Pagination, sort and filter parameters for the report
+
+    Returns:
+        dict[str, Any]: The $facet stage to append as the report pipeline's final stage
+    """
+    return {
+        "$facet": {
+            "data": [
+                *build_report_pagination_stages(params),
+                {"$project": {"public_id": 0}},
+            ],
+            "total": [{"$count": "total"}],
+        }
+    }
+
+
+def paginate_report_rows(
+    rows: list[dict[str, Any]],
+    params: CollectionParameters,
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    Slices an already-sorted list of report rows into the requested page.
+
+    Used by reports whose ordering is computed in Python and therefore cannot be expressed as a
+    MongoDB ``$sort`` (the SOA report sorts by a resolved label and a natural identifier sort). The
+    caller sorts the full list first; this returns the current page plus the total row count. A
+    ``limit`` of 0 (the export "all" convention) returns every row.
+
+    Args:
+        rows (list[dict[str, Any]]): The full, already-sorted set of report rows
+        params (CollectionParameters): Pagination parameters (skip, limit)
+
+    Returns:
+        tuple[list[dict[str, Any]], int]: The current page's rows and the total row count
+    """
+    total: int = len(rows)
+
+    if not params.limit:
+        return rows, total
+
+    return rows[params.skip:params.skip + params.limit], total
+
+
+def extract_report_page(aggregation_result: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """
+    Splits the single document produced by a ``build_report_facet_stage`` pipeline into its parts.
+
+    Args:
+        aggregation_result (list[dict[str, Any]]): Materialised result of the faceted report pipeline
+
+    Returns:
+        tuple[list[dict[str, Any]], int]: The current page's rows and the total number of matching rows
+    """
+    if not aggregation_result:
+        return [], 0
+
+    facet_doc = aggregation_result[0]
+    rows: list[dict[str, Any]] = facet_doc.get("data", [])
+    total_bucket: list[dict[str, Any]] = facet_doc.get("total", [])
+    total: int = total_bucket[0]["total"] if total_bucket else 0
+
+    return rows, total
 
 
 def object_reference_lookup_stages() -> list[dict[str, Any]]:

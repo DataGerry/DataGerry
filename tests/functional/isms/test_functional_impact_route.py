@@ -120,8 +120,10 @@ class TestPostImpact:
 
     def test_missing_name_returns_400(self, rest_api) -> None:
         """A POST without the required name fails schema validation with 400."""
-        assert rest_api.post(f'{ROUTE_URL}/', json={'calculation_basis': BASIS_DEFAULT}).status_code \
-            == HTTPStatus.BAD_REQUEST
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json={'calculation_basis': BASIS_DEFAULT},
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_non_float_basis_returns_400(self, rest_api) -> None:
         """A calculation_basis that cannot be coerced to float returns 400."""
@@ -288,3 +290,87 @@ class TestErrorMapping:
         monkeypatch.setattr(ImpactManager, 'delete_item', _raiser(ImpactManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{IMPACT_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created item cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(ImpactManager, 'insert_item', lambda *_a, **_k: IMPACT_ID_FOR_GET)
+        monkeypatch.setattr(ImpactManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(ImpactManager, 'insert_item', lambda *_a, **_k: IMPACT_ID_FOR_GET)
+        monkeypatch.setattr(ImpactManager, 'get_item', _raiser(ImpactManagerGetError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{IMPACT_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ImpactManager, 'get_item', _raiser(ImpactManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}', json=_impact_payload(IMPACT_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'get_item', lambda *_a, **_k: {'public_id': IMPACT_ID_FOR_UPDATE})
+        monkeypatch.setattr(ImpactManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}', json=_impact_payload(IMPACT_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ImpactManager, 'get_item', _raiser(ImpactManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{IMPACT_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'get_item', lambda *_a, **_k: {'public_id': IMPACT_ID_FOR_DELETE})
+        monkeypatch.setattr(ImpactManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{IMPACT_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+    def test_update_with_changed_basis_takes_follow_up_path(self, rest_api, monkeypatch,
+                                                           database_manager: MongoDatabaseManager,
+                                                           database_name: str) -> None:
+        """Updating with a new calculation_basis succeeds via the risk-assessment follow-up path."""
+        _insert_impact(database_manager, database_name, IMPACT_ID_FOR_UPDATE)
+        # ignore whatever other impacts exist in the shared test DB - only the changed-basis path matters
+        monkeypatch.setattr(ImpactManager, 'impact_calculation_basis_exists', lambda *_a, **_k: False)
+
+        response = rest_api.put(f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}',
+                                json=_impact_payload(IMPACT_ID_FOR_UPDATE, BASIS_OTHER))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)

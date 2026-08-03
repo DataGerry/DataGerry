@@ -16,8 +16,8 @@
 """
 `WebCmdbService` — the only service `ProcessManager` registers today
 
-Composes the DataGerry WSGI app (base net_app + Sphinx docs at `/docs` + REST API at `/rest`)
-behind a `DispatcherMiddleware`, then runs it under gunicorn. The class plugs into the
+Composes the DataGerry WSGI app (base net_app + REST API at `/rest`) behind a
+`DispatcherMiddleware`, then runs it under gunicorn. The class plugs into the
 `AbstractCmdbService` lifecycle via two hooks: `_run` (build app + start gunicorn) and
 `_shutdown` (terminate the gunicorn process on SIGTERM)
 
@@ -35,7 +35,6 @@ from cmdb.database import MongoDatabaseManager
 
 from cmdb.process_management.service import AbstractCmdbService
 from cmdb.interface.net_app import create_app
-from cmdb.interface.docs import create_docs_server
 from cmdb.interface.dispatcher_middleware import DispatcherMiddleware
 from cmdb.interface.http_server import HTTPServer
 from cmdb.interface.rest_api.init_rest_api import create_rest_api
@@ -82,8 +81,8 @@ class WebCmdbService(AbstractCmdbService):
         Picks the database mode from the CLI-set globals on the `cmdb` module
         (`__CLOUD_MODE__` wins only when `__LOCAL_MODE__` is unset), constructs the
         `MongoDatabaseManager` from the `[Database]` section of `cmdb.conf`, and assembles
-        the WSGI tree with `DispatcherMiddleware`: `create_app()` at the root, the Sphinx
-        docs server at `/docs`, the REST API at `/rest`. Gunicorn options come from the
+        the WSGI tree with `DispatcherMiddleware`: `create_app()` at the root and the REST
+        API at `/rest`. Gunicorn options come from the
         `[WebServer]` config section. The HTTP server is then started in a nested
         `multiprocessing.Process` and `join()`-ed so this method blocks for the lifetime of
         the web tier — the nesting exists so `_shutdown` can terminate gunicorn directly
@@ -104,7 +103,6 @@ class WebCmdbService(AbstractCmdbService):
                 app=create_app(),
                 dbm=dbm,
                 mounts={
-                    '/docs': create_docs_server(),
                     '/rest': create_rest_api(dbm)
                 }
         )

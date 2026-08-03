@@ -184,7 +184,8 @@ class MediaFilesManager(BaseManager):
         try:
             data['uploadDate'] = datetime.now(timezone.utc)
             # GridFS stores file documents in the '<collection>.files' collection
-            self.update(criteria={'public_id': data['public_id']}, data=data, col=f"{MediaFile.COLLECTION}.files")
+            self.update(criteria={'public_id': data['public_id']}, data=data,
+                        collection=f"{MediaFile.COLLECTION}.files")
 
             return data
         except Exception as err:

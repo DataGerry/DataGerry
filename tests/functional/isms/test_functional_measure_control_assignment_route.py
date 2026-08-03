@@ -273,3 +273,75 @@ class TestErrorMapping:
                             _raiser(ControlMeasureAssignmentManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created assignment cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', lambda *_a, **_k: CMA_ID_FOR_GET)
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item', lambda *_a, **_k: None)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created assignment surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', lambda *_a, **_k: CMA_ID_FOR_GET)
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{CMA_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}',
+                            json=_cma_payload(CMA_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            lambda *_a, **_k: {'public_id': CMA_ID_FOR_UPDATE})
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}',
+                            json=_cma_payload(CMA_ID_FOR_UPDATE)).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            lambda *_a, **_k: {'public_id': CMA_ID_FOR_DELETE})
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

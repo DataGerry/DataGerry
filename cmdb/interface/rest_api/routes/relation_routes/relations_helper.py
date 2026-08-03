@@ -19,18 +19,33 @@ Helper functions for the CmdbRelation and CmdbObjectRelation routes
 Helpers extracted from the route handlers so the orchestration in ``relations_routes`` /
 ``object_relation_routes`` stays readable and the comparison / validation logic stays
 unit-testable. The validation helpers abort with the documented HTTP status on invalid input.
+
+The log helpers are deliberately best-effort: a CmdbObjectRelation write must not fail because its
+history entry could not be stored, so they swallow (and log) the logs manager's errors. Every one of
+them is called AFTER the write it describes, so a failed write never leaves a log claiming a change
+that did not happen.
 """
+from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort
 
-from cmdb.manager import ObjectRelationsManager, RelationsManager, ObjectsManager
+from cmdb.manager import ObjectRelationsManager, ObjectRelationLogsManager, RelationsManager, ObjectsManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.log_model import LogInteraction
+from cmdb.models.object_relation_model import ObjectRelationKey
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.security.acl.permission import AccessControlPermission
+
+from cmdb.errors.manager.object_relation_logs_manager import (
+    ObjectRelationLogsManagerBuildError,
+    ObjectRelationLogsManagerInsertError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 # Keys of a counterpart summary returned for a relation-tab row
 COUNTERPART_OBJECT_ID_KEY: str = 'object_id'
@@ -100,6 +115,119 @@ def get_existing_relation_or_abort(relations_manager: RelationsManager, relation
         abort(400, f"The Relation with ID:{relation_id} does not exist anymore!")
 
     return target_relation
+
+
+def log_object_relation_change(
+    object_relation_logs_manager: ObjectRelationLogsManager,
+    request_user: CmdbUser,
+    action: LogInteraction,
+    old_object_relation: dict[str, Any] | None,
+    new_object_relation: dict[str, Any] | None,
+) -> None:
+    """
+    Writes one CmdbObjectRelationLog, swallowing a logging failure
+
+    The history of a CmdbObjectRelation must never decide whether its write succeeds, so a build /
+    insert failure is logged and dropped instead of propagating to the route
+
+    Args:
+        object_relation_logs_manager (ObjectRelationLogsManager): Manager writing the log
+        request_user (CmdbUser): The user whose change is recorded
+        action (LogInteraction): The interaction to record (CREATE / EDIT / DELETE)
+        old_object_relation (dict[str, Any] | None): State before the change (None for a CREATE)
+        new_object_relation (dict[str, Any] | None): State after the change (None for a DELETE)
+    """
+    try:
+        object_relation_logs_manager.build_object_relation_log(
+            action,
+            request_user,
+            old_object_relation,
+            new_object_relation,
+        )
+    except (ObjectRelationLogsManagerBuildError, ObjectRelationLogsManagerInsertError) as error:
+        LOGGER.error("[log_object_relation_change] Failed to create an ObjectRelationLog: %s", error, exc_info=True)
+
+
+def log_object_relation_update(
+    object_relation_logs_manager: ObjectRelationLogsManager,
+    request_user: CmdbUser,
+    old_object_relation: dict[str, Any],
+    new_object_relation: dict[str, Any],
+) -> None:
+    """
+    Writes the history of an applied CmdbObjectRelation update
+
+    An update that only changed field values is one EDIT entry. An update that moved the relation to
+    another parent / child object is recorded as the DELETE of the old relation plus the CREATE of the
+    new one, because the two endpoints define which relation this is - keeping it as a single EDIT
+    would hide the move from both objects' histories
+
+    Args:
+        object_relation_logs_manager (ObjectRelationLogsManager): Manager writing the logs
+        request_user (CmdbUser): The user who performed the update
+        old_object_relation (dict[str, Any]): The CmdbObjectRelation before the update
+        new_object_relation (dict[str, Any]): The CmdbObjectRelation as it was stored
+    """
+    endpoints_changed = object_relation_logs_manager.check_related_object_changed(
+        old_object_relation,
+        new_object_relation,
+    )
+
+    if not endpoints_changed:
+        log_object_relation_change(
+            object_relation_logs_manager, request_user, LogInteraction.EDIT,
+            old_object_relation, new_object_relation,
+        )
+
+        return
+
+    log_object_relation_change(
+        object_relation_logs_manager, request_user, LogInteraction.DELETE, old_object_relation, None,
+    )
+    log_object_relation_change(
+        object_relation_logs_manager, request_user, LogInteraction.CREATE, None, new_object_relation,
+    )
+
+
+def log_object_relation_deletions(
+    object_relation_logs_manager: ObjectRelationLogsManager,
+    request_user: CmdbUser,
+    deleted_object_relations: list[dict[str, Any]],
+) -> None:
+    """
+    Writes one DELETE CmdbObjectRelationLog per deleted CmdbObjectRelation, in a single batch insert
+
+    The public_ids are reserved in one call and stamped onto the documents, so a bulk delete of N
+    relations costs one counter read and one insert instead of 2N round trips. A logging failure is
+    swallowed for the same reason as in `log_object_relation_change`
+
+    Args:
+        object_relation_logs_manager (ObjectRelationLogsManager): Manager writing the logs
+        request_user (CmdbUser): The user who performed the deletion
+        deleted_object_relations (list[dict[str, Any]]): The CmdbObjectRelations that were deleted
+    """
+    if not deleted_object_relations:
+        return
+
+    try:
+        logs_to_create: list[dict[str, Any]] = [
+            object_relation_logs_manager.format_object_relation_log_data(
+                LogInteraction.DELETE,
+                request_user,
+                object_relation,
+                None,
+            )
+            for object_relation in deleted_object_relations
+        ]
+
+        reserved_log_ids: list[int] = object_relation_logs_manager.reserve_public_ids(len(logs_to_create))
+
+        for log_doc, new_id in zip(logs_to_create, reserved_log_ids):
+            log_doc[ObjectRelationKey.PUBLIC_ID.value] = new_id
+
+        object_relation_logs_manager.insert_many(logs_to_create, skip_public=True)
+    except Exception as error:
+        LOGGER.error("[log_object_relation_deletions] Failed to create the deletion Logs: %s", error, exc_info=True)
 
 
 def validate_object_relation_endpoints(parent_id: int | None, child_id: int | None) -> None:

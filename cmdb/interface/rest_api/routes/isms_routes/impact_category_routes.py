@@ -32,7 +32,10 @@ from cmdb.models.isms_model import IsmsImpactCategory
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    get_item_or_404,
+    update_multiple_items,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -237,60 +240,13 @@ def update_multiple_isms_impact_categories(request_user: CmdbUser) -> Response:
         impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                      request_user)
 
-        data = request.get_json(silent=True)
-
-        if not isinstance(data, list):
-            abort(400, "The request body must be a list of ImpactCategories!")
-
-        results: list[dict[str, Any]] = []
-
-        for item in data:
-            public_id = item.get("public_id")
-            if public_id is None:
-                results.append({"public_id": None, "status": "failed", "message": "Missing public_id"})
-                continue
-
-            try:
-                to_update_impact = impact_category_manager.get_item(public_id)
-
-                if not to_update_impact:
-                    results.append({
-                        "public_id": public_id,
-                        "status": "failed",
-                        "message": f"ImpactCategory ID:{public_id} not found"
-                    })
-                    continue
-
-                impact_category_manager.update_item(public_id, IsmsImpactCategory.from_data(item))
-
-                results.append({"public_id": public_id, "status": "success"})
-            except ImpactCategoryManagerGetError as err:
-                LOGGER.error(
-                    "[update_multiple_isms_impact_categories] ImpactCategoryManagerGetError: %s", err, exc_info=True
-                )
-                results.append({
-                    "public_id": public_id,
-                    "status": "failed",
-                    "message": f"Failed to retrieve ImpactCategory ID: {public_id}"
-                })
-            except ImpactCategoryManagerUpdateError as err:
-                LOGGER.error(
-                    "[update_multiple_isms_impact_categories] ImpactCategoryManagerUpdateError: %s", err, exc_info=True
-                )
-                results.append({
-                    "public_id": public_id,
-                    "status": "failed",
-                    "message": f"Failed to update ImpactCategory ID: {public_id}"
-                })
-            except Exception as err:
-                LOGGER.error(
-                    "[update_multiple_isms_impact_categories] Exception: %s. Type: %s", err, type(err), exc_info=True
-                )
-                results.append({
-                    "public_id": public_id,
-                    "status": "failed",
-                    "message": "Internal server error"
-                })
+        results = update_multiple_items(
+            impact_category_manager,
+            IsmsImpactCategory,
+            request.get_json(silent=True),
+            "ImpactCategory",
+            "update_multiple_isms_impact_categories",
+        )
 
         return DefaultResponse(results).make_response()
     except HTTPException as http_err:

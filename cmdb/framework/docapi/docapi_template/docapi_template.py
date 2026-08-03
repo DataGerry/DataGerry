@@ -18,12 +18,14 @@ Implementation of DocapiTemplate
 """
 from typing import Any
 from cmdb.framework.docapi.docapi_template.docapi_template_base import TemplateManagementBase
+from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 from cmdb.models.docapi_model import DocapiTemplateType
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.cmdb_object import NoPublicIDError
 # -------------------------------------------------------------------------------------------------------------------- #
-#TODO: REFACTOR-FIX (CmdbDAO as base)
+# NOTE: this model extends TemplateManagementBase rather than CmdbDAO; migrating it onto CmdbDAO is
+#       tracked in the discussion backlog (a cross-model refactor), not done here.
 class DocapiTemplate(TemplateManagementBase):
     """
     Docapi Template
@@ -37,6 +39,7 @@ class DocapiTemplate(TemplateManagementBase):
 
     #pylint: disable=too-many-arguments
     #pylint: disable=too-many-positional-arguments
+    #pylint: disable=too-many-locals
     def __init__(
         self,
         name: str,
@@ -59,12 +62,18 @@ class DocapiTemplate(TemplateManagementBase):
         Args:
             name: name of this template
             label: label of this template
+            description: description of this template
             active: is template active
             author_id: author of this template
             template_data: the content of this template (e.g. HTML string or reference to an HTML file)
             template_style: style of template
             template_type: type of docapi template
             template_parameters: parameter of this template depending on the type
+            header: header component config (activated / config / content)
+            footer: footer component config (activated / config / content)
+            table_of_contents: table-of-contents component config
+            cover_page: cover-page component config (activated / content)
+            page_config: page config (margins etc.)
             **kwargs: optional params
         """
         self.name: str = name
@@ -97,21 +106,21 @@ class DocapiTemplate(TemplateManagementBase):
             DocapiTemplate: DocapiTemplate with the given data
         """
         return cls(
-            public_id = data['public_id'],
-            name = data['name'],
-            label = data.get('label', None),
-            description = data.get('description', None),
-            active = data.get('active', None),
-            author_id = data.get('author_id', None),
-            template_data = data.get('template_data', None),
-            template_style = data.get('template_style', None),
-            template_type = data.get('template_type', None),
-            template_parameters = data.get('template_parameters', None),
-            header = data.get('header', {}),
-            footer = data.get('footer', {}),
-            table_of_contents = data.get('table_of_contents', {}),
-            cover_page = data.get('cover_page', {}),
-            page_config = data.get('page_config', {}),
+            public_id = data[DocapiTemplateKey.PUBLIC_ID],
+            name = data[DocapiTemplateKey.NAME],
+            label = data.get(DocapiTemplateKey.LABEL, None),
+            description = data.get(DocapiTemplateKey.DESCRIPTION, None),
+            active = data.get(DocapiTemplateKey.ACTIVE, None),
+            author_id = data.get(DocapiTemplateKey.AUTHOR_ID, None),
+            template_data = data.get(DocapiTemplateKey.TEMPLATE_DATA, None),
+            template_style = data.get(DocapiTemplateKey.TEMPLATE_STYLE, None),
+            template_type = data.get(DocapiTemplateKey.TEMPLATE_TYPE, None),
+            template_parameters = data.get(DocapiTemplateKey.TEMPLATE_PARAMETERS, None),
+            header = data.get(DocapiTemplateKey.HEADER, {}),
+            footer = data.get(DocapiTemplateKey.FOOTER, {}),
+            table_of_contents = data.get(DocapiTemplateKey.TABLE_OF_CONTENTS, {}),
+            cover_page = data.get(DocapiTemplateKey.COVER_PAGE, {}),
+            page_config = data.get(DocapiTemplateKey.PAGE_CONFIG, {}),
         )
 
 
@@ -127,21 +136,21 @@ class DocapiTemplate(TemplateManagementBase):
             dict: Json compatible dict of the DocapiTemplate values
         """
         return {
-            'public_id': instance.public_id,
-            'name': instance.name,
-            'label': instance.label,
-            'description': instance.description,
-            'active': instance.active,
-            'author_id': instance.author_id,
-            'template_data': instance.template_data,
-            'template_style': instance.template_style,
-            'template_type': instance.template_type,
-            'template_parameters': instance.template_parameters,
-            'header': instance.header,
-            'footer': instance.footer,
-            'table_of_contents': instance.table_of_contents,
-            'cover_page': instance.cover_page,
-            'page_config': instance.page_config,
+            DocapiTemplateKey.PUBLIC_ID: instance.public_id,
+            DocapiTemplateKey.NAME: instance.name,
+            DocapiTemplateKey.LABEL: instance.label,
+            DocapiTemplateKey.DESCRIPTION: instance.description,
+            DocapiTemplateKey.ACTIVE: instance.active,
+            DocapiTemplateKey.AUTHOR_ID: instance.author_id,
+            DocapiTemplateKey.TEMPLATE_DATA: instance.template_data,
+            DocapiTemplateKey.TEMPLATE_STYLE: instance.template_style,
+            DocapiTemplateKey.TEMPLATE_TYPE: instance.template_type,
+            DocapiTemplateKey.TEMPLATE_PARAMETERS: instance.template_parameters,
+            DocapiTemplateKey.HEADER: instance.header,
+            DocapiTemplateKey.FOOTER: instance.footer,
+            DocapiTemplateKey.TABLE_OF_CONTENTS: instance.table_of_contents,
+            DocapiTemplateKey.COVER_PAGE: instance.cover_page,
+            DocapiTemplateKey.PAGE_CONFIG: instance.page_config,
         }
 
 

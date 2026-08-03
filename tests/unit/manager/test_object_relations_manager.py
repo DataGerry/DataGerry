@@ -27,17 +27,8 @@ single delete, the ``update_changed_fields`` pipeline) is tested directly.
 from typing import Any
 from unittest.mock import MagicMock
 
-from cmdb.manager.object_relations_manager import (
-    ObjectRelationsManager,
-    RELATION_ID_FIELD,
-    RELATION_PARENT_ID_FIELD,
-    RELATION_CHILD_ID_FIELD,
-    RELATION_PARENT_TYPE_ID_FIELD,
-    RELATION_CHILD_TYPE_ID_FIELD,
-    FIELD_VALUES_FIELD,
-    PUBLIC_ID_FIELD,
-)
-from cmdb.models.object_relation_model import CmdbObjectRelation
+from cmdb.manager.object_relations_manager import ObjectRelationsManager
+from cmdb.models.object_relation_model import CmdbObjectRelation, ObjectRelationKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 OBJECT_RELATION_PUBLIC_ID: int = 42
@@ -120,7 +111,7 @@ class TestGetRelatedRelations:
     def test_finds_with_related_query(self) -> None:
         """The method queries find() with the related-relations query and returns a list."""
         mgr = _mock_manager()
-        query = {'$or': [{RELATION_PARENT_ID_FIELD: PARENT_OBJECT_ID}, {RELATION_CHILD_ID_FIELD: PARENT_OBJECT_ID}]}
+        query = {'$or': [{ObjectRelationKey.RELATION_PARENT_ID.value: PARENT_OBJECT_ID}, {ObjectRelationKey.RELATION_CHILD_ID.value: PARENT_OBJECT_ID}]}
         mgr.get_related_relations_query.return_value = query
         mgr.find.return_value = [SAMPLE_OBJECT_RELATION]
 
@@ -141,8 +132,8 @@ class TestGetRelatedRelationsQuery:
 
         assert result == {
             '$or': [
-                {RELATION_PARENT_ID_FIELD: PARENT_OBJECT_ID},
-                {RELATION_CHILD_ID_FIELD: PARENT_OBJECT_ID},
+                {ObjectRelationKey.RELATION_PARENT_ID.value: PARENT_OBJECT_ID},
+                {ObjectRelationKey.RELATION_CHILD_ID.value: PARENT_OBJECT_ID},
             ]
         }
 
@@ -160,7 +151,7 @@ class TestUpdateObjectRelation:
         ObjectRelationsManager.update_object_relation(mgr, OBJECT_RELATION_PUBLIC_ID, data)
 
         mgr.update_item.assert_called_once_with(OBJECT_RELATION_PUBLIC_ID, data)
-        assert data[PUBLIC_ID_FIELD] == OBJECT_RELATION_PUBLIC_ID
+        assert data[ObjectRelationKey.PUBLIC_ID.value] == OBJECT_RELATION_PUBLIC_ID
 
     def test_serializes_model_instance_then_pins(self) -> None:
         """A CmdbObjectRelation instance is serialized to json and its identity pinned to the URL id."""
@@ -172,7 +163,7 @@ class TestUpdateObjectRelation:
         called_id, called_data = mgr.update_item.call_args.args
         assert called_id == OBJECT_RELATION_PUBLIC_ID
         assert isinstance(called_data, dict)
-        assert called_data[PUBLIC_ID_FIELD] == OBJECT_RELATION_PUBLIC_ID
+        assert called_data[ObjectRelationKey.PUBLIC_ID.value] == OBJECT_RELATION_PUBLIC_ID
 
 
 # ------------------------------------------------ delete_object_relation -------------------------------------------- #
@@ -203,8 +194,8 @@ class TestDeleteInvalidatedObjectRelations:
 
         mgr.delete_many.assert_called_once_with({
             '$and': [
-                {RELATION_ID_FIELD: RELATION_ID},
-                {RELATION_PARENT_TYPE_ID_FIELD: {'$in': invalid_ids}},
+                {ObjectRelationKey.RELATION_ID.value: RELATION_ID},
+                {ObjectRelationKey.RELATION_PARENT_TYPE_ID.value: {'$in': invalid_ids}},
             ]
         })
 
@@ -217,8 +208,8 @@ class TestDeleteInvalidatedObjectRelations:
 
         mgr.delete_many.assert_called_once_with({
             '$and': [
-                {RELATION_ID_FIELD: RELATION_ID},
-                {RELATION_CHILD_TYPE_ID_FIELD: {'$in': invalid_ids}},
+                {ObjectRelationKey.RELATION_ID.value: RELATION_ID},
+                {ObjectRelationKey.RELATION_CHILD_TYPE_ID.value: {'$in': invalid_ids}},
             ]
         })
 
@@ -251,10 +242,10 @@ class TestUpdateChangedFields:
         ObjectRelationsManager.update_changed_fields(mgr, RELATION_ID, {'added': ['new'], 'removed': ['old']})
 
         criteria, pipeline = mgr.update_many.call_args.args
-        assert criteria == {RELATION_ID_FIELD: RELATION_ID}
+        assert criteria == {ObjectRelationKey.RELATION_ID.value: RELATION_ID}
         assert mgr.update_many.call_args.kwargs == {'plain': True}
 
-        set_stage = pipeline[0]['$set'][FIELD_VALUES_FIELD]['$concatArrays']
+        set_stage = pipeline[0]['$set'][ObjectRelationKey.FIELD_VALUES.value]['$concatArrays']
         filter_cond = set_stage[0]['$filter']['cond']
         appended = set_stage[1]
 

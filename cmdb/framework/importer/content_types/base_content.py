@@ -20,9 +20,11 @@ The Content-Type entity header is used to indicate the media type of the resourc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class BaseContent:
-    """Empty general content type
-    Notes:
-        Should not be used
+    """
+    Empty base content-type identifier
+
+    Holds the slots (icon, content type, file type) that concrete content types fill; not intended
+    to be used directly.
     """
     ICON: str = ''
     CONTENT_TYPE: str = ''

@@ -14,13 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of SystemConfigReader
+Implementation of OcApiConnector
 """
 import os
+from http import HTTPStatus
 from logging import Logger, getLogger
 from typing import Any
-import threading
-from requests import Response, delete, post, get, put
+from requests import Response, request
 from requests.exceptions import Timeout, RequestException
 
 from flask import current_app
@@ -29,14 +29,23 @@ from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 from cmdb.manager.system_manager.settings_manager import SettingsManager
 
-from cmdb.open_celium.oc_constants import OC_REQUEST_TIMEOUT
+from cmdb.open_celium.oc_constants import (
+    OC_REQUEST_TIMEOUT,
+    OC_AUTH_URL,
+    MAX_AUTH_RETRIES,
+    OC_TOKEN_SECTION,
+    OC_TOKEN_KEY,
+    OC_HEADER_AUTHORIZATION,
+    OC_HEADER_MASTER_PASSWORD,
+    OC_HEADER_CONTENT_TYPE,
+    OC_CONTENT_TYPE_JSON,
+    OC_CONFIG_SECTION,
+)
 
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-AUTH_URL = "/login"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                OcApiConnector - CLASS                                                #
@@ -45,30 +54,94 @@ class OcApiConnector:
     """
     Handles the OpenCelium connection
     """
-    _lock = threading.Lock()
-
-
     def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
-        if current_app.cloud_mode and not current_app.local_mode:
-            self.host: str = os.getenv('OC_HOST')
-            self.port = int(os.getenv('OC_PORT'))
-            self.protocol: str = os.getenv('OC_PROTOCOL')
-            self.email: str = os.getenv('OC_EMAIL')
-            self.user: str = os.getenv('OC_USER')
-            self.password: str = os.getenv('OC_PASSWORD')
-            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}"
+        """
+        Initialises the OcApiConnector
 
-        else:
-            scr = SystemConfigReader()
-            self.host: str = scr.get_value("host", "OpenCelium")
-            self.port = int(scr.get_value("port", "OpenCelium"))
-            self.protocol: str = scr.get_value("protocol", "OpenCelium")
-            self.email: str = scr.get_value("email", "OpenCelium")
-            self.user: str = scr.get_value("user", "OpenCelium")
-            self.password: str = scr.get_value("password", "OpenCelium")
-            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}/api"
+        The OpenCelium connection settings come from environment variables in cloud (non-local) mode and
+        from the `[OpenCelium]` config section otherwise; the resolved values are assigned as instance
+        attributes and the token cache is opened via the SettingsManager.
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager (for the token settings)
+            db_name (str): The database the token is cached in
+
+        Raises:
+            ValueError: If cloud mode is active but the OpenCelium connection env variables are incomplete
+        """
+        config: dict[str, Any] = (
+            self._load_cloud_config() if current_app.cloud_mode and not current_app.local_mode
+            else self._load_local_config()
+        )
+
+        self.host: str = config['host']
+        self.port: int = config['port']
+        self.protocol: str = config['protocol']
+        self.email: str = config['email']
+        self.user: str = config['user']
+        self.password: str = config['password']
+        self.base_url: str = config['base_url']
 
         self.settings_manager: SettingsManager = SettingsManager(dbm, db_name)
+
+
+    @staticmethod
+    def _load_cloud_config() -> dict[str, Any]:
+        """
+        Resolves the OpenCelium connection config from environment variables (cloud mode)
+
+        Returns:
+            dict[str, Any]: The connection config (host, port, protocol, email, user, password, base_url)
+
+        Raises:
+            ValueError: If any of the required OpenCelium env variables is missing
+        """
+        host = os.getenv('OC_HOST')
+        port = os.getenv('OC_PORT')
+        protocol = os.getenv('OC_PROTOCOL')
+        email = os.getenv('OC_EMAIL')
+        user = os.getenv('OC_USER')
+        password = os.getenv('OC_PASSWORD')
+
+        if not all([host, port, protocol, email, user, password]):
+            raise ValueError(
+                "Missing OpenCelium connection env variables "
+                "(OC_HOST/OC_PORT/OC_PROTOCOL/OC_EMAIL/OC_USER/OC_PASSWORD)!"
+            )
+
+        return {
+            'host': host,
+            'port': int(port),
+            'protocol': protocol,
+            'email': email,
+            'user': user,
+            'password': password,
+            'base_url': f"{protocol}://{host}:{int(port)}",
+        }
+
+
+    @staticmethod
+    def _load_local_config() -> dict[str, Any]:
+        """
+        Resolves the OpenCelium connection config from the `[OpenCelium]` config section (on-prem mode)
+
+        Returns:
+            dict[str, Any]: The connection config (host, port, protocol, email, user, password, base_url)
+        """
+        scr = SystemConfigReader()
+        host = scr.get_value("host", OC_CONFIG_SECTION)
+        port = int(scr.get_value("port", OC_CONFIG_SECTION))
+        protocol = scr.get_value("protocol", OC_CONFIG_SECTION)
+
+        return {
+            'host': host,
+            'port': port,
+            'protocol': protocol,
+            'email': scr.get_value("email", OC_CONFIG_SECTION),
+            'user': scr.get_value("user", OC_CONFIG_SECTION),
+            'password': scr.get_value("password", OC_CONFIG_SECTION),
+            'base_url': f"{protocol}://{host}:{port}/api",
+        }
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -98,13 +171,14 @@ class OcApiConnector:
 
     def get_jwt_token(self) -> str | None:
         """
+        Reads the cached OpenCelium JWT token from the settings
+
         Returns:
-            str: Jwt Token of OpenCelium
+            str | None: The JWT token of OpenCelium, or None if it is not cached / cannot be read
         """
         try:
-            token_data: dict[str, Any] | None = self.settings_manager.get_all_values_from_section('oc_token')
-            # LOGGER.debug(f"token_data: {token_data}")
-            token: str = token_data.get('token')
+            token_data: dict[str, Any] | None = self.settings_manager.get_all_values_from_section(OC_TOKEN_SECTION)
+            token: str = token_data.get(OC_TOKEN_KEY)
         except Exception:
             return None
 
@@ -112,264 +186,218 @@ class OcApiConnector:
 
 # ----------------------------------------------------- REQUESTS ----------------------------------------------------- #
 
+    def _send(
+            self,
+            method: str,
+            endpoint: str,
+            payload: dict[str, Any] | None,
+            with_auth: bool,
+            password: str | None,
+        ) -> Response:
+        """
+        Dispatches a single HTTP request towards OpenCelium (no auth/retry logic)
+
+        Args:
+            method (str): The HTTP method ('GET', 'POST', 'PUT', 'DELETE')
+            endpoint (str): The target endpoint (excluding the base URL)
+            payload (dict[str, Any] | None): The JSON body, or None for bodyless requests
+            with_auth (bool): Whether to send the 'Authorization' header
+            password (str | None): Optional master password sent as 'X-Master-Password'
+
+        Returns:
+            Response: The raw response from OpenCelium
+        """
+        return request(
+            method,
+            self.build_url(endpoint),
+            headers=self.get_headers(with_auth, password),
+            json=payload,
+            timeout=OC_REQUEST_TIMEOUT,
+        )
+
+
+    def _request(
+            self,
+            method: str,
+            endpoint: str,
+            payload: dict[str, Any] | None = None,
+            with_auth: bool = True,
+            password: str | None = None,
+            counter: int = 0,
+        ) -> Response:
+        """
+        Sends an authenticated request towards OpenCelium, refreshing the token on a 403
+
+        Ensures a token is present before the call (when ``with_auth``), then, if OpenCelium answers
+        403 (expired/invalid token), re-authenticates and re-sends once at this level. Because
+        ``authenticate`` itself issues a request, a persistently rejected login recurses through this
+        method up to ``MAX_AUTH_RETRIES`` attempts before giving up (raising AuthError). It is always
+        bounded by ``counter``.
+
+        Args:
+            method (str): The HTTP method ('GET', 'POST', 'PUT', 'DELETE')
+            endpoint (str): The target endpoint (excluding the base URL)
+            payload (dict[str, Any] | None): The JSON body, or None for bodyless requests
+            with_auth (bool): Whether the request carries the 'Authorization' header
+            password (str | None): Optional master password sent as 'X-Master-Password'
+            counter (int): The current authentication-retry depth
+
+        Raises:
+            Timeout: When the timeout threshold is reached
+            RequestException: When the request fails at the transport level
+
+        Returns:
+            Response: The response from OpenCelium
+        """
+        try:
+            if with_auth and not self.token_is_set():
+                counter += 1
+                self.authenticate(counter)
+
+            response: Response = self._send(method, endpoint, payload, with_auth, password)
+
+            # If the token expired or is invalid -> try once to recover
+            if response.status_code == HTTPStatus.FORBIDDEN and counter < MAX_AUTH_RETRIES:
+                LOGGER.warning("[_request] 403 received -> refreshing token (attempt %s)", counter)
+                self.authenticate(counter)  # writes new token to DB
+                response = self._send(method, endpoint, payload, with_auth, password)
+
+            return response
+        except (Timeout, RequestException) as err:
+            raise err
+        except Exception as err:
+            LOGGER.error("[_request] %s %s failed: %s. Type: %s!", method, endpoint, err, type(err), exc_info=True)
+            raise err
+
+
     def oc_post(
             self,
             payload: dict[str, Any],
             endpoint: str,
             with_auth: bool = True,
-            counter: int = 0
+            counter: int = 0,
         ) -> Response:
         """
-        Handles POST requests towards OpenCelium API
+        Handles POST requests towards the OpenCelium API
 
         Args:
-            payload (dict[str, Any]): payload for POST-request
+            payload (dict[str, Any]): payload for the POST request
             endpoint (str): target url
-            with_auth (bool, optional): If True the 'Authorazation'-header is send. Defaults to True
-
-        Raises:
-            Timeout: When timeout treshhold is reached
-            RequestException: When something went wrong with the request
-            Exception: When something unexpected occurs
+            with_auth (bool, optional): If True the 'Authorization' header is sent. Defaults to True
+            counter (int, optional): The current authentication-retry depth. Defaults to 0
 
         Returns:
             Response: The POST response from OpenCelium
         """
-        try:
-            if not self.token_is_set() and with_auth:
-                counter += 1
-                self.authenticate(counter)
-
-            response: Response = post(
-                self.build_url(endpoint),
-                headers=self.get_headers(with_auth),
-                json=payload,
-                timeout=OC_REQUEST_TIMEOUT
-            )
-
-            # LOGGER.debug("\n\n")
-            # LOGGER.debug(f"[Request] method: {response.request.method}")
-            # LOGGER.debug(f"[Request] url: {response.request.url}")
-            # LOGGER.debug(f"[Request] headers: {response.request.headers}")
-            # LOGGER.debug(f"[Request] payload: {response.request.body}\n\n")
-
-            # If token expired or invalid → try once to recover
-            if response.status_code == 403 and counter < 6:
-                LOGGER.warning(f"[oc_post] 403 received → trying token refresh: {counter}")
-                # LOGGER.warning(f"[oc_post] response: {response.text}")
-
-                self.authenticate(counter) # writes new token to DB
-
-                response: Response = post(
-                    self.build_url(endpoint),
-                    headers=self.get_headers(with_auth),
-                    json=payload,
-                    timeout=OC_REQUEST_TIMEOUT,
-                )
-
-            return response
-        except (Timeout, RequestException) as err:
-            raise err
-        except Exception as err:
-            LOGGER.error("[oc_post] Exception: %s. Type: %s!", err, type(err), exc_info=True)
-            raise err
+        return self._request('POST', endpoint, payload=payload, with_auth=with_auth, counter=counter)
 
 
-    def oc_get(self, endpoint: str, password: str = None, counter: int = 0) -> Response:
+    def oc_get(self, endpoint: str, password: str | None = None, counter: int = 0) -> Response:
         """
-        Handles GET requests towards OpenCelium API
+        Handles GET requests towards the OpenCelium API
 
         Args:
-            endpoint (str): target_url
-
-        Raises:
-            Timeout: When timeout treshhold is reached
-            RequestException: When something went wrong with the request
-            Exception: When something unexpected occurs
+            endpoint (str): target url
+            password (str | None, optional): Optional master password sent as 'X-Master-Password'
+            counter (int, optional): The current authentication-retry depth. Defaults to 0
 
         Returns:
             Response: The GET response from OpenCelium
         """
-        try:
-            if not self.token_is_set():
-                counter += 1
-                self.authenticate(counter)
-
-            response: Response = get(
-                self.build_url(endpoint),
-                headers=self.get_headers(password=password),
-                timeout=OC_REQUEST_TIMEOUT
-            )
-
-            # LOGGER.debug(f"[Response] response: {response}")
-            # LOGGER.debug(f"[Response] status_code: {response.status_code}")
-            # LOGGER.debug(f"[Response] headers: {response.headers}")
-            # LOGGER.debug(f"[Response] body: {response.text}")
-
-            # If token expired or invalid → try once to recover
-            if response.status_code == 403 and counter < 6:
-                LOGGER.warning(f"[oc_get] 403 received → trying token refresh: {counter}")
-
-                self.authenticate(counter) # writes new token to DB
-
-                response: Response = get(
-                    self.build_url(endpoint),
-                    headers=self.get_headers(password=password),
-                    timeout=OC_REQUEST_TIMEOUT
-                )
-
-            return response
-        except (Timeout, RequestException) as err:
-            raise err
-        except Exception as err:
-            LOGGER.error("[oc_get] Exception: %s. Type: %s!", err, type(err), exc_info=True)
-            raise err
+        return self._request('GET', endpoint, password=password, counter=counter)
 
 
     def oc_put(self, payload: dict[str, Any], endpoint: str, counter: int = 0) -> Response:
         """
-        Handles PUT requests towards OpenCelium API
+        Handles PUT requests towards the OpenCelium API
 
         Args:
-            payload (dict[str, Any]): payload for PUTs-request
+            payload (dict[str, Any]): payload for the PUT request
             endpoint (str): target url
-
-        Raises:
-            Timeout: When timeout treshhold is reached
-            RequestException: When something went wrong with the request
-            Exception: When something unexpected occurs
+            counter (int, optional): The current authentication-retry depth. Defaults to 0
 
         Returns:
             Response: The PUT response from OpenCelium
         """
-        try:
-            if not self.token_is_set():
-                counter += 1
-                self.authenticate(counter)
-
-            response: Response = put(
-                self.build_url(endpoint),
-                headers=self.get_headers(),
-                json=payload,
-                timeout=OC_REQUEST_TIMEOUT
-            )
-
-            # If token expired or invalid → try once to recover
-            if response.status_code == 403 and counter < 6:
-                LOGGER.warning(f"[oc_put] 403 received → trying token refresh: {counter}")
-
-                self.authenticate(counter) # writes new token to DB
-
-                response: Response = put(
-                    self.build_url(endpoint),
-                    headers=self.get_headers(),
-                    json=payload,
-                    timeout=OC_REQUEST_TIMEOUT
-                )
-
-            return response
-        except (Timeout, RequestException) as err:
-            raise err
-        except Exception as err:
-            LOGGER.error("[oc_put] Exception: %s. Type: %s!", err, type(err), exc_info=True)
-            raise err
+        return self._request('PUT', endpoint, payload=payload, counter=counter)
 
 
     def oc_delete(self, endpoint: str, counter: int = 0) -> Response:
         """
-        Handles DELETE requests towards OpenCelium API
+        Handles DELETE requests towards the OpenCelium API
 
         Args:
             endpoint (str): target url
-
-        Raises:
-            Timeout: When timeout treshhold is reached
-            RequestException: When something went wrong with the request
-            Exception: When something unexpected occurs
+            counter (int, optional): The current authentication-retry depth. Defaults to 0
 
         Returns:
             Response: The DELETE response from OpenCelium
         """
-        try:
-            if not self.token_is_set():
-                counter += 1
-                self.authenticate(counter)
+        return self._request('DELETE', endpoint, counter=counter)
 
-            response: Response = delete(
-                self.build_url(endpoint),
-                headers=self.get_headers(),
-                timeout=OC_REQUEST_TIMEOUT
-            )
-
-            # If token expired or invalid → try once to recover
-            if response.status_code == 403 and counter < 6:
-                LOGGER.warning(f"[oc_delete] 403 received → trying token refresh: {counter}")
-
-                self.authenticate(counter) # writes new token to DB
-
-                response: Response = delete(
-                    self.build_url(endpoint),
-                    headers=self.get_headers(),
-                    timeout=OC_REQUEST_TIMEOUT
-                )
-
-            return response
-        except (Timeout, RequestException) as err:
-            raise err
-        except Exception as err:
-            LOGGER.error("[oc_delete] Exception: %s. Type: %s!", err, type(err), exc_info=True)
-            raise err
 # ------------------------------------------------------ HELPER ------------------------------------------------------ #
 
     def authenticate(self, counter: int = 0) -> None:
         """
-        Gets the JWT-Token for the API
+        Authenticates against OpenCelium and caches the returned JWT token
+
+        Posts the credentials to the login endpoint and, on success, stores the token from the
+        response's Authorization header via the SettingsManager.
+
+        Args:
+            counter (int): The current authentication-retry depth (bounds the token-refresh recursion)
 
         Raises:
-            AuthError: When authentication failed
+            AuthError: When authentication fails or the successful response carries no token
         """
-        # LOGGER.debug("[authenticate] called")
-        # with self._lock:
         payload: dict[str, str] = {
             "email": self.get_email(),
             "password": self.get_password(),
         }
 
         counter += 1
-        response: Response = self.oc_post(payload, AUTH_URL, False, counter)
+        response: Response = self.oc_post(payload, OC_AUTH_URL, False, counter)
 
-        if response.status_code == 200:
-            # LOGGER.debug(f"[authenticate] response.headers: {response.headers}")
-            # LOGGER.debug(f"[authenticate] response.text: {response.text}")
+        if response.status_code == HTTPStatus.OK:
+            token: str | None = response.headers.get(OC_HEADER_AUTHORIZATION)
+
+            if not token:
+                LOGGER.error("[authenticate] OC login succeeded but returned no Authorization token")
+                raise AuthError("Authentication in OpenCelium failed. No token was returned!")
+
             oc_token_data = {
-                "_id": "oc_token",
-                "token":  response.headers['Authorization']
+                "_id": OC_TOKEN_SECTION,
+                OC_TOKEN_KEY: token
             }
 
-            self.settings_manager.write(_id='oc_token', data=oc_token_data)
+            self.settings_manager.write(_id=OC_TOKEN_SECTION, data=oc_token_data)
         else:
             LOGGER.error("OC Auth error: [%s] %s", response.status_code, response.text)
             raise AuthError("Authentication in OpenCelium failed. Confirm your credentails!")
 
 
-    def get_headers(self, with_auth: bool = True, password: str = None) -> dict[str, Any]:
+    def get_headers(self, with_auth: bool = True, password: str | None = None) -> dict[str, Any]:
         """
         Sets the headers for requests towards OpenCelium
 
         Args:
             with_auth (bool, optional): If True the 'Authorization' header will be set. Defaults to True.
+            password (str | None, optional): If set, sent as the 'X-Master-Password' header
 
         Returns:
             dict[str, Any]: The headers for the request
         """
         headers: dict[str, str] = {
-            "Content-Type": "application/json"
+            OC_HEADER_CONTENT_TYPE: OC_CONTENT_TYPE_JSON
         }
 
         if with_auth:
-            headers["Authorization"] = self.get_jwt_token()
+            token: str | None = self.get_jwt_token()
+            # Only attach the header when a token is actually available (a None value breaks requests)
+            if token:
+                headers[OC_HEADER_AUTHORIZATION] = token
         if password:
-            headers["X-Master-Password"] = password
+            headers[OC_HEADER_MASTER_PASSWORD] = password
 
         return headers
 

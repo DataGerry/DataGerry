@@ -21,3 +21,20 @@ OC_REQUEST_TIMEOUT: int = 10
 UNIQUE_POSITIVE: str = "NOT_EXISTS"
 UNIQUE_NEGATIVE: str = "EXISTS"
 OC_INTERNAL_CONNECTOR_NAME: str = "DataGerryInternal"
+
+# OpenCelium login endpoint + max token-refresh attempts before giving up on a 403 loop
+OC_AUTH_URL: str = "/login"
+MAX_AUTH_RETRIES: int = 6
+
+# settings_manager section (and document _id) + key under which the OC JWT token is cached
+OC_TOKEN_SECTION: str = "oc_token"
+OC_TOKEN_KEY: str = "token"
+
+# HTTP header names / content type used when talking to OpenCelium
+OC_HEADER_AUTHORIZATION: str = "Authorization"
+OC_HEADER_MASTER_PASSWORD: str = "X-Master-Password"
+OC_HEADER_CONTENT_TYPE: str = "Content-Type"
+OC_CONTENT_TYPE_JSON: str = "application/json"
+
+# SystemConfigReader section holding the on-premise OpenCelium connection config
+OC_CONFIG_SECTION: str = "OpenCelium"
