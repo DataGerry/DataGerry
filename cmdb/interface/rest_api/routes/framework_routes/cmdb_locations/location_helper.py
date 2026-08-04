@@ -249,6 +249,33 @@ def extract_object_location_parent(fields: list[dict[str, Any]]) -> tuple[bool, 
     return True, parent if parent > 0 else None
 
 
+def guard_managed_location(location: dict[str, Any] | None) -> None:
+    """
+    Refuses a manual change to a CmdbLocation node that a framework feature owns
+
+    A node carrying ``managed_by`` was created for an object whose type has no location field: there is no
+    field behind it and nothing in the object form the user could correct, so a manual move or delete would
+    leave the tree disagreeing with the owning feature until something happened to re-assert it. The owner
+    is named in the message so the user knows where to make the change instead
+
+    A no-op for an ordinary mirrored node, which the user is free to move
+
+    Args:
+        location (dict[str, Any] | None): The CmdbLocation node being changed
+
+    Raises:
+        HTTPException: 400 when the node is owned by a feature
+    """
+    if not location:
+        return
+
+    owner: Any = location.get(LocationKey.MANAGED_BY.value)
+
+    if owner:
+        abort(400, f"This Location is managed by the '{owner}' feature and can not be moved or deleted "
+                   f"here - change it where that feature manages it instead!")
+
+
 def validate_object_location_change(
         object_id: int,
         parent: int | None,

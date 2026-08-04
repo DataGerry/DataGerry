@@ -36,6 +36,20 @@ class LocationKey(BaseStrEnum):
     TYPE_LABEL = 'type_label'
     TYPE_ICON = 'type_icon'
     TYPE_SELECTABLE = 'type_selectable'
+    MANAGED_BY = 'managed_by'
+
+
+class LocationManagedBy(BaseStrEnum):
+    """
+    Who owns a CmdbLocation node, when it is not the user
+
+    Absent means the node is the ordinary mirror of its object's own location field - the user put it
+    where it is and may move it. A marked node was created by a framework feature for an object whose
+    type carries no location field at all, so there is no field to mirror and nothing in the object form
+    the user could edit; the owning feature re-asserts it, and the location routes refuse a manual
+    re-parent or delete so the tree cannot silently drift away from what the feature believes
+    """
+    RACK = 'rack'
 
 
 class ExtendableOptionKey(BaseStrEnum):

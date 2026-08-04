@@ -251,7 +251,7 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
             # The insert pipeline lives in objects_helper now, so its collaborators are patched there
             with patch(f'{HELPER_PATH}.build_new_object_data', return_value=built_object), \
                  patch(f'{HELPER_PATH}.guard_object_write_license'), \
-                 patch(f'{HELPER_PATH}.enforce_object_invariants', return_value=[]), \
+                 patch(f'{HELPER_PATH}.enforce_object_write_invariants', return_value=None), \
                  patch(f'{HELPER_PATH}.sync_select_field_options'), \
                  patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
                  patch(f'{HELPER_PATH}.handle_create_object_log'), \

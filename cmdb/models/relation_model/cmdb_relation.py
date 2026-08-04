@@ -23,6 +23,7 @@ from cmdb.class_schema.relation_model.cmdb_relation_schema import get_cmdb_relat
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model.type_field_section import TypeFieldSection
+from cmdb.models.relation_model.relation_constants import RelationKey
 
 from cmdb.errors.models.cmdb_relation import (
     CmdbRelationInitError,
@@ -47,8 +48,16 @@ class CmdbRelation(CmdbDAO):
     MODEL = 'Relation'
 
     INDEX_KEYS: list[dict[str, Any]] = [
-        {'keys': [('parent_type_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'parent_type_ids', 'unique': False},
-        {'keys': [('child_type_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'child_type_ids', 'unique': False}
+        {
+            'keys': [(RelationKey.PARENT_TYPE_IDS.value, CmdbDAO.DAO_ASCENDING)],
+            'name': RelationKey.PARENT_TYPE_IDS.value,
+            'unique': False,
+        },
+        {
+            'keys': [(RelationKey.CHILD_TYPE_IDS.value, CmdbDAO.DAO_ASCENDING)],
+            'name': RelationKey.CHILD_TYPE_IDS.value,
+            'unique': False,
+        },
     ]
 
     SCHEMA: dict = get_cmdb_relation_schema()
@@ -127,22 +136,22 @@ class CmdbRelation(CmdbDAO):
         """
         try:
             sections: list[TypeFieldSection] = []
-            for section in data.get('sections', []):
+            for section in data.get(RelationKey.SECTIONS.value) or []:
                 sections.append(TypeFieldSection.from_data(section))
 
             return cls(
-                public_id = data.get('public_id'),
-                relation_name = data.get('relation_name'),
-                parent_type_ids = data.get('parent_type_ids'),
-                child_type_ids = data.get('child_type_ids'),
-                relation_name_parent = data.get('relation_name_parent'),
-                relation_name_child = data.get('relation_name_child'),
-                description = data.get('description', None),
-                relation_icon_parent = data.get('relation_icon_parent', None),
-                relation_color_parent = data.get('relation_color_parent', None),
-                relation_icon_child = data.get('relation_icon_child', None),
-                relation_color_child = data.get('relation_color_child', None),
-                fields = data.get('fields', None) or [],
+                public_id = data.get(RelationKey.PUBLIC_ID.value),
+                relation_name = data.get(RelationKey.RELATION_NAME.value),
+                parent_type_ids = data.get(RelationKey.PARENT_TYPE_IDS.value),
+                child_type_ids = data.get(RelationKey.CHILD_TYPE_IDS.value),
+                relation_name_parent = data.get(RelationKey.RELATION_NAME_PARENT.value),
+                relation_name_child = data.get(RelationKey.RELATION_NAME_CHILD.value),
+                description = data.get(RelationKey.DESCRIPTION.value),
+                relation_icon_parent = data.get(RelationKey.RELATION_ICON_PARENT.value),
+                relation_color_parent = data.get(RelationKey.RELATION_COLOR_PARENT.value),
+                relation_icon_child = data.get(RelationKey.RELATION_ICON_CHILD.value),
+                relation_color_child = data.get(RelationKey.RELATION_COLOR_CHILD.value),
+                fields = data.get(RelationKey.FIELDS.value) or [],
                 sections = sections,
             )
         except Exception as err:
@@ -165,19 +174,19 @@ class CmdbRelation(CmdbDAO):
         """
         try:
             return {
-                'public_id': instance.get_public_id(),
-                'relation_name': instance.relation_name,
-                'parent_type_ids': instance.parent_type_ids,
-                'child_type_ids': instance.child_type_ids,
-                'relation_name_parent': instance.relation_name_parent,
-                'relation_name_child': instance.relation_name_child,
-                'description': instance.description,
-                'relation_icon_parent': instance.relation_icon_parent,
-                'relation_color_parent': instance.relation_color_parent,
-                'relation_icon_child': instance.relation_icon_child,
-                'relation_color_child': instance.relation_color_child,
-                'sections': [section.to_json(section) for section in instance.sections],
-                'fields': instance.fields,
+                RelationKey.PUBLIC_ID.value: instance.get_public_id(),
+                RelationKey.RELATION_NAME.value: instance.relation_name,
+                RelationKey.PARENT_TYPE_IDS.value: instance.parent_type_ids,
+                RelationKey.CHILD_TYPE_IDS.value: instance.child_type_ids,
+                RelationKey.RELATION_NAME_PARENT.value: instance.relation_name_parent,
+                RelationKey.RELATION_NAME_CHILD.value: instance.relation_name_child,
+                RelationKey.DESCRIPTION.value: instance.description,
+                RelationKey.RELATION_ICON_PARENT.value: instance.relation_icon_parent,
+                RelationKey.RELATION_COLOR_PARENT.value: instance.relation_color_parent,
+                RelationKey.RELATION_ICON_CHILD.value: instance.relation_icon_child,
+                RelationKey.RELATION_COLOR_CHILD.value: instance.relation_color_child,
+                RelationKey.SECTIONS.value: [section.to_json(section) for section in instance.sections or []],
+                RelationKey.FIELDS.value: instance.fields,
             }
         except Exception as err:
             raise CmdbRelationToJsonError(err) from err
@@ -188,11 +197,14 @@ class CmdbRelation(CmdbDAO):
         """
         Removes the CmdbType public_id from the CmdbRelation
 
+        Both id lists are optional on the model, so an unset list is treated as empty instead of
+        raising - a CmdbRelation that never got its parent / child types has nothing to remove
+
         Args:
             target_type_id (int): public_id of the CmdbType which should be removed from the CmdbRelation
         """
-        if target_type_id in self.child_type_ids:
+        if self.child_type_ids and target_type_id in self.child_type_ids:
             self.child_type_ids.remove(target_type_id)
 
-        if target_type_id in self.parent_type_ids:
+        if self.parent_type_ids and target_type_id in self.parent_type_ids:
             self.parent_type_ids.remove(target_type_id)

@@ -71,9 +71,14 @@ from cmdb.framework.section_templates import (
 from cmdb.framework.ipam.enforcement import (
     object_write_requires_ipam_license,
     object_delete_requires_ipam_license,
-    enforce_object_invariants,
     enforce_delete_guards,
     format_errors_for_abort,
+)
+from cmdb.framework.object_invariants import enforce_object_write_invariants
+from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
+    guard_member_location_change,
+    handle_object_deleted as handle_rack_object_deleted,
+    handle_rack_object_updated,
 )
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
@@ -193,6 +198,13 @@ def delete_one_cascade(
 
     # Remove invalid CmdbObjectRelations since the object no longer exists
     handle_delete_invalid_object_relations(request_user, deleted_object.get_public_id())
+
+    # Remove the Rack state the object leaves behind: a deleted Rack takes its whole layout and its
+    # members' place in the tree with it, a deleted member loses just its own membership
+    handle_rack_object_deleted(
+        request_user, CmdbObject.to_json(deleted_object), objects_manager,
+        ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+    )
 
     # Send deletion event to all active webhooks
     handle_notify_webhooks(request_user, deleted_object, WebhookEventType.DELETE)
@@ -861,15 +873,16 @@ def apply_object_insert(
     # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_object_data)
 
-    ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
+    # Every feature's write invariants (IPAM, Rack) - also canonicalises values on the candidate
+    invariant_error: str | None = enforce_object_write_invariants(
         objects_manager,
         types_manager,
         new_object_data,
         previous_object=None,
     )
 
-    if ipam_errors:
-        abort(400, format_errors_for_abort(ipam_errors))
+    if invariant_error:
+        abort(400, invariant_error)
 
     # An unknown select value may not extend a predefined section template's field - reject before the write
     guard_predefined_select_options(
@@ -1094,21 +1107,25 @@ def apply_object_update(  # pylint: disable=too-many-locals
     if has_location_field:
         locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
         validate_object_location_change(obj_id, location_parent, locations_manager)
+        # A Rack owns where its members sit, so a member may not be pointed somewhere else from the object
+        # form - the way to move the device is to take it out of the Rack first
+        guard_member_location_change(request_user, obj_id, location_parent, locations_manager)
 
     previous_object: dict[str, Any] = CmdbObject.to_json(current_object_instance)
 
     # Editing an IPAM special-type object (or adding/changing an interface subnet) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_data, previous_object)
 
-    ipam_errors: list[dict[str, Any]] = enforce_object_invariants(
+    # Every feature's write invariants (IPAM, Rack) - also canonicalises values on the candidate
+    invariant_error: str | None = enforce_object_write_invariants(
         objects_manager,
         types_manager,
         new_data,
         previous_object=previous_object,
     )
 
-    if ipam_errors:
-        abort(400, format_errors_for_abort(ipam_errors))
+    if invariant_error:
+        abort(400, invariant_error)
 
     # An unknown select value may not extend a predefined section template's field - reject before the write
     guard_predefined_select_options(
@@ -1128,6 +1145,13 @@ def apply_object_update(  # pylint: disable=too-many-locals
     if has_location_field:
         sync_object_location(obj_id, location_parent, location_name, current_type_instance,
                              request_user, objects_manager, locations_manager)
+
+    # Rack consequences of the write, after the object's own location has been mirrored above: a lowered
+    # height unplaces the mounts that no longer fit, and the members follow the rack in the location tree.
+    # Post-write on purpose - both measure against what is now stored, so a failed write changes nothing
+    handle_rack_object_updated(
+        request_user, obj_id, new_data, previous_object, objects_manager, types_manager, locations_manager,
+    )
 
     object_after: dict[str, Any] | None = objects_manager.get_object(obj_id, request_user, AccessControlPermission.READ)
 

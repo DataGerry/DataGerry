@@ -22,7 +22,7 @@ the IPAM cross-wiring (reference fields, dg-ipam-interface template; see
 cmdb.framework.ipam.special_type_wiring). The enum extends BaseStrEnum so members are
 interchangeable with their string values for dict lookup, equality and JSON serialization
 """
-from typing import Iterable
+from typing import Any, Iterable
 
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -38,6 +38,7 @@ class SpecialType(BaseStrEnum):
     SUPERNET = 'SUPERNET'
     SUBNET = 'SUBNET'
     VLAN = 'VLAN'
+    RACK = 'RACK'
 
 
     @classmethod
@@ -55,8 +56,44 @@ class SpecialType(BaseStrEnum):
         return {
             cls.SUPERNET: "IPAM - Supernet class",
             cls.SUBNET: "IPAM - Subnet class",
-            cls.VLAN: "IPAM - VLAN class"
+            cls.VLAN: "IPAM - VLAN class",
+            cls.RACK: "Rack View - Rack class"
         }
+
+
+    @classmethod
+    def get_ipam_types(cls) -> frozenset["SpecialType"]:
+        """
+        Returns the SpecialTypes belonging to the IPAM feature
+
+        Not every SpecialType is an IPAM type: the license guards on the CmdbType and CmdbObject
+        write paths gate the IPAM feature, so they must ask which members it actually covers instead
+        of treating the presence of a 'special_type' marker as proof of IPAM
+
+        Returns:
+            frozenset[SpecialType]: The IPAM SpecialType members
+        """
+        return frozenset({cls.SUPERNET, cls.SUBNET, cls.VLAN})
+
+
+    @classmethod
+    def is_ipam_type(cls, value: Any) -> bool:
+        """
+        Checks whether a value names an IPAM SpecialType
+
+        Tolerates None and any non-SpecialType value so the license guards can pass a raw stored
+        marker straight in without pre-validating it
+
+        Args:
+            value (Any): A SpecialType member, its string value, or anything else
+
+        Returns:
+            bool: True if the value is one of the IPAM SpecialTypes, else False
+        """
+        if not cls.is_valid(value):
+            return False
+
+        return cls(value) in cls.get_ipam_types()
 
 
     @classmethod

@@ -42,6 +42,7 @@ class ManagerType(Enum):
     WEBHOOKS_EVENT = 'WebhooksEventManager'
     RELATIONS = 'RelationsManager'
     OBJECT_RELATIONS = 'ObjectRelationsManager'
+    RACK_MOUNTS = 'RackMountsManager'
     OBJECT_RELATION_LOGS = 'ObjectRelationLogsManager'
     EXTENDABLE_OPTIONS = 'ExtendableOptionsManager'
     OBJECT_GROUP = 'ObjectGroupsManager'

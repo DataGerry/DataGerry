@@ -45,6 +45,7 @@ from cmdb.models.right_model.framework_rights import (
     ReportRight,
     IpamRight,
     LocationRight,
+    RackRight,
 )
 from cmdb.models.right_model.isms_rights import (
     IsmsRight,
@@ -213,6 +214,13 @@ FRAMEWORK_RIGHTS = (
             LocationRight('add', description='Add locations'),
             LocationRight('edit', Levels.PROTECTED, description='Edit locations'),
             LocationRight('delete', Levels.SECURE, description='Delete locations'),
+        ),
+        RackRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage racks'),
+        (
+            RackRight('view', description='View racks'),
+            RackRight('add', description='Add racks'),
+            RackRight('edit', Levels.PROTECTED, description='Edit racks'),
+            RackRight('delete', Levels.DANGER, description='Delete racks'),
         ),
 )
 

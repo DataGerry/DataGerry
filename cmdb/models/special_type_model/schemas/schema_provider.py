@@ -24,6 +24,7 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.schemas.supernet_schema import get_supernet_schema
 from cmdb.models.special_type_model.schemas.subnet_schema import get_subnet_schema
 from cmdb.models.special_type_model.schemas.vlan_schema import get_vlan_schema
+from cmdb.models.special_type_model.schemas.rack_schema import get_rack_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -62,5 +63,8 @@ class SchemaProvider:
 
         if special_type == SpecialType.VLAN:
             return get_vlan_schema()
+
+        if special_type == SpecialType.RACK:
+            return get_rack_schema()
 
         raise ValueError(f"Unkown SpecialType: {special_type} provided to Schema!")

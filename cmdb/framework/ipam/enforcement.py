@@ -101,6 +101,24 @@ def _resolve_object_special_type(types_manager: TypesManager, type_id: int) -> S
     return SpecialType(raw)
 
 
+def _is_ipam_object(types_manager: TypesManager, type_id: int) -> bool:
+    """
+    Whether a CmdbType id belongs to one of the IPAM SpecialTypes
+
+    Carrying a 'special_type' marker is not the same as being an IPAM type - RACK is a SpecialType
+    that IPAM does not own - so the license gates must ask per member instead of just checking that
+    a marker is present
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        type_id (int): The CmdbType public_id
+
+    Returns:
+        bool: True when the type is an IPAM SpecialType (SUPERNET / SUBNET / VLAN)
+    """
+    return SpecialType.is_ipam_type(_resolve_object_special_type(types_manager, type_id))
+
+
 def _coerce_int(value: Any) -> int | None:
     """
     Coerces a stored field value into an int when possible, else None
@@ -496,7 +514,7 @@ def object_write_requires_ipam_license(
     """
     type_id: Any = candidate_object.get(CmdbObjectKey.TYPE_ID)
 
-    if isinstance(type_id, int) and _resolve_object_special_type(types_manager, type_id) is not None:
+    if isinstance(type_id, int) and _is_ipam_object(types_manager, type_id):
         return True
 
     return _interface_subnet_link_added(candidate_object, previous_object)
@@ -521,7 +539,7 @@ def object_delete_requires_ipam_license(
     """
     type_id: Any = target_object.get(CmdbObjectKey.TYPE_ID)
 
-    return isinstance(type_id, int) and _resolve_object_special_type(types_manager, type_id) is not None
+    return isinstance(type_id, int) and _is_ipam_object(types_manager, type_id)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

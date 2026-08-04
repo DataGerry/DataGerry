@@ -21,7 +21,8 @@ thin forwarders to the generic item-level CRUD (insert_item / get_item / iterate
 update_item / delete_item) - those primitives and their error wrapping are covered by the
 GenericManager suite. Here each method is invoked unbound against a ``MagicMock(spec=RelationsManager)``
 and asserted to delegate correctly; the relation-specific logic (``update_relation`` identity pin,
-``remove_type_from_relations`` cascade, ``get_added_and_removed_fields`` diff) is tested directly.
+``remove_type_from_relations`` cascade) is tested directly. The section/field diff of an update is
+pure data work and lives with the route helpers, so it is covered by ``test_relations_helper``.
 """
 from typing import Any
 from unittest.mock import MagicMock
@@ -50,11 +51,6 @@ RELATION_OBJ_DATA: dict[str, Any] = {
 def _mock_manager() -> MagicMock:
     """A MagicMock standing in for a RelationsManager instance."""
     return MagicMock(spec=RelationsManager)
-
-
-def _relation_with_fields(*field_names: str) -> dict[str, Any]:
-    """Builds a relation dict whose single section references the given field identifiers."""
-    return {'sections': [{'name': 's1', 'fields': list(field_names)}]}
 
 
 # ----------------------------------------------------- insert_relation ---------------------------------------------- #
@@ -161,34 +157,3 @@ class TestDeleteRelation:
 
         assert RelationsManager.delete_relation(mgr, RELATION_PUBLIC_ID) is True
         mgr.delete_item.assert_called_once_with(RELATION_PUBLIC_ID)
-
-
-# ----------------------------------------------- get_added_and_removed_fields --------------------------------------- #
-
-class TestGetAddedAndRemovedFields:
-    """get_added_and_removed_fields computes the section/field diff (pure)."""
-
-    def test_detects_added_and_removed_fields(self) -> None:
-        """Fields only in new are 'added'; fields only in old are 'removed'."""
-        old_relation = _relation_with_fields('a', 'b')
-        new_relation = _relation_with_fields('b', 'c')
-
-        result = RelationsManager.get_added_and_removed_fields(_mock_manager(), old_relation, new_relation)
-
-        assert set(result['added']) == {'c'}
-        assert set(result['removed']) == {'a'}
-
-    def test_no_change_yields_empty_lists(self) -> None:
-        """Identical field sets produce empty added/removed lists."""
-        relation = _relation_with_fields('a', 'b')
-
-        result = RelationsManager.get_added_and_removed_fields(_mock_manager(), relation, dict(relation))
-
-        assert result == {'added': [], 'removed': []}
-
-    def test_missing_sections_are_treated_as_empty(self) -> None:
-        """A relation without 'sections' contributes no fields."""
-        result = RelationsManager.get_added_and_removed_fields(_mock_manager(), {}, _relation_with_fields('x'))
-
-        assert set(result['added']) == {'x'}
-        assert result['removed'] == []

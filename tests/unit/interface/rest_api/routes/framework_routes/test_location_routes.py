@@ -99,10 +99,19 @@ def fixture_flask_app() -> Flask:
 
 @pytest.fixture(name='managers')
 def fixture_managers() -> dict[ManagerType, MagicMock]:
-    """Separate mocks for each manager type the routes resolve via ManagerProvider."""
+    """
+    Separate mocks for each manager type the routes resolve via ManagerProvider.
+
+    The locations manager returns a realistic node dict rather than a bare MagicMock: the move / delete
+    routes now read `managed_by` off it (a feature-owned node may not be moved by hand), and on a MagicMock
+    every key reads as truthy - which would make every move look feature-owned.
+    """
+    locations_manager = MagicMock(name='locations_manager')
+    locations_manager.get_location_for_object.return_value = {'public_id': 1, 'object_id': 1, 'parent': 1}
+
     return {
         ManagerType.TYPES: MagicMock(name='types_manager'),
-        ManagerType.LOCATIONS: MagicMock(name='locations_manager'),
+        ManagerType.LOCATIONS: locations_manager,
         ManagerType.OBJECTS: MagicMock(name='objects_manager'),
     }
 
