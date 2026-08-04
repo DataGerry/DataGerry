@@ -1,67 +1,21 @@
-@use "sass:color";
-
 /* ---------- ᴠᴀʀɪᴀʙʟᴇꜱ (fallback if not defined globally) ---------- */
 $dg-primary-color: #e94d18 !default;
 $dg-border-color : rgba(#dee2e6, 0.5) !default;
 $dg-error-message-color: #dc3545 !default;
 
-/* ═════════════════ MODAL HEADER ═════════════════ */
-.modal-header {
-  background: linear-gradient(195deg,
-        color.scale($dg-primary-color, $lightness: -5%),
-        $dg-primary-color );
-  color: #fff;
-  padding: 1.5rem 2rem;
-  border-bottom: none;
+:host {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-
-  .modal-title {
-    font-weight: 600;
-    font-size: 1.25rem;
-    letter-spacing: -0.25px;
-  }
-
-  .close {
-    background: transparent;
-    border: none;
-    font-size: 1.75rem;
-    color: rgba(#fff, .9);
-    cursor: pointer;
-    transition: opacity .2s ease;
-
-    &:hover { opacity: .8; }
-  }
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-/* ═════════════════ MODAL BODY ═════════════════ */
-.modal-body {
-  background: #fff;
-  padding: 1.5rem 2rem;
+/* Keeps the dialog from collapsing while the selector options load;
+   inner controls (ng-select) own their own scroll. */
+.duplicate-body {
+  flex: 1 1 auto;
   min-height: 50vh;
-  max-height: 60vh;
-  overflow: hidden;        // global – inside elements handle their own scroll
-}
-
-/* Scroll helper for long option lists */
-.modal-body .ng-dropdown-panel-items {      // <ng-select> internal panel
-  max-height: 70vh;
-}
-
-/* ═════════════════ MODAL FOOTER ═════════════════ */
-.modal-footer {
-  border-top: 1px solid rgba(#dee2e6, .3);
-  padding: 1.25rem 2rem;
-  background: #fff;
-  display: flex;
-  justify-content: flex-end;
-
-  .btn {
-    font-size: .9rem;
-    padding: .5rem 1.5rem;
-    font-weight: 500;
-  }
+  overflow: hidden;
 }
 
 /* ═════════════════ DIALOG SIZE OVERRIDE ═════════════════ */
