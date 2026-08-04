@@ -186,7 +186,11 @@ export class ImpactComponent implements OnInit {
    * Opens delete confirmation modal and deletes the impact on confirm.
    */
   public deleteImpact(item: Impact): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Impact';
     modalRef.componentInstance.item = item;
     modalRef.componentInstance.itemType = 'Impact';

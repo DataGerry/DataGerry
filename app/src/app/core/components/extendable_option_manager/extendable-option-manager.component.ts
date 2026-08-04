@@ -172,7 +172,11 @@ export class ExtendableOptionManagerComponent implements OnInit {
   public onDeleteItem(item: ExtendableOption): void {
     if (!item.public_id) { return; }
 
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = `Delete ${this.itemLabel}`;
     modalRef.componentInstance.item = item;
     modalRef.componentInstance.itemType = this.itemLabel;

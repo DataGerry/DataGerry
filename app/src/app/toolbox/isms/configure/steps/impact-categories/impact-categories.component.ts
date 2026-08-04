@@ -241,7 +241,11 @@ export class ImpactCategoriesComponent implements OnInit {
    * Opens the delete confirmation
    */
   public deleteImpactCategory(item: ImpactCategory): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Impact Category';
     modalRef.componentInstance.item = item;
     modalRef.componentInstance.itemType = 'Impact Category';

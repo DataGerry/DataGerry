@@ -223,7 +223,11 @@ export class ThreatsListComponent implements OnInit {
   * Delete a threat
   */
   onDelete(threat: Threat): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Threat';
     modalRef.componentInstance.item = threat;
     modalRef.componentInstance.itemType = 'Threat';
@@ -273,7 +277,11 @@ export class ThreatsListComponent implements OnInit {
     }
 
     const isPlural = publicIds.length > 1;
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Threats';
     modalRef.componentInstance.item = this.selectedThreats;
     modalRef.componentInstance.itemType = 'Threats';

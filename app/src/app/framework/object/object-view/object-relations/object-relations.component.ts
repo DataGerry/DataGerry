@@ -172,7 +172,11 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
   }
 
   public onDeleteRow(tab: ObjectRelationTab, row: ObjectRelationRow): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Object Relation';
     modalRef.componentInstance.item = row;
     modalRef.componentInstance.itemType = 'Object Relation';
@@ -204,7 +208,11 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Object Relations';
     modalRef.componentInstance.item = rows;
     modalRef.componentInstance.itemType = 'Object Relations';

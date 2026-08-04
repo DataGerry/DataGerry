@@ -1,23 +1,19 @@
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">{{ title }}</h4>
-    <button type="button" class="btn-close btn-close-white" (click)="activeModal.dismiss('cancel')">
-    </button>
-  </div>
-  <div class="modal-body">
-    <div id="delete-message">
-      Do you want to <b>delete</b> the {{ itemType }} <b>"{{ itemName }}"</b>?
-      <br /><br />
-    </div>
+<dg-modal icon="fas fa-trash-can" [eyebrow]="itemType" [title]="title" (dismiss)="activeModal.dismiss('cancel')">
+
+    <p class="delete-lead" id="delete-message">
+        Do you want to <b>delete</b> the {{ itemType }} <b>"{{ itemName }}"</b>?
+    </p>
 
     @if (warningMessage) {
-      <app-warning-alert
-        [title]="warningTitle"
-        [message]="warningMessage"
-        [iconClass]="warningIconClass">
-      </app-warning-alert>
-}
-  </div>
-  <div class="modal-footer">
-    <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss()">Close</button>
-    <button type="button" class="btn btn-danger" (click)="confirmDelete()">Delete</button>
-  </div>
+    <app-warning-alert [title]="warningTitle" [message]="warningMessage" [iconClass]="warningIconClass">
+    </app-warning-alert>
+    }
+
+    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Close" type="button"
+        (clicked)="activeModal.dismiss()">
+    </app-button>
+
+    <app-button dgModalFooter [bootstrapClass]="'btn-danger'" label="Delete" type="button" icon="fas fa-trash-can"
+        (clicked)="confirmDelete()">
+    </app-button>
+</dg-modal>

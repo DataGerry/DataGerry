@@ -480,7 +480,11 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
     /* ───── DELETE helper ───── */
     onDelete(row: RiskAssessment): void {
 
-        const ref = this.modal.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+        const ref = this.modal.open(CoreDeleteConfirmationModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         ref.componentInstance.title = 'Delete Risk-Assessment';
         ref.componentInstance.item = row;
         ref.componentInstance.itemType = 'Risk-Assessment';

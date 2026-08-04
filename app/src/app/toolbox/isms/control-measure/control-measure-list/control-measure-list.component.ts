@@ -247,7 +247,11 @@ export class ControlmeasuresListComponent implements OnInit {
         if (!item.public_id) {
             return;
         }
-        const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+        const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.title = 'Delete Control';
         modalRef.componentInstance.item = item;
         modalRef.componentInstance.itemType = 'Control';
@@ -299,7 +303,11 @@ export class ControlmeasuresListComponent implements OnInit {
             return;
         }
 
-        const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+        const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.title = 'Delete Controls';
         modalRef.componentInstance.item = this.selectedControls;
         modalRef.componentInstance.itemType = 'Controls';
