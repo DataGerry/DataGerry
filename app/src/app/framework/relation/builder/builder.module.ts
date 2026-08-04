@@ -39,8 +39,6 @@ import { DateFieldEditComponent } from './configs/date-time/date-field-edit.comp
 import { ConfigEditComponent } from './configs/config-edit.component';
 
 import { ColorChromeModule } from 'ngx-color/chrome';
-import { PreviewModalComponent } from './modals/preview-modal/preview-modal.component';
-import { DiagnosticModalComponent } from './modals/diagnostic-modal/diagnostic-modal.component';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -69,9 +67,7 @@ import { DiagnosticModalComponent } from './modals/diagnostic-modal/diagnostic-m
         TextareaEditComponent,
         ChoiceFieldEditComponent,
         CheckFieldEditComponent,
-        DateFieldEditComponent,
-        PreviewModalComponent,
-        DiagnosticModalComponent
+        DateFieldEditComponent
     ],
     exports: [
         BuilderComponent,

@@ -1,7 +1,4 @@
 import { CmdbType, CmdbTypeSection } from "src/app/framework/models/cmdb-type";
-import { NgbModal } from "@ng-bootstrap/ng-bootstrap";
-import { DiagnosticModalComponent } from "src/app/framework/type/builder/modals/diagnostic-modal/diagnostic-modal.component";
-import { PreviewModalComponent } from "src/app/framework/type/builder/modals/preview-modal/preview-modal.component";
 import { FieldIdentifierValidationService } from "src/app/framework/type/services/field-identifier-validation.service";
 
 
