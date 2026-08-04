@@ -37,6 +37,8 @@ from cmdb.framework.importer.helper.object_import_validator import (
     ImportTypeContext,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.special_type_model.rack_constants import RackField
+from cmdb.models.type_model.field_type_enum import FieldType
 
 
 IMPORTER_ID: int = 7  # the importing user these tests run as; author_id is forced from it
@@ -826,3 +828,74 @@ class TestMultiDataSectionRule:
         _normalize(working_object, None, _ctx(mds_defaults={'nics': {'nic': 'x'}}))
 
         assert not working_object['multi_data_sections'][0]['values'][0]['data']
+
+
+class TestRackValueRules:
+    """
+    The Rack value rules the generic import pipeline cannot express
+
+    A number field accepts 0, -1 and 3.5, and a required-field check treats only None and '' as
+    missing - so a Rack imported through the bulk importer would otherwise be storable with a
+    nonsensical height or a whitespace-only name. Only the VALUE rules run on this path: presence is
+    already covered by the generic required-field check, and running both would report it twice.
+    """
+
+    @staticmethod
+    def _rack_object(name='rack-1', height=42) -> dict:
+        """Builds a generated Rack import object carrying the two governed fields."""
+        return {
+            'fields': [
+                {'name': RackField.NAME.value, 'value': name, 'type': FieldType.TEXT.value},
+                {'name': RackField.HEIGHT.value, 'value': height, 'type': FieldType.NUMBER.value},
+            ],
+        }
+
+    def test_a_valid_rack_passes(self) -> None:
+        """A well-formed Rack reports nothing."""
+        assert not _normalize(self._rack_object(), SpecialType.RACK, _ctx())
+
+    @pytest.mark.parametrize('height', [0, -1, 3.5])
+    def test_an_unusable_height_is_rejected(self, height) -> None:
+        """_coerce_number accepts these as numbers; they are still not rack heights."""
+        errors = _normalize(self._rack_object(height=height), SpecialType.RACK, _ctx())
+
+        assert len(errors) == 1
+        assert 'Height' in errors[0]
+
+    def test_a_whitespace_only_name_is_rejected(self) -> None:
+        """The generic required check treats '   ' as present, so the value rule catches it."""
+        errors = _normalize(self._rack_object(name='   '), SpecialType.RACK, _ctx())
+
+        assert errors == ['The Rackname of a Rack can not be blank!']
+
+    def test_an_absent_value_is_not_reported_twice(self) -> None:
+        """
+        Presence is the generic pipeline's job
+
+        With the field marked required, the generic check reports it; the Rack value rules must stay
+        quiet so the user does not see the same problem twice.
+        """
+        context = _ctx(required_top={RackField.NAME.value, RackField.HEIGHT.value},
+                       type_map={RackField.NAME.value: FieldType.TEXT.value,
+                                 RackField.HEIGHT.value: FieldType.NUMBER.value})
+
+        errors = _normalize(self._rack_object(name='', height=''), SpecialType.RACK, context)
+
+        assert len(errors) == 1
+        assert errors[0].startswith('Missing value for required field(s)')
+
+    def test_the_height_is_canonicalised_to_an_int(self) -> None:
+        """A CSV carries the height as a string; it is stored as an int."""
+        working_object = self._rack_object(height='42')
+
+        assert not _normalize(working_object, SpecialType.RACK, _ctx())
+
+        height_field = next(
+            field for field in working_object['fields'] if field['name'] == RackField.HEIGHT.value
+        )
+        assert height_field['value'] == 42
+        assert isinstance(height_field['value'], int)
+
+    def test_a_non_rack_object_is_unaffected(self) -> None:
+        """The rules apply to the Rack special type only."""
+        assert not _normalize(self._rack_object(name='  ', height=0), None, _ctx())

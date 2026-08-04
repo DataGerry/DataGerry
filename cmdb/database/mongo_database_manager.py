@@ -52,6 +52,7 @@ from cmdb.errors.database import (
     CollectionAlreadyExistsError,
     CreateIndexesError,
     GetIndexesError,
+    DropIndexError,
     DatabaseConnectionError,
     DatabaseAlreadyExistsError,
     DatabaseNotFoundError,
@@ -341,6 +342,39 @@ class MongoDatabaseManager:
             return self.get_collection(collection, db_name).create_indexes(indexes)
         except Exception as err:
             raise CreateIndexesError(f"Failed to create indexes for collection '{collection}': {err}") from err
+
+
+    def drop_index(self, collection: str, db_name: str, index_name: str) -> bool:
+        """
+        Drops a single named index from a collection if it is present
+
+        Needed because index reconciliation is name-based and purely additive (see
+        CollectionValidator.ensure_indexes): an index whose declared options changed must be dropped
+        before it can be recreated, which only a migration should ever do. Absence is not an error -
+        the method reports False so a re-run of the same migration is a no-op rather than a failure
+
+        Args:
+            collection (str): Name of the collection owning the index
+            db_name (str): Name of the database owning the collection
+            index_name (str): Name of the index to drop
+
+        Raises:
+            DropIndexError: When the index exists but could not be dropped
+
+        Returns:
+            bool: True if the index was dropped, False if no index of that name existed
+        """
+        try:
+            if index_name not in self.get_index_info(collection, db_name):
+                return False
+
+            self.get_collection(collection, db_name).drop_index(index_name)
+
+            return True
+        except Exception as err:
+            raise DropIndexError(
+                f"Failed to drop index '{index_name}' for collection '{collection}': {err}"
+            ) from err
 
 
     @retry_operation
@@ -1096,7 +1130,13 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def count(self, collection: str, db_name: str, criteria: dict[str, Any] | None = None) -> int:
+    def count(
+        self,
+        collection: str,
+        db_name: str,
+        criteria: dict[str, Any] | None = None,
+        limit: int | None = None,
+    ) -> int:
         """
         Count documents based on criteria parameters
 
@@ -1104,17 +1144,23 @@ class MongoDatabaseManager:
             collection (str): Name of database collection
             db_name (str): Name of the database owning the collection
             criteria (dict): Document count requirements (default is empty criteria)
+            limit (int | None): Stop counting after this many matches. Use ``limit=1`` for an
+                existence check, which lets the server short-circuit instead of counting every
+                match. Defaults to None (count them all)
 
         Raises:
             DocumentGetError: When the count operation fails
 
         Returns:
-            int: The count of the documents that match the criteria
+            int: The count of the documents that match the criteria, capped at 'limit' when given
         """
         # Ensure criteria is a dictionary (defaulting to empty if None is provided)
         criteria = criteria or {}
 
         try:
+            if limit is not None:
+                return self.get_collection(collection, db_name).count_documents(criteria, limit=limit)
+
             return self.get_collection(collection, db_name).count_documents(criteria)
         except Exception as err:
             raise DocumentGetError(

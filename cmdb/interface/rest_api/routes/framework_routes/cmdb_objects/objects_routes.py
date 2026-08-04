@@ -79,6 +79,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     handle_delete_invalid_object_relations,
     handle_delete_from_object_groups,
     handle_delete_object_location,
+    handle_rack_object_deleted,
     render_or_native,
     apply_object_update,
     validate_object_patch_payload,
@@ -1094,6 +1095,13 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
 
             # Remove invalid CmdbObjectRelations since the object no longer exists
             handle_delete_invalid_object_relations(request_user, current_object.get_public_id())
+
+            # Remove the Rack state this object leaves behind (its memberships, and - for a Rack - its
+            # members' place in the location tree). Managers are passed in so the loop doesn't re-resolve
+            handle_rack_object_deleted(
+                request_user, CmdbObject.to_json(current_object), objects_manager, types_manager,
+                locations_manager,
+            )
 
             # Send deletion event to all active webhooks
             handle_notify_webhooks(request_user, current_object, WebhookEventType.DELETE)

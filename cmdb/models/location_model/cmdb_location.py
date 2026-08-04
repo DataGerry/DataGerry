@@ -45,8 +45,13 @@ class CmdbLocation(CmdbDAO):
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = ['name', 'parent', 'object_id', 'type_id', 'type_label']
 
+    # 'object_id' is unique: a CmdbObject has at most one node in the location tree, which the code
+    # relies on throughout (LocationsManager.get_location_for_object is a get_one_by, and the
+    # object<->location mirror in location_helper assumes the single node it finds is the only one).
+    # Existing databases were created with this index non-unique - updater_20260804 de-duplicates and
+    # rebuilds it, because index reconciliation matches on name only and never on options
     INDEX_KEYS: list[dict[str, Any]] = [
-        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': False},
+        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': True},
         {'keys': [('parent', CmdbDAO.DAO_ASCENDING)], 'name': 'parent', 'unique': False},
         {'keys': [('type_id', CmdbDAO.DAO_ASCENDING)], 'name': 'type_id', 'unique': False}
     ]
@@ -63,7 +68,8 @@ class CmdbLocation(CmdbDAO):
                  type_id: int,
                  type_label: str,
                  type_icon: str = "fas fa-cube",
-                 type_selectable: bool = True):
+                 type_selectable: bool = True,
+                 managed_by: str | None = None):
         """
         Initialises a CmdbLocation
 
@@ -77,6 +83,8 @@ class CmdbLocation(CmdbDAO):
             type_icon (str): icon of CmdbType for which this CmdbLocation is set, default is 'fas fa-cube'
             type_selectable (bool): sets if this CmdbType is selectable as a parent for other CmdbLocations.
                                     Defaults to True
+            managed_by (str | None): A LocationManagedBy value when a framework feature owns this node
+                                     instead of the user; None for an ordinary mirrored node
 
         Raises:
             CmdbLocationInitError: If the CmdbLocation could not be initialised
@@ -89,6 +97,7 @@ class CmdbLocation(CmdbDAO):
             self.type_label: str = type_label
             self.type_icon: str = type_icon
             self.type_selectable: bool = type_selectable
+            self.managed_by: str | None = managed_by
 
             super().__init__(public_id=public_id)
         except Exception as err:
@@ -120,6 +129,7 @@ class CmdbLocation(CmdbDAO):
                 type_label = data.get('type_label'),
                 type_icon = data.get('type_icon', 'fas fa-cube'),
                 type_selectable = data.get('type_selectable', True),
+                managed_by = data.get('managed_by'),
             )
         except Exception as err:
             raise CmdbLocationInitFromDataError(err) from err
@@ -149,6 +159,7 @@ class CmdbLocation(CmdbDAO):
                 'type_label': instance.type_label,
                 'type_icon': instance.type_icon,
                 'type_selectable': instance.type_selectable,
+                'managed_by': instance.managed_by,
             }
         except Exception as err:
             raise CmdbLocationToJsonError(err) from err

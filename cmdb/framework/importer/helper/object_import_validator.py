@@ -46,6 +46,7 @@ from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils.helpers import duplicate_names, parse_import_bool
+from cmdb.framework.rack import normalize_rack_object, validate_rack_field_values
 from cmdb.framework.importer.importer_constants import DEFAULT_OBJECT_VERSION
 from cmdb.framework.importer.helper.improve_object import ImproveObject
 from cmdb.framework.section_templates import PREDEFINED_SELECT_OPTION_REJECTED
@@ -110,6 +111,9 @@ def normalize_and_validate_object(
     from the upload, and a value that reaches this point - including one a property mapping wrote onto
     the object - is replaced by the importing user
 
+    Finally the feature invariants no field type can express are applied (currently the Rack value
+    rules), on values the steps above have already coerced
+
     Args:
         working_object (dict): The generated object to normalize (mutated in place)
         special_type (SpecialType | None): The target type's special type (assigned to the object)
@@ -161,7 +165,34 @@ def normalize_and_validate_object(
         # References/locations can't be resolved on import yet -> clear their values (keep the entries)
         clear_reference_values(working_object, type_context.clearable_reference_fields)
 
+    # Feature invariants no field type can express. Runs last, on values already coerced above
+    _validate_rack_values(working_object, special_type, errors)
+
     return errors
+
+
+def _validate_rack_values(working_object: dict, special_type: SpecialType | None, errors: list[str]) -> None:
+    """
+    Applies the Rack value rules to an imported Rack object, and canonicalises its height
+
+    Only the VALUE rules run here: the generic pipeline above already rejects a missing required
+    value, so running the Rack presence rules too would report the same problem twice. What it does
+    NOT catch is what this adds - `_coerce_number` happily accepts 0, -1 and 3.5 as a number, none of
+    which is a rack height, and a Rackname of '   ' counts as present.
+
+    Note the presence half therefore relies on the Rack type still marking both fields required; the
+    object REST routes enforce presence unconditionally (see cmdb.framework.rack.enforcement)
+
+    Args:
+        working_object (dict): The generated object to validate (height canonicalised in place)
+        special_type (SpecialType | None): The target type's special type
+        errors (list[str]): The error accumulator to append to
+    """
+    if special_type != SpecialType.RACK:
+        return
+
+    normalize_rack_object(working_object)
+    errors.extend(validate_rack_field_values(working_object))
 
 
 def _validate_mds_sections(working_object: dict, type_context: ImportTypeContext, errors: list[str]) -> None:

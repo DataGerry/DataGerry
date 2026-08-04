@@ -25,6 +25,11 @@ delegation to GenericManager with a mocked manager):
   is a no-op for a missing id (the underlying update does not upsert)
 - remove_type_from_relations pulls a type id from both the parent and child id lists in a single
   server-side update, scoped to the relations that reference it
+- count_documents' limit really caps the count server-side, which is what the delete route's in-use
+  probe relies on
+- the route-level update cascade (cascade_relation_update) reconciles the dependent
+  CmdbObjectRelations: instances of a no-longer-allowed type are deleted, the surviving ones gain and
+  lose the field values the relation's sections gained and lost
 """
 from typing import Any
 
@@ -32,13 +37,21 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.relations_manager import RelationsManager
+from cmdb.manager.object_relations_manager import ObjectRelationsManager
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.models.relation_model import CmdbRelation
+from cmdb.models.relation_model import CmdbRelation, RelationDiffKey
+from cmdb.models.object_relation_model import CmdbObjectRelation, ObjectRelationKey
+from cmdb.interface.rest_api.routes.relation_routes.relations_helper import cascade_relation_update
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PARENT_TYPE_ID: int = 1
 CHILD_TYPE_ID: int = 2
 SHARED_TYPE_ID: int = 9
+REMOVED_CHILD_TYPE_ID: int = 10
+
+OBJ_REL_ID_KEPT: int = 76101
+OBJ_REL_ID_INVALIDATED: int = 76102
+ALL_OBJ_REL_IDS: list[int] = [OBJ_REL_ID_KEPT, OBJ_REL_ID_INVALIDATED]
 
 REL_ID_FOR_INSERT: int = 77101
 REL_ID_FOR_GET: int = 77102
@@ -257,3 +270,86 @@ class TestRemoveTypeFromRelations:
             assert untouched['child_type_ids'] == [CHILD_TYPE_ID]
         finally:
             _delete_by_ids(database_manager, database_name, seeded)
+
+
+# ------------------------------------------------- in-use probe (count) --------------------------------------------- #
+
+class TestCountDocumentsLimit:
+    """``count_documents`` caps the count server-side, which the delete route's in-use probe uses."""
+
+    def test_limit_caps_the_count(
+        self, relations_manager: RelationsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Two matching docs with limit=1 report 1, so the probe stops at the first hit."""
+        seeded = [REL_ID_FOR_ITERATE_A, REL_ID_FOR_ITERATE_B]
+        try:
+            for public_id in seeded:
+                relations_manager.insert_relation(_relation_data(public_id, relation_name='probe'))
+
+            criteria: dict[str, Any] = {'relation_name': 'probe'}
+
+            assert relations_manager.count_documents(criteria) == 2
+            assert relations_manager.count_documents(criteria, limit=1) == 1
+        finally:
+            _delete_by_ids(database_manager, database_name, seeded)
+
+    def test_reports_zero_without_a_match(self, relations_manager: RelationsManager) -> None:
+        """A criteria nothing matches counts 0 even with a limit (the 'not in use' case)."""
+        assert relations_manager.count_documents({'public_id': MISSING_REL_ID}, limit=1) == 0
+
+
+# --------------------------------------------- cascade_relation_update ---------------------------------------------- #
+
+class TestCascadeRelationUpdate:
+    """The route-level cascade reconciles the CmdbObjectRelations of an updated CmdbRelation."""
+
+    @pytest.fixture(name='object_relations_manager')
+    def fixture_object_relations_manager(
+        self, database_manager: MongoDatabaseManager,
+    ) -> ObjectRelationsManager:
+        """Provides an ObjectRelationsManager wired to the test database."""
+        return ObjectRelationsManager(database_manager)
+
+    @staticmethod
+    def _object_relation(public_id: int, child_type_id: int, field_names: list[str]) -> dict[str, Any]:
+        """Builds a stored CmdbObjectRelation of the cascaded relation."""
+        return {
+            ObjectRelationKey.PUBLIC_ID.value: public_id,
+            ObjectRelationKey.RELATION_ID.value: REL_ID_FOR_CASCADE,
+            ObjectRelationKey.RELATION_PARENT_ID.value: 1,
+            ObjectRelationKey.RELATION_PARENT_TYPE_ID.value: PARENT_TYPE_ID,
+            ObjectRelationKey.RELATION_CHILD_ID.value: 2,
+            ObjectRelationKey.RELATION_CHILD_TYPE_ID.value: child_type_id,
+            ObjectRelationKey.FIELD_VALUES.value: [{'name': name, 'value': name} for name in field_names],
+        }
+
+    def test_deletes_invalidated_instances_and_applies_the_field_diff(
+        self,
+        object_relations_manager: ObjectRelationsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The instance of the dropped child type goes; the surviving one loses 'a' and gains 'b'."""
+        object_relations = database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)
+        object_relations.insert_many([
+            self._object_relation(OBJ_REL_ID_KEPT, CHILD_TYPE_ID, ['a']),
+            self._object_relation(OBJ_REL_ID_INVALIDATED, REMOVED_CHILD_TYPE_ID, ['a']),
+        ])
+        try:
+            old_relation = _relation_data(
+                REL_ID_FOR_CASCADE, child_type_ids=[CHILD_TYPE_ID, REMOVED_CHILD_TYPE_ID],
+            )
+            new_relation = _relation_data(REL_ID_FOR_CASCADE, child_type_ids=[CHILD_TYPE_ID])
+            changed_fields = {RelationDiffKey.ADDED.value: ['b'], RelationDiffKey.REMOVED.value: ['a']}
+
+            cascade_relation_update(
+                REL_ID_FOR_CASCADE, old_relation, new_relation, changed_fields, object_relations_manager,
+            )
+
+            assert object_relations.find_one({ObjectRelationKey.PUBLIC_ID.value: OBJ_REL_ID_INVALIDATED}) is None
+
+            survivor = object_relations.find_one({ObjectRelationKey.PUBLIC_ID.value: OBJ_REL_ID_KEPT})
+            field_names = [entry['name'] for entry in survivor[ObjectRelationKey.FIELD_VALUES.value]]
+            assert field_names == ['b']
+        finally:
+            object_relations.delete_many({ObjectRelationKey.PUBLIC_ID.value: {'$in': ALL_OBJ_REL_IDS}})

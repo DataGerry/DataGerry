@@ -51,6 +51,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     delete_location_with_reparenting,
     normalize_parent_id,
     validate_object_location_change,
+    guard_managed_location,
     validate_object_location_move,
     move_object_location,
 )
@@ -630,6 +631,10 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
+        # A node owned by a feature (e.g. a Rack member whose type has no location field) is not the
+        # user's to move - there is no field behind it, so the move could not be mirrored anywhere
+        guard_managed_location(locations_manager.get_location_for_object(object_id))
+
         move_object_location(object_id, parent, request_user, objects_manager, locations_manager)
 
         return DefaultResponse({'object_id': object_id, 'parent': parent}).make_response()
@@ -685,6 +690,11 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
 
         # Atomic pre-flight: validate every target before writing any (also resolves each type once
         # so the apply pass below does not re-fetch it)
+        # Every target is validated before anything is written, so an invalid one rejects the whole batch
+        # rather than leaving it half-applied. A feature-owned node is refused here too
+        for object_id in object_ids:
+            guard_managed_location(locations_manager.get_location_for_object(object_id))
+
         validated_types: dict[int, CmdbType] = {
             object_id: validate_object_location_move(object_id, parent, objects_manager, locations_manager)
             for object_id in object_ids
@@ -733,6 +743,9 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
 
         if not to_delete_location:
             abort(404, f"The Location linked to Object with ID: {object_id} was not found in the database!")
+
+        # A node owned by a feature goes when that feature says so, not from here
+        guard_managed_location(to_delete_location)
 
         # Deleting a location promotes its direct children - both the location nodes and the mirrored
         # object location fields - onto this location's own parent, so a location with children is

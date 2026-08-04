@@ -40,6 +40,7 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
@@ -69,21 +70,53 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def enforce_special_type_license(request_user: CmdbUser, is_special_type: bool) -> None:
+def enforce_special_type_license(request_user: CmdbUser, *special_types: Any) -> None:
     """
     Blocks managing an IPAM special type when the IPAM feature is not licensed
 
-    A no-op unless the write targets an IPAM special type (SUPERNET/SUBNET/VLAN). For a special type
-    it delegates to the shared license guard, which aborts with HTTP 403 on-premise when IPAM is not
-    licensed and is itself a no-op in cloud/local mode. Used by the create/update/delete type routes
-    so the IPAM type gate lives in one place
+    A no-op unless one of the given markers names an IPAM SpecialType (SUPERNET/SUBNET/VLAN); for
+    those it delegates to the shared license guard, which aborts with HTTP 403 on-premise when IPAM
+    is not licensed and is itself a no-op in cloud/local mode. Not every SpecialType belongs to IPAM
+    (RACK does not), so the markers are matched per member rather than by their mere presence. Used
+    by the create/update/delete type routes so the IPAM type gate lives in one place
 
     Args:
         request_user (CmdbUser): The user performing the type create/edit/delete
-        is_special_type (bool): Whether the targeted type carries an IPAM special_type marker
+        *special_types (Any): The 'special_type' markers the write touches - the stored one, the
+            requested one, or both on an update. None and non-SpecialType values are ignored
     """
-    if is_special_type:
+    if any(SpecialType.is_ipam_type(special_type) for special_type in special_types):
         abort_if_feature_locked(LicenseFeature.IPAM, request_user)
+
+
+def enforce_rack_selectable_as_parent(special_type: Any, data: dict[str, Any]) -> None:
+    """
+    Keeps a RACK CmdbType selectable as a parent Location, aborting 400 on an attempt to disable it
+
+    A Rack holds its mounted objects by parenting their location nodes, and
+    validate_object_location_change refuses a parent whose type is not selectable_as_parent - so a
+    Rack type with the flag off could never have anything placed in it. The flag is therefore not a
+    user choice for Racks: an explicit False is rejected, and a missing value is filled in. Mutates
+    'data' in place. A no-op for every other type
+
+    Note the existing guard_selectable_as_parent_change only blocks the flip while objects are
+    already placed, which would leave a fresh Rack type free to turn it off
+
+    Args:
+        special_type (Any): The 'special_type' marker of the type being written
+        data (dict[str, Any]): The type payload, updated in place when it is a Rack
+
+    Raises:
+        HTTPException: 400 when the payload explicitly disables selectable_as_parent for a Rack
+    """
+    if special_type != SpecialType.RACK:
+        return
+
+    if data.get(TypeSchemaKey.SELECTABLE_AS_PARENT) is False:
+        abort(400, "A Rack type must stay selectable as a parent Location, "
+                   "otherwise no object could ever be placed in a Rack!")
+
+    data[TypeSchemaKey.SELECTABLE_AS_PARENT] = True
 
 
 def get_type_or_404(types_manager: TypesManager, public_id: int) -> dict[str, Any]:

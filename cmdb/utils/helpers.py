@@ -246,6 +246,46 @@ def is_non_blank_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def coerce_whole_number(value: Any) -> int | None:
+    """
+    Coerces a value to a whole number, or returns None when it is not one
+
+    The check behind every "this is a count / an index / a slot" field. Accepts an int, a float with no
+    fractional part (a JSON client may send 42.0) and a string holding either (a CSV import has no other
+    way to carry a number). Booleans are rejected on purpose: bool is an int subclass in Python, so
+    `True` would otherwise pass as 1
+
+    Args:
+        value (Any): The value to coerce
+
+    Returns:
+        int | None: The value as an int, or None when it is not a whole number
+    """
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, int):
+        return value
+
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            pass
+
+        try:
+            as_float = float(value.strip())
+        except ValueError:
+            return None
+
+        return int(as_float) if as_float.is_integer() else None
+
+    return None
+
+
 def duplicate_names(names: Iterable[Any]) -> list:
     """
     Returns the values that occur more than once, each listed once, in first-seen order

@@ -18,7 +18,7 @@ Unit tests for cmdb.utils.helpers
 """
 import pytest
 
-from cmdb.utils.helpers import str_to_bool, is_truthy_query_arg
+from cmdb.utils.helpers import str_to_bool, is_truthy_query_arg, coerce_whole_number
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -68,3 +68,41 @@ class TestIsTruthyQueryArg:
     def test_recognised_value_ignores_default(self) -> None:
         """A recognised value wins over the default."""
         assert is_truthy_query_arg('false', default=True) is False
+
+
+class TestCoerceWholeNumber:
+    """coerce_whole_number turns the shapes a client can send into an int, or reports None."""
+
+    @pytest.mark.parametrize('value, expected', [
+        (42, 42),
+        (0, 0),
+        (-7, -7),
+        (42.0, 42),
+        (-7.0, -7),
+        ('42', 42),
+        ('42.0', 42),
+        ('  7 ', 7),
+        ('-3', -3),
+    ], ids=str)
+    def test_accepts_whole_numbers(self, value, expected) -> None:
+        """Ints, whole floats and strings holding either all coerce; range is the caller's business."""
+        assert coerce_whole_number(value) == expected
+
+    @pytest.mark.parametrize('value', [3.5, '3.5', '4,5', 'abc', '', '   ', None, [], {}], ids=str)
+    def test_rejects_anything_that_is_not_whole(self, value) -> None:
+        """A fractional or unparseable value is not a whole number."""
+        assert coerce_whole_number(value) is None
+
+    @pytest.mark.parametrize('value', [True, False], ids=str)
+    def test_rejects_booleans(self, value) -> None:
+        """
+        bool is an int subclass in Python.
+
+        Without the explicit guard True would coerce to 1, which every caller of this helper would
+        then accept as a valid count, index or slot.
+        """
+        assert coerce_whole_number(value) is None
+
+    def test_a_float_result_is_a_real_int(self) -> None:
+        """The result is usable as an int, not a float that merely compares equal."""
+        assert isinstance(coerce_whole_number(42.0), int)

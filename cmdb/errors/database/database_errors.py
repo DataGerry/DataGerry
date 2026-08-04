@@ -90,6 +90,12 @@ class GetIndexesError(DataBaseError):
     """
 
 
+class DropIndexError(DataBaseError):
+    """
+    Raised when an index of a collection could not be dropped
+    """
+
+
 class NoDocumentFoundError(DataBaseError):
     """
     Error if no document was found

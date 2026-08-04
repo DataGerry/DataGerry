@@ -370,6 +370,26 @@ def test_get_distinct_delegates_and_returns_values() -> None:
     assert result == ['a', 'b']
 
 
+def test_count_documents_forwards_the_limit() -> None:
+    """count_documents passes the limit through, so an existence probe can stop at the first match"""
+    mgr = _mock_manager()
+    mgr.dbm.count.return_value = 1
+
+    result = BaseManager.count_documents(mgr, {'relation_id': 5}, limit=1)
+
+    mgr.dbm.count.assert_called_once_with(COLLECTION, DB_NAME, {'relation_id': 5}, 1)
+    assert result == 1
+
+
+def test_count_documents_defaults_to_no_limit() -> None:
+    """Without a limit the delegation passes None, which counts every match"""
+    mgr = _mock_manager()
+
+    BaseManager.count_documents(mgr, {'relation_id': 5})
+
+    mgr.dbm.count.assert_called_once_with(COLLECTION, DB_NAME, {'relation_id': 5}, None)
+
+
 def test_delete_many_raw_delegates_with_filter_query() -> None:
     """delete_many_raw forwards the raw filter as filter_query and returns the delete result"""
     mgr = _mock_manager()

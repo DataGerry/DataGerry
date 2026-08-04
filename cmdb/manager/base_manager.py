@@ -502,21 +502,23 @@ class BaseManager:
             raise BaseManagerGetError(str(err)) from err
 
 
-    def count_documents(self, criteria: dict[str, Any] | None = None) -> int:
+    def count_documents(self, criteria: dict[str, Any] | None = None, limit: int | None = None) -> int:
         """
         Counts the number of documents in a collection based on the given filter
 
         Args:
             criteria (dict[str, Any] | None): Filter selecting documents to count. Defaults to None
+            limit (int | None): Stop counting after this many matches; ``limit=1`` turns the count
+                into an existence check the server can short-circuit. Defaults to None (count all)
 
         Raises:
             BaseManagerGetError: If an error occurs during the 'count' operation
 
         Returns:
-            int: The number of documents that match the given criteria
+            int: The number of documents that match the given criteria, capped at 'limit' when given
         """
         try:
-            return self.dbm.count(self.collection, self.db_name, criteria)
+            return self.dbm.count(self.collection, self.db_name, criteria, limit)
         except DocumentGetError as err:
             raise BaseManagerGetError(str(err)) from err
 

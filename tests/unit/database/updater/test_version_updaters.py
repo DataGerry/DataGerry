@@ -44,6 +44,7 @@ from cmdb.database.updater.versions.updater_20260731 import (
     MDS_MODE_KEY,
     PREDEFINED_KEY,
 )
+from cmdb.database.updater.versions.updater_20260804 import Update20260804
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -64,6 +65,7 @@ def _new(updater_cls: type[BaseDatabaseUpdate]) -> BaseDatabaseUpdate:
     (Update20260604, 20260604),
     (Update20260720, 20260720),
     (Update20260731, 20260731),
+    (Update20260804, 20260804),
 ], ids=str)
 def test_creation_date_and_description(updater_cls: type[BaseDatabaseUpdate], expected_date: int) -> None:
     """Each updater reports the date encoded in its name and a non-empty description"""
