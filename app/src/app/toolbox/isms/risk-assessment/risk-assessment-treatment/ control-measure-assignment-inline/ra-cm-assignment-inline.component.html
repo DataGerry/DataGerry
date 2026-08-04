@@ -28,16 +28,13 @@
 
 <!-- ─── Modal ──────────────────────────────────────────── -->
 <ng-template #modalTpl>
-  <div class="modal-header">
-    <h4 class="modal-title">
-      {{ modalMode==='add' ? 'Add' : modalMode==='edit' ? 'Edit' : 'View' }}
-      control
-    </h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="closeModal()">
-    </button>
-  </div>
+  <dg-modal
+    icon="fas fa-clipboard-check"
+    eyebrow="Assigned controls"
+    [title]="(modalMode==='add' ? 'Add' : modalMode==='edit' ? 'Edit' : 'View') + ' control'"
+    [scrollBody]="false"
+    (dismiss)="closeModal()">
 
-  <div class="modal-body">
     <form [formGroup]="modalForm" class="w-100">
       <div class="row g-3">
 
@@ -82,22 +79,17 @@
 
       </div>
     </form>
-  </div>
 
-  <!-- footer (add / edit) -->
-  @if (modalMode!=='view') {
-  <div class="modal-footer">
-    <button class="btn btn-secondary" (click)="closeModal()">Close</button>
-    <button class="btn btn-success" [disabled]="modalForm.invalid" (click)="saveAssignment()">
-      {{ modalMode==='edit' ? 'Save Changes' : 'Add control' }}
-    </button>
-  </div>
-  }
+    <!-- footer: Close always, save action only outside view mode -->
+    <div dgModalFooter class="dg-modal-actions">
+      <app-button [bootstrapClass]="'btn-secondary'" label="Close" type="button" (clicked)="closeModal()">
+      </app-button>
 
-  <!-- footer (view) -->
-  @if (modalMode==='view') {
-  <div class="modal-footer">
-    <button class="btn btn-secondary" (click)="closeModal()">Close</button>
-  </div>
-  }
+      @if (modalMode!=='view') {
+      <app-button [bootstrapClass]="'btn-success'" [disabled]="modalForm.invalid"
+        [label]="modalMode==='edit' ? 'Save Changes' : 'Add control'" type="button" (clicked)="saveAssignment()">
+      </app-button>
+      }
+    </div>
+  </dg-modal>
 </ng-template>

@@ -57,16 +57,16 @@
       </div>
     </div>
 
-    <app-button
-      dgModalFooter
-      [bootstrapClass]="'btn-secondary'"
-      [label]="isViewMode ? 'Close' : 'Cancel'"
-      type="button"
-      (clicked)="onCancel()">
-    </app-button>
+    <div dgModalFooter class="dg-modal-actions">
+      <app-button
+        [bootstrapClass]="'btn-secondary'"
+        [label]="isViewMode ? 'Close' : 'Cancel'"
+        type="button"
+        (clicked)="onCancel()">
+      </app-button>
 
-    @if (!isViewMode) {
-    <button dgModalFooter type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+      @if (!isViewMode) {
+      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
       @if (!isSubmitting) {
       <span>
         <!-- If editing -->
@@ -90,7 +90,8 @@
       @if (isSubmitting) {
       <span class="spinner-border spinner-border-sm"></span>
       }
-    </button>
-    }
+      </button>
+      }
+    </div>
   </dg-modal>
 </form>
