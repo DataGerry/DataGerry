@@ -23,9 +23,9 @@ import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { AddCategoryModalComponent } from 'src/app/framework/category/components/modals/add-category-modal/add-category-modal.component';
-import { DeleteConfirmationModalComponent } from '../../report-modal/delete-confirmation-modal.component';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { Router } from '@angular/router';
+import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ReportService } from '../../../services/report.service';
 
@@ -38,6 +38,7 @@ import { ReportService } from '../../../services/report.service';
 export class ReportOverviewComponent implements OnInit, OnDestroy {
   private readonly reportService = inject(ReportService);
   private readonly modalService = inject(NgbModal);
+  private readonly deleteModalService = inject(DeleteModalService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly loaderService = inject(LoaderService);
@@ -284,16 +285,14 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
    * @param report - The report to delete.
    */
   public openDeleteReportModal(report: any): void {
-    const modalRef = this.modalService.open(DeleteConfirmationModalComponent, { size: 'lg' });
-    modalRef.componentInstance.report = report;
-    modalRef.result.then(
-      (result) => {
-        if (result === 'confirmed') {
-          this.deleteReport(report.public_id);
-        }
-      },
-      () => { }
-    );
+    this.deleteModalService.confirmDelete({
+      title: 'Delete Report',
+      itemType: 'Report',
+      itemName: report.name,
+      warningMessage: 'This will delete this report and its associated data. This action cannot be undone!',
+      warningIconClass: 'fas fa-exclamation-triangle',
+      onConfirm: () => this.deleteReport(report.public_id)
+    });
   }
 
 
