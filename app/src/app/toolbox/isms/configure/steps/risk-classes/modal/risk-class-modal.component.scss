@@ -1,112 +1,62 @@
-@use "sass:color";
-
 $dg-primary-color: #e94d18;
 $dg-border-color: rgba(#dee2e6, 0.5);
 $dg-error-message-color: #dc3545;
 
-// MODAL HEADER
-.modal-header {
-  background: linear-gradient(195deg,
-        color.scale($dg-primary-color, $lightness: -5%),
-        $dg-primary-color );
-  color: white;
-  padding: 1.5rem 2rem;
-  border-bottom: none;
+:host {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
-  .modal-title {
-    font-weight: 600;
-    letter-spacing: -0.25px;
-    font-size: 1.25rem;
-  }
+// Wraps the shell so the submit button stays inside the form
+form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
-  // "X" close button
-  .close {
-    background: transparent;
-    border: none;
-    font-size: 1.75rem;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    transition: opacity 0.2s ease;
+.form-label {
+  font-weight: 500;
+  color: #4a4a4a;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
 
-    &:hover {
-      opacity: 0.8;
-    }
+// Standard text input & textarea
+.form-control {
+  background: white;
+  border: 1px solid $dg-border-color;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease;
+
+  &:focus {
+    border-color: $dg-primary-color;
+    box-shadow: 0 0 0 0.2rem rgba($dg-primary-color, 0.25);
   }
 }
 
-// MODAL BODY
-.modal-body {
-  padding: 2rem 2rem 1rem 2rem;
-  background: white;
+// Wide color bar styling
+.wide-color-bar {
+  width: 200px;     // Adjust to match the exact look you want
+  height: 20px;     // Height for a rectangular bar
+  padding: 0;
+  border-radius: 0; // Keep corners consistent with text fields
 
-  .form-label {
-    font-weight: 500;
-    color: #4a4a4a;
-    font-size: 0.9rem;
-    margin-bottom: 0.5rem;
-  }
-
-  // Standard text input & textarea
-  .form-control {
-    background: white;
-    border: 1px solid $dg-border-color;
-    padding: 0.75rem 1rem;
-    font-size: 0.9rem;
-    transition: border-color 0.2s ease;
-
-    &:focus {
-      border-color: $dg-primary-color;
-      box-shadow: 0 0 0 0.2rem rgba($dg-primary-color, 0.25);
-    }
-  }
-
-  // Wide color bar styling
-  .wide-color-bar {
-    width: 200px;     // Adjust to match the exact look you want
-    height: 20px;     // Height for a rectangular bar
+  // Remove default color picker border/padding in Chrome
+  &::-webkit-color-swatch-wrapper {
     padding: 0;
-    border-radius: 0; // Keep corners consistent with text fields
-
-    // Remove default color picker border/padding in Chrome
-    &::-webkit-color-swatch-wrapper {
-      padding: 0;
-    }
-    &::-webkit-color-swatch {
-      border: none;
-    }
   }
-
-  // Error text
-  .invalid-feedback {
-    color: $dg-error-message-color;
-    font-size: 0.85rem;
-    margin-top: 0.25rem;
+  &::-webkit-color-swatch {
+    border: none;
   }
 }
 
-// MODAL FOOTER
-.modal-footer {
-  border-top: 1px solid rgba(#dee2e6, 0.3);
-  // padding: 1.25rem 2rem;
-  background: white;
-  display: flex;
-  justify-content: flex-end;
-  // gap: 0.75rem;
-  // Buttons keep default Bootstrap styling
-}
-
-// RESPONSIVE TWEAKS
-@media (max-width: 576px) {
-  .modal-header,
-  .modal-body,
-  .modal-footer {
-    padding: 1rem;
-  }
-
-  .modal-title {
-    font-size: 1.1rem;
-  }
+// Error text
+.invalid-feedback {
+  color: $dg-error-message-color;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
 }

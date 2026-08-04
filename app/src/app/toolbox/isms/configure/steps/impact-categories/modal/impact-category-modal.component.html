@@ -1,40 +1,14 @@
-<div class="modal-header">
-  <h4 class="modal-title">
-    <!-- If in View Mode, show "View Impact Category: [Name]" -->
-    @if (isViewMode) {
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <dg-modal
+    icon="fas fa-layer-group"
+    eyebrow="ISMS"
+    [title]="isViewMode
+      ? 'View Impact Category: ' + form.get('name')?.value
+      : isEditMode
+        ? (isCopyMode ? 'Copy Impact Category' : 'Edit Impact Category')
+        : 'Add Impact Category'"
+    (dismiss)="onCancel()">
 
-    View Impact Category: {{ form.get('name')?.value }}
-
-    } @else {
-
-    @if (isEditMode) {
-    <span>
-      @if (isCopyMode) {
-      <span>Copy Impact Category</span>
-      }
-      @if (!isCopyMode) {
-      <span>Edit Impact Category</span>
-      }
-    </span>
-    }
-    @if (!isEditMode) {
-    <span>Add Impact Category</span>
-    }
-
-    }
-
-    <!-- If NOT in View Mode, show the usual Add/Edit/Copy text -->
-
-  </h4>
-
-  <!-- Textual "x" close button -->
-  <button type="button" class="close" (click)="onCancel()">
-    <span aria-hidden="true">×</span>
-  </button>
-</div>
-
-<div class="modal-body">
-  <form [formGroup]="form" (ngSubmit)="onSubmit()">
     <!-- Show Category Name field ONLY if not in View Mode -->
     @if (!isViewMode) {
     <div class="mb-3">
@@ -83,38 +57,40 @@
       </div>
     </div>
 
-    <!-- Modal Footer -->
-    <div class="modal-footer">
-      <button type="button" class="btn btn-secondary" (click)="onCancel()">
-        {{ isViewMode ? 'Close' : 'Cancel' }}
-      </button>
-      @if (!isViewMode) {
-      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-        @if (!isSubmitting) {
+    <app-button
+      dgModalFooter
+      [bootstrapClass]="'btn-secondary'"
+      [label]="isViewMode ? 'Close' : 'Cancel'"
+      type="button"
+      (clicked)="onCancel()">
+    </app-button>
+
+    @if (!isViewMode) {
+    <button dgModalFooter type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+      @if (!isSubmitting) {
+      <span>
+        <!-- If editing -->
+        @if (isEditMode) {
         <span>
-          <!-- If editing -->
-          @if (isEditMode) {
-          <span>
-            @if (isCopyMode) {
-            <span>Copy</span>
-            }
-            @if (!isCopyMode) {
-            <span>Save</span>
-            }
-          </span>
+          @if (isCopyMode) {
+          <span>Copy</span>
           }
-          <!-- If adding -->
-          @if (!isEditMode) {
-          <span>Create</span>
+          @if (!isCopyMode) {
+          <span>Save</span>
           }
         </span>
         }
-        <!-- Spinner while submitting -->
-        @if (isSubmitting) {
-        <span class="spinner-border spinner-border-sm"></span>
+        <!-- If adding -->
+        @if (!isEditMode) {
+        <span>Create</span>
         }
-      </button>
+      </span>
       }
-    </div>
-  </form>
-</div>
+      <!-- Spinner while submitting -->
+      @if (isSubmitting) {
+      <span class="spinner-border spinner-border-sm"></span>
+      }
+    </button>
+    }
+  </dg-modal>
+</form>

@@ -99,7 +99,11 @@ export class ProtectionGoalsComponent implements OnInit {
    * Opens modal to add a new protection goal.
    */
   public addProtectionGoal(): void {
-    const modalRef = this.modalService.open(ProtectionGoalModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(ProtectionGoalModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.protectionGoals = this.protectionGoals;
     modalRef.result.then(
       (result) => {
@@ -116,7 +120,11 @@ export class ProtectionGoalsComponent implements OnInit {
    * Opens modal to edit selected protection goal.
    */
   public editProtectionGoal(item: ProtectionGoal): void {
-    const modalRef = this.modalService.open(ProtectionGoalModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(ProtectionGoalModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.protectionGoal = { ...item };
     modalRef.result.then(
       (result) => {

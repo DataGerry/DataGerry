@@ -1,40 +1,14 @@
-<div class="modal-header">
-  <h4 class="modal-title">
-    <!-- If in View Mode, show "View Protection Goal: [Name]" -->
-    @if (isViewMode) {
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <dg-modal
+    icon="fas fa-shield-halved"
+    eyebrow="ISMS"
+    [title]="isViewMode
+      ? 'View Protection Goal: ' + form.get('name')?.value
+      : isEditMode
+        ? (isCopyMode ? 'Copy Protection Goal' : 'Edit Protection Goal')
+        : 'Add Protection Goal'"
+    (dismiss)="onCancel()">
 
-    View Protection Goal: {{ form.get('name')?.value }}
-
-    } @else {
-
-    @if (isEditMode) {
-    <span>
-      @if (isCopyMode) {
-      <span>Copy Protection Goal</span>
-      }
-      @if (!isCopyMode) {
-      <span>Edit Protection Goal</span>
-      }
-    </span>
-    }
-    @if (!isEditMode) {
-    <span>Add Protection Goal</span>
-    }
-
-    }
-
-    <!-- If NOT in View Mode, show the usual Add/Edit/Copy text -->
-
-  </h4>
-
-  <!-- Textual "x" close button -->
-  <button type="button" class="close" (click)="onCancel()">
-    <span aria-hidden="true">×</span>
-  </button>
-</div>
-
-<div class="modal-body">
-  <form [formGroup]="form" (ngSubmit)="onSubmit()">
     <!-- Show Name field ONLY if not in View Mode -->
     @if (!isViewMode) {
     <div class="mb-3">
@@ -58,39 +32,41 @@
     </div>
     }
 
-    <!-- Modal Footer -->
-    <div class="modal-footer">
-      <button type="button" class="btn btn-secondary" (click)="onCancel()">
-        {{ isViewMode ? 'Close' : 'Cancel' }}
-      </button>
-      <!-- Show Save/Create/Copy button only if not in view mode -->
-      @if (!isViewMode) {
-      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-        @if (!isSubmitting) {
+    <app-button
+      dgModalFooter
+      [bootstrapClass]="'btn-secondary'"
+      [label]="isViewMode ? 'Close' : 'Cancel'"
+      type="button"
+      (clicked)="onCancel()">
+    </app-button>
+
+    <!-- Show Save/Create/Copy button only if not in view mode -->
+    @if (!isViewMode) {
+    <button dgModalFooter type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+      @if (!isSubmitting) {
+      <span>
+        <!-- If editing -->
+        @if (isEditMode) {
         <span>
-          <!-- If editing -->
-          @if (isEditMode) {
-          <span>
-            @if (isCopyMode) {
-            <span>Copy Protection Goal</span>
-            }
-            @if (!isCopyMode) {
-            <span>Save Changes</span>
-            }
-          </span>
+          @if (isCopyMode) {
+          <span>Copy Protection Goal</span>
           }
-          <!-- If adding -->
-          @if (!isEditMode) {
-          <span>Add Protection Goal</span>
+          @if (!isCopyMode) {
+          <span>Save Changes</span>
           }
         </span>
         }
-        <!-- Spinner while submitting -->
-        @if (isSubmitting) {
-        <span class="spinner-border spinner-border-sm"></span>
+        <!-- If adding -->
+        @if (!isEditMode) {
+        <span>Add Protection Goal</span>
         }
-      </button>
+      </span>
       }
-    </div>
-  </form>
-</div>
+      <!-- Spinner while submitting -->
+      @if (isSubmitting) {
+      <span class="spinner-border spinner-border-sm"></span>
+      }
+    </button>
+    }
+  </dg-modal>
+</form>
