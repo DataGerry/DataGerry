@@ -285,7 +285,11 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
             return;
         }
 
-        const modalRef = this.fullscreenModalService.open(this.modalService, IpamUnassignIpModalComponent, { size: 'lg' });
+        const modalRef = this.fullscreenModalService.open(this.modalService, IpamUnassignIpModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.count = ips.length;
         modalRef.componentInstance.ipLabel = ips.length === 1 ? ips[0] : null;
 
@@ -302,7 +306,9 @@ export class IpamSubnetOverviewComponent implements OnChanges, OnDestroy {
 
         const modalRef = this.fullscreenModalService.open(this.modalService, IpamAssignIpModalComponent, {
             size: 'xl',
-            scrollable: true
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
         modalRef.componentInstance.subnetId = this.publicId;
         modalRef.componentInstance.subnetCidr = this.subnet?.cidr ?? '';

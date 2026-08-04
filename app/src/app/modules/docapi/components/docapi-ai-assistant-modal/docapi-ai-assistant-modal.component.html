@@ -214,35 +214,34 @@
         (clicked)="cancel()">
     </app-button>
 
-    @if (currentStep() > 1) {
-        <app-button
-            dgModalFooter
-            [bootstrapClass]="'btn-outline-secondary'"
-            label="Back"
-            type="button"
-            (clicked)="previousStep()">
-        </app-button>
-    }
+    <div dgModalFooter class="dg-modal-actions">
+        @if (currentStep() > 1) {
+            <app-button
+                [bootstrapClass]="'btn-outline-secondary'"
+                label="Back"
+                type="button"
+                (clicked)="previousStep()">
+            </app-button>
+        }
 
-    @if (currentStep() === 1) {
-        <app-button
-            dgModalFooter
-            [bootstrapClass]="'btn-primary'"
-            label="Continue"
-            type="button"
-            [disabled]="!canContinueFromDescribe"
-            (clicked)="proceedToReview()">
-        </app-button>
-    }
+        @if (currentStep() === 1) {
+            <app-button
+                [bootstrapClass]="'btn-primary'"
+                label="Continue"
+                type="button"
+                [disabled]="!canContinueFromDescribe"
+                (clicked)="proceedToReview()">
+            </app-button>
+        }
 
-    @if (currentStep() === 2) {
-        <app-button
-            dgModalFooter
-            [bootstrapClass]="'btn-success'"
-            label="Insert"
-            type="button"
-            [disabled]="!hasGeneratedContent()"
-            (clicked)="insertGeneratedHtml()">
-        </app-button>
-    }
+        @if (currentStep() === 2) {
+            <app-button
+                [bootstrapClass]="'btn-success'"
+                label="Insert"
+                type="button"
+                [disabled]="!hasGeneratedContent()"
+                (clicked)="insertGeneratedHtml()">
+            </app-button>
+        }
+    </div>
 </dg-modal>

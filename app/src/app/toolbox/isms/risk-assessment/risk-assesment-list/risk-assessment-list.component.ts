@@ -430,7 +430,11 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
 
 
     onDuplicate(row: RiskAssessment): void {
-        const ref = this.modal.open(DuplicateRiskAssessmentModalComponent, { size: 'lg' });
+        const ref = this.modal.open(DuplicateRiskAssessmentModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         ref.componentInstance.ctx = this.ctx();    // OBJECT | GROUP | RISK
         ref.componentInstance.item = row;
         ref.componentInstance.objectSummaryLine = row.naming?.object_id_name ?? '';
@@ -480,7 +484,11 @@ export class RiskAssessmentListComponent implements OnInit, OnChanges {
     /* ───── DELETE helper ───── */
     onDelete(row: RiskAssessment): void {
 
-        const ref = this.modal.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+        const ref = this.modal.open(CoreDeleteConfirmationModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         ref.componentInstance.title = 'Delete Risk-Assessment';
         ref.componentInstance.item = row;
         ref.componentInstance.itemType = 'Risk-Assessment';

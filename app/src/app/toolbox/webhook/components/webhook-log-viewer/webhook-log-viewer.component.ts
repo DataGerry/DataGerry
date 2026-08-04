@@ -18,8 +18,7 @@
 import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { WebhookLogService } from '../../services/webhookLog.service';
-import { DeleteConfirmationModalComponent } from '../modal/delete-confirmation-modal.component';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { finalize, ReplaySubject, takeUntil } from 'rxjs';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
@@ -36,7 +35,7 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 export class WebhookLogViewerComponent implements OnInit {
     private readonly webhookService = inject(WebhookLogService);
     private readonly toast = inject(ToastService);
-    private readonly modalService = inject(NgbModal);
+    private readonly deleteModalService = inject(DeleteModalService);
     private readonly location = inject(Location);
     private readonly loaderService = inject(LoaderService);
 
@@ -144,40 +143,18 @@ export class WebhookLogViewerComponent implements OnInit {
     }
 
     /**
-    * Opens the Delete Report modal and deletes the report if confirmed.
-    * @param report - The report to delete.
+    * Opens the delete confirmation modal and deletes the log once confirmed.
+    * @param log - The log entry to delete.
     */
     public onDeleteLog(log: any): void {
-        this.openDeleteModal(
-            log,
-            `Delete Log: ID: ${log.webhook_id}`,
-            `Do you want to delete the log "${log.webhook_id}"? This action cannot be undone.`
-        );
-    }
-
-
-    /**
-     * Opens a delete confirmation modal for the specified item.
-     * Passes the item details and a descriptive title to the modal, and deletes the item upon confirmation.
-     * @param item - The item to be deleted.
-     * @param title - The title to display in the modal.
-     * @param description - The description to display in the modal (currently unused in the code).
-     */
-    public openDeleteModal(item: any, title: string, description: string): void {
-        const modalRef = this.modalService.open(DeleteConfirmationModalComponent, { size: 'lg' });
-        modalRef.componentInstance.title = title;
-        modalRef.componentInstance.item = item;
-        modalRef.componentInstance.itemType = 'log';
-        modalRef.componentInstance.itemName = item.webhook_id;
-
-        modalRef.result.then(
-            (result) => {
-                if (result === 'confirmed') {
-                    this.deleteLog(item.public_id);
-                }
-            },
-            () => { }
-        );
+        this.deleteModalService.confirmDelete({
+            title: 'Delete Log',
+            itemType: 'Log',
+            itemName: `ID: ${log.webhook_id}`,
+            warningMessage: 'This action cannot be undone!',
+            warningIconClass: 'fas fa-exclamation-triangle',
+            onConfirm: () => this.deleteLog(log.public_id)
+        });
     }
 
 

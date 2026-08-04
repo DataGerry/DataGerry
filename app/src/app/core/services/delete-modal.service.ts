@@ -59,8 +59,10 @@ export class DeleteModalService {
    * @returns Promise that resolves when the modal is closed
    */
   public confirmDelete(config: DeleteModalConfig): Promise<void> {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { 
-      size: config.size || 'lg' 
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: config.size || 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
 
     // Set component inputs

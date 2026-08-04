@@ -145,11 +145,6 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
         this.isValid$ = this.validationService?.getIsValid();
         this.isSectionValid$ = this.validationService?.overallSectionValidity();
 
-        // this.subscription = this.sectionIdentifierService.getIsIdentifierValid().subscribe(isValid => {
-        //     this.isIdentifierValid = isValid;
-
-        // });
-
         if (this.mode === CmdbMode.Create) {
             this.typeInstance = new CmdbType();
             this.typeInstance.active = true;

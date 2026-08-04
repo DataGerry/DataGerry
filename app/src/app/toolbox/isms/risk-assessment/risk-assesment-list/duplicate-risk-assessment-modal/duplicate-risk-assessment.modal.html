@@ -1,75 +1,73 @@
-<!-- HEADER -->
-<div class="modal-header">
-  <h4 class="modal-title">Duplicate Risk Assessment</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss()">
-  </button>
-</div>
+<dg-modal
+  icon="fas fa-copy"
+  eyebrow="Risk assessment"
+  title="Duplicate Risk Assessment"
+  [scrollBody]="false"
+  (dismiss)="activeModal.dismiss()">
 
-<!-- BODY -->
-@if (ready) {
+  <!-- BODY -->
+  @if (ready) {
 
-<form class="modal-body" [formGroup]="form" autocomplete="off">
-  <!-- summary -->
-  <section class="summary mb-3">
-    @switch (ctx) {
-    @case ('OBJECT') {
-    <div>
-      <strong>Object&nbsp;#{{ item.object_id }}</strong> – {{ objectSummaryLine }}
+  <form class="duplicate-body" [formGroup]="form" autocomplete="off">
+    <!-- summary -->
+    <section class="summary mb-3">
+      @switch (ctx) {
+      @case ('OBJECT') {
+      <div>
+        <strong>Object&nbsp;#{{ item.object_id }}</strong> – {{ objectSummaryLine }}
+      </div>
+      }
+      @case ('GROUP') {
+      <div>
+        <strong>Object&nbsp;Group&nbsp;#{{ item.object_id }}</strong> – {{ objectGroupName }}
+      </div>
+      }
+      @case ('RISK') {
+      <div>
+        <strong>Risk&nbsp;#{{ item.risk_id }}</strong> – {{ riskSummaryLine }}
+      </div>
+      }
+      }
+    </section>
+
+    <!-- selector -->
+    @if (selectorKind !== 'OBJECTS') {
+    <app-form-select class="w-100" [label]="selectorLabel" [items]="options" bindLabel="name" bindValue="public_id"
+      [multiple]="true" [formControl]="form.get('targets')">
+    </app-form-select>
+    }
+
+    @if (selectorKind === 'OBJECTS') {
+    <app-object-selector [typeIds]="allTypeIds" [multiple]="true" [closeOnSelect]="true"
+      [selectedIds]="form.get('targets')?.value" (selectionChange)="form.get('targets')?.setValue($event)">
+    </app-object-selector>
+    }
+
+    <!-- copy_cma -->
+    <div class="form-check mt-3">
+      <input type="checkbox" id="copyCma" class="form-check-input" formControlName="copyCma">
+      <label for="copyCma" class="form-check-label">
+        Keep assigned Controls
+      </label>
     </div>
-    }
-    @case ('GROUP') {
-    <div>
-      <strong>Object&nbsp;Group&nbsp;#{{ item.object_id }}</strong> – {{ objectGroupName }}
-    </div>
-    }
-    @case ('RISK') {
-    <div>
-      <strong>Risk&nbsp;#{{ item.risk_id }}</strong> – {{ riskSummaryLine }}
-    </div>
-    }
-    }
-  </section>
+  </form>
 
-  <!-- selector -->
-  @if (selectorKind !== 'OBJECTS') {
-  <app-form-select class="w-100" [label]="selectorLabel" [items]="options" bindLabel="name" bindValue="public_id"
-    [multiple]="true" [formControl]="form.get('targets')">
-  </app-form-select>
-  }
+  } @else {
 
-  @if (selectorKind === 'OBJECTS') {
-  <app-object-selector [typeIds]="allTypeIds" [multiple]="true" [closeOnSelect]="true"
-    [selectedIds]="form.get('targets')?.value" (selectionChange)="form.get('targets')?.setValue($event)">
-  </app-object-selector>
-  }
-
-  <!-- copy_cma -->
-  <div class="form-check mt-3">
-    <input type="checkbox" id="copyCma" class="form-check-input" formControlName="copyCma">
-    <label for="copyCma" class="form-check-label">
-      Keep assigned Controls
-    </label>
+  <!-- spinner -->
+  <div class="duplicate-body d-flex justify-content-center py-5">
+    <dg-spinner></dg-spinner>
   </div>
-</form>
 
-} @else {
+  }
 
-<div class="modal-body d-flex justify-content-center py-5">
-  <dg-spinner></dg-spinner>
-</div>
-
-}
-
-<!-- spinner -->
-
-
-<!-- FOOTER -->
-<div class="modal-footer">
-
-  <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="activeModal.dismiss()">
+  <!-- FOOTER -->
+  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
+    (clicked)="activeModal.dismiss()">
   </app-button>
+
   <!-- Submit Button -->
-  <app-button [bootstrapClass]="'btn-success'" [disabled]="form.invalid || loading" [label]="'Duplicate'" type="submit"
-    (clicked)="submit()">
+  <app-button dgModalFooter [bootstrapClass]="'btn-success'" [disabled]="form.invalid || loading" [label]="'Duplicate'"
+    type="submit" (clicked)="submit()">
   </app-button>
-</div>
+</dg-modal>

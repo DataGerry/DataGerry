@@ -326,7 +326,11 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
 
 
   setCron(automation: any): void {
-    const modalRef = this.modalService.open(CronExpressionModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CronExpressionModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.isCronModalOpen = true;
     modalRef.componentInstance.currentCron = automation?.cronExp || automation?.scheduler?.cronExp || '';
     modalRef.componentInstance.automationName = automation?.connection?.title || automation?.scheduler?.title || automation?.name || '';

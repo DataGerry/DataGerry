@@ -204,7 +204,11 @@ export class ObjectGroupsListComponent implements OnInit {
    * @returns void  
    */
   public onDelete(item: ObjectGroup): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Object Group';
     modalRef.componentInstance.item = item;
     modalRef.componentInstance.itemType = 'Object Group';
