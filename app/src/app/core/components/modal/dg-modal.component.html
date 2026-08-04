@@ -11,9 +11,12 @@
         <p class="dg-modal__subtitle">{{ subtitleText }}</p>
         }
     </div>
-    <button type="button" class="dg-modal__close" aria-label="Close" (click)="dismiss.emit()">
-        <i class="fas fa-times" aria-hidden="true"></i>
-    </button>
+    <div class="dg-modal__actions">
+        <ng-content select="[dgModalHeaderAction]"></ng-content>
+        <button type="button" class="dg-modal__close" aria-label="Close" (click)="dismiss.emit()">
+            <i class="fas fa-times" aria-hidden="true"></i>
+        </button>
+    </div>
 </div>
 
 <div class="dg-modal__body" [class.dg-modal__body--scroll]="scrollBody()">

@@ -110,7 +110,9 @@ export class AutomationLogsMenuComponent {
     this.modalRef = this.modalService.open(OpenCeliumLogsModalComponent, {
       size: 'xl',
       scrollable: true,
-      windowClass: 'oc-logs-modal'
+      // 'oc-logs-modal' must stay — setFullscreen() queries ngb-modal-window.oc-logs-modal
+      windowClass: 'oc-logs-modal dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
     this.modalRef.componentInstance.executionId = executionId;
     this.modalRef.componentInstance.baseUrl = this.getBaseUrl();

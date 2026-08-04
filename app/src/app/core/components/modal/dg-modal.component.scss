@@ -66,10 +66,17 @@
     color: var(--dg-muted);
 }
 
-.dg-modal__close {
+/* Corner cluster: optional [dgModalHeaderAction] items, then the close button. */
+.dg-modal__actions {
     position: absolute;
     top: 1rem;
     right: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.dg-modal__close {
     display: grid;
     place-items: center;
     width: 2rem;
