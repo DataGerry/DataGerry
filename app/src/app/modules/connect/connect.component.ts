@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,7 +24,8 @@ import { ConnectionService } from './services/connection.service';
 
 @Component({
     templateUrl: './connect.component.html',
-    styleUrls: ['./connect.component.scss']
+    styleUrls: ['./connect.component.scss'],
+    standalone: false
 })
 export class ConnectComponent implements OnInit, OnDestroy {
 
@@ -56,7 +57,7 @@ export class ConnectComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.domRender.removeClass(document.body, 'embedded');
+        this.domRender?.removeClass(document?.body, 'embedded');
     }
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

@@ -1,0 +1,4 @@
+<field name="public_id" type="integer"/>
+<field name="name" type="string"/>
+<field name="label" type="string"/>
+<field name="rights" type="array"/>

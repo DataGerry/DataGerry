@@ -4,7 +4,13 @@
   class="btn"
   [ngClass]="bootstrapClass"
   [style.padding]="padding"
+  [attr.title]="title || null"
+  [attr.aria-label]="ariaLabel || null"
+  [attr.aria-pressed]="ariaPressed"
   (click)="onClick()"
 >
+  @if (icon) {
+    <i [class]="icon" aria-hidden="true"></i>
+  }
   {{ label }}
 </button>

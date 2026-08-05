@@ -1,3 +1,6 @@
+@use "sass:color";
+
+
 $text-width-shortener: 70px;
 
 .list-group-item {
@@ -43,7 +46,7 @@ $text-width-shortener: 70px;
     }
 
     &[aria-expanded='true'] {
-      background-color: darken($sidebar-bg, 25%);;
+      background-color: color.scale($sidebar-bg, $lightness: -25%);
 
       &::after {
         font-family: 'Font Awesome 5 Free', sans-serif;

@@ -1,8 +1,14 @@
 <div id="app-wrapper">
-    <cmdb-navigation *ngIf="view === 'full'"/>
-    <cmdb-sidebar *ngIf="view === 'full'"/>
+    @if (view === 'full') {
+<cmdb-navigation/>
+}
+    @if (view === 'full') {
+<cmdb-sidebar/>
+}
     <main id="main">
-        <cmdb-breadcrumb *ngIf="view === 'full'"/>
+        @if (view === 'full') {
+<cmdb-breadcrumb/>
+}
 
         <div id="content">
             <div class="container-fluid">
@@ -10,7 +16,9 @@
             </div>
         </div>
 
-        <cmdb-footer *ngIf="view === 'full'"/>
+        @if (view === 'full') {
+<cmdb-footer/>
+}
         <cmdb-toast-container/>
     </main>
 </div>

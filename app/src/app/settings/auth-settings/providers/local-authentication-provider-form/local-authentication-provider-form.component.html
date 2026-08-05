@@ -1,7 +1,7 @@
 <div class="card-header">
   <ul class="nav nav-tabs card-header-tabs">
     <li class="nav-item">
-      <a class="nav-link active" data-toggle="tab" [href]="'#'+provider.class_name+'_pane_entry'"
+      <a class="nav-link active" data-bs-toggle="tab" [href]="'#'+provider.class_name+'_pane_entry'"
          role="tab">
         Local Authentication Provider
       </a>
@@ -13,7 +13,7 @@
   <div [formGroup]="form" class="form-group row mb-3">
     <div class="col-sm-3">Active:</div>
     <div class="col-sm-9">
-      <div class="custom-control custom-checkbox">
+      <div class="form-check">
         <input class="custom-control-input disabled" type="checkbox"
                formControlName="active" id="local-provider-active-input">
         <label class="custom-control-label" for="local-provider-active-input"></label>
@@ -21,6 +21,6 @@
     </div>
   </div>
 </div>
-<div class="card-footer text-muted text-right">
-  <span class="badge badge-primary">Internal</span>
+<div class="card-footer text-muted text-end">
+  <span class="badge bg-primary">Internal</span>
 </div>

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,14 @@
 """
 Represents a CmdbUserGroup in DataGerry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
+
+from cmdb.class_schema.group_model.cmdb_user_group_schema import get_cmdb_user_group_schema
 
 from cmdb.errors.models.cmdb_user_group import (
     CmdbUserGroupInitError,
@@ -29,7 +32,7 @@ from cmdb.errors.models.cmdb_user_group import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbUserGroup - CLASS                                                #
@@ -44,28 +47,16 @@ class CmdbUserGroup(CmdbDAO):
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'required': False
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-        },
-        'label': {
-            'type': 'string',
-            'required': False,
-        },
-        'rights': {
-            'type': 'list',
-            'required': False,
-            'default': []
-        }
-    }
+    SCHEMA: dict[str, Any] = get_cmdb_user_group_schema()
 
 
-    def __init__(self, public_id: int, name: str, label: str = None, rights: list[BaseRight] = None):
+    def __init__(
+        self,
+        public_id: int,
+        name: str,
+        label: str | None = None,
+        rights: list[BaseRight] | None = None,
+    ):
         """
         Initialises a CmdbUserGroup
 
@@ -90,12 +81,14 @@ class CmdbUserGroup(CmdbDAO):
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict, rights: list[BaseRight] = None) -> "CmdbUserGroup":
+    def from_data(cls, data: dict[str, Any], rights: list[BaseRight] | None = None) -> "CmdbUserGroup":
         """
         Initialises a CmdbUserGroup from a dict
 
         Args:
-            data (dict): Data with which the CmdbUserGroup should be initialised
+            data (dict[str, Any]): Data with which the CmdbUserGroup should be initialised
+            rights (list[BaseRight] | None): Known rights used to resolve the data's right-name list
+                into BaseRight instances; names not present here are dropped. Defaults to None
 
         Raises:
             CmdbUserGroupInitFromDataError: If the initialisation with the given data fails
@@ -120,12 +113,14 @@ class CmdbUserGroup(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbUserGroup", insert_mode: bool = False) -> dict:
+    def to_json(cls, instance: "CmdbUserGroup", insert_mode: bool = False) -> dict[str, Any]:
         """
         Converts a CmdbUserGroup into a json compatible dict
 
         Args:
             instance (CmdbUserGroup): The CmdbUserGroup which should be converted
+            insert_mode (bool): When True, rights are serialized as their name strings (the stored
+                form); when False, as full BaseRight dicts. Defaults to False
 
         Raises:
             CmdbUserGroupToJsonError: If the CmdbUserGroup could not be converted to a json compatible dict

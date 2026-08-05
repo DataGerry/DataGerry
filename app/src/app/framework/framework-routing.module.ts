@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,6 +19,8 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { PermissionGuard } from '../modules/auth/guards/permission.guard';
+import { premiumFeatureGuard } from '../settings/license-management/premium-feature/premium-feature.guard';
+import { LicenseFeature } from '../settings/license-management/models/license.model';
 
 import { FrameworkComponent } from './framework.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -80,28 +82,34 @@ const routes: Routes = [
     },
     {
         path: 'object_groups',
+        canActivate: [premiumFeatureGuard],
         canActivateChild: [PermissionGuard],
         data: {
             breadcrumb: 'Object Groups',
+            premiumFeature: LicenseFeature.Isms
         },
         loadChildren: () => import('./object_groups/object-groups.module').then(m => m.ObjectGroupsModule),
     },
     {
         path: 'person-groups',
+        canActivate: [premiumFeatureGuard],
         canActivateChild: [PermissionGuard],
         data: {
             breadcrumb: 'Person Groups',
-            right: 'base.framework.relation.view'
+            right: 'base.framework.relation.view',
+            premiumFeature: LicenseFeature.Isms
         },
         loadChildren: () => import('./person-group/person-group.module').then(m => m.PersonGroupModule),
     },
 
     {
         path: 'persons',
+        canActivate: [premiumFeatureGuard],
         canActivateChild: [PermissionGuard],
         data: {
             breadcrumb: 'Persons',
-            right: 'base.framework.relation.view'
+            right: 'base.framework.relation.view',
+            premiumFeature: LicenseFeature.Isms
         },
         loadChildren: () => import('../toolbox/isms/person/person.module').then(m => m.PersonModule),
     },

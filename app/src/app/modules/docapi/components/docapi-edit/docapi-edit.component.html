@@ -1,2 +1,6 @@
-<cmdb-content-header title="Edit DocAPI document"/>
-<cmdb-docapi-builder [docInstance]="docInstance" [mode]="mode"/>
+<cmdb-content-header [title]="title"/>
+<cmdb-docapi-builder [docInstance]="docInstance" [mode]="mode" (labelChanged)="onLabelChanged($event)"/>
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+></app-loading-popup>

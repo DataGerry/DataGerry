@@ -1,3 +1,20 @@
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2026 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+
+* You should have received a copy of the GNU Affero General Public License
+* along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 import {
     Component,
     forwardRef,
@@ -16,13 +33,14 @@ import {
     templateUrl: './select.component.html',
     styleUrls: ['./select.component.scss'],
     providers: [
-      {
-        provide: NG_VALUE_ACCESSOR,
-        useExisting: forwardRef(() => SelectComponent),
-        multi: true
-      }
-    ]
-  })
+        {
+            provide: NG_VALUE_ACCESSOR,
+            useExisting: forwardRef(() => SelectComponent),
+            multi: true
+        }
+    ],
+    standalone: false
+})
   export class SelectComponent implements ControlValueAccessor, OnInit {
     /**
      * The label to be displayed above or alongside the select component
@@ -70,6 +88,12 @@ import {
     @Input() dropdownDirection?: 'bottom' | 'top' = 'bottom';
 
     @Input() groupBy?: string;
+
+    /**
+     * Show a "Select All / Deselect All" toggle inside the dropdown.
+     * Only honored when `multiple` is true.
+     */
+    @Input() enableSelectAll = false;
 
     @Output() selectedItemChange = new EventEmitter<any>();
 
@@ -121,16 +145,73 @@ import {
     onValueChange(selectedValue: any) {
       let outputValue;
       if (this.multiple) {
-        this.value = selectedValue.map((item: any) => item[this.bindValue]);
-        outputValue = selectedValue;
+        const selectedArray = Array.isArray(selectedValue) ? selectedValue : [];
+        this.value = selectedArray.map((item: any) => item[this.bindValue]);
+        outputValue = selectedArray;
       } else {
         this.value = selectedValue ? selectedValue[this.bindValue] : null;
         outputValue = selectedValue;
       }
-      
+
       this.onChange(this.value); // Notify Angular forms API
       this.selectedItemChange.emit(outputValue);
       this.onTouched();
+    }
+
+    public get selectableItems(): any[] {
+      return (this.items || []).filter(item => !item?.disabled);
+    }
+
+    public get showSelectAllToggle(): boolean {
+      return this.multiple
+        && this.enableSelectAll
+        && !this.disabled
+        && this.selectableItems.length > 0;
+    }
+
+    public get allSelectableSelected(): boolean {
+      const selectable = this.selectableItems;
+      if (selectable.length === 0) {
+        return false;
+      }
+      const selectedValues = new Set(Array.isArray(this.value) ? this.value : []);
+      return selectable.every(item => selectedValues.has(item[this.bindValue]));
+    }
+
+    /**
+     * True when at least one selectable item is currently selected.
+     * Drives the enabled state of the "Deselect All" action so the user can
+     * clear a partial selection without having to select everything first.
+     */
+    public get hasSelection(): boolean {
+      const selectable = this.selectableItems;
+      if (selectable.length === 0) {
+        return false;
+      }
+      const selectedValues = new Set(Array.isArray(this.value) ? this.value : []);
+      return selectable.some(item => selectedValues.has(item[this.bindValue]));
+    }
+
+    public selectAll(): void {
+      if (!this.showSelectAllToggle || this.allSelectableSelected) {
+        return;
+      }
+      this.onValueChange([...this.selectableItems]);
+    }
+
+    public deselectAll(): void {
+      if (!this.showSelectAllToggle || !this.hasSelection) {
+        return;
+      }
+      this.onValueChange([]);
+    }
+
+    public toggleSelectAll(): void {
+      if (!this.showSelectAllToggle) {
+        return;
+      }
+      const nextSelection = this.allSelectableSelected ? [] : [...this.selectableItems];
+      this.onValueChange(nextSelection);
     }
   }
   

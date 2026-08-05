@@ -1,18 +1,30 @@
 <div class="modal-header">
   <h4 class="modal-title">
     <!-- If in View Mode, show "View Impact Category: [Name]" -->
-    <ng-container *ngIf="isViewMode; else editAddCopyMode">
-      View Impact Category: {{ form.get('name')?.value }}
-    </ng-container>
+    @if (isViewMode) {
+
+    View Impact Category: {{ form.get('name')?.value }}
+
+    } @else {
+
+    @if (isEditMode) {
+    <span>
+      @if (isCopyMode) {
+      <span>Copy Impact Category</span>
+      }
+      @if (!isCopyMode) {
+      <span>Edit Impact Category</span>
+      }
+    </span>
+    }
+    @if (!isEditMode) {
+    <span>Add Impact Category</span>
+    }
+
+    }
 
     <!-- If NOT in View Mode, show the usual Add/Edit/Copy text -->
-    <ng-template #editAddCopyMode>
-      <span *ngIf="isEditMode">
-        <span *ngIf="isCopyMode">Copy Impact Category</span>
-        <span *ngIf="!isCopyMode">Edit Impact Category</span>
-      </span>
-      <span *ngIf="!isEditMode">Add Impact Category</span>
-    </ng-template>
+
   </h4>
 
   <!-- Textual "x" close button -->
@@ -24,38 +36,31 @@
 <div class="modal-body">
   <form [formGroup]="form" (ngSubmit)="onSubmit()">
     <!-- Show Category Name field ONLY if not in View Mode -->
-    <div *ngIf="!isViewMode" class="mb-3">
+    @if (!isViewMode) {
+    <div class="mb-3">
       <label class="form-label">
         Impact Category Name <span class="text-danger">*</span>
       </label>
-      <input
-        type="text"
-        class="form-control"
-        formControlName="name"
-        placeholder="Enter category name..."
-      />
+      <input type="text" class="form-control" formControlName="name" placeholder="Enter category name..." />
       <!-- Category name is still required -->
-      <div
-        class="invalid-feedback d-block"
-        *ngIf="
-          form.get('name')?.invalid &&
-          (form.get('name')?.touched || form.get('name')?.dirty)
-        "
-      >
+      @if (
+      form.get('name')?.invalid &&
+      (form.get('name')?.touched || form.get('name')?.dirty)
+      ) {
+      <div class="invalid-feedback d-block">
         Category name is required.
       </div>
+      }
     </div>
+    }
 
     <!-- Impact Descriptions (Not Required Anymore) -->
     <div class="mb-3">
       <label class="form-label section-heading">Impact level description</label>
 
       <div formArrayName="impact_descriptions" class="impact-descriptions-wrapper">
-        <div
-          *ngFor="let row of impactDescriptions.controls; let i = index"
-          [formGroupName]="i"
-          class="impact-descriptions-item"
-        >
+        @for (row of impactDescriptions.controls; track row; let i = $index) {
+        <div [formGroupName]="i" class="impact-descriptions-item">
           <!-- Impact Name (read-only from data) -->
           <div class="impact-label">
             {{ row.value.impact_name }}
@@ -69,17 +74,12 @@
             <label for="desc_{{ i }}" class="form-label">
               <!-- Description -->
             </label>
-            <textarea
-              id="desc_{{ i }}"
-              class="form-control"
-              formControlName="value"
-              rows="2"
-              placeholder="Enter description..."
-              [readonly]="isViewMode"
-            ></textarea>
+            <textarea id="desc_{{ i }}" class="form-control" formControlName="value" rows="2"
+              placeholder="Enter description..." [readonly]="isViewMode"></textarea>
             <!-- No error messages since not required -->
           </div>
         </div>
+        }
       </div>
     </div>
 
@@ -88,24 +88,33 @@
       <button type="button" class="btn btn-secondary" (click)="onCancel()">
         {{ isViewMode ? 'Close' : 'Cancel' }}
       </button>
-      <button
-        type="submit"
-        class="btn btn-success"
-        *ngIf="!isViewMode"
-        [disabled]="isSubmitting || form.invalid"
-      >
-        <span *ngIf="!isSubmitting">
+      @if (!isViewMode) {
+      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+        @if (!isSubmitting) {
+        <span>
           <!-- If editing -->
-          <span *ngIf="isEditMode">
-            <span *ngIf="isCopyMode">Copy</span>
-            <span *ngIf="!isCopyMode">Save</span>
+          @if (isEditMode) {
+          <span>
+            @if (isCopyMode) {
+            <span>Copy</span>
+            }
+            @if (!isCopyMode) {
+            <span>Save</span>
+            }
           </span>
+          }
           <!-- If adding -->
-          <span *ngIf="!isEditMode">Create</span>
+          @if (!isEditMode) {
+          <span>Create</span>
+          }
         </span>
+        }
         <!-- Spinner while submitting -->
-        <span *ngIf="isSubmitting" class="spinner-border spinner-border-sm"></span>
+        @if (isSubmitting) {
+        <span class="spinner-border spinner-border-sm"></span>
+        }
       </button>
+      }
     </div>
   </form>
 </div>

@@ -1,0 +1,17 @@
+<response>
+    <success status="200">
+        <header/>
+        <body data="raw" format="json" type="object">
+            <field name="results" type="object">
+                <!-- -->
+            </field>
+            <field name="failed" type="array"/>
+            <field name="response_type" type="string"/>
+            <field name="time" type="string"/>
+        </body>
+    </success>
+    <fail status="500">
+        <header/>
+        <body/>
+    </fail>
+</response>

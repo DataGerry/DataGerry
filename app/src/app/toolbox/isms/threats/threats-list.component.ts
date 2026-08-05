@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -36,11 +36,19 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { ThreatService } from '../services/threat.service';
 
 @Component({
-  selector: 'app-threats-list',
-  templateUrl: './threats-list.component.html',
-  styleUrls: ['./threats-list.component.scss']
+    selector: 'app-threats-list',
+    templateUrl: './threats-list.component.html',
+    styleUrls: ['./threats-list.component.scss'],
+    standalone: false
 })
 export class ThreatsListComponent implements OnInit {
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly threatService = inject(ThreatService);
+  private readonly modalService = inject(NgbModal);
+  private readonly filterBuilderService = inject(FilterBuilderService);
+  private readonly extendableOptionService = inject(ExtendableOptionService);
 
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;
   @ViewChild('sourceTemplate', { static: true }) sourceTemplate: TemplateRef<any>;
@@ -61,16 +69,6 @@ export class ThreatsListComponent implements OnInit {
   public sourceOptions: ExtendableOption[] = [];
 
   /* --------------------------------------------------- LIFECYCLE MEHTODS --------------------------------------------------- */
-
-  constructor(
-    private router: Router,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private threatService: ThreatService,
-    private modalService: NgbModal,
-    private filterBuilderService: FilterBuilderService,
-    private extendableOptionService: ExtendableOptionService
-  ) { }
 
   ngOnInit(): void {
     this.setupColumns();

@@ -11,7 +11,8 @@ import { finalize } from 'rxjs';
 @Component({
     selector: 'cmdb-export-types',
     templateUrl: './export-types.component.html',
-    styleUrls: ['./export-types.component.scss']
+    styleUrls: ['./export-types.component.scss'],
+    standalone: false
 })
 export class ExportTypesComponent implements OnInit {
 

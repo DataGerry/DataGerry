@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,9 +29,10 @@ import { ToastService } from '../../layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-object',
-  templateUrl: './object.component.html',
-  styleUrls: ['./object.component.scss']
+    selector: 'cmdb-object',
+    templateUrl: './object.component.html',
+    styleUrls: ['./object.component.scss'],
+    standalone: false
 })
 export class ObjectComponent implements OnInit, OnDestroy {
 
@@ -266,7 +267,7 @@ export class ObjectComponent implements OnInit, OnDestroy {
         this.objects = apiResponse.results as Array<RenderResult>;
         this.totalObjects = apiResponse.total;
       },
-      (error) => this.toastService.error(error),
+      (error) => this.toastService.error(error?.error?.message),
       () => this.setLoadingState(false));
   }
 
@@ -474,7 +475,7 @@ export class ObjectComponent implements OnInit, OnDestroy {
         this.loadObjectsFromAPI();
       },
         (error) => {
-          this.toastService.error(`Error while deleting object ${objectID} | Error: ${error}`);
+          this.toastService.error(error?.error?.message);
         });
   }
 
@@ -486,7 +487,7 @@ export class ObjectComponent implements OnInit, OnDestroy {
         this.loadObjectsFromAPI();
       },
         (error) => {
-          this.toastService.error(`Error while deleting object ${objectID} | Error: ${error}`);
+          this.toastService.error(error?.error?.message);
         });
   }
 
@@ -498,7 +499,7 @@ export class ObjectComponent implements OnInit, OnDestroy {
         this.loadObjectsFromAPI();
       },
         (error) => {
-          this.toastService.error(`Error while deleting object ${objectID} | Error: ${error}`);
+          this.toastService.error(error?.error?.message);
         });
   }
 
@@ -506,8 +507,8 @@ export class ObjectComponent implements OnInit, OnDestroy {
    * Destroy subscriptions after closed.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

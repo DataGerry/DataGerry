@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, inject, Input, Output, EventEmitter } from '@angular/core';
 import { LogService } from '../../../framework/services/log.service';
 import { CmdbLog } from '../../../framework/models/cmdb-log';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -30,9 +30,12 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     template: `
       <div class="modal-header">
           <h4 class="modal-title" id="modal-basic-title">Delete Log</h4>
-          <button type="button" class="close" aria-label="Close" (click)=" handleModalDismiss()">
-              <span aria-hidden="true">&times;</span>
-          </button>
+          <button
+            type="button"
+            class="btn-close btn-close-white"
+            aria-label="Close"
+            (click)="handleModalDismiss()">
+            </button>
       </div>
       <div class="modal-body">
          Do you want to delete the log with the ID <b>{{publicID}}</b>?
@@ -41,14 +44,14 @@ import { LoaderService } from 'src/app/core/services/loader.service';
           <button type="button" class="btn btn-warning" (click)="handleModalDismiss()">Close</button>
           <button type="button" class="btn btn-danger" (click)="activeModal.close(this.publicID)">Delete</button>
       </div>
-  `
+  `,
+    standalone: false
 })
 export class DeleteModalComponent {
     @Input() publicID: number;
     @Output() isDismissClicked = new EventEmitter<boolean>();
 
-    constructor(public activeModal: NgbActiveModal) {
-    }
+    public readonly activeModal = inject(NgbActiveModal);
 
     handleModalDismiss() {
         this.activeModal.dismiss('Cross click')
@@ -60,9 +63,14 @@ export class DeleteModalComponent {
 @Component({
     selector: 'cmdb-log-object-settings',
     templateUrl: './log-object-settings.component.html',
-    styleUrls: ['./log-object-settings.component.scss']
+    styleUrls: ['./log-object-settings.component.scss'],
+    standalone: false
 })
 export class LogObjectSettingsComponent {
+    private readonly logService = inject(LogService);
+    private readonly modalService = inject(NgbModal);
+    private readonly toastService = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
 
     public activeLogList: CmdbLog[];
     public reloadActiveLogs: boolean = false;
@@ -85,14 +93,6 @@ export class LogObjectSettingsComponent {
      * Component un-subscriber.
      */
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
-
-    constructor(
-        private logService: LogService, 
-        private modalService: NgbModal, 
-        private toastService: ToastService,
-        private loaderService: LoaderService) {
-    }
-
 
     /**
    * Handles the click event on nav items.
@@ -158,7 +158,7 @@ export class LogObjectSettingsComponent {
                 next: () => {
                     this.cleanupInProgress = false;
                 },
-                error: (error) => console.error(error),
+                error: (error) => {},
                 complete: () => {
                     switch (reloadList) {
                         case 'active':

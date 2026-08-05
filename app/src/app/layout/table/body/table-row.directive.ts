@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -21,7 +21,8 @@ import { Directive, Input } from '@angular/core';
 import { Column } from '../table.types';
 
 @Directive({
-  selector: 'tr[table-row]'
+    selector: 'tr[table-row]',
+    standalone: false
 })
 export class TableRowDirective<T> {
 

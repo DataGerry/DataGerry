@@ -1,0 +1,44 @@
+<div class="row mb-3" [formGroup]="parentFormGroup">
+    <label class="col-sm-3 col-form-label">
+        {{ data.label }}: @if (data?.required) {<span class="text-danger">*</span>}
+    </label>
+
+    <div class="col-sm-9">
+        <ng-select
+            class="ng-select-valid form-select ref-simple-select"
+            [items]="options()"
+            bindValue="public_id"
+            [loading]="loading()"
+            [readonly]="!ipamAvailable()"
+            [class.is-valid]="controller.valid && (controller.dirty || controller.touched)"
+            [class.is-invalid]="controller.invalid && (controller.dirty || controller.touched)"
+            [formControlName]="data.name">
+
+            <ng-template ng-label-tmp let-item="item">
+                {{ item.name }} <span class="text-muted">{{ item.cidr }}</span>
+            </ng-template>
+
+            <ng-template ng-option-tmp let-item="item">
+                {{ item.name }} <span class="text-muted">{{ item.cidr }}</span>
+            </ng-template>
+        </ng-select>
+
+        @if (controller.invalid && (controller.dirty || controller.touched) && controller.errors?.required) {
+            <div class="invalid-feedback d-block">
+                <div class="text-end">{{ data.label }} is a required field.</div>
+            </div>
+        }
+
+        @if (!ipamAvailable()) {
+            <small class="form-text text-muted d-flex align-items-center gap-1">
+                <i class="fas fa-lock" aria-hidden="true"></i>
+                <span>Assigning a subnet requires IPAM.</span>
+                <button type="button" class="btn btn-link btn-sm p-0 align-baseline" (click)="promptIpamUpgrade()">
+                    Upgrade
+                </button>
+            </small>
+        } @else {
+            <small class="description form-text text-muted">{{ data?.description }}</small>
+        }
+    </div>
+</div>

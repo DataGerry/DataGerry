@@ -1,0 +1,325 @@
+@use "sass:color";
+
+$dg-primary-color: #e94d18;
+$dg-error-message-color: #dc3545;
+
+.modal-content {
+  border: none !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15) !important;
+  background: white !important;
+  overflow: hidden !important;
+}
+
+.modal-header {
+  background: linear-gradient(195deg,
+    color.scale($dg-primary-color, $lightness: -5%),
+    $dg-primary-color) !important;
+  color: white !important;
+  padding: 1.5rem 2rem !important;
+  border-bottom: none !important;
+
+  .modal-title {
+    font-weight: 600 !important;
+    font-size: 1.25rem !important;
+    margin: 0 !important;
+    color: white !important;
+  }
+
+  .btn-close-white {
+    filter: brightness(0) invert(1) !important;
+    opacity: 0.9 !important;
+    
+    &:hover {
+      opacity: 1 !important;
+    }
+  }
+}
+
+.modal-body {
+  padding: 2rem !important;
+  background: white !important;
+
+  // Automation Info
+  .automation-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: linear-gradient(135deg, rgba($dg-primary-color, 0.08), rgba($dg-primary-color, 0.03));
+    border-left: 4px solid $dg-primary-color;
+    padding: 1rem 1.25rem;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+
+    i {
+      font-size: 1.5rem;
+      color: $dg-primary-color;
+    }
+
+    div {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .info-label {
+      font-size: 0.75rem;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 500;
+    }
+
+    .info-value {
+      font-size: 0.95rem;
+      color: $dg-primary-color;
+      font-weight: 600;
+    }
+  }
+
+  // Tabs
+  .cron-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 12px;
+
+    .tab-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 1rem;
+      border: none;
+      background: transparent;
+      color: #6c757d;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+
+      i {
+        font-size: 1rem;
+      }
+
+      &:hover {
+        background: rgba(white, 0.5);
+        color: $dg-primary-color;
+      }
+
+      &.active {
+        background: white;
+        color: $dg-primary-color;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+
+        i {
+          color: $dg-primary-color;
+        }
+      }
+    }
+  }
+
+  // Tab Content
+  .tab-content {
+    margin-bottom: 2rem;
+
+    .tab-pane {
+      &.active {
+        animation: fadeIn 0.3s ease;
+      }
+    }
+  }
+
+  // Generator Form
+  .generator-form {
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+
+    .form-col {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .btn-generate-cron {
+      width: 100%;
+      padding: 1rem;
+      background: linear-gradient(135deg, $dg-primary-color, color.scale($dg-primary-color, $lightness: -10%));
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-top: 1rem;
+      box-shadow: 0 4px 12px rgba($dg-primary-color, 0.25);
+
+      i {
+        font-size: 1.1rem;
+        animation: bounce 2s infinite;
+      }
+
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba($dg-primary-color, 0.35);
+      }
+
+      &:active {
+        transform: translateY(0);
+      }
+    }
+  }
+
+  // Manual Entry Info
+  .manual-entry-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: #f8f9fa;
+    border-radius: 10px;
+    border: 2px dashed #dee2e6;
+
+    i {
+      font-size: 1.25rem;
+      color: $dg-primary-color;
+      margin-top: 0.125rem;
+    }
+
+    p {
+      margin: 0;
+      color: #6c757d;
+      line-height: 1.6;
+    }
+  }
+
+  // Cron Result
+  .cron-result {
+    padding: 1.5rem;
+    background: #f8f9fa;
+    border-radius: 12px;
+    border: 1px solid #e9ecef;
+
+    .form-label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 600;
+      color: #2c3e50;
+      font-size: 0.9rem;
+      margin-bottom: 0.75rem;
+
+      i {
+        color: $dg-primary-color;
+      }
+    }
+
+    .cron-input-wrapper {
+      position: relative;
+
+      .cron-expression {
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 1rem;
+        font-weight: 500;
+        padding-right: 80px;
+
+        &.has-error {
+          border-color: $dg-error-message-color;
+        }
+      }
+
+      .cron-format {
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.75rem;
+        color: white;
+        background: $dg-primary-color;
+        padding: 0.25rem 0.625rem;
+        border-radius: 4px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+    }
+  }
+
+  // Form Elements
+  .form-label {
+    display: block;
+    font-weight: 500;
+    color: #495057;
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .form-control {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    background: white;
+
+    &:focus {
+      border-color: $dg-primary-color;
+      outline: none;
+      box-shadow: 0 0 0 4px rgba($dg-primary-color, 0.1);
+    }
+
+    &::placeholder {
+      color: #adb5bd;
+    }
+  }
+
+  .error-message {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: $dg-error-message-color;
+    font-size: 0.85rem;
+    margin-top: 0.75rem;
+
+    i {
+      font-size: 0.9rem;
+    }
+  }
+}
+
+.modal-footer {
+  border-top: 1px solid #e9ecef !important;
+  padding: 1.25rem 2rem !important;
+  background: white !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 0.75rem !important;
+}
+
+
+// Responsive
+@media (max-width: 768px) {
+  .modal-body {
+    padding: 1.5rem !important;
+
+    .generator-form .form-row {
+      grid-template-columns: 1fr;
+    }
+  }
+}

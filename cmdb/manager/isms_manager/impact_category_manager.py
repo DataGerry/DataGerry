@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,21 +16,22 @@
 """
 This module contains the implementation of the ImpactCategoryManager
 """
-import logging
-from typing import Optional
+from logging import Logger, getLogger
+from typing import Any
+
 from pymongo import UpdateOne
-from pymongo.cursor import Cursor
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.isms_manager.isms_manager_helper import load_impact_calculation_basis, recompute_max_impact
 
 from cmdb.models.isms_model import IsmsImpactCategory, IsmsRiskAssessment
+from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey, RISK_CALCULATION_MATRIX_KEYS
 
 from cmdb.errors.manager.impact_category_manager import IMPACT_CATEGORY_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             ImpactCategoryManager - CLASS                                            #
@@ -41,12 +42,12 @@ class ImpactCategoryManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         super().__init__(dbm, IsmsImpactCategory, IMPACT_CATEGORY_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def create_with_follow_up(self, new_data: dict) -> int:
+    def create_with_follow_up(self, new_data: dict[str, Any]) -> int:
         """
         Creates a new ImpactCategory and updates all existing RiskAssessments to
         include this ImpactCategory with an empty (None) impact assignment
@@ -78,41 +79,32 @@ class ImpactCategoryManager(GenericManager):
         Returns:
             bool: True if the ImpactCategory was successfully deleted, False otherwise
         """
-        # Fetch all RiskAssessments
-        all_risk_assessments: Cursor = self.dbm.find(
+        all_risk_assessments: list[dict[str, Any]] = self.dbm.find(
                                                 collection=IsmsRiskAssessment.COLLECTION,
                                                 db_name=self.db_name,
                                                 filter={}
                                         )
 
-        updates = []
+        # Preload every Impact's calculation_basis once so the per-RiskAssessment recompute below
+        # does not issue a lookup per remaining impact (and reads from the IsmsImpact collection,
+        # not this manager's own IsmsImpactCategory collection)
+        basis_by_id: dict[int, float | None] = load_impact_calculation_basis(self.dbm, self.db_name)
+
+        updates: list[UpdateOne] = []
 
         for risk_assessment in all_risk_assessments:
-            update_fields = {}
+            update_fields: dict[str, Any] = {}
 
-            # Process 'risk_calculation_before'
-            before = risk_assessment.get('risk_calculation_before', {})
-            before_impacts = before.get('impacts', [])
-            new_before_impacts = [impact for impact in before_impacts if
-                                  impact.get('impact_category_id') != impact_category_id]
+            for matrix_key in RISK_CALCULATION_MATRIX_KEYS:
+                impacts = risk_assessment.get(matrix_key, {}).get(RiskCalculationKey.IMPACTS, [])
+                remaining_impacts = [impact for impact in impacts
+                                     if impact.get(RiskCalculationKey.IMPACT_CATEGORY_ID) != impact_category_id]
 
-            max_before_value, max_before_id = self.calculate_max_impact_value(new_before_impacts)
+                max_id, max_value = recompute_max_impact(remaining_impacts, basis_by_id)
 
-            update_fields['risk_calculation_before.impacts'] = new_before_impacts
-            update_fields['risk_calculation_before.maximum_impact_id'] = max_before_id
-            update_fields['risk_calculation_before.maximum_impact_value'] = max_before_value
-
-            # Process 'risk_calculation_after'
-            after = risk_assessment.get('risk_calculation_after', {})
-            after_impacts = after.get('impacts', [])
-            new_after_impacts = [impact for impact in after_impacts if
-                                 impact.get('impact_category_id') != impact_category_id]
-
-            max_after_value, max_after_id = self.calculate_max_impact_value(new_after_impacts)
-
-            update_fields['risk_calculation_after.impacts'] = new_after_impacts
-            update_fields['risk_calculation_after.maximum_impact_id'] = max_after_id
-            update_fields['risk_calculation_after.maximum_impact_value'] = max_after_value
+                update_fields[f'{matrix_key.value}.{RiskCalculationKey.IMPACTS.value}'] = remaining_impacts
+                update_fields[f'{matrix_key.value}.{RiskCalculationKey.MAXIMUM_IMPACT_ID.value}'] = max_id
+                update_fields[f'{matrix_key.value}.{RiskCalculationKey.MAXIMUM_IMPACT_VALUE.value}'] = max_value
 
             updates.append(UpdateOne({'public_id': risk_assessment['public_id']}, {'$set': update_fields}))
 
@@ -131,47 +123,23 @@ class ImpactCategoryManager(GenericManager):
         (both in risk_calculation_before.impacts and risk_calculation_after.impacts).
 
         Args:
-            impact_category_id (int): The public_id of the newly created ImpactCategory
+            impact_category_public_id (int): The public_id of the newly created ImpactCategory
         """
         new_impact_entry = {
-            "impact_category_id": impact_category_public_id,
-            "impact_id": None
+            RiskCalculationKey.IMPACT_CATEGORY_ID.value: impact_category_public_id,
+            RiskCalculationKey.IMPACT_ID.value: None
         }
+
+        impacts_paths = [f'{matrix.value}.{RiskCalculationKey.IMPACTS.value}'
+                         for matrix in RISK_CALCULATION_MATRIX_KEYS]
 
         update_operation = {
-            "$push": {
-                "risk_calculation_before.impacts": new_impact_entry,
-                "risk_calculation_after.impacts": new_impact_entry
-            }
+            "$push": {path: new_impact_entry for path in impacts_paths}
         }
 
-        self.update_many(criteria={}, update=update_operation, plain=True)
-
-
-    def calculate_max_impact_value(self, impacts: list) -> tuple[Optional[float], Optional[int]]:
-        """
-        Calculates the maximum impact value and corresponding impact_id from a list of impacts
-
-        Args:
-            impacts (list): List of impact dictionaries.
-
-        Returns:
-            tuple[Optional[float], Optional[int]]: (max_value, max_impact_id) or (None, None) if no impacts
-        """
-        max_value = -1
-        max_impact_id = None
-
-        for impact in impacts:
-            impact_id = impact.get('impact_id')
-            if impact_id is not None:
-                impact_data = self.get_item(impact_id, as_dict=True)
-                value = impact_data.get('calculation_basis') if impact_data else None
-
-                if value is not None and value > max_value:
-                    max_value = value
-                    max_impact_id = impact_id
-
-        return (max_value if max_value >= 0 else None, max_impact_id)
+        # Target the IsmsRiskAssessment collection directly: this manager is bound to the
+        # IsmsImpactCategory collection, so self.update_many would push into the wrong collection
+        self.dbm.update_many(IsmsRiskAssessment.COLLECTION, self.db_name, {}, update_operation, plain=True)
 
 
     def add_new_impact_to_categories(self, new_impact_id: int) -> None:
@@ -196,7 +164,7 @@ class ImpactCategoryManager(GenericManager):
         Removes the IsmsImpact entry from all IsmsImpactCategories
 
         Args:
-            new_impact_id (int): public_id of the deleted IsmsImpact
+            deleted_impact_id (int): public_id of the deleted IsmsImpact
         """
         update = {
             "impact_descriptions": {

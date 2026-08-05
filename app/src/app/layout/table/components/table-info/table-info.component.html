@@ -1,5 +1,7 @@
 <div class="table-information">
-  <span *ngIf="selectEnabled"><strong>Selected:</strong> {{selected}} | </span>
+  @if (selectEnabled) {
+  <span><strong>Selected:</strong> {{selected}} | </span>
+  }
   <span><strong>Show:</strong> {{show}} | </span>
   <span><strong>Total:</strong> {{total}}</span>
 </div>

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -13,3 +13,10 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Versioned database updates
+
+Each updater_<YYYYMMDD> module implements one BaseDatabaseUpdate subclass whose creation_date is the
+encoded date. Note: these modules are not auto-discovered by PyInstaller - a new updater must be
+added as a --hidden-import in the Makefile's 'bin' target (see CLAUDE.md).
+"""

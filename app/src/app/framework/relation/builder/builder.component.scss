@@ -77,6 +77,17 @@
   }
 }
 
+#form-container #form-content.empty {
+  border: 3px dashed rgb(175, 190, 205) !important;
+  background-color: transparent !important;
+}
+
+
+#form-container .empty-section {
+  border: 3px dashed rgb(175, 190, 205) !important;
+  background-color: transparent !important;
+}
+
 
 .card-header {
   button {

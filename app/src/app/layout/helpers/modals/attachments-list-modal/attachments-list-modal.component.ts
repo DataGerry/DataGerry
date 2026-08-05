@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 */
 
 
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, HostListener, Input, OnInit } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy, ChangeDetectorRef, HostListener, Input, OnInit } from '@angular/core';
 import { FileMetadata } from '../../../components/file-explorer/model/metadata';
 import { FileElement } from '../../../components/file-explorer/model/file-element';
 import { CollectionParameters } from '../../../../services/models/api-parameter';
@@ -32,11 +32,20 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 import { finalize } from 'rxjs';
 
 @Component({
-  selector: 'cmdb-attachments-list-modal',
-  templateUrl: './attachments-list-modal.component.html',
-  styleUrls: ['./attachments-list-modal.component.scss']
+    selector: 'cmdb-attachments-list-modal',
+    templateUrl: './attachments-list-modal.component.html',
+    styleUrls: ['./attachments-list-modal.component.scss'],
+    standalone: false
 })
 export class AttachmentsListModalComponent implements OnInit {
+  private readonly fileService = inject(FileService);
+  private readonly fileSaverService = inject(FileSaverService);
+  private readonly modalService = inject(NgbModal);
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly toast = inject(ToastService);
+  private readonly scrollService = inject(InfiniteScrollService);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly loaderService = inject(LoaderService);
 
   @Input() metadata: FileMetadata = new FileMetadata();
   public inProcess: boolean = false;
@@ -54,11 +63,6 @@ export class AttachmentsListModalComponent implements OnInit {
   private lastPage: number;
   private readonly tag: string = 'attachmentListScroll';
   private readonly defaultApiParameter: CollectionParameters = { page: 1, limit: 100, order: 1 };
-
-
-  constructor(private fileService: FileService, private fileSaverService: FileSaverService,
-    private modalService: NgbModal, public activeModal: NgbActiveModal, private toast: ToastService,
-    private scrollService: InfiniteScrollService, private cdr: ChangeDetectorRef, private loaderService: LoaderService) { }
 
   /**
    * Checks whether further data should be loaded

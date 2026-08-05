@@ -1,7 +1,12 @@
-<div [ngClass]="{'row-hoverable': isViewAndEditRequired}" class="clickable-container" (click)="handleObjectView()" (dblclick)="handleObjectEdit()">
-    <ng-container *ngIf="column.template" [ngTemplateOutlet]="column.template"
-                 [ngTemplateOutletContext]="{ data: data, item: item, column: column}"></ng-container>
-                   <ng-container *ngIf="data && !column.template">
-                     <span>{{data}}</span>
-                   </ng-container>            
-               </div>           
+<div [ngClass]="{'row-hoverable': isViewAndEditRequired}" class="clickable-container" (click)="handleObjectView()"
+  (dblclick)="handleObjectEdit()">
+  @if (column.template) {
+  <ng-container [ngTemplateOutlet]="column.template"
+    [ngTemplateOutletContext]="{ data: data, item: item, column: column}"></ng-container>
+  }
+  @if (data && !column.template) {
+
+  <span>{{data}}</span>
+
+  }
+</div>

@@ -7,7 +7,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>On-Premises Installation &mdash; DataGerry latest documentation</title>
-      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fa44fd50" />
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
       <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=f76a5f1d" />
 
@@ -16,7 +16,7 @@
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="../_static/documentation_options.js?v=c6e86fd7"></script>
-      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -54,16 +54,13 @@
 <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#requirements">Requirements</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#configuration">Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#setup-via-docker-image">Setup via Docker Image</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#docker-images-and-tags">Docker Images and Tags</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="#setup-via-docker-image">Setup via Docker Image</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#setup-via-rpm">Setup via RPM</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#mongodb-setup">MongoDB Setup</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#datagerry-installation">DataGerry Installation</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#setup-via-tar-gz-zip-archive">Setup via tar.gz / zip Archive</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#setup-via-zip-archive">Setup via zip Archive</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#id1">MongoDB Setup</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id2">DataGerry Installation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id3">Configuration</a></li>
@@ -95,6 +92,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../usage/reports.html">Reports</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/document_generator.html">Document generator</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/isms.html">ISMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage/automations.html">Automations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/webhooks.html">Webhooks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/imports.html">Imports</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/exports.html">Exports</a></li>
@@ -116,7 +114,7 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Sources</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference external" href="https://buildkite.com/organizations/becon-gmbh/packages" rel="noreferrer" target="_blank">Download Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../sources/packages.html">Download Packages</a></li>
 <li class="toctree-l1"><a class="reference external" href="https://hub.docker.com/r/becongmbh/datagerry" rel="noreferrer" target="_blank">Download Docker</a></li>
 <li class="toctree-l1"><a class="reference external" href="https://github.com/DATAGerry/DATAGerry" rel="noreferrer" target="_blank">Repository</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../sources/changelog.html">Changelogs</a></li>
@@ -208,6 +206,17 @@ named <code class="docutils literal notranslate"><span class="pre">cmdb.conf</sp
 <span class="p">[</span><span class="n">WebServer</span><span class="p">]</span>
 <span class="n">host</span> <span class="o">=</span> <span class="mf">0.0.0.0</span>
 <span class="n">port</span> <span class="o">=</span> <span class="mi">4000</span>
+<span class="c1"># ssl = false</span>
+<span class="c1"># certfile = /etc/ssl/certs/cmdb.pem</span>
+<span class="c1"># keyfile = /etc/ssl/private/cmdb.key</span>
+
+<span class="c1"># [OpenCelium]</span>
+<span class="c1"># host = 127.0.0.1</span>
+<span class="c1"># port = 9090</span>
+<span class="c1"># protocol = http</span>
+<span class="c1"># email = email</span>
+<span class="c1"># user = username</span>
+<span class="c1"># password = password</span>
 </pre></div>
 </div>
 <p>You can also override configuration options using environment variables:</p>
@@ -223,10 +232,22 @@ named <code class="docutils literal notranslate"><span class="pre">cmdb.conf</sp
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
+<hr class="docutils" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
 </section>
 <section id="setup-via-docker-image">
 <h2>Setup via Docker Image<a class="headerlink" href="#setup-via-docker-image" title="Link to this heading"></a></h2>
-<p>The quickest way to get started with DataGerry is using Docker. We provide a docker-compose file that sets up the
+<p>The quickest way to get started with DataGerry is using Docker.</p>
+<p>Docker is a container-based software framework for automating deployment of
+applications. Compose is a tool for defining and running multi-container Docker
+applications.</p>
+<p>The DataGerry-docker repo is meant to be the starting point for somebody, who likes to use
+dockerized multi-container DataGerry in production. The DataGerry Docker image uses
+the stable branch of DataGerry’s Git repo.</p>
+<p>The Docker images are hosted on <a class="reference external" href="https://hub.docker.com/u/becongmbh" rel="noreferrer" target="_blank">Dockerhub</a>.</p>
+<p>We provide a docker-compose file that sets up the
 following containers:</p>
 <blockquote>
 <div><ul class="simple">
@@ -236,125 +257,45 @@ following containers:</p>
 </ul>
 </div></blockquote>
 <p>All data is persisted using Docker volumes on the host machine.</p>
-<p>Start by copying the following <code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code> into a new directory:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">version</span><span class="p">:</span> <span class="s2">&quot;3.0&quot;</span>
-<span class="n">services</span><span class="p">:</span>
-  <span class="n">nginx</span><span class="p">:</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">becongmbh</span><span class="o">/</span><span class="n">nginx</span><span class="p">:</span><span class="n">latest</span>
-    <span class="n">hostname</span><span class="p">:</span> <span class="n">nginx</span>
-    <span class="n">ports</span><span class="p">:</span>
-    <span class="o">-</span> <span class="s2">&quot;80:80&quot;</span>
-    <span class="o">-</span> <span class="s2">&quot;443:443&quot;</span>
-    <span class="n">depends_on</span><span class="p">:</span>
-    <span class="o">-</span> <span class="n">datagerry</span>
-    <span class="n">environment</span><span class="p">:</span>
-      <span class="n">NGINX_SSL_CERT</span><span class="p">:</span> <span class="s2">&quot;/data/cert/cert.pem&quot;</span>
-      <span class="n">NGINX_SSL_KEY</span><span class="p">:</span> <span class="s2">&quot;/data/cert/key.pem&quot;</span>
-      <span class="n">NGINX_LOCATION_DEFAULT</span><span class="p">:</span> <span class="s2">&quot;/;/;http://datagerry:4000&quot;</span>
-    <span class="n">restart</span><span class="p">:</span> <span class="n">unless</span><span class="o">-</span><span class="n">stopped</span>
-    <span class="n">volumes</span><span class="p">:</span>
-      <span class="o">-</span> <span class="o">./</span><span class="n">cert</span><span class="p">:</span><span class="o">/</span><span class="n">data</span><span class="o">/</span><span class="n">cert</span>
-
-  <span class="n">datagerry</span><span class="p">:</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">becongmbh</span><span class="o">/</span><span class="n">datagerry</span><span class="p">:</span><span class="n">latest</span>
-    <span class="n">hostname</span><span class="p">:</span> <span class="n">datagerry</span>
-    <span class="n">depends_on</span><span class="p">:</span>
-    <span class="o">-</span> <span class="n">db</span>
-    <span class="n">ports</span><span class="p">:</span>
-    <span class="o">-</span> <span class="mi">4000</span><span class="p">:</span><span class="mi">4000</span>
-    <span class="n">environment</span><span class="p">:</span>
-      <span class="n">DATAGERRY_Database_host</span><span class="p">:</span> <span class="s2">&quot;db&quot;</span>
-    <span class="n">restart</span><span class="p">:</span> <span class="n">unless</span><span class="o">-</span><span class="n">stopped</span>
-
-  <span class="n">db</span><span class="p">:</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">mongo</span><span class="p">:</span><span class="mf">6.0.25</span>
-    <span class="n">hostname</span><span class="p">:</span> <span class="n">db</span>
-    <span class="n">restart</span><span class="p">:</span> <span class="n">unless</span><span class="o">-</span><span class="n">stopped</span>
-    <span class="n">volumes</span><span class="p">:</span>
-      <span class="o">-</span> <span class="n">mongodb</span><span class="o">-</span><span class="n">data</span><span class="p">:</span><span class="o">/</span><span class="n">data</span><span class="o">/</span><span class="n">db</span>
-      <span class="o">-</span> <span class="n">mongodb</span><span class="o">-</span><span class="n">config</span><span class="p">:</span><span class="o">/</span><span class="n">data</span><span class="o">/</span><span class="n">configdb</span>
-
-<span class="n">volumes</span><span class="p">:</span>
-  <span class="n">mongodb</span><span class="o">-</span><span class="n">data</span><span class="p">:</span>
-  <span class="n">mongodb</span><span class="o">-</span><span class="n">config</span><span class="p">:</span>
-</pre></div>
-</div>
-<p>Create a subdirectory named <code class="docutils literal notranslate"><span class="pre">cert</span></code> containing your SSL certificate and key:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">./docker-compose.yml</span>
-<span class="go">./cert/cert.pem</span>
-<span class="go">./cert/key.pem</span>
-</pre></div>
-</div>
-<p>If SSL is not required, you can use the following simplified docker-compose file for a quick start:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">version</span><span class="p">:</span> <span class="s2">&quot;3.0&quot;</span>
-<span class="n">services</span><span class="p">:</span>
-  <span class="n">nginx</span><span class="p">:</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">becongmbh</span><span class="o">/</span><span class="n">nginx</span><span class="p">:</span><span class="n">latest</span>
-    <span class="n">hostname</span><span class="p">:</span> <span class="n">nginx</span>
-    <span class="n">ports</span><span class="p">:</span>
-    <span class="o">-</span> <span class="s2">&quot;80:80&quot;</span>
-    <span class="n">depends_on</span><span class="p">:</span>
-    <span class="o">-</span> <span class="n">datagerry</span>
-    <span class="n">environment</span><span class="p">:</span>
-      <span class="n">NGINX_LOCATION_DEFAULT</span><span class="p">:</span> <span class="s2">&quot;/;/;http://datagerry:4000&quot;</span>
-    <span class="n">restart</span><span class="p">:</span> <span class="n">unless</span><span class="o">-</span><span class="n">stopped</span>
-
-  <span class="n">datagerry</span><span class="p">:</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">becongmbh</span><span class="o">/</span><span class="n">datagerry</span><span class="p">:</span><span class="n">latest</span>
-    <span class="n">hostname</span><span class="p">:</span> <span class="n">datagerry</span>
-    <span class="n">depends_on</span><span class="p">:</span>
-    <span class="o">-</span> <span class="n">db</span>
-    <span class="n">ports</span><span class="p">:</span>
-    <span class="o">-</span> <span class="mi">4000</span><span class="p">:</span><span class="mi">4000</span>
-    <span class="n">environment</span><span class="p">:</span>
-      <span class="n">DATAGERRY_Database_host</span><span class="p">:</span> <span class="s2">&quot;db&quot;</span>
-    <span class="n">restart</span><span class="p">:</span> <span class="n">unless</span><span class="o">-</span><span class="n">stopped</span>
-
-  <span class="n">db</span><span class="p">:</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">mongo</span><span class="p">:</span><span class="mf">6.0.25</span>
-    <span class="n">hostname</span><span class="p">:</span> <span class="n">db</span>
-    <span class="n">restart</span><span class="p">:</span> <span class="n">unless</span><span class="o">-</span><span class="n">stopped</span>
-    <span class="n">volumes</span><span class="p">:</span>
-      <span class="o">-</span> <span class="n">mongodb</span><span class="o">-</span><span class="n">data</span><span class="p">:</span><span class="o">/</span><span class="n">data</span><span class="o">/</span><span class="n">db</span>
-      <span class="o">-</span> <span class="n">mongodb</span><span class="o">-</span><span class="n">config</span><span class="p">:</span><span class="o">/</span><span class="n">data</span><span class="o">/</span><span class="n">configdb</span>
-
-<span class="n">volumes</span><span class="p">:</span>
-  <span class="n">mongodb</span><span class="o">-</span><span class="n">data</span><span class="p">:</span>
-  <span class="n">mongodb</span><span class="o">-</span><span class="n">config</span><span class="p">:</span>
-</pre></div>
-</div>
-<p>To start the stack, run:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>docker-compose<span class="w"> </span>up<span class="w"> </span>-d
-</pre></div>
-</div>
-<p>You can now access the DataGerry frontend:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">http://&lt;host&gt; or https://&lt;host&gt;</span>
-<span class="go">user: admin</span>
-<span class="go">password: admin</span>
-</pre></div>
-</div>
-<div class="line-block">
-<div class="line"><br /></div>
-</div>
-<section id="docker-images-and-tags">
-<h3>Docker Images and Tags<a class="headerlink" href="#docker-images-and-tags" title="Link to this heading"></a></h3>
-<p>DataGerry Docker images are available on <a class="reference external" href="https://hub.docker.com/r/becongmbh/datagerry" rel="noreferrer" target="_blank">Docker Hub</a>.</p>
-<p>You can use the following tags:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">latest</span></code>
-Points to the most recent stable release. Good for testing or quick setup, but it will upgrade to new major
-versions automatically.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">&lt;release&gt;</span></code> (e.g. <code class="docutils literal notranslate"><span class="pre">2.2.0</span></code>)
-Use a specific version tag for predictable behavior in production environments.</p></li>
+<p><strong>Install Docker Environment:</strong></p>
+<ol class="arabic simple">
+<li><p>Install Docker:</p></li>
+</ol>
+<p>Use default Docker installation guide.</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><a class="reference external" href="https://docs.docker.com/engine/installation/" rel="noreferrer" target="_blank">Docker Engine</a></p></li>
+<li><p><a class="reference external" href="https://docs.docker.com/compose/install/" rel="noreferrer" target="_blank">Docker Compose</a> (opt. Docker Engine installation already includes Docker Compose Plugin)</p></li>
 </ul>
-<p>To specify a tag in your <code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Replace this line</span>
-<span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">becongmbh/datagerry:latest</span>
-
-<span class="c1"># With a specific release version</span>
-<span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">becongmbh/datagerry:2.2.0</span>
+</div></blockquote>
+<ol class="arabic simple" start="2">
+<li><p>Getting started with DataGerry-docker:</p></li>
+</ol>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/DataGerry/DataGerry-docker.git
+<span class="linenos">2</span><span class="nb">cd</span><span class="w"> </span>DataGerry-docker
 </pre></div>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>We recommend always to use the latest tag version.</p>
+</div>
+<ol class="arabic simple" start="3">
+<li><p>Start DataGerry using DockerHub images:</p></li>
+</ol>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="linenos">1</span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<div class="line-block">
+<div class="line">Now you can access the DataGerry frontend:</div>
+<div class="line">‘<a class="reference external" href="http://localhost" rel="noreferrer" target="_blank">http://localhost</a>’</div>
+</div>
+<div class="line-block">
+<div class="line">Default User: admin</div>
+<div class="line">Default Password: admin</div>
+</div>
+</div>
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
@@ -366,14 +307,12 @@ Use a specific version tag for predictable behavior in production environments.<
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
-</section>
 </section>
 <section id="setup-via-rpm">
 <h2>Setup via RPM<a class="headerlink" href="#setup-via-rpm" title="Link to this heading"></a></h2>
 <p>For <strong>Red Hat Enterprise Linux (RHEL)</strong> and compatible systems like <strong>CentOS</strong> or <strong>Oracle Linux</strong>, DataGerry can
 be installed using an RPM package.</p>
-<p>Download the RPM from:
-<a class="reference external" href="https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-rpm" rel="noreferrer" target="_blank">BuildKite RPM Package</a></p>
+<p>Download the RPM <a class="reference internal" href="../sources/packages.html#package-rpm-anchor"><span class="std std-ref">here</span></a>.</p>
 <p>Supported Platforms:</p>
 <blockquote>
 <div><ul class="simple">
@@ -423,9 +362,9 @@ be installed using an RPM package.</p>
 </div>
 </section>
 </section>
-<section id="setup-via-tar-gz-zip-archive">
-<h2>Setup via tar.gz / zip Archive<a class="headerlink" href="#setup-via-tar-gz-zip-archive" title="Link to this heading"></a></h2>
-<p>For Linux distributions that are not RPM-based, we provide a <code class="docutils literal notranslate"><span class="pre">tar.gz</span></code> and <code class="docutils literal notranslate"><span class="pre">zip</span></code> archive containing a setup script
+<section id="setup-via-zip-archive">
+<h2>Setup via zip Archive<a class="headerlink" href="#setup-via-zip-archive" title="Link to this heading"></a></h2>
+<p>For Linux distributions that are not RPM-based, we provide a <code class="docutils literal notranslate"><span class="pre">zip</span></code> archive containing a setup script
 for simplified installation. This method requires <strong>systemd</strong> and has been tested on the following distributions:</p>
 <blockquote>
 <div><ul class="simple">
@@ -447,19 +386,8 @@ for simplified installation. This method requires <strong>systemd</strong> and h
 <hr class="docutils" />
 <section id="id2">
 <h3>DataGerry Installation<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
-<p>Download the archive from the following source:</p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-zip" rel="noreferrer" target="_blank">BuildKite ZIP Package</a></p></li>
-</ul>
-<p>Choose either the <code class="docutils literal notranslate"><span class="pre">zip</span></code> or <code class="docutils literal notranslate"><span class="pre">tar.gz</span></code> archive depending on your preference.</p>
-<p><strong>Installation using zip:</strong></p>
+<p>Download the ZIP <a class="reference internal" href="../sources/packages.html#package-zip-anchor"><span class="std std-ref">here</span></a>.</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>unzip<span class="w"> </span>datagerry-&lt;version&gt;.zip
-<span class="gp">$ </span><span class="nb">cd</span><span class="w"> </span>datagerry
-<span class="gp">$ </span>sudo<span class="w"> </span>./setup.sh
-</pre></div>
-</div>
-<p><strong>Installation using tar.gz:</strong></p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>tar<span class="w"> </span>-xzvf<span class="w"> </span>datagerry-&lt;version&gt;.tar.gz
 <span class="gp">$ </span><span class="nb">cd</span><span class="w"> </span>datagerry
 <span class="gp">$ </span>sudo<span class="w"> </span>./setup.sh
 </pre></div>
@@ -535,10 +463,7 @@ for simplified installation. This method requires <strong>systemd</strong> and h
 </section>
 <section id="id5">
 <h3>DataGerry Installation<a class="headerlink" href="#id5" title="Link to this heading"></a></h3>
-<p>Download the DEB package from:</p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://buildkite.com/organizations/becon-gmbh/packages/registries/datagerry-deb" rel="noreferrer" target="_blank">BuildKite DEB Package</a></p></li>
-</ul>
+<p>Download the DEB <a class="reference internal" href="../sources/packages.html#package-deb-anchor"><span class="std std-ref">here</span></a>.</p>
 <p>Navigate to the directory containing the package and run:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>./&lt;datagerry-version&gt;.deb
 </pre></div>
@@ -670,7 +595,7 @@ custom domains.</p>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2025, becon GmbH.</p>
+    <p>&#169; Copyright 2026, becon GmbH.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

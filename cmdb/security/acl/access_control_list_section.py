@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,12 +16,15 @@
 """
 Implementation of AccessControlListSection
 """
+from logging import Logger, getLogger
 from abc import ABC, abstractmethod
-from typing import TypeVar, Set, Generic
+from typing import TypeVar, Set, Generic, Any
 
 from cmdb.security.acl.access_control_section_dict import AccessControlSectionDict
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -31,13 +34,13 @@ T = TypeVar('T')
 class AccessControlListSection(ABC, Generic[T]):
     """`AccessControlListSection` are a config element inside the complete ac-dict."""
 
-    def __init__(self, includes: AccessControlSectionDict = None):
+    def __init__(self, includes: AccessControlSectionDict | None = None) -> None:
         """
         Initializes an AccessControlListSection with a given dictionary of included permissions
 
         Args:
-            includes (Optional[AccessControlSectionDict]): A dictionary mapping keys to sets of permissions.
-                                                           Defaults to an empty dictionary if not provided
+            includes (AccessControlSectionDict | None): A dictionary mapping keys to sets of permissions.
+                                                        Defaults to an empty dictionary if not provided
         """
         self.includes = includes or AccessControlSectionDict()
 
@@ -54,7 +57,7 @@ class AccessControlListSection(ABC, Generic[T]):
 
 
     @includes.setter
-    def includes(self, value: AccessControlSectionDict):
+    def includes(self, value: AccessControlSectionDict) -> None:
         """
         Sets the `includes` attribute to a new dictionary, ensuring that it is of the correct type
 
@@ -66,13 +69,14 @@ class AccessControlListSection(ABC, Generic[T]):
         """
         if not isinstance(value, dict):
             raise TypeError('`AccessControlListSection` only takes dict as include structure')
+
         self._includes = value
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
     @abstractmethod
-    def from_data(cls, data: dict) -> "AccessControlListSection[T]":
+    def from_data(cls, data: dict[str, Any]) -> "AccessControlListSection[T]":
         """
         Abstract method that creates an AccessControlListSection instance from a dictionary of data.
         """

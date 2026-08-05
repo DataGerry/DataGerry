@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -22,7 +22,7 @@ class ExtendableOptionsManagerError(Exception):
     """
     Raised to catch all ExtendableOptionsManager related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all ExtendableOptionsManager related errors
         """
@@ -38,29 +38,29 @@ class ExtendableOptionsManagerInitError(ExtendableOptionsManagerError):
 
 class ExtendableOptionsManagerInsertError(ExtendableOptionsManagerError):
     """
-    Raised when ExtendableOptionsManager could not insert an IsmsImpact
+    Raised when ExtendableOptionsManager could not insert a CmdbExtendableOption
     """
 
 
 class ExtendableOptionsManagerGetError(ExtendableOptionsManagerError):
     """
-    Raised when ExtendableOptionsManager could not retrieve an IsmsImpact
+    Raised when ExtendableOptionsManager could not retrieve a CmdbExtendableOption
     """
 
 
 class ExtendableOptionsManagerUpdateError(ExtendableOptionsManagerError):
     """
-    Raised when ExtendableOptionsManager could not update an IsmsImpact
+    Raised when ExtendableOptionsManager could not update a CmdbExtendableOption
     """
 
 
 class ExtendableOptionsManagerDeleteError(ExtendableOptionsManagerError):
     """
-    Raised when ExtendableOptionsManager could not delete an IsmsImpact
+    Raised when ExtendableOptionsManager could not delete a CmdbExtendableOption
     """
 
 
 class ExtendableOptionsManagerIterationError(ExtendableOptionsManagerError):
     """
-    Raised when ExtendableOptionsManager could not iterate over IsmsImpacts
+    Raised when ExtendableOptionsManager could not iterate over CmdbExtendableOptions
     """

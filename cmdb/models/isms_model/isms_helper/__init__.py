@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,13 +17,15 @@
 Provides all ISMS relevant helper methods
 """
 from .isms_risk_matrix_helper import (
+    ensure_default_risk_matrix,
     calculate_risk_matrix,
     remove_deleted_risk_class_from_matrix,
     check_risk_classes_set_in_matrix,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
+    'ensure_default_risk_matrix',
     'calculate_risk_matrix',
     'remove_deleted_risk_class_from_matrix',
     'check_risk_classes_set_in_matrix',

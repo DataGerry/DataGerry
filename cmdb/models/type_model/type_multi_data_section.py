@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,18 +16,18 @@
 """
 Implementation of a TypeMultiDataSection
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 import json
 
 from cmdb.models.type_model.type_section import TypeSection
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               TypeMultiDataSection                                                   #
+#                                             TypeMultiDataSection - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
-
 class TypeMultiDataSection(TypeSection):
     """
     This class represents a TypeMultiDataSection
@@ -35,12 +35,16 @@ class TypeMultiDataSection(TypeSection):
     Extends: TypeSection
     """
 
-    def __init__(self,
-                 type: str,
-                 name: str,
-                 label: str = None,
-                 fields: list = None,
-                 hidden_fields: list = None):
+    #pylint: disable=too-many-positional-arguments
+    def __init__(
+        self,
+        type: str,
+        name: str,
+        label: str | None = None,
+        fields: list | None = None,
+        hidden_fields: list | None = None
+    ) -> None:
+        """TODO: document"""
         self.fields = fields or []
         self.hidden_fields = hidden_fields or []
         super().__init__(type=type, name=name, label=label)
@@ -48,7 +52,7 @@ class TypeMultiDataSection(TypeSection):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "TypeMultiDataSection":
+    def from_data(cls, data: dict[str, Any]) -> "TypeMultiDataSection":
         """
         Generates a TypeMultiDataSection object from a dict
 
@@ -59,16 +63,16 @@ class TypeMultiDataSection(TypeSection):
             TypeMultiDataSection: TypeMultiDataSection class with given data
         """
         return cls(
-            type = data.get('type'),
-            name = data.get('name'),
-            label = data.get('label', None),
-            fields = data.get('fields', None),
+            type = data['type'],
+            name = data['name'],
+            label = data.get('label'),
+            fields = data.get('fields'),
             hidden_fields = data.get('hidden_fields', [])
         )
 
 
     @classmethod
-    def to_json(cls, instance: "TypeMultiDataSection") -> dict:
+    def to_json(cls, instance: "TypeMultiDataSection") -> dict[str, Any]:
         """
         Returns a TypeMultiDataSection as JSON representation
 
@@ -108,5 +112,6 @@ class TypeMultiDataSection(TypeSection):
         return self.fields
 
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """TODO: document"""
         return json.dumps(TypeMultiDataSection.to_json(self))

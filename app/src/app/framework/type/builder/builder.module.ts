@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,6 +27,7 @@ import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { RenderModule } from '../../render/render.module';
 import { CategoryModule } from '../../category/category.module';
 import { LayoutModule } from '../../../layout/layout.module';
+import { CoreModule } from 'src/app/core/core.module';
 
 import { BuilderComponent } from './builder.component';
 import { TextFieldEditComponent } from './configs/text/text-field-edit.component';
@@ -43,6 +44,8 @@ import { SectionRefFieldEditComponent } from './configs/section/section-ref-fiel
 import { ConfigEditComponent } from './configs/config-edit.component';
 import { PreviewModalComponent } from './modals/preview-modal/preview-modal.component';
 import { DiagnosticModalComponent } from './modals/diagnostic-modal/diagnostic-modal.component';
+import { LocationFieldInUseModalComponent } from './modals/location-field-in-use-modal/location-field-in-use-modal.component';
+import { IdentifierHintComponent } from './configs/identifier-hint/identifier-hint.component';
 import { ColorChromeModule } from 'ngx-color/chrome';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -60,7 +63,9 @@ import { ColorChromeModule } from 'ngx-color/chrome';
         CategoryModule,
         NgbTooltipModule,
         LayoutModule,
-        ColorChromeModule
+        ColorChromeModule,
+        CoreModule,
+        IdentifierHintComponent
     ],
     declarations: [
         ConfigEditComponent,
@@ -77,7 +82,8 @@ import { ColorChromeModule } from 'ngx-color/chrome';
         DateFieldEditComponent,
         SectionRefFieldEditComponent,
         PreviewModalComponent,
-        DiagnosticModalComponent
+        DiagnosticModalComponent,
+        LocationFieldInUseModalComponent
     ],
     exports: [
         BuilderComponent,

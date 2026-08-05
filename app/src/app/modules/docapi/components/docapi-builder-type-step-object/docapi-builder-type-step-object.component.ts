@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,7 +27,8 @@ import { CmdbType } from '../../../../framework/models/cmdb-type';
 @Component({
     selector: 'cmdb-docapi-builder-type-step-object',
     templateUrl: './docapi-builder-type-step-object.component.html',
-    styleUrls: ['./docapi-builder-type-step-object.component.scss']
+    styleUrls: ['./docapi-builder-type-step-object.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderTypeStepObjectComponent extends DocapiBuilderTypeStepBaseComponent implements OnInit {
     public objectTypeList: Array<CmdbType> = [];
@@ -46,6 +47,9 @@ export class DocapiBuilderTypeStepObjectComponent extends DocapiBuilderTypeStepB
             this.formValid = this.typeParamForm?.valid;
             this.formValidationEmitter?.emit(this.formValid);
         });
+
+        this.formValid = this.typeParamForm?.valid;
+        this.formValidationEmitter?.emit(this.formValid);
 
         this.typeService?.getTypeList()?.subscribe((value: CmdbType[]) => this.objectTypeList = value);
     }

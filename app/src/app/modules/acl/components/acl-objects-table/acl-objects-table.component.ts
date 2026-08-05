@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
@@ -33,7 +33,8 @@ import { CollectionParameters } from 'src/app/services/models/api-parameter';
 @Component({
     selector: 'cmdb-acl-objects-table',
     templateUrl: './acl-objects-table.component.html',
-    styleUrls: ['./acl-objects-table.component.scss']
+    styleUrls: ['./acl-objects-table.component.scss'],
+    standalone: false
 })
 export class AclObjectsTableComponent implements OnInit, OnDestroy {
 
@@ -92,9 +93,8 @@ export class AclObjectsTableComponent implements OnInit, OnDestroy {
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-    constructor(private typeService: TypeService, private permissionService: PermissionService) {
-
-    }
+    private readonly typeService = inject(TypeService);
+    private readonly permissionService = inject(PermissionService);
 
 
     public ngOnInit(): void {
@@ -157,8 +157,8 @@ export class AclObjectsTableComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */

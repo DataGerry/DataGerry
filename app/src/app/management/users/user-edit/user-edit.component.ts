@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -32,7 +32,8 @@ import { User } from '../../models/user';
 @Component({
     selector: 'cmdb-user-edit',
     templateUrl: './user-edit.component.html',
-    styleUrls: ['./user-edit.component.scss']
+    styleUrls: ['./user-edit.component.scss'],
+    standalone: false
 })
 export class UserEditComponent implements OnInit, OnDestroy {
 
@@ -80,8 +81,8 @@ export class UserEditComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

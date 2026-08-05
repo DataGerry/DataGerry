@@ -1,0 +1,37 @@
+<div class="d-flex justify-content-between align-items-center">
+    <h1>Reports Overview</h1>
+    <div>
+    <button type="button" class="btn btn-sm btn-secondary ms-2 text-white margin" [routerLink]="['/reports/categories']">
+        <i class="fas fa-edit"></i> Edit Report Categories
+      </button>
+    <button type="button" class="btn btn-sm btn-success" [routerLink]="['/reports/create']">
+      <i class="fas fa-plus"></i> Add
+    </button>
+</div>
+  </div>
+  <hr/>  
+
+  <cmdb-table [items]="reports" [columns]="columns" [totalItems]="totalReports"   [reportRowValidationClass]="reportRowValidationClass"
+    [loading]="loading" [pageSize]="limit" [page]="page" [sort]="sort" [sortable]="true" [searchEnabled]="true"
+    (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
+    (searchChange)="onSearchChange($event)">
+  </cmdb-table>
+
+
+  <ng-template #actionsTemplate let-item="item">
+    <div class="action-buttons">
+      <i class="fas fa-play icon-margin btn-run" 
+      [class.text-muted]="hasMissingRequiredFields(item)"
+      [class.pe-none]="hasMissingRequiredFields(item)"
+      [title]="hasMissingRequiredFields(item) ? 'No fields selected' : 'Run Report'"
+      (click)="!hasMissingRequiredFields(item) && runReport(item)">
+   </i>
+      <i class="far fa-edit icon-margin btn-edit" (click)="editReport(item.public_id)" title="Edit Report"></i>
+      <i class="far fa-trash-alt btn-delete" (click)="openDeleteReportModal(item)" title="Delete Report"></i>
+    </div>
+  </ng-template>
+
+<app-loading-popup 
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

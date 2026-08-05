@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of JsonObjectImporter
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 
 from cmdb.manager import ObjectsManager
@@ -31,7 +31,7 @@ from cmdb.framework.importer.responses.importer_object_response import ImporterO
 from cmdb.framework.importer.configs.json_object_importer_config import JsonObjectImporterConfig
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              JsonObjectImporter - CLASS                                              #

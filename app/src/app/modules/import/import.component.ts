@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { catchError, debounceTime, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { environment } from 'src/environments/environment';
@@ -23,7 +23,8 @@ import { environment } from 'src/environments/environment';
 @Component({
     selector: 'cmdb-import',
     templateUrl: './import.component.html',
-    styleUrls: ['./import.component.scss']
+    styleUrls: ['./import.component.scss'],
+    standalone: false
 })
 export class ImportComponent {
 
@@ -38,7 +39,7 @@ export class ImportComponent {
     isCloudModeEnabled = environment.cloudMode;
 
 
-    public constructor(private objectService: ObjectService) { }
+    private readonly objectService = inject(ObjectService);
 
 
     ngOnInit(): void {
@@ -74,7 +75,6 @@ export class ImportComponent {
     private fetchUsedObjects(): void {
         this.usedObjects$ = this.objectService.countObjects().pipe(
             catchError(error => {
-                console.error('Error fetching used objects count:', error?.error?.message);
                 return of(0);
             })
         );

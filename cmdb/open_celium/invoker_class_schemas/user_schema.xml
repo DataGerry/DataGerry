@@ -1,0 +1,14 @@
+<field name="public_id" type="integer"/>
+<field name="user_name" type="string"/>
+<field name="active" type="boolean"/>
+<field name="group_id" type="integer"/>
+<field name="registration_time" type="object"/>
+<field name="authenticator" type="string"/>
+<field name="password" type="string"/>
+<field name="first_name" type="string"/>
+<field name="last_name" type="string"/>
+<field name="email" type="string"/>
+<field name="image" type="string"/>
+<field name="database" type="string"/>
+<field name="api_level" type="integer"/>
+<field name="config_items_limit" type="integer"/>

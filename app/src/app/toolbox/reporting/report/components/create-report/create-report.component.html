@@ -1,0 +1,66 @@
+<div class="container">
+    <h2>{{isEditMode ? 'Edit Report' : 'Add Report'}}</h2>
+    <hr />
+    <form [formGroup]="createReportForm" (ngSubmit)="onSubmit()">
+        <!-- Name Input -->
+        <div class="mb-3">
+            <label for="name" class="mb-2">Report Name <span class="required">*</span>:</label>
+            <input type="text" id="name" formControlName="name" class="form-control" placeholder="Enter report name" />
+        </div>
+
+        <!-- Category Dropdown -->
+        <div class="mb-3">
+            <label for="category" class="mb-2">Category <span class="required">*</span>:</label>
+            <ng-select [items]="categories" bindLabel="name" bindValue="public_id" formControlName="category"
+                placeholder="Select a category" [loading]="!categories.length"></ng-select>
+        </div>
+
+        <!-- Type Dropdown -->
+        <div class="mb-3">
+            <label for="type" class="mb-2">Type <span class="required">*</span>:</label>
+            <ng-select [items]="types" bindLabel="label" bindValue="public_id" formControlName="type"
+                placeholder="Select a type" [loading]="typeLoading"></ng-select>
+        </div>
+
+        <!-- Fields Dropdown -->
+        <div class="mb-3">
+            <label for="fields" class="mb-2">Fields <span class="required">*</span>:</label>
+            <ng-select [items]="fields" bindLabel="label" bindValue="name" formControlName="fields"
+                placeholder="Select fields" [multiple]="true" [closeOnSelect]="false"></ng-select>
+        </div>
+
+        <!-- Multivalue Dropdown -->
+        <div class="mb-3">
+            <label for="mds_mode" class="mb-2">MultiValue:</label>
+            <ng-select [items]="mdsModeOptions" bindLabel="label" bindValue="value" formControlName="mds_mode"
+                placeholder="Select an option" [multiple]="false"></ng-select>
+        </div>
+
+        <!-- Filter Builder Component -->
+        @if (filterBuilderReady) {
+        <div>
+            <app-filter-builder [fields]="fields" [conditions]="conditions"
+                (conditionsChange)="onConditionsChange($event)"
+                (filterBuilderValidation)="onFilterBuilderValidation($event)">
+            </app-filter-builder>
+        </div>
+        }
+
+        <div class="d-flex justify-content-between align-items-center" style="height: 50px;">
+            <div class="btn-group text-start">
+                <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
+                    <i class="fas fa-arrow-left icon-margin"></i> Go Back
+                </button>
+            </div>
+
+            <div class="btn-group text-end">
+                <button type="submit" class="btn btn-success btn-sm submit-report d-flex align-items-center"
+                    [disabled]="createReportForm.invalid || !filterBuilderValidation">
+                    <i class="fas fa-save me-2 icon-margin"></i> Save
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

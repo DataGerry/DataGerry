@@ -1,0 +1,4 @@
+<field name="public_id" type="integer"/>
+<field name="primary" type="integer"/>
+<field name="secondary" type="string"/>
+<field name="creation_time" type="object"/>

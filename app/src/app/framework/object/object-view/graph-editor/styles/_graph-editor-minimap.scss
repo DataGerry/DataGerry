@@ -1,0 +1,55 @@
+//  Minimap
+.minimap {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  width: 220px;
+  height: 165px;
+  @include glass-effect;
+  border-radius: 16px;
+  padding: 16px;
+  animation: slideIn 0.3s ease;
+  transition: all 0.3s ease;
+  cursor: pointer;
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  }
+
+  .minimap-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: $gray-700;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .minimap-svg {
+    width: 100%;
+    height: calc(100% - 24px);
+    border: 2px solid rgba($gray-300, 0.5);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.4));
+    overflow: hidden;
+
+    .minimap-viewport {
+      fill: none;
+      stroke: $primary;
+      stroke-width: 2;
+      stroke-dasharray: 4 2;
+      animation: flowData 1s linear infinite;
+    }
+
+    .minimap-node {
+      cursor: pointer;
+      transition: all 0.2s ease;
+
+      &:hover {
+        transform: scale(1.5);
+      }
+    }
+  }
+}
+

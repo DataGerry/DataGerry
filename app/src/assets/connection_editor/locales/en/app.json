@@ -1,0 +1,66 @@
+{
+  "PERMISSIONS": {
+    "CREATE": "Create",
+    "READ": "Read",
+    "UPDATE": "Update",
+    "DELETE": "Delete",
+    "ADMIN": "Admin"
+  },
+  "COMPONENTS": {
+    "USER": "User",
+    "USERGROUP": "User Group",
+    "CONNECTOR": "Connector",
+    "CONNECTION": "Connection",
+    "EVENT": "Scheduler",
+    "EVENTHANDLER": "Event Handler",
+    "MYPROFILE": "My Profile",
+    "SCHEDULE": "Schedule",
+    "DASHBOARD": "Dashboard",
+    "APP": "App",
+    "INVOKER": "Invoker"
+  },
+  "FORM": {
+    "CANCEL": "Cancel"
+  },
+  "LIST": {
+    "CARD": {
+      "BUTTON_VIEW": "View",
+      "BUTTON_UPDATE": "Update",
+      "BUTTON_GRAPH": "Graph",
+      "BUTTON_DELETE": "Delete",
+      "CONFIRMATION_TITLE": "OC.Confirmation",
+      "CONFIRMATION_MESSAGE":"Do you want to delete?"
+    }
+  },
+  "ROLES": {
+    "ROLE_ADMIN": "Admin",
+    "ROLE_USER": "User"
+  },
+  "CONFIRMATION": {
+    "OK": "Ok",
+    "CANCEL": "Cancel"
+  },
+  "REJECTED_REQUESTS": {
+    "ERROR_FETCH_LIST": "Unfortunately, we cannot provide {{entityName}}.",
+    "GATHERING_DATA": "We are gathering data...",
+    "GATHERED_DATA": "We already know about it and solving the problem.",
+    "CONTACT_WITH_YOU": "We contact with you asap ;)",
+    "NO_SERVER_CONNECTION": "Seems like, you do not have a connection with a server",
+    "EMAIL_SUBJECT": "OC - Support. Error from",
+    "EMAIL_BODY": "%0D%0APlease, do not change further information: entity -"
+  },
+  "NO_PERMISSION":{
+    "TITLE": "You do not have this permission"
+  },
+  "ERROR": {
+    "FRONTEND": {
+      "MESSAGE": "Unfortunately, there is an error on the frontend."
+    },
+    "LINK": "Write to support team?",
+    "MESSAGE": "{{entity}} Page has invalid data"
+  },
+  "HEADER": {
+    "MENU": "Menu",
+    "LOGO_TOOLTIP": "Home"
+  }
+}

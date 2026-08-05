@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,9 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of BaseCmdbApp
+`Flask` subclass that carries DataGerry's process-wide handles on the app object
+
+`BaseCmdbApp` extends `Flask` with a handful of attributes the rest of the codebase reads
+off `current_app` to avoid plumbing them through every call site: the active
+`MongoDatabaseManager`, the cloud / local CLI-mode snapshots that `__main__` sets on the
+`cmdb` package globals, a scratch temp folder used by the importer, and a pair of hardcoded
+dev RSA + AES keys (only consulted by the cloud-and-local code path in `holder.py` /
+`security_manager.py`). The same class is instantiated twice in a running process —
+`net_app.create_app()` builds the SPA host with no database handle, while
+`init_rest_api.create_rest_api(dbm)` builds the REST app with the handle — and both end up
+mounted in the dispatcher's WSGI tree
 """
-import logging
+from logging import Logger, getLogger
 
 from flask import Flask
 
@@ -24,30 +34,64 @@ from cmdb import __CLOUD_MODE__, __LOCAL_MODE__
 from cmdb.database import MongoDatabaseManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  BaseCmdbApp - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class BaseCmdbApp(Flask):
     """
-    A base class for the CMDB application, extending Flask
+    `Flask` subclass that surfaces process-wide state on `current_app`
+
+    Instances are constructed in two places: `cmdb.interface.net_app.create_app` builds the
+    SPA host with `database_manager=None`; `cmdb.interface.rest_api.init_rest_api.create_rest_api`
+    builds the REST app with the active `MongoDatabaseManager`. `DispatcherMiddleware` then
+    mounts both apps under the same WSGI tree, so the cloud/local mode flags and the dev
+    keys carried on this object are reachable via `current_app` from any view
+
+    Attributes:
+        database_manager (MongoDatabaseManager | None): Mongo handle the REST routes pull
+            from `current_app.database_manager`. `None` on the SPA host since it has no
+            database-backed routes; required on the REST app
+        temp_folder (str): Scratch directory used by the importer for staged files
+        cloud_mode (bool): Snapshot of `cmdb.__CLOUD_MODE__` taken at instance construction.
+            Many `current_app.cloud_mode` branches across the codebase (auth, secrets,
+            user management) read this
+        local_mode (bool): Snapshot of `cmdb.__LOCAL_MODE__` taken at instance construction;
+            paired with `cloud_mode` it selects the "cloud build running against a local
+            dev environment" branch in `security_manager` / `holder.py`
+        asymmetric_key (dict[str, bytes]): RSA keypair used only when `cloud_mode` *and*
+            `local_mode` are both True (see `security/key/holder.py`). Hardcoded literal —
+            see the security audit notes for this file
+        symmetric_key (bytes): AES key used only when `cloud_mode` *and* `local_mode` are
+            both True (see `manager/security_manager.py`). Hardcoded literal — see the
+            security audit notes for this file
     """
-    def __init__(self, import_name: str, database_manager: MongoDatabaseManager = None):
+    def __init__(self, import_name: str, database_manager: MongoDatabaseManager | None = None) -> None:
         """
-        Initializes the BaseCmdbApp instance
+        Initialises the Flask app and seeds the DataGerry-specific attributes
+
+        Captures the cloud / local CLI flags from the `cmdb` package globals via the
+        module-level `__CLOUD_MODE__` / `__LOCAL_MODE__` import: these are *snapshot at
+        import time*, so this class assumes `cmdb/__main__.py` has already mutated those
+        globals before this module is first imported — true under the normal startup path,
+        worth knowing if you instantiate this class from a test or fixture
 
         Args:
-            import_name (str): The name of the application module
-            database_manager (MongoDatabaseManager | None, optional): Database interaction manager. Defaults to None
+            import_name (str): Forwarded to `Flask.__init__`; the Python import name used to
+                resolve `root_path` for static / template lookups
+            database_manager (MongoDatabaseManager | None): Mongo handle that backs
+                `current_app.database_manager`. Pass `None` for the SPA host (no DB-backed
+                routes) and a real manager for the REST app
         """
-        self.database_manager = database_manager
+        self.database_manager: MongoDatabaseManager | None = database_manager
         self.temp_folder = '/tmp/'
-        self.cloud_mode = __CLOUD_MODE__
-        self.local_mode = __LOCAL_MODE__
+        self.cloud_mode: bool = __CLOUD_MODE__
+        self.local_mode: bool = __LOCAL_MODE__
 
-        # Used for local development
-        self.asymmetric_key = {
+        # Dev-only RSA keypair: only consulted by `holder.py` when cloud_mode AND
+        # local_mode are both True. Hardcoded literal — flagged in the audit notes
+        self.asymmetric_key: dict[str, bytes] = {
             'private': (
                 b"-----BEGIN RSA PRIVATE KEY-----\n"
                 b"MIIEogIBAAKCAQEAmFEdxz3bGXnCYuKX2AFliOytBbsTrJWI/iLqzBX1EZSL0s1c\n"
@@ -90,7 +134,8 @@ class BaseCmdbApp(Flask):
             ),
         }
 
-        # Used for local development
+        # Dev-only AES key: only consulted by `security_manager.get_symmetric_key` when
+        # cloud_mode AND local_mode are both True. Hardcoded literal — flagged in the audit
         self.symmetric_key = (
             b'\x11\xeb\x8d*C\x95\xdd\xec0\xca7\x9ds\x92\xe9\x9b\x1e|i\x92i\x1c\x90\x8aw\xcd\x9aT\xbf\x1b)\x83'
         )

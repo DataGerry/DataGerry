@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,12 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Registration of all REST API Routes for the FlaskApp
+Builds the REST API Flask application and wires all blueprints, error handlers, URL converters
+and startup hooks into it
+
+This module is the entry point used by the WSGI dispatcher (``cmdb.interface.dispatcher_middleware``)
+to mount the ``/rest`` sub-application. ``create_rest_api`` is the single public factory; it
+constructs a ``BaseCmdbApp``, applies the mode-specific Flask config (DEBUG / TESTING / production),
+enables CORS, registers the regex URL converter, all blueprints and the HTTP error handlers, and -
+outside TESTING - kicks off the appropriate startup routine for the current cloud / local / on-prem
+mode (collection validation followed by pending database updates)
 """
-import logging
+from logging import Logger, getLogger
 import sys
-import copy
-from datetime import datetime, timezone
+# import copy
+# from datetime import datetime, timezone
 # from flask import request
 from flask_cors import CORS
 
@@ -31,8 +39,8 @@ from cmdb.database.database_services import (
 )
 
 import cmdb
-from cmdb.models.object_model.cmdb_object import CmdbObject
-from cmdb.models.type_model.cmdb_type import CmdbType
+# from cmdb.models.object_model.cmdb_object import CmdbObject
+# from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.config import app_config
 from cmdb.interface.custom_converters import RegexConverter
@@ -51,24 +59,41 @@ from cmdb.interface.rest_api.responses.error_handlers import (
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 def create_rest_api(database_maanger: MongoDatabaseManager) -> BaseCmdbApp:
     """
-    Initialisation of the Flask App
+    Builds and returns the fully configured REST API Flask application
+
+    Constructs a ``BaseCmdbApp`` bound to the given database manager, picks the Flask config
+    profile based on ``cmdb.__MODE__`` (DEBUG, TESTING, or production), enables CORS with the
+    DataGerry-specific response headers exposed, registers URL converters, blueprints and
+    error handlers, and - unless running under TESTING - executes the mode-appropriate setup
+    routine (on-prem setup, cloud update checks, or local-mode update checks). A failure
+    inside that startup routine is logged and terminates the process via ``sys.exit(1)`` so
+    the supervising ``ProcessManager`` does not bring up an incompletely-initialised API
 
     Args:
-        database_manager (MongoDatabaseManager): Manager which handles the Database connection
+        database_maanger (MongoDatabaseManager): Manager that owns the MongoDB connection
+            used by every blueprint and by the startup routines
 
     Returns:
-        BaseCmdbApp: The Flask App
+        BaseCmdbApp: The ready-to-serve Flask application
+
+    Raises:
+        SystemExit: When the startup routine fails outside TESTING mode
     """
     app = BaseCmdbApp(__name__, database_manager=database_maanger)
     app.url_map.strict_slashes = True
 
     # Import App Extensions
     CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count'])
+
+    # Lock the external REST API (HTTP Basic auth) behind the REST_API license feature. On-premise
+    # only; a no-op in cloud/local mode. The UI (login + Bearer JWT) is unaffected.
+    from cmdb.interface.rest_api.routes.cmdb_license.license_guard import enforce_rest_api_license
+    app.before_request(enforce_rest_api_license)
 
     if cmdb.__MODE__ == 'DEBUG':
         config = app_config['development']
@@ -95,7 +120,7 @@ def create_rest_api(database_maanger: MongoDatabaseManager) -> BaseCmdbApp:
 
     #     logging.info(f"Response for route: {route} ({rule}). Status: {response.status}")
 
-        # # (Optional) log response body
+        # # log response body
         # if not response.direct_passthrough:
         #     try:
         #         body = response.get_data(as_text=True)
@@ -135,44 +160,60 @@ def create_rest_api(database_maanger: MongoDatabaseManager) -> BaseCmdbApp:
 
 def register_converters(app: BaseCmdbApp):
     """
-    Registers a Regex converter in the Flask App
+    Registers the ``regex`` URL converter on the Flask app's URL map
+
+    The converter lets route patterns embed an arbitrary Python regex, e.g.
+    ``/<regex("[a-z0-9]{8}"):token>``. It is consumed by blueprints that need parameter
+    validation beyond what Werkzeug's built-in converters offer
 
     Args:
-        app (BaseCmdbApp): The Flask App
+        app (BaseCmdbApp): The Flask app whose URL map is being extended
     """
     app.url_map.converters['regex'] = RegexConverter
 
 
 #pylint: disable=R0914, R0915
-def register_blueprints(app: BaseCmdbApp):
+def register_blueprints(app: BaseCmdbApp) -> None:
     """
-    Registers API routes for the app
+    Mounts every feature-area blueprint on the Flask app with its URL prefix
 
-    Params:
-        app (BaseCmdbApp): Flask app where the API routes will be registered
+    Imports are intentionally local to keep module import time low and to break import cycles
+    between blueprints and the manager layer. Blueprints are grouped by domain (auth, framework,
+    user management, ISMS, IPAM, OpenCelium, ...) and registered under stable URL prefixes such
+    as ``/objects``, ``/isms/risks`` or ``/ipam/subnet`` that the frontend depends on. Pylint
+    rules R0914 (too many locals) and R0915 (too many statements) are disabled because the
+    registration list is intentionally flat for readability. The DEBUG-only ``debug_blueprint``
+    is appended last and is only loaded when ``cmdb.__MODE__`` is DEBUG
+
+    Args:
+        app (BaseCmdbApp): Flask app the blueprints are mounted on
     """
     #pylint: disable=import-outside-toplevel
     from cmdb.interface.rest_api.routes.auth_routes import auth_blueprint
     from cmdb.interface.rest_api.routes.system_routes.setup_routes import setup_blueprint
     from cmdb.interface.rest_api.routes.settings_routes.date_routes import date_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.objects_routes import objects_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.object_links_routes import links_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.types_routes import types_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import objects_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint
     from cmdb.interface.rest_api.routes.connection import connection_routes
-    from cmdb.interface.rest_api.routes.framework_routes.categories_routes import categories_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.location_routes import location_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.section_template_routes import section_template_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_routes import categories_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes import location_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_routes import (
+        section_template_blueprint,
+    )
     from cmdb.interface.rest_api.routes.user_management_routes.users_routes import users_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.user_settings_routes import user_settings_blueprint
-    from cmdb.interface.rest_api.routes.user_management_routes.groups_routes import groups_blueprint
+    from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_routes import groups_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.rights_routes import rights_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
     from cmdb.interface.rest_api.routes.exporter_routes.exporter_object_routes import exporter_blueprint
     from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_routes import type_export_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.logs_routes import logs_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs import logs_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.setting_routes import settings_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.import_routes import importer_blueprint
-    from cmdb.interface.rest_api.routes.framework_routes.docapi_routes import docapi_blueprint, docs_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_routes import (
+        docapi_blueprint,
+        docs_blueprint,
+    )
     from cmdb.interface.rest_api.routes.media_library_routes.media_file_routes import media_file_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.special_routes import special_blueprint
     from cmdb.interface.rest_api.routes.report_routes.report_category_routes import report_categories_blueprint
@@ -186,11 +227,13 @@ def register_blueprints(app: BaseCmdbApp):
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import isms_importer_blueprint
     from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_routes import ci_explorer_blueprint
-    from cmdb.interface.rest_api.routes.ai_routes.type_assistant_routes import type_assistant_blueprint
+    from cmdb.interface.rest_api.routes.config_routes.config_file_routes import config_file_blueprint
+    from cmdb.interface.rest_api.routes.ai_routes.chatgpt_routes import chatgpt_blueprint
     from cmdb.interface.rest_api.routes.framework_routes import (
         extendable_option_blueprint,
         object_group_blueprint,
     )
+    from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_routes import special_types_blueprint
     from cmdb.interface.rest_api.routes.isms_routes import (
         risk_class_blueprint,
         likelihood_blueprint,
@@ -207,13 +250,28 @@ def register_blueprints(app: BaseCmdbApp):
         control_measure_assignment_blueprint,
         isms_report_blueprint,
     )
+    from cmdb.interface.rest_api.routes.open_celium_routes import (
+        oc_connectors_blueprint,
+        oc_invokers_blueprint,
+        oc_templates_blueprint,
+        oc_connections_blueprint,
+        oc_schedulers_blueprint,
+        oc_licenses_blueprint,
+        oc_connection_log_blueprint
+    )
+    from cmdb.interface.rest_api.routes.ipam_routes.ipam_validation_routes import ipam_validation_blueprint
+    from cmdb.interface.rest_api.routes.ipam_routes.ipam_supernet_routes import ipam_supernet_blueprint
+    from cmdb.interface.rest_api.routes.ipam_routes.ipam_subnet_routes import ipam_subnet_blueprint
+    from cmdb.interface.rest_api.routes.ipam_routes.ipam_assignable_routes import ipam_assignable_blueprint
+    from cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes import ipam_tree_blueprint
+    from cmdb.interface.rest_api.routes.cmdb_license import license_activation_blueprint, license_blueprint
 
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
     app.register_blueprint(setup_blueprint, url_prefix='/setup')
     app.register_blueprint(date_blueprint, url_prefix='/date')
     app.register_blueprint(objects_blueprint, url_prefix='/objects')
-    app.register_blueprint(links_blueprint, url_prefix='/objects/links')
     app.register_blueprint(types_blueprint, url_prefix='/types')
+    app.register_blueprint(special_types_blueprint, url_prefix='/special_types')
     app.register_blueprint(connection_routes)
     app.register_blueprint(categories_blueprint, url_prefix='/categories')
     app.register_blueprint(location_blueprint, url_prefix='/locations')
@@ -240,11 +298,54 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(object_relations_blueprint, url_prefix='/object_relations')
     app.register_blueprint(object_relation_logs_blueprint, url_prefix='/object_relation_logs')
     app.register_blueprint(extendable_option_blueprint, url_prefix='/extendable_options')
+    app.register_blueprint(ci_explorer_blueprint, url_prefix='/ci_explorer')
+    app.register_blueprint(config_file_blueprint, url_prefix='/config_file')
+    app.register_blueprint(chatgpt_blueprint, url_prefix='/chatgpt')
+
+    # Feature-gating guard, shared by the ISMS and OpenCelium blueprint locks below
+    from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gate_blueprint
+    from cmdb.security.license.license_constants import LicenseFeature
+
+    # ISMS Blueprints. The whole ISMS module is a licensed feature, so every route (all methods,
+    # reads included) is gated on-premise. Gating is registered before the blueprints so all
+    # current and future ISMS routes are covered.
+    for isms_blueprint in (
+        isms_config_blueprint,
+        risk_class_blueprint,
+        likelihood_blueprint,
+        impact_blueprint,
+        impact_category_blueprint,
+        protection_goal_blueprint,
+        risk_matrix_blueprint,
+        threat_blueprint,
+        vulnerability_blueprint,
+        risk_blueprint,
+        control_measure_blueprint,
+        risk_assessment_blueprint,
+        control_measure_assignment_blueprint,
+        isms_importer_blueprint,
+        isms_report_blueprint,
+    ):
+        gate_blueprint(isms_blueprint, LicenseFeature.ISMS)
+
+    # Persons, Person Groups and Object Groups are shared entities the ISMS feature depends on
+    # (risk-assessment responsible/interviewed persons and risk owner; the object group is the risk
+    # scope). On-premise they are part of the licensed ISMS surface, so their HTTP routes are gated
+    # behind the ISMS feature too. They keep their own top-level url_prefixes (not moved under
+    # /isms/) so the frontend contract is unchanged. The internal object-delete cascade
+    # (objects_helper.handle_delete_from_object_groups) calls ObjectGroupsManager directly rather
+    # than these routes, so it is unaffected by the gate. Gated before registration so the
+    # before_request guard binds (Flask runs a blueprint's deferred setup at registration time).
+    for isms_shared_blueprint in (
+        object_group_blueprint,
+        person_blueprint,
+        person_group_blueprint,
+    ):
+        gate_blueprint(isms_shared_blueprint, LicenseFeature.ISMS)
+
     app.register_blueprint(object_group_blueprint, url_prefix='/object_groups')
     app.register_blueprint(person_blueprint, url_prefix='/persons')
     app.register_blueprint(person_group_blueprint, url_prefix='/person_groups')
-    app.register_blueprint(ci_explorer_blueprint, url_prefix='/ci_explorer')
-    app.register_blueprint(type_assistant_blueprint, url_prefix='/ai/type_assistant')
 
     # ISMS Blueprints
     app.register_blueprint(isms_config_blueprint, url_prefix='/isms/config')
@@ -263,6 +364,51 @@ def register_blueprints(app: BaseCmdbApp):
     app.register_blueprint(isms_importer_blueprint, url_prefix='/isms/importer')
     app.register_blueprint(isms_report_blueprint, url_prefix='/isms/reports')
 
+    # IPAM routes. The dedicated /ipam surface (overviews, network tree, validation, assignable
+    # lookups) is part of the licensed IPAM feature, so every route is gated on-premise. The IPAM
+    # data itself stays readable through the generic /objects and /types routes (guarded separately
+    # at write time); only these dedicated IPAM surfaces are locked here.
+    for ipam_blueprint in (
+        ipam_validation_blueprint,
+        ipam_supernet_blueprint,
+        ipam_subnet_blueprint,
+        ipam_assignable_blueprint,
+        ipam_tree_blueprint,
+    ):
+        gate_blueprint(ipam_blueprint, LicenseFeature.IPAM)
+
+    # IPAM routes
+    app.register_blueprint(ipam_validation_blueprint, url_prefix='/ipam/validate')
+    app.register_blueprint(ipam_supernet_blueprint, url_prefix='/ipam/supernet')
+    app.register_blueprint(ipam_subnet_blueprint, url_prefix='/ipam/subnet')
+    app.register_blueprint(ipam_assignable_blueprint, url_prefix='/ipam/assignable-objects')
+    app.register_blueprint(ipam_tree_blueprint, url_prefix='/ipam/tree')
+
+    # License routes
+    app.register_blueprint(license_activation_blueprint, url_prefix='/license')
+    app.register_blueprint(license_blueprint, url_prefix='/license')
+
+    # OpenCelium routes. The whole integration is the licensed "Automations" feature, so every
+    # route is gated on-premise (OpenCelium's OWN license routes stay ungated). Gating is
+    # registered before the blueprints so all current and future routes are covered.
+    for oc_automations_blueprint in (
+        oc_connectors_blueprint,
+        oc_invokers_blueprint,
+        oc_templates_blueprint,
+        oc_connections_blueprint,
+        oc_schedulers_blueprint,
+        oc_connection_log_blueprint,
+    ):
+        gate_blueprint(oc_automations_blueprint, LicenseFeature.AUTOMATIONS)
+
+    app.register_blueprint(oc_connectors_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_invokers_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_templates_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_connections_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_schedulers_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_licenses_blueprint, url_prefix='/open_celium')
+    app.register_blueprint(oc_connection_log_blueprint, url_prefix='/open_celium')
+
     if cmdb.__MODE__ == 'DEBUG':
         from cmdb.interface.rest_api.routes.debug_routes import debug_blueprint
         app.register_blueprint(debug_blueprint)
@@ -270,12 +416,18 @@ def register_blueprints(app: BaseCmdbApp):
     # LOGGER.debug(f"routes: {app.url_map}")
 
 
-def register_error_pages(app: BaseCmdbApp):
+def register_error_pages(app: BaseCmdbApp) -> None:
     """
-    Registers error handlers for the app
+    Wires the JSON error handlers for the HTTP status codes the REST API emits
 
-    Params:
-        app (BaseCmdbApp): Flask app where the error handlers will be registered
+    Covers the client- and server-error codes the route layer actually raises via ``abort()``:
+    400 (bad request), 401 (unauthorized), 403 (forbidden), 404 (not found), 405 (method not
+    allowed), 406 (not acceptable), 410 (gone), 500 (internal server error) and 503 (service
+    unavailable). Each handler is a thin wrapper from ``responses.error_handlers`` that returns
+    a structured JSON body instead of Flask's default HTML page
+
+    Args:
+        app (BaseCmdbApp): Flask app the error handlers are attached to
     """
     app.register_error_handler(400, bad_request)
     app.register_error_handler(401, unauthorized)
@@ -291,10 +443,17 @@ def register_error_pages(app: BaseCmdbApp):
 
 def start_datagerry_setup(dbm: MongoDatabaseManager) -> None:
     """
-    Setup of DataGerry and runs database updates
+    Runs the on-prem startup routine against the single configured database
+
+    Reads the database name from ``etc/cmdb.conf`` via ``SystemConfigReader``, validates that
+    every required collection / index exists (creating any that are missing in local mode),
+    and applies pending schema updates from ``cmdb/database/updater/versions`` when the
+    installed schema version is behind. Invoked by ``create_rest_api`` when DataGerry runs in
+    on-prem mode (i.e. ``cmdb.__CLOUD_MODE__`` is False)
 
     Args:
-        dbm (MongoDatabaseManager): Manager for interaction with database
+        dbm (MongoDatabaseManager): Manager owning the MongoDB connection used for both
+            validation and updates
     """
     db_name = SystemConfigReader().get_value('database_name', 'Database')
 
@@ -308,10 +467,19 @@ def start_datagerry_setup(dbm: MongoDatabaseManager) -> None:
 
 def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -> None:
     """
-    Setup of DataGerry and runs database updates
+    Runs collection validation and pending schema updates across every tenant database
+
+    Fetches the list of tenant database names from the service portal
+    (``get_db_names_from_service_portal``) and, for each one, runs ``CollectionValidator`` and
+    applies any pending updates. Invoked by ``create_rest_api`` in both cloud mode and local
+    mode; the difference is which source the service-portal lookup consults, which is
+    controlled by the ``local_mode`` flag
 
     Args:
-        dbm (MongoDatabaseManager): Manager for interaction with database
+        dbm (MongoDatabaseManager): Manager owning the MongoDB connection reused for every
+            tenant database
+        local_mode (bool): Forwarded to ``get_db_names_from_service_portal`` to pick the
+            local-mode database list instead of the cloud one. Defaults to False (cloud)
     """
     # First retrieve all database names
     db_names = get_db_names_from_service_portal(local_mode)
@@ -327,104 +495,118 @@ def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -
             database_updater.run_updates()
 
 
-def debug_create_users(amount: int, dbm: MongoDatabaseManager) -> None:
-    """
-    Debug method to create many objects
+# def debug_create_users(amount: int, dbm: MongoDatabaseManager) -> None:
+#     """
+#     Seeds the CmdbObject collection with ``amount`` dummy user objects for load testing
 
-    Args:
-        amount (int): How many objects should be created
-    """
-    user_dummy_data = {
-        "type_id": 2,
-        "author_id": 1,
-        "last_edit_time": None,
-        "editor_id": None,
-        "active": True,
-        "fields": [
-            {
-                "name": "text-45910",
-                "value": "TestUser"
-            },
-            {
-                "name": "text-80103",
-                "value": ""
-            },
-            {
-                "name": "text-75307",
-                "value": ""
-            },
-            {
-                "name": "text-93543",
-                "value": ""
-            },
-            {
-                "name": "text-16313",
-                "value": ""
-            }
-        ],
-        "multi_data_sections": []
-    }
+#     Inserts the documents directly via ``dbm.insert`` and so bypasses the manager layer and
+#     its validators / hooks. Each generated user reuses the same template document with the
+#     name field suffixed by the loop index so usernames remain unique. Intended for ad-hoc
+#     debugging only; the call sites in ``create_rest_api`` are commented out
 
-    for i in range(amount):
-        user_data = copy.deepcopy(user_dummy_data)
-        user_data["fields"][0]["value"] = f"TestUser{i}"  # Make the username unique
-        dbm.insert(CmdbObject.COLLECTION, user_data)
+#     Args:
+#         amount (int): Number of dummy user objects to insert
+#         dbm (MongoDatabaseManager): Manager used to perform the raw inserts
+#     """
+#     user_dummy_data = {
+#         "type_id": 2,
+#         "author_id": 1,
+#         "last_edit_time": None,
+#         "editor_id": None,
+#         "active": True,
+#         "fields": [
+#             {
+#                 "name": "text-45910",
+#                 "value": "TestUser"
+#             },
+#             {
+#                 "name": "text-80103",
+#                 "value": ""
+#             },
+#             {
+#                 "name": "text-75307",
+#                 "value": ""
+#             },
+#             {
+#                 "name": "text-93543",
+#                 "value": ""
+#             },
+#             {
+#                 "name": "text-16313",
+#                 "value": ""
+#             }
+#         ],
+#         "multi_data_sections": []
+#     }
+
+#     for i in range(amount):
+#         user_data = copy.deepcopy(user_dummy_data)
+#         user_data["fields"][0]["value"] = f"TestUser{i}"  # Make the username unique
+#         dbm.insert(CmdbObject.COLLECTION, user_data)
 
 
-def debug_create_types(amount: int, dbm: MongoDatabaseManager) -> None:
-    """
-    Debug method to create many types
+# def debug_create_types(amount: int, dbm: MongoDatabaseManager) -> None:
+#     """
+#     Seeds the CmdbType collection with ``amount`` dummy types for load testing
 
-    Args:
-        amount (int): How many types should be created
-    """
-    type_dummy_data = {
-        "global_template_ids": [],
-        "fields": [
-            {
-            "type": "text",
-            "name": "text-09f3e7c6-77ba-45ce-9260-6017fac7f060",
-            "label": "Text Field"
-            }
-        ],
-        "active": True,
-        "version": "1.0.0",
-        "author_id": 1,
-        "render_meta": {
-            "icon": "fa fa-cube",
-            "sections": [
-            {
-                "fields": [
-                    "text-09f3e7c6-77ba-45ce-9260-6017fac7f060"
-                ],
-                "type": "section",
-                "name": "section-97ff6f73-b833-4f29-b7c3-0ec0403378f2",
-                "label": "Section"
-            }
-            ],
-            "externals": [],
-            "summary": {
-            "fields": []
-            }
-        },
-        "acl": {
-            "activated": False
-        },
-        "name": "test",
-        "label": "Test1",
-        "selectable_as_parent": True,
-        "creation_time": None
-    }
+#     Inserts the documents directly via ``dbm.insert`` so the manager layer's validation and
+#     section-template propagation are skipped. Each generated type reuses the same template
+#     document with the loop index appended to ``name``, ``label``, the first field's ``name``
+#     and the section's ``name`` / referenced field id so the resulting documents are uniquely
+#     addressable. Intended for ad-hoc debugging only; the call sites in ``create_rest_api`` are
+#     commented out
 
-    for i in range(amount):
-        type_data = copy.deepcopy(type_dummy_data)
+#     Args:
+#         amount (int): Number of dummy CmdbType documents to insert
+#         dbm (MongoDatabaseManager): Manager used to perform the raw inserts
+#     """
+#     type_dummy_data = {
+#         "global_template_ids": [],
+#         "fields": [
+#             {
+#             "type": "text",
+#             "name": "text-09f3e7c6-77ba-45ce-9260-6017fac7f060",
+#             "label": "Text Field"
+#             }
+#         ],
+#         "active": True,
+#         "version": "1.0.0",
+#         "author_id": 1,
+#         "render_meta": {
+#             "icon": "fa fa-cube",
+#             "sections": [
+#             {
+#                 "fields": [
+#                     "text-09f3e7c6-77ba-45ce-9260-6017fac7f060"
+#                 ],
+#                 "type": "section",
+#                 "name": "section-97ff6f73-b833-4f29-b7c3-0ec0403378f2",
+#                 "label": "Section"
+#             }
+#             ],
+#             "externals": [],
+#             "summary": {
+#             "fields": []
+#             }
+#         },
+#         "acl": {
+#             "activated": False
+#         },
+#         "name": "test",
+#         "label": "Test1",
+#         "selectable_as_parent": True,
+#         "creation_time": None
+#     }
 
-        # Append i to relevant fields
-        type_data["name"] += str(i)
-        type_data["label"] += str(i)
-        type_data["fields"][0]["name"] += str(i)
-        type_data["render_meta"]["sections"][0]["fields"][0] += str(i)
-        type_data["render_meta"]["sections"][0]["name"] += str(i)
-        type_data["creation_time"] = datetime.now(timezone.utc)
+#     for i in range(amount):
+#         type_data = copy.deepcopy(type_dummy_data)
 
-        dbm.insert(CmdbType.COLLECTION, type_data)
+#         # Append i to relevant fields
+#         type_data["name"] += str(i)
+#         type_data["label"] += str(i)
+#         type_data["fields"][0]["name"] += str(i)
+#         type_data["render_meta"]["sections"][0]["fields"][0] += str(i)
+#         type_data["render_meta"]["sections"][0]["name"] += str(i)
+#         type_data["creation_time"] = datetime.now(timezone.utc)
+
+#         dbm.insert(CmdbType.COLLECTION, type_data)

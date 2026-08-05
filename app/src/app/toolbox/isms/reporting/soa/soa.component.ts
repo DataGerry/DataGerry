@@ -1,4 +1,4 @@
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 
 import { Column } from 'src/app/layout/table/table.types';
@@ -11,8 +11,9 @@ import { getCurrentDate } from 'src/app/core/utils/date.utils';
 import { IsmsValidationService } from '../../services/isms-validation.service';
 
 @Component({
-  selector: 'app-soa',
-  templateUrl: './soa.component.html'
+    selector: 'app-soa',
+    templateUrl: './soa.component.html',
+    standalone: false
 })
 export class SoaComponent implements OnInit {
 
@@ -25,13 +26,11 @@ export class SoaComponent implements OnInit {
   public columns: Column[] = [];
   public initialVisibleColumns: string[] = [];
 
-  constructor(
-    private readonly soaService: SoaService,
-    private readonly loader: LoaderService,
-    private readonly toast: ToastService,
-    private readonly fileExportService: FileExportService,
-    private readonly ismsValidationService: IsmsValidationService
-  ) { }
+  private readonly soaService = inject(SoaService);
+  private readonly loader = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly fileExportService = inject(FileExportService);
+  private readonly ismsValidationService = inject(IsmsValidationService);
 
   ngOnInit(): void {
     this.ismsValidationService.checkAndHandleInvalidConfig().subscribe({

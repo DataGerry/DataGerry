@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,9 +16,11 @@
 """
 Implementation of all API routes for CmdbTypes
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 from flask import abort, request
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -72,7 +74,7 @@ from cmdb.errors.manager.locations_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 types_blueprint = APIBlueprint('types', __name__)
 
@@ -83,7 +85,7 @@ types_blueprint = APIBlueprint('types', __name__)
 @insert_request_user
 @types_blueprint.protect(auth=True, right='base.framework.type.add')
 @types_blueprint.validate(CmdbType.SCHEMA)
-def insert_cmdb_type(data: dict, request_user: CmdbUser):
+def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbType into the database
 
@@ -98,31 +100,37 @@ def insert_cmdb_type(data: dict, request_user: CmdbUser):
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         data.setdefault('creation_time', datetime.now(timezone.utc))
-        possible_id = data.get('public_id', None)
+        possible_id: Any | None = data.get('public_id')
 
         if possible_id:
-            possible_type = types_manager.get_type(possible_id)
+            possible_type: dict[str, Any] | None = types_manager.get_type(possible_id)
 
             if possible_type:
-                abort(400, f"Type with PublicID '{possible_id}' already exists!")
+                abort(400, f"Type with ID:{possible_id} already exists!")
 
-        result_id = types_manager.insert_type(data)
-        created_type = types_manager.get_type(result_id)
+        type_with_name = types_manager.get_one_by({'name': data['name']})
 
-        if created_type:
-            api_response = InsertSingleResponse(result_id=result_id, raw=created_type)
+        if type_with_name:
+            abort(400, f"Type with name:{data['name']} already exists!")
 
-            return api_response.make_response()
-        abort(404, "Could not retrieve the created Type from the database!")
+        result_id: int = types_manager.insert_type(data)
+        created_type: dict[str, Any] | None = types_manager.get_type(result_id)
+
+        if not created_type:
+            abort(404, "Could not retrieve the created Type from the database!")
+
+        return InsertSingleResponse(result_id=result_id, raw=created_type).make_response()
     except HTTPException as http_err:
         raise http_err
     except TypesManagerGetError as err:
-        LOGGER.error("[insert_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
+        LOGGER.error("[insert_cmdb_type] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to retrieve the created Type from the database!")
     except TypesManagerInsertError as err:
-        LOGGER.error("[insert_cmdb_type] %s", err)
-        abort(400, "Failed to insert the Type into the database!")
-
+        LOGGER.error("[insert_cmdb_type] %s: %s", type(err), err, exc_info=True)
+        abort(400, "Failed to insert the new Type into the database!")
+    except Exception as err:
+        LOGGER.error("[insert_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while creating the new Type!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -131,7 +139,7 @@ def insert_cmdb_type(data: dict, request_user: CmdbUser):
 @insert_request_user
 @types_blueprint.protect(auth=True, right='base.framework.type.view')
 @types_blueprint.parse_parameters(TypeIterationParameters)
-def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser):
+def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbTypes
 
@@ -169,18 +177,18 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser):
                                         body=request.method == 'HEAD')
         return api_response.make_response()
     except TypesManagerIterationError as err:
-        LOGGER.error("[get_cmdb_types] TypesManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve CmdbTypes from the database!")
+        LOGGER.error("[get_cmdb_types] %s: %s", type(err), err, exc_info=True)
+        abort(400, "Failed to iterate Types from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while retrieving the Types!")
 
 
 @types_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right='base.framework.type.view')
-def get_cmdb_type(public_id: int, request_user: CmdbUser):
+def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbType
 
@@ -197,25 +205,24 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser):
         requested_type = types_manager.get_type(public_id)
 
         if requested_type:
-            api_response = GetSingleResponse(requested_type, body=request.method == 'HEAD')
+            return GetSingleResponse(requested_type, body=request.method == 'HEAD').make_response()
 
-            return api_response.make_response()
         abort(404, f"The Type with ID:{public_id} was not found!")
     except HTTPException as http_err:
         raise http_err
     except TypesManagerGetError as err:
-        LOGGER.error("[get_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
+        LOGGER.error("[get_cmdb_type] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while retrieving Type with ID:{public_id}!")
 
 
 @types_blueprint.route('/count_objects/<int:public_id>', methods=['GET'])
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @insert_request_user
 @types_blueprint.protect(auth=True, right='base.framework.type.view')
-def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser):
+def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     Counts the number of CmdbObjects in the database with the given public_id as the type_id
 
@@ -229,19 +236,18 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser):
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        objects_count = objects_manager.count_objects({'type_id':public_id})
+        if _fetch_only_active_objs():
+            objects_count: int = objects_manager.count_objects({"type_id": public_id, "active": True})
+        else:
+            objects_count: int = objects_manager.count_objects({"type_id": public_id})
 
-        api_response = DefaultResponse(objects_count)
-
-        return api_response.make_response()
+        return DefaultResponse(objects_count).make_response()
     except ObjectsManagerGetError as err:
         LOGGER.error("[count_objects_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to count Objects for Type with ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[count_objects_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
-
-
+        abort(500, f"An internal server error occured while counting Objects for Type with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -250,7 +256,7 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser):
 @insert_request_user
 @types_blueprint.protect(auth=True, right='base.framework.type.edit')
 @types_blueprint.validate(CmdbType.SCHEMA)
-def update_cmdb_type(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbType
 
@@ -413,4 +419,18 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to delete the Type with ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while deleting Type with ID: {public_id}!")
+
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+def _fetch_only_active_objs() -> bool:
+    """
+    Checking if request have cookie parameter for object active state
+    Returns:
+        True if cookie is set or value is true else false
+    """
+    if request.args.get('onlyActiveObjCookie') is not None:
+        value = request.args.get('onlyActiveObjCookie')
+        return value in ['True', 'true']
+
+    return False

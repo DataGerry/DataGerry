@@ -1,0 +1,88 @@
+// Responsive Design
+@media (max-width: 1400px) {
+  .connection-info-panel {
+    width: 320px;
+  }
+
+  .legend {
+    width: 220px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .top-toolbar {
+    .search-box {
+      width: 320px;
+    }
+  }
+
+  .legend {
+    width: 200px;
+    
+    .legend-item {
+      font-size: 12px;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .top-toolbar {
+    padding: 0 16px;
+    
+    .brand-text {
+      display: none;
+    }
+    
+    .search-box {
+      width: 200px;
+    }
+    
+    .zoom-level {
+      display: none;
+    }
+  }
+
+  .legend,
+  .minimap,
+  .breadcrumb-nav {
+    display: none;
+  }
+
+  .ci-node {
+    .hover-card {
+      display: none;
+    }
+  }
+
+  .connection-info-panel {
+    width: calc(100% - 48px);
+    max-width: 360px;
+  }
+}
+
+
+
+// Print Styles
+@media print {
+  .top-toolbar,
+  .minimap,
+  .legend,
+  .modern-menu,
+  .connection-info-panel,
+  .breadcrumb-nav,
+  .performance-hints,
+  .node-actions {
+    display: none !important;
+  }
+
+  .ci-explorer-container {
+    background: white;
+  }
+
+  .ci-node {
+    box-shadow: none;
+    border: 1px solid $gray-400;
+  }
+}
+
+

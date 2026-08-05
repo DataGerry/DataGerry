@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -28,9 +28,10 @@ import { NgSelectComponent } from '@ng-select/ng-select';
 import { ToastService } from '../../toast/toast.service';
 
 @Component({
-  selector: 'cmdb-type-select',
-  templateUrl: './type-select.component.html',
-  styleUrls: ['./type-select.component.scss']
+    selector: 'cmdb-type-select',
+    templateUrl: './type-select.component.html',
+    styleUrls: ['./type-select.component.scss'],
+    standalone: false
 })
 export class TypeSelectComponent<T = CmdbType> implements OnInit, OnDestroy {
 
@@ -262,8 +263,8 @@ export class TypeSelectComponent<T = CmdbType> implements OnInit, OnDestroy {
    * Un subscribe all subscriptions.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

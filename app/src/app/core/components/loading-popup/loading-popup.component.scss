@@ -1,228 +1,226 @@
-// src/app/shared/components/loading-popup/loading-popup.component.scss
+// Variables
+$brand-orange: #f37021;
+$brand-orange-light: rgba(243, 112, 33, 0.1); 
+$text-main: #1e293b;
+$text-muted: #64748b;
+$bg-card: #ffffff;
+$radius-lg: 16px;
+$transition-smooth: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+
 .neo-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    backdrop-filter: blur(1.2px);
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.15); 
+  backdrop-filter: blur(2px); 
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 9999;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity $transition-smooth, visibility $transition-smooth;
+
+  &.visible {
+    opacity: 1;
+    visibility: visible;
+    .neo-container {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+  }
+}
+
+.neo-container {
+  background: $bg-card;
+  border-radius: $radius-lg;
+  padding: 40px 56px 48px; 
+  width: 100%;
+  max-width: 520px; 
+  box-shadow: 0 10px 15px -3px rgba(0,0,0,0.04), 0 20px 40px -10px rgba(0,0,0,0.1); 
+  transform: translateY(16px) scale(0.98);
+  opacity: 0;
+  transition: transform $transition-smooth, opacity $transition-smooth;
+  position: relative;
+  overflow: hidden;
+}
+
+// -----------------------------------------
+// Top Connection Animation
+// -----------------------------------------
+.connection-animation {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px; 
+  background: rgba(0, 0, 0, 0.03); 
+  display: flex;
+  align-items: center;
+
+  .data-line {
+    height: 100%;
+    width: 25%; 
+    background: linear-gradient(90deg, transparent, $brand-orange, transparent);
+    animation: shootData 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  .cloud-node {
+    position: absolute;
+    right: 24px;
+    top: 10px; 
+    width: 10px; 
+    height: 10px;
+    background: $brand-orange;
+    border-radius: 50%;
+
+    .pulse {
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      background: $brand-orange-light;
+      animation: pulseReceiver 2s infinite ease-out;
+    }
+  }
+}
+
+.neo-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 24px; 
+}
+
+// -----------------------------------------
+//  Spinner &  Squirrel
+// -----------------------------------------
+.holographic-spinner {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .squirrel-core {
+    position: relative;
+    width: 96px; 
+    height: 96px; 
+    transform: translate(-6px, 2px); 
+    
+    z-index: 2;
+    animation: floatSquirrelCenter 3s ease-in-out infinite; 
+    filter: drop-shadow(0px 8px 12px rgba(243, 112, 33, 0.25));
+
+    // ---  TAIL  ---
+    .sq-tail {
+      position: absolute;
+      width: 40%; 
+      height: auto;
+      
+      bottom: 24px;  
+      left: 45%;     
+
+      transform-origin: bottom right; 
+      animation: wagTail 2.5s ease-in-out infinite;
+    }
+
+    // ---  BODY  ---
+    .sq-body {
+      position: absolute;
+      width: 50%; 
+      height: auto;
+      
+      bottom: 24px;  
+      left: 41%;     
+    }
+  }
+
+  .orbit {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1.5px solid #2d2d2d; 
+    animation: spin 2s linear infinite;
+    z-index: 1;
+
+    &::after {
+      content: '';
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      background: #2d2d2d;
+      border-radius: 50%;
+      top: -5px; 
+      left: 50%;
+      transform: translateX(-50%);
+    }
+  }
+}
+
+// -----------------------------------------
+// Typography and Status
+// -----------------------------------------
+.status-container {
+  text-align: center;
+  width: 100%;
+
+  .status-message {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 1.125rem; 
+    font-weight: 600;
+    color: $text-main;
+    margin: 0 0 28px 0;
+    letter-spacing: -0.01em;
+  }
+
+  .stage-indicator {
     display: flex;
     justify-content: center;
-    align-items: center;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 9999;
-  
-    &.visible {
-      opacity: 1;
-      visibility: visible;
-    }
-  }
-  
-  .neo-container {
-    background: #ffffff;
-    border-radius: 16px;
-    padding: 2rem;
-    width: 500px;
-    border: 1px solid rgba(28, 28, 21, 0.1); // Dark border
-    box-shadow: 0 8px 32px rgba(242, 133, 20, 0.1); // Orange accent shadow
-    position: relative;
-    overflow: hidden;
-  }
-  
-  .connection-animation {
-    position: absolute;
-    top: -30px;
-    left: 0;
-    right: 0;
-    height: 60px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0 2rem;
-  
-    .server-node {
-      width: 30px;
-      height: 30px;
-      background: #f28514; // Primary orange
-      border-radius: 8px;
-      animation: pulse-orange 1.5s infinite;
-    }
-  
-    .data-line {
-      flex: 1;
-      height: 3px;
-      background: linear-gradient(90deg, #f28514 50%, transparent 50%); // Orange
-      background-size: 20px 100%;
-      animation: data-flow 0.8s linear infinite;
-      margin: 0 1rem;
-    }
-  
-    .cloud-node {
-      width: 40px;
-      height: 40px;
-      background: #1c1c15; // Dark color
-      border-radius: 50%;
+    gap: 32px;
+
+    .stage {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-size: 0.875rem; 
+      font-weight: 500;
+      color: $text-muted;
       position: relative;
-      
-      .pulse {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        border: 2px solid rgba(242, 133, 20, 0.3); // Orange accent
-        border-radius: 50%;
-        animation: cloud-pulse 2s infinite;
-      }
-    }
-  }
-  
-  .holographic-spinner {
-    width: 80px;
-    height: 80px;
-    margin: 2rem auto;
-    position: relative;
-    
-    .core {
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      background: radial-gradient(circle, #f28514 0%, #c46a10 100%); // Orange gradient
-      border-radius: 50%;
-      animation: core-glow 2s infinite;
-    }
-    
-    .orbit {
-      position: absolute;
-      width: 120%;
-      height: 120%;
-      border: 2px solid #1c1c15; // Dark color
-      border-radius: 50%;
-      top: -10%;
-      left: -10%;
-      animation: orbit-spin 4s linear infinite;
-      
-      &::before {
-        content: '';
-        position: absolute;
-        width: 12px;
-        height: 12px;
-        background: #1c1c15; // Dark color
-        border-radius: 50%;
-        top: -6px;
-        left: calc(50% - 6px);
-      }
-    }
-    
-    .particles {
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      animation: particle-rotate 6s linear infinite;
-      
-      &::after {
-        content: '';
-        position: absolute;
-        width: 8px;
-        height: 8px;
-        background: #ff9b38; // Light orange
-        border-radius: 50%;
-        top: -4px;
-        left: calc(50% - 4px);
-      }
-    }
-  }
-  
-  .status-container {
-    text-align: center;
-    margin-top: 2rem;
-  
-    .status-message {
-      color: #1c1c15; // Dark text
-      font-size: 1.3rem;
-      margin-bottom: 1.5rem;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-    }
-  
-    .progress-trail {
-      height: 4px;
-      background: rgba(28, 28, 21, 0.1); // Dark with opacity
-      border-radius: 2px;
-      overflow: hidden;
-      
-      .progress-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #f28514, #ff9b38); // Orange gradient
-        transition: width 0.3s ease;
-      }
-    }
-  
-    .stage-indicator {
-      display: flex;
-      justify-content: center;
-      gap: 1.5rem;
-      margin-top: 1.5rem;
-      
-      .stage {
-        color: rgba(28, 28, 21, 0.4); // Muted dark
-        font-size: 0.95rem;
-        position: relative;
-        font-weight: 500;
-        
-        &.active {
-          color: #f28514; // Orange accent
-          font-weight: 600;
-          
-          &::after {
-            content: '';
-            position: absolute;
-            bottom: -4px;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, #f28514, #ff9b38);
-            animation: stage-progress 2s infinite;
-          }
+      padding-bottom: 6px;
+      transition: all 0.3s ease;
+
+      &.active {
+        color: $brand-orange;
+        font-weight: 600;
+
+        &::after {
+          content: '';
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          width: 100%;
+          height: 2px;
+          background: $brand-orange;
+          border-radius: 2px;
         }
       }
     }
   }
-  
-  // Animations
-  @keyframes data-flow {
-    0% { background-position: 0 0; }
-    100% { background-position: 20px 0; }
+}
+
+// -----------------------------------------
+// Keyframes
+// -----------------------------------------
+@keyframes spin { 100% { transform: rotate(360deg); } }
+@keyframes shootData { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+@keyframes pulseReceiver { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(2); opacity: 0; } }
+@keyframes floatSquirrelCenter {
+  0%, 100% { 
+    transform: translate(-28px, 4px) scale(1.8); 
   }
-  
-  @keyframes cloud-pulse {
-    0% { transform: scale(1); opacity: 1; }
-    100% { transform: scale(2); opacity: 0; }
-  }
-  
-  @keyframes core-glow {
-    0%, 100% { filter: brightness(1); }
-    50% { filter: brightness(1.15); }
-  }
-  
-  @keyframes orbit-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  
-  @keyframes particle-rotate {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(-360deg); }
-  }
-  
-  @keyframes stage-progress {
-    0% { opacity: 0; width: 0; }
-    50% { opacity: 1; width: 100%; }
-    100% { opacity: 0; width: 0; }
-  }
-  
-  @keyframes pulse-orange {
-    0% { box-shadow: 0 0 0 0 rgba(242, 133, 20, 0.4); }
-    70% { box-shadow: 0 0 0 12px rgba(242, 133, 20, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(242, 133, 20, 0); }
-  }
+  50% { 
+    transform: translate(-28px, 0px) scale(1.8); 
+  } 
+}
+
+@keyframes wagTail { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(12deg); } }

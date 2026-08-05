@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of helper functions for the importer workflows
 """
-from typing import Union
+from typing import Any
 
 from cmdb.framework.importer.parser.csv_object_parser import CsvObjectParser
 from cmdb.framework.importer.parser.json_object_parser import JsonObjectParser
@@ -28,23 +28,23 @@ from cmdb.framework.importer.configs.json_object_importer_config import JsonObje
 from cmdb.errors.importer import ImporterLoadError, ParserLoadError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__OBJECT_IMPORTER__ = {
+__OBJECT_IMPORTER__: dict[str, Any] = {
     'json': JsonObjectImporter,
     'csv': CsvObjectImporter
 }
 
-__OBJECT_IMPORTER_CONFIG__ = {
+__OBJECT_IMPORTER_CONFIG__: dict[str, Any] = {
     'json': JsonObjectImporterConfig,
     'csv': CsvObjectImporterConfig
 }
 
-__OBJECT_PARSER__ = {
+__OBJECT_PARSER__: dict[str, Any] = {
     'json': JsonObjectParser,
     'csv': CsvObjectParser
 }
 
 
-def load_importer_class(importer_type: str, importer_name: str) -> Union['JsonObjectImporter', 'CsvObjectImporter']:
+def load_importer_class(importer_type: str, importer_name: str) -> JsonObjectImporter | CsvObjectImporter:
     """
     Loads the importer class based on the provided importer type and name
     
@@ -53,13 +53,13 @@ def load_importer_class(importer_type: str, importer_name: str) -> Union['JsonOb
         importer_name (str): The name of the specific importer class to load
         
     Returns:
-        Union['JsonObjectImporter', 'CsvObjectImporter']: The corresponding importer class
+        'JsonObjectImporter' | 'CsvObjectImporter': The corresponding importer class
         
     Raises:
         ImporterLoadError: If the importer type or name is invalid, or the importer class cannot be found
     """
     # Define a mapping of importer types to configuration objects
-    importer_config_mapping = {
+    importer_config_mapping: dict[str, dict[str, Any]] = {
         'object': __OBJECT_IMPORTER__
     }
 
@@ -68,14 +68,14 @@ def load_importer_class(importer_type: str, importer_name: str) -> Union['JsonOb
         raise ImporterLoadError(f"Invalid importer type: {importer_type}")
 
     # Retrieve the importer configuration for the given type
-    importer_config = importer_config_mapping[importer_type]
+    importer_config: dict[str, Any] = importer_config_mapping[importer_type]
 
     # Check if the importer name exists in the configuration
     if importer_name not in importer_config:
         raise ImporterLoadError(f"Invalid importer name: {importer_name} for type {importer_type}")
 
     # Retrieve the importer class
-    importer_class = importer_config[importer_name]
+    importer_class: Any = importer_config[importer_name]
 
     # Ensure the importer class is valid
     if not importer_class:
@@ -87,7 +87,7 @@ def load_importer_class(importer_type: str, importer_name: str) -> Union['JsonOb
 def load_importer_config_class(
         importer_type: str,
         importer_name: str
-    ) -> Union['JsonObjectImporterConfig', 'CsvObjectImporterConfig']:
+    ) -> JsonObjectImporterConfig | CsvObjectImporterConfig:
     """
     Loads the importer configuration class based on the provided importer type and name
     
@@ -96,7 +96,7 @@ def load_importer_config_class(
         importer_name (str): The name of the specific importer configuration to load
         
     Returns:
-        Union['JsonObjectImporterConfig', 'CsvObjectImporterConfig']: The corresponding importer configuration class
+        'JsonObjectImporterConfig' | 'CsvObjectImporterConfig': The corresponding importer configuration class
         
     Raises:
         ImporterLoadError: If the importer type or name is invalid, or the importer configuration cannot be found
@@ -122,7 +122,7 @@ def load_importer_config_class(
     return importer_config_class
 
 
-def load_parser_class(parser_type: str, parser_name: str) -> Union['JsonObjectParser', 'CsvObjectParser']:
+def load_parser_class(parser_type: str, parser_name: str) -> JsonObjectParser | CsvObjectParser:
     """
     Loads the parser class based on the provided parser type and name
     
@@ -131,7 +131,7 @@ def load_parser_class(parser_type: str, parser_name: str) -> Union['JsonObjectPa
         parser_name (str): The name of the specific parser class to load
         
     Returns:
-        Union['JsonObjectParser', 'CsvObjectParser']: The corresponding parser class
+        'JsonObjectParser' | 'CsvObjectParser': The corresponding parser class
         
     Raises:
         ParserLoadError: If the parser type or name is invalid, or the parser class cannot be found

@@ -2,19 +2,18 @@
 
 <div class="container">
   <div class="row">
-    <div class="col-md-3 mb-4" *ngFor="let card of cards">
+    @for (card of cards; track card) {
+    <div class="col-md-3 mb-4">
       <div class="card">
         <a [routerLink]="card.link">
-          <div
-            class="dash-card primary"
-            [ngClass]="{ 'greyish': card.validationStatus === false }"
-            [attr.title]="card.validationStatus === false ? 'Some error in configuration. Please validate.' : null"
-          >
+          <div class="dash-card primary" [ngClass]="{ 'greyish': card.validationStatus === false }"
+            [attr.title]="card.validationStatus === false ? 'Some error in configuration. Please validate.' : null">
             <i [class]="card.icon"></i>
             <span class="text-title">{{ card.title }}</span>
           </div>
         </a>
       </div>
     </div>
+    }
   </div>
 </div>

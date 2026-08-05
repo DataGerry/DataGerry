@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -33,9 +33,10 @@ import { UserSettingsDBService } from '../../management/user-settings/services/u
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-category',
-  templateUrl: './category.component.html',
-  styleUrls: ['./category.component.scss']
+    selector: 'cmdb-category',
+    templateUrl: './category.component.html',
+    styleUrls: ['./category.component.scss'],
+    standalone: false
 })
 export class CategoryComponent implements OnInit, OnDestroy {
 
@@ -281,8 +282,8 @@ export class CategoryComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.unSubscribe.next();
-    this.unSubscribe.complete();
+    this.unSubscribe?.next();
+    this.unSubscribe?.complete();
   }
 
   public get mode(): CmdbMode {

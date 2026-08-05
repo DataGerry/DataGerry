@@ -5,17 +5,17 @@
                 Edit of {{renderResult?.type_information?.type_label}} #{{renderResult?.object_information?.object_id}}
             </h1>
         </div>
-        <div class="col-sm-2 text-right">
+        <div class="col-sm-2 text-end">
             <div class="btn-group p-1" role="group">
                 <button
                     type="button"
-                    class="cancel-button btn btn-outline-danger"
+                    class="cancel-button btn btn-warning"
                     (click)="backClicked()"
                 >Cancel</button>
                 <button
                     id ="myBtn"
                     type="submit"
-                    class="btn btn-success mr-2"
+                    class="btn btn-success me-2"
                     (click)="editObject()"
                     [disabled]="!renderForm.dirty"
                 >Save</button>
@@ -36,15 +36,15 @@
             (ngSubmit)="editObject()"
         >
             <div class="editButton">
-                <div *permissionLink="'base.framework.object.edit'" class="custom-control custom-switch">
+                <div *permissionLink="'base.framework.object.edit'" class="form-check form-switch">
                     <input
                         type="checkbox"
-                        class="custom-control-input active-control"
+                        class="form-check-input active-control"
                         id="object-view-active"
                         (change)="toggleChange()"
                         [checked]="activeState"
                     >
-                    <label class="custom-control-label" for="object-view-active">Object active?</label>
+                    <label class="form-check-label" for="object-view-active">Object active?</label>
                 </div>
             </div>
 
@@ -76,19 +76,19 @@
             </form>
 
             <div id="object-form-action" class="shadow p-3 mb-5 bg-white rounded text-center">
-                <div class="row d-flex justify-content-center align-items-center">
+                <div class="d-flex justify-content-center align-items-center flex-wrap">
                     <p class="pt-3 mx-4">
                         Do you want to save the changes of <strong>{{renderResult?.type_information?.type_label}} #{{renderResult?.object_information?.object_id}}</strong> you made before quitting?
                     </p>
-                    <div class="btn-group p-3" role="group">
+                    <div class="btn-group p-3 d-inline-flex flex-nowrap" role="group">
                         <button
                             type="button"
-                            class="cancel-button btn btn-outline-danger"
+                            class="cancel-button btn btn-warning"
                             routerLink="/framework/object/view/{{renderResult?.object_information?.object_id}}"
                         >
                             Cancel
                         </button>
-                        <button type="submit" class="btn btn-success mr-2" [disabled]="!renderForm.dirty">
+                        <button type="submit" class="btn btn-success me-2" [disabled]="!renderForm.dirty">
                             Save
                         </button>
                     </div>

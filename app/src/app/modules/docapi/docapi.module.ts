@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,12 +17,13 @@
 */
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule } from '@angular/forms';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
 import { EditorModule, TINYMCE_SCRIPT_SRC } from '@tinymce/tinymce-angular';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { ArchwizardModule } from '@rg-software/angular-archwizard';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
+import { DragDropModule } from '@angular/cdk/drag-drop';
 
 import { AuthModule } from '../auth/auth.module';
 import { DocapiRoutingModule } from './docapi-routing.module';
@@ -39,7 +40,18 @@ import { DocapiBuilderSettingsStepComponent } from './components/docapi-builder-
 import { DocapiEditComponent } from './components/docapi-edit/docapi-edit.component';
 import { DocapiBuilderTypeStepBaseComponent } from './components/docapi-builder-type-step-base/docapi-builder-type-step-base.component';
 import { DocapiBuilderStyleStepComponent } from './components/docapi-builder-style-step/docapi-builder-style-step.component';
+import { ExternalObjectSelectorModalComponent } from './components/external-object-selector-modal/external-object-selector-modal.component';
+import { RelationTemplateSelectorModalComponent } from './components/relation-template-selector-modal/relation-template-selector-modal.component';
+import { ReportTemplateSelectorModalComponent } from './components/report-template-selector-modal/report-template-selector-modal.component';
 import { CoreModule } from 'src/app/core/core.module';
+import { RunReportModule } from 'src/app/toolbox/reporting/report/run-report.module';
+import { DocapiPreviewObjectModalComponent } from './components/docapi-preview-object-modal/docapi-preview-object-modal.component';
+import { DocapiDocumentOptionsModalComponent } from './components/docapi-document-options/docapi-document-options-modal/docapi-document-options-modal.component';
+import { DocapiAiAssistantModalComponent } from './components/docapi-ai-assistant-modal/docapi-ai-assistant-modal.component';
+import { DocapiPageCoverOptionsComponent } from './components/docapi-document-options/docapi-page-cover-options/docapi-page-cover-options.component';
+import { DocapiPageMarginsOptionsComponent } from './components/docapi-document-options/docapi-page-margins-options/docapi-page-margins-options.component';
+import { DocapiPageHeaderOptionsComponent } from './components/docapi-document-options/docapi-page-header-options/docapi-page-header-options.component';
+import { DocapiPageTocOptionsComponent } from './components/docapi-document-options/docapi-page-toc-options/docapi-page-toc-options.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @NgModule({
     declarations: [
@@ -52,7 +64,17 @@ import { CoreModule } from 'src/app/core/core.module';
         DocapiBuilderTypeStepComponent,
         DocapiBuilderTypeStepObjectComponent,
         DocapiBuilderTypeStepBaseComponent,
-        DocapiBuilderStyleStepComponent
+        DocapiBuilderStyleStepComponent,
+        ExternalObjectSelectorModalComponent,
+        RelationTemplateSelectorModalComponent,
+        ReportTemplateSelectorModalComponent,
+        DocapiPreviewObjectModalComponent,
+        DocapiDocumentOptionsModalComponent,
+        DocapiAiAssistantModalComponent,
+        DocapiPageCoverOptionsComponent,
+        DocapiPageMarginsOptionsComponent,
+        DocapiPageHeaderOptionsComponent,
+        DocapiPageTocOptionsComponent
     ],
     imports: [
         CommonModule,
@@ -65,7 +87,10 @@ import { CoreModule } from 'src/app/core/core.module';
         LayoutModule,
         TableModule,
         FontAwesomeModule,
-        CoreModule
+        DragDropModule,
+        FormsModule,
+        CoreModule,
+        RunReportModule
     ],
     providers: [
         {
@@ -73,4 +98,4 @@ import { CoreModule } from 'src/app/core/core.module';
         }
     ]
 })
-export class DocapiModule {}
+export class DocapiModule { }

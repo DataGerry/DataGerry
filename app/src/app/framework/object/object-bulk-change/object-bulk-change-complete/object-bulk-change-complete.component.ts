@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,9 +19,10 @@
 import {Component, Input} from '@angular/core';
 
 @Component({
-  selector: 'cmdb-object-bulk-change-complete',
-  templateUrl: './object-bulk-change-complete.component.html',
-  styleUrls: ['./object-bulk-change-complete.component.scss']
+    selector: 'cmdb-object-bulk-change-complete',
+    templateUrl: './object-bulk-change-complete.component.html',
+    styleUrls: ['./object-bulk-change-complete.component.scss'],
+    standalone: false
 })
 export class ObjectBulkChangeCompleteComponent {
 

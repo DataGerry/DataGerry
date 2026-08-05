@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,9 +23,10 @@ import { RelationBuilderStepComponent } from '../relation-builder-step.component
 import { CmdbMode } from 'src/app/framework/modes.enum';
 
 @Component({
-  selector: 'cmdb-relation-fields-step',
-  templateUrl: './relation-fields-step.component.html',
-  styleUrls: ['./relation-fields-step.component.scss']
+    selector: 'cmdb-relation-fields-step',
+    templateUrl: './relation-fields-step.component.html',
+    styleUrls: ['./relation-fields-step.component.scss'],
+    standalone: false
 })
 export class RelationFieldsStepComponent extends RelationBuilderStepComponent implements OnInit, DoCheck, OnDestroy {
 
@@ -64,8 +65,8 @@ export class RelationFieldsStepComponent extends RelationBuilderStepComponent im
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
   /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

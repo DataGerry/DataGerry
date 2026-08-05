@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,7 +26,8 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 
 @Component({
     templateUrl: './search-result-preview.component.html',
-    styleUrls: ['./search-result-preview.component.scss']
+    styleUrls: ['./search-result-preview.component.scss'],
+    standalone: false
 })
 export class SearchResultPreviewComponent {
 

@@ -16,9 +16,12 @@
 """
 Implementation of all API routes for CmdbCategories
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 from flask import request, abort
+
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -50,7 +53,7 @@ from cmdb.errors.manager.categories_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 categories_blueprint = APIBlueprint('categories', __name__)
 
@@ -61,7 +64,7 @@ categories_blueprint = APIBlueprint('categories', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @categories_blueprint.protect(auth=True, right='base.framework.category.add')
 @categories_blueprint.validate(CmdbCategory.SCHEMA)
-def insert_cmdb_category(data: dict, request_user: CmdbUser):
+def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbCategory into the database
 
@@ -105,7 +108,7 @@ def insert_cmdb_category(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @categories_blueprint.protect(auth=True, right='base.framework.category.view')
 @categories_blueprint.parse_collection_parameters(view='list')
-def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbCategories
 
@@ -120,7 +123,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser):
         categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES,
                                                                             request_user)
 
-        body = request.method == 'HEAD'
+        body: bool = request.method == 'HEAD'
 
         if params.optional['view'] == 'tree':
             tree: CategoryTree = categories_manager.tree
@@ -137,7 +140,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser):
 
         iteration_result: IterationResult[CmdbCategory] = categories_manager.iterate(builder_params)
 
-        category_list = [CmdbCategory.to_json(category) for category in iteration_result.results]
+        category_list: list[dict[str, Any]] = [CmdbCategory.to_json(category) for category in iteration_result.results]
 
         api_response = GetMultiResponse(category_list,
                                         iteration_result.total,

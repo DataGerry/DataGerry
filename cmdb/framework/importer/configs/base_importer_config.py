@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -31,7 +31,7 @@ class BaseImporterConfig:
         Initializes the BaseImporterConfig
 
         Args:
-            mapping (Optional[List]): Optional list to generate a mapping
+            mapping (list | None): Optional list to generate a mapping
         """
         self.mapping: Mapping = Mapping.generate_mapping_from_list(mapping) if mapping else self.DEFAULT_MAPPING
 

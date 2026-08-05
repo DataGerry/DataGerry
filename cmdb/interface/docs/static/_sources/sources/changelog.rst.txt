@@ -2,6 +2,174 @@
 Changelogs
 **********
 
+Version 3.1.0
+=============
+
+| 
+
+New Features
+------------
+
+| 
+
+:ref:`Automations (OpenCelium Integration) <automations-anchor>`
+
+-  Integration of **OpenCelium** directly into DataGerry
+-  Embedded **OpenCelium Connection Editor** within the application
+-  Creation and management of interfaces ("Automations") directly in DataGerry
+-  Automation execution options:
+  
+  -  Time-based (Scheduler)
+  -  Manual execution via button click
+
+-  Logging functionality:
+  
+  -  Execution logs available after each automation run
+  -  Storage of the last two logs for **Success**
+  -  Storage of the last two logs for **Fail**
+
+| 
+
+:ref:`CI-Explorer Enhancements <ci-explorer-anchor>`
+
+-  Visualization of relationships originating from the **Location Tree**
+-  CI-Explorer can now be opened via the **Toolbox**
+  
+  -  Free selection of the object to be displayed when starting
+
+-  Export functionality:
+  
+  -  CI-Explorer can be exported as a **PNG file**
+
+-  Dynamic root handling:
+  
+  -  When changing the root object inside a Configuration Item, the currently displayed CI is automatically updated
+  -  Attributes of the newly selected root object are displayed immediately
+
+| 
+
+ :ref:`Relations Configuration <n-m-relations-anchor>`
+
+-  New **Preview Widget**
+  
+  -  Visual preview of how relation configurations will appear in the CI-Explorer
+  -  Immediate feedback during configuration
+
+| 
+
+
+=======================================================================================================================
+
+| 
+
+Improvements
+------------
+
+| 
+
+Location Tree
+~~~~~~~~~~~~~
+
+-  Improved visual representation of locations with long names
+-  Added **search functionality**
+-  Added **filter functionality**
+-  Improved usability for complex hierarchical structures
+
+| 
+
+Technical Improvements
+----------------------
+
+-  Enhanced logging mechanisms for Automations
+-  Improved usability when switching root objects
+-  Optimized rendering performance in the CI-Explorer
+
+| 
+
+=======================================================================================================================
+
+| 
+
+Changes
+-------
+
+**Documentation**
+
+-   Added Automation Documentation
+-   Updated the documentation for the ci-explorer
+
+**Frontend**
+
+-   Upgrade Angular from v17 to v19
+-   Bootstrap 5 adoption and angular 19
+-   Missing copy Identifier added for controls and type configuration
+-   Types not displaying in the category edit
+-   Redesign Toast Message
+-   Improve Diagnostic Ui
+-   Implement Object selector for CI Explorer
+-   Show Type Description in Object Type List page
+-   Add a button to confirm adding report
+-   Render preview in table format (with pagination)
+-   Improve Clone Section template modal
+
+
+**Backend**
+
+-   SSL configuration for Webserver
+-   Upgrade python from 3.9 to 3.12
+-   Improve Object count API and public_id incrementation handling in the backend
+-   Error message improvements
+
+| 
+
+=======================================================================================================================
+
+| 
+
+Bugfixes
+--------
+
+-   [**DAT-2338**] Reference Resolve issue
+-   [**DAT-2337**] Fix the UI issue if credentials fail; then show the credentials again
+-   [**DAT-2323**] Improve the request (Connection Update + Scheduler Update)
+-   [**DAT-2322**] Fix connectionID issue in update request (connection)
+-   [**DAT-2321**] Update the route for connection update
+-   [**DAT-2314**] ProtectionGoal not deletable
+-   [**DAT-2166**] Change the order of the columns
+-   [**DAT-2135**] Editing a Webhook throws an error
+-   [**DAT-2126**] Objects missing in „Referenced By“ tab of object
+-   [**DAT-2118**] Improve GitHub workflows due to failing tests online
+-   [**DAT-2050**] Type creation: name uniqueness needs to be checked
+-   [**DAT-2005**] Preview modal is not responsive
+-   [**DAT-1987**] Wrong navigation after returning from Risk Assessment to Risk
+-   [**DAT-1986**] Object summary not displayed when adding new Risk Assessment from object
+-   [**DAT-1984**] Improve link and breadcrumbs of Persons component
+-   [**DAT-1983**] Unclean action when deleting sections fails
+-   [**DAT-1981**] Permission for Add Relation button
+-   [**DAT-1980**] External link issue while adding a link without fields
+-   [**DAT-1979**] External links issues
+-   [**DAT-1977**] Fix external links icon not visible
+-   [**DAT-1976**] Update type: Checkbox intermittently sent as unchecked to backend for Location control
+-   [**DAT-1975**] Optimise object limit logics for on-premises version
+-   [**DAT-1972**] Restrict Connect page from Cloud
+-   [**DAT-1971**] Webhook search not working
+-   [**DAT-1970**] Search is not working in the objects list
+-   [**DAT-1967**] File count in File Explorer always returns 0
+-   [**DAT-1964**] public_id notation issue
+-   [**DAT-1957**] Fix parent category dropdown integration and visibility
+-   [**DAT-1956**] Improve webhooks breadcrumbs
+-   [**DAT-1955**] Fix issues in Explorer display and functionality
+-   [**DAT-1954**] Change the documentation link
+-   [**DAT-1952**] Wrong error message for external API when reaching CI limit
+-   [**DAT-1944**] Improve object selection dropdown layout for long type names (while adding a relation)
+-   [**DAT-1844**] Upon clicking on Filter button in object type list getting error in console
+-   [**DAT-1824**] Password fields in MultiDataSections are shown in cleartext
+-   [**DAT-1538**] Invalid URL in MLHttpRequest with reverse proxy: (http://):4000/rest/
+-   [**DAT-1390**] Error occurs while saving a type after editing
+-   [**DAT-1236**] Console error when opening a type with a number field in its section
+-   [**DAT-1155**] Fix field ordering issue when adding new object with MDS
+
+
 | 
 
 =======================================================================================================================

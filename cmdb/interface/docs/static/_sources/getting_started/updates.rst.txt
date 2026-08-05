@@ -71,7 +71,7 @@ To update the zip package to the version 3.0.0 from 2.2.0 follow these steps:
     systemctl stop datagerry
     systemctl stop rabbitmq-server
     systemctl disable rabbitmq-server
-    unzip datgerry-3.0.0.zip (to the directory of the old installation)
+    unzip datagerry-3.0.0.zip (to the directory of the old installation)
     cd datagerry
     ./setup.sh
     systemctl daemon-reload

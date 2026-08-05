@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit, ViewEncapsulation } from '@angular/core';
+import { Component, inject, Input, OnInit, ViewEncapsulation } from '@angular/core';
 import { filter } from 'rxjs/operators';
 import { BreadcrumbItem } from './breadcrumb.model';
 import { BreadcrumbService } from './breadcrumb.service';
@@ -26,10 +26,11 @@ import { SidebarService } from '../../services/sidebar.service';
 export const COOCKIENAME = 'onlyActiveObjCookie';
 
 @Component({
-  selector: 'cmdb-breadcrumb',
-  templateUrl: './breadcrumb.component.html',
-  styleUrls: ['./breadcrumb.component.scss'],
-  encapsulation: ViewEncapsulation.None
+    selector: 'cmdb-breadcrumb',
+    templateUrl: './breadcrumb.component.html',
+    styleUrls: ['./breadcrumb.component.scss'],
+    encapsulation: ViewEncapsulation.None,
+    standalone: false
 })
 export class BreadcrumbComponent implements OnInit {
 
@@ -41,10 +42,10 @@ export class BreadcrumbComponent implements OnInit {
 
   public isChecked: boolean;
 
-  public constructor(public breadcrumbService: BreadcrumbService, private activatedRoute: ActivatedRoute, private router: Router,
-    private sidebarService: SidebarService) {
-
-  }
+  public readonly breadcrumbService = inject(BreadcrumbService);
+  private readonly activatedRoute = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly sidebarService = inject(SidebarService);
 
   public hasParams(breadcrumb: BreadcrumbItem) {
     return Object.keys(breadcrumb.params).length ? [breadcrumb.url, breadcrumb.params] : [breadcrumb.url];

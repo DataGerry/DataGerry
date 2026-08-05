@@ -1,146 +1,186 @@
 <form id="user-form" [formGroup]="form" novalidate>
   <div class="row">
     <div id="user-form-information" class="col-md-9">
-      <div class="form-group row">
+      <div class="mb-3 row">
         <label for="user-form-username-control" class="col-sm-2 col-form-label">
           Username: <span class="required">*</span>
         </label>
         <div class="col-sm-10">
           <input type="text" formControlName="user_name" id="user-form-username-control" class="form-control"
-                 placeholder="Username" [ngClass]="{ 'is-valid': usernameControl.valid && (usernameControl.dirty || usernameControl.touched),
+            placeholder="Username" [ngClass]="{ 'is-valid': usernameControl.valid && (usernameControl.dirty || usernameControl.touched),
                  'is-invalid': usernameControl.invalid && (usernameControl.dirty || usernameControl.touched)}"
-                 name-guideline>
-          <div *ngIf="usernameControl.invalid && (usernameControl.dirty || usernameControl.touched)"
-               class="invalid-feedback">
-            <div class="float-right" *ngIf="usernameControl.errors.required">
+            name-guideline>
+          @if (usernameControl.invalid && (usernameControl.dirty || usernameControl.touched)) {
+          <div class="invalid-feedback">
+            @if (usernameControl.errors.required) {
+            <div class="text-end">
               Username is required
             </div>
-            <div class="float-right" *ngIf="usernameControl.errors.userExists">
+            }
+            @if (usernameControl.errors.userExists) {
+            <div class="text-end">
               User with this name already exists
             </div>
+            }
             <div class="clearfix"></div>
           </div>
+          }
         </div>
       </div>
-      <div class="form-group row">
+      <div class="mb-3 row">
         <label for="user-form-email-control" class="col-sm-2 col-form-label">Email: </label>
         <div class="col-sm-10">
           <input type="email" formControlName="email" class="form-control" placeholder="Email"
-                 id="user-form-email-control"
-                 [ngClass]="{ 'is-valid': emailControl.valid && (emailControl.dirty || emailControl.touched),
+            id="user-form-email-control" [ngClass]="{ 'is-valid': emailControl.valid && (emailControl.dirty || emailControl.touched),
                  'is-invalid': emailControl.invalid && (emailControl.dirty || emailControl.touched)}">
-          <div *ngIf="emailControl.invalid && (emailControl.dirty || emailControl.touched)"
-               class="invalid-feedback">
-            <div class="float-right ml-2" *ngIf="emailControl.errors.email">
+          @if (emailControl.invalid && (emailControl.dirty || emailControl.touched)) {
+          <div class="invalid-feedback">
+            @if (emailControl.errors.email) {
+            <div class="text-end ms-2">
               This is not a valid email address
             </div>
+            }
             <div class="clearfix"></div>
           </div>
+          }
         </div>
       </div>
-      <div class="form-group row" *ngIf="passwordControl">
+      @if (passwordControl) {
+      <div class="mb-3 row">
         <label for="user-form-password-control" class="col-sm-2 col-form-label">Password: <span
-          class="required">*</span></label>
+            class="required">*</span></label>
         <div class="col-sm-10">
           <input type="password" formControlName="password" class="form-control" placeholder="Password"
-                 id="user-form-password-control"
-                 [ngClass]="{ 'is-valid': passwordControl.valid && (passwordControl.dirty || passwordControl.touched),
+            id="user-form-password-control" [ngClass]="{ 'is-valid': passwordControl.valid && (passwordControl.dirty || passwordControl.touched),
                  'is-invalid': passwordControl.invalid && (passwordControl.dirty || passwordControl.touched)}">
-          <div *ngIf="passwordControl.invalid && (passwordControl.dirty || passwordControl.touched)"
-               class="invalid-feedback">
-            <div class="float-right ml-2" *ngIf="passwordControl.errors.required">
+          @if (passwordControl.invalid && (passwordControl.dirty || passwordControl.touched)) {
+          <div class="invalid-feedback">
+            @if (passwordControl.errors.required) {
+            <div class="text-end ms-2">
               Password is required
             </div>
-            <div class="float-right ml-2" *ngIf="passwordControl.errors.strength">
+            }
+            @if (passwordControl.errors.strength) {
+            <div class="text-end ms-2">
               Password is not strong enough
             </div>
+            }
             <div class="clearfix"></div>
           </div>
+          }
           <password-strength-meter [password]="passwordControl.value" [enableFeedback]="true"></password-strength-meter>
         </div>
       </div>
-      <div class="form-group row">
+      }
+      <div class="mb-3 row">
         <label for="user-form-firstname-control" class="col-sm-2 col-form-label">Firstname:</label>
         <div class="col-sm-10">
           <input type="text" formControlName="first_name" class="form-control" placeholder="Firstname"
-                 id="user-form-firstname-control"
-                 [ngClass]="{ 'is-valid': firstNameControl.valid && (firstNameControl.dirty || firstNameControl.touched),
+            id="user-form-firstname-control" [ngClass]="{ 'is-valid': firstNameControl.valid && (firstNameControl.dirty || firstNameControl.touched),
                  'is-invalid': firstNameControl.invalid && (firstNameControl.dirty || firstNameControl.touched)}">
         </div>
       </div>
-      <div class="form-group row">
+      <div class="mb-3 row">
         <label for="user-form-lastname-control" class="col-sm-2 col-form-label">Lastname:</label>
         <div class="col-sm-10">
           <input type="text" formControlName="last_name" class="form-control" placeholder="Lastname"
-                 id="user-form-lastname-control"
-                 [ngClass]="{ 'is-valid': lastNameControl.valid && (lastNameControl.dirty || lastNameControl.touched),
+            id="user-form-lastname-control" [ngClass]="{ 'is-valid': lastNameControl.valid && (lastNameControl.dirty || lastNameControl.touched),
                  'is-invalid': lastNameControl.invalid && (lastNameControl.dirty || lastNameControl.touched)}">
         </div>
       </div>
-      <div class="form-group row" *ngIf="authenticatorControl">
+      @if (authenticatorControl) {
+      <div class="mb-3 row">
         <label for="user-form-authenticator-control" class="col-sm-2 col-form-label">
           Authenticator: <span class="required">*</span></label>
         <div class="col-sm-10">
-          <select formControlName="authenticator" class="custom-select" id="user-form-authenticator-control"
-                  [ngClass]="{ 'is-valid': authenticatorControl.valid && (authenticatorControl.dirty || authenticatorControl.touched),
+          <select formControlName="authenticator" class="form-select" id="user-form-authenticator-control"
+            [ngClass]="{ 'is-valid': authenticatorControl.valid && (authenticatorControl.dirty || authenticatorControl.touched),
                  'is-invalid': authenticatorControl.invalid && (authenticatorControl.dirty || authenticatorControl.touched)}">
-            <option *ngFor="let provider of providers" value="{{provider.class_name}}">{{provider.class_name}}</option>
+            @for (provider of providers; track provider) {
+            <option value="{{provider.class_name}}">{{provider.class_name}}</option>
+            }
           </select>
-          <div *ngIf="authenticatorControl.invalid && (authenticatorControl.dirty || authenticatorControl.touched)"
-               class="invalid-feedback">
-            <div class="float-right" *ngIf="authenticatorControl.errors.required">
+          @if (authenticatorControl.invalid && (authenticatorControl.dirty || authenticatorControl.touched)) {
+          <div class="invalid-feedback">
+            @if (authenticatorControl.errors.required) {
+            <div class="text-end">
               Authenticator is required.
             </div>
+            }
             <div class="clearfix"></div>
           </div>
+          }
         </div>
       </div>
-      <div class="form-group row" *ngIf="groupControl">
+      }
+      @if (groupControl) {
+      <div class="mb-3 row">
         <label for="user-form-group-control" class="col-sm-2 col-form-label">Group: <span
-          class="required">*</span></label>
+            class="required">*</span></label>
         <div class="col-sm-10">
-          <select formControlName="group_id" class="custom-select" id="user-form-group-control"
-                  [ngClass]="{ 'is-valid': groupControl.valid && (groupControl.dirty || groupControl.touched),
+          <select formControlName="group_id" class="form-select" id="user-form-group-control" [ngClass]="{ 'is-valid': groupControl.valid && (groupControl.dirty || groupControl.touched),
                  'is-invalid': groupControl.invalid && (groupControl.dirty || groupControl.touched)}">
-            <option *ngFor="let group of groups" [ngValue]="group.public_id">{{group.label}}</option>
+            @for (group of groups; track group) {
+            <option [ngValue]="group.public_id">{{group.label}}</option>
+            }
           </select>
-          <div *ngIf="groupControl.invalid && (groupControl.dirty || groupControl.touched)"
-               class="invalid-feedback">
-            <div class="float-right" *ngIf="groupControl.errors.required">
+          @if (groupControl.invalid && (groupControl.dirty || groupControl.touched)) {
+          <div class="invalid-feedback">
+            @if (groupControl.errors.required) {
+            <div class="text-end">
               Group is required.
             </div>
+            }
             <div class="clearfix"></div>
           </div>
+          }
         </div>
       </div>
+      }
     </div>
     <div class="col-3">
       <div id="picture-upload" class="text-center">
         <cmdb-user-image [image]="preview"></cmdb-user-image>
         <div class="custom-file mt-2">
-          <div class="container">
+          <!-- <div class="container">
             <div class="row">
-              <div class="col-11 mr-0 pr-0">
+              <div class="col-11 me-0 pe-0">
                 <input type="file" (change)="previewImage($event)"
                        class="custom-file-input" [ngClass]="{ 'is-valid': imageControl.valid && (imageControl.dirty || imageControl.touched),
                  'is-invalid': imageControl.invalid && (imageControl.dirty || imageControl.touched)}">
                 <label class="custom-file-label">Choose image </label>
               </div>
-              <div class="col-1 ml-0 pl-0">
+              <div class="col-1 ms-0 ps-0">
                 <button type=button class="btn font-size-unset btn-outline-danger" (click)="removeImage()">x</button>
+              </div>
+            </div>
+          </div> -->
+          <div class="container">
+            <div class="row">
+              <div class="col-11 me-0 pe-0">
+                <input type="file" (change)="previewImage($event)" class="form-control" [ngClass]="{
+                         'is-valid': imageControl.valid && (imageControl.dirty || imageControl.touched),
+                         'is-invalid': imageControl.invalid && (imageControl.dirty || imageControl.touched)
+                       }" aria-label="Choose image">
+              </div>
+              <div class="col-1 ms-0 ps-0">
+                <button type="button" class="btn font-size-unset btn-outline-danger"
+                  style="height: calc(2.25rem + 2px);" (click)="removeImage()">x</button>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-    </div>
-  <hr/>
+  </div>
+  <hr />
   <div class="d-flex flex-row-reverse">
-    <button type="button" class="btn btn-outline-success ml-2" [disabled]="form.invalid" (click)="onSubmit()">Save
+    <button type="button" class="btn btn-outline-success ms-2" [disabled]="form.invalid" (click)="onSubmit()">Save
     </button>
-    <button *ngIf="cancel" [routerLink]="['/', 'management', 'users']" type="button" class="btn btn-outline-danger">
+    @if (cancel) {
+    <button [routerLink]="['/', 'management', 'users']" type="button" class="btn btn-outline-danger">
       Cancel
     </button>
+    }
   </div>
 </form>

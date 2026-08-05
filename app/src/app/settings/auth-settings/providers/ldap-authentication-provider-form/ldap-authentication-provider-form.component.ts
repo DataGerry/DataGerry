@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -25,7 +25,8 @@ import { Group } from '../../../../management/models/group';
 @Component({
     selector: 'cmdb-ldap-authentication-provider-form',
     templateUrl: './ldap-authentication-provider-form.component.html',
-    styleUrls: ['./ldap-authentication-provider-form.component.scss']
+    styleUrls: ['./ldap-authentication-provider-form.component.scss'],
+    standalone: false
 })
 export class LdapAuthenticationProviderFormComponent {
 

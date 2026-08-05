@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,9 @@
 """
 Implementation of LoginResponse
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from werkzeug.wrappers import Response
 
 from cmdb.models.user_model import CmdbUser
@@ -24,7 +26,7 @@ from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 LoginResponse - CLASS                                                #
@@ -35,7 +37,7 @@ class LoginResponse(BaseAPIResponse):
     
     Extends: BaseAPIResponse
     """
-    def __init__(self, user: CmdbUser, token: bytes, token_issued_at: int, token_expire: int):
+    def __init__(self, user: CmdbUser, token: bytes, token_issued_at: int, token_expire: int) -> None:
         """
         Initializes a `LoginResponse` instance
 
@@ -45,10 +47,10 @@ class LoginResponse(BaseAPIResponse):
             token_issued_at (int): The UNIX timestamp indicating when the token was issued
             token_expire (int): The UNIX timestamp indicating when the token will expire
         """
-        self.user = user
-        self.token = token
-        self.token_issued_at = token_issued_at
-        self.token_expire = token_expire
+        self.user: CmdbUser = user
+        self.token: bytes = token
+        self.token_issued_at: int = token_issued_at
+        self.token_expire: int = token_expire
 
         super().__init__(OperationType.GET)
 
@@ -63,12 +65,12 @@ class LoginResponse(BaseAPIResponse):
         Returns:
             Response: An HTTP response instance containing the login data
         """
-        response = self.make_api_response(self.export(), status)
+        response: Response = self.make_api_response(self.export(), status)
 
         return response
 
 
-    def export(self) -> dict:
+    def export(self) -> dict[str, Any]:
         """
         Exports the login response data as a dictionary
 

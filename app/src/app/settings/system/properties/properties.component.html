@@ -1,26 +1,30 @@
 <h1>Properties</h1>
-<hr/>
+<hr />
 <div class="row">
   <div class="col-md-3">Config file:</div>
-  <div class="col-md-9"><p class="text-monospace">{{config?.path}}</p></div>
+  <div class="col-md-9">
+    <p class="text-monospace">{{config?.path}}</p>
+  </div>
 </div>
-<hr/>
+<hr />
 <div class="row">
   <div class="col-md-12">
     <table class="table table-hover table-striped">
       <thead>
-      <tr>
-        <th scope="col">Section</th>
-        <th scope="col">Key</th>
-        <th scope="col">Value</th>
-      </tr>
+        <tr>
+          <th scope="col">Section</th>
+          <th scope="col">Key</th>
+          <th scope="col">Value</th>
+        </tr>
       </thead>
       <tbody>
-      <tr *ngFor="let prop of config?.properties">
-        <th scope="row">{{prop.section}}</th>
-        <td>{{prop.key}}</td>
-        <td>{{prop.value}}</td>
-      </tr>
+        @for (prop of config?.properties; track prop) {
+        <tr>
+          <th scope="row">{{prop.section}}</th>
+          <td>{{prop.key}}</td>
+          <td>{{prop.value}}</td>
+        </tr>
+        }
       </tbody>
     </table>
   </div>

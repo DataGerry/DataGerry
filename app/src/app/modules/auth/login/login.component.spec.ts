@@ -5,10 +5,11 @@ import { UserSettingsDBService } from "src/app/management/user-settings/services
 import { AuthService } from "../services/auth.service";
 import { PermissionService } from "../services/permission.service";
 import { NgxIndexedDBService } from "ngx-indexed-db";
-import { Renderer2 } from "@angular/core";
+import { NO_ERRORS_SCHEMA, Renderer2 } from "@angular/core";
 import { Router } from "@angular/router";
 import { of } from "rxjs";
-import { HttpClientTestingModule } from '@angular/common/http/testing';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideHttpClient, withInterceptorsFromDi } from "@angular/common/http";
 
 
 
@@ -45,19 +46,22 @@ describe('LoginComponent', () => {
 
     beforeEach(() => {
         TestBed.configureTestingModule({
-            declarations: [LoginComponent],
-            imports: [ReactiveFormsModule, FormsModule, HttpClientTestingModule],
-            providers: [
-                UserSettingsDBService,
-                AuthService,
-                PermissionService,
-                { provide: NgxIndexedDBService, useClass: MockNgxIndexedDBService },
-                { provide: 'dbConfigs', useValue: mockDbConfigs },
-                { provide: 'PLATFORM_ID', useValue: mockPlatformId },
-                { provide: Router, useValue: jasmine.createSpyObj('Router', ['navigate']) },
-                Renderer2
-            ]
-        }).compileComponents();
+    declarations: [LoginComponent],
+    imports: [ReactiveFormsModule, FormsModule],
+    providers: [
+        UserSettingsDBService,
+        AuthService,
+        PermissionService,
+        { provide: NgxIndexedDBService, useClass: MockNgxIndexedDBService },
+        { provide: 'dbConfigs', useValue: mockDbConfigs },
+        { provide: 'PLATFORM_ID', useValue: mockPlatformId },
+        { provide: Router, useValue: jasmine.createSpyObj('Router', ['navigate']) },
+        Renderer2,
+        provideHttpClient(withInterceptorsFromDi()),
+        provideHttpClientTesting()
+    ],
+    schemas: [NO_ERRORS_SCHEMA]
+}).compileComponents();
 
         fixture = TestBed.createComponent(LoginComponent);
         component = fixture.componentInstance;

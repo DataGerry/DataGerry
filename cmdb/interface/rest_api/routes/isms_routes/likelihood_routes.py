@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,10 @@
 """
 Implementation of all API routes for IsmsLikelihoods
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import LikelihoodManager
@@ -27,10 +29,12 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsLikelihood
 from cmdb.models.isms_model.isms_helper import calculate_risk_matrix
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
 
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -50,9 +54,23 @@ from cmdb.errors.manager.likelihood_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 likelihood_blueprint = APIBlueprint('likelihoods', __name__)
+
+
+def _coerce_calculation_basis(data: dict[str, Any]) -> None:
+    """
+    Coerces ``data['calculation_basis']`` to a 2-decimal float in place, aborting 400 if it is
+    missing or not convertible.
+
+    Args:
+        data (dict[str, Any]): The request body holding the calculation_basis to normalise
+    """
+    try:
+        data['calculation_basis'] = float(f"{float(data['calculation_basis']):.2f}")
+    except Exception:
+        abort(400, "The calculation basis is either not provided or could not be converted to a float!")
 
 # ---------------------------------------------------- CRUD-CREATE --------------------------------------------------- #
 
@@ -61,7 +79,7 @@ likelihood_blueprint = APIBlueprint('likelihoods', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.add')
 @likelihood_blueprint.validate(IsmsLikelihood.SCHEMA)
-def insert_isms_likelihood(data: dict, request_user: CmdbUser):
+def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsLikelihood into the database
 
@@ -75,16 +93,11 @@ def insert_isms_likelihood(data: dict, request_user: CmdbUser):
     try:
         likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        # There is a Limit of 6 Likelihood classes
-        likelihood_count = likelihood_manager.count_items()
+        # There is a Limit of MAX_ISMS_SCALE_ENTRIES Likelihood classes
+        if likelihood_manager.count_documents() >= MAX_ISMS_SCALE_ENTRIES:
+            abort(403, f"Only a maximum of {MAX_ISMS_SCALE_ENTRIES} Likelihoods can be created!")
 
-        if likelihood_count >= 6:
-            abort(403, "Only a maximum of 6 Likelihoods can be created!")
-
-        try:
-            data['calculation_basis'] = float(f"{float(data['calculation_basis']):.2f}")
-        except Exception:
-            abort(400, "The calculation basis is either not provided or could not be converted to a float!")
+        _coerce_calculation_basis(data)
 
         if likelihood_manager.likelihood_calculation_basis_exists(data['calculation_basis']):
             abort(400, "The calculation basis is already used by another Likelihood!")
@@ -93,12 +106,12 @@ def insert_isms_likelihood(data: dict, request_user: CmdbUser):
 
         created_likelihood: dict = likelihood_manager.get_item(result_id, as_dict=True)
 
-        if created_likelihood:
-            calculate_risk_matrix(request_user)
+        if not created_likelihood:
+            abort(404, "Could not retrieve the created Likelihood from the database!")
 
-            return InsertSingleResponse(created_likelihood, result_id).make_response()
+        calculate_risk_matrix(request_user)
 
-        abort(404, "Could not retrieve the created Likelihood from the database!")
+        return InsertSingleResponse(created_likelihood, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except LikelihoodManagerInsertError as err:
@@ -118,7 +131,7 @@ def insert_isms_likelihood(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.view')
 @likelihood_blueprint.parse_collection_parameters()
-def get_isms_likelihoods(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_likelihoods(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsLikelihoods
 
@@ -158,7 +171,7 @@ def get_isms_likelihoods(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.view')
-def get_isms_likelihood(public_id: int, request_user: CmdbUser):
+def get_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsLikelihood
 
@@ -172,12 +185,10 @@ def get_isms_likelihood(public_id: int, request_user: CmdbUser):
     try:
         likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        requested_likelihood = likelihood_manager.get_item(public_id, as_dict=True)
+        requested_likelihood = get_item_or_404(likelihood_manager, public_id,
+                                               f"The Likelihood with ID:{public_id} was not found!")
 
-        if requested_likelihood:
-            return GetSingleResponse(requested_likelihood, body = request.method == 'HEAD').make_response()
-
-        abort(404, f"The Likelihood with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_likelihood, body = request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except LikelihoodManagerGetError as err:
@@ -194,7 +205,7 @@ def get_isms_likelihood(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.edit')
 @likelihood_blueprint.validate(IsmsLikelihood.SCHEMA)
-def update_isms_likelihood(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsLikelihood
 
@@ -209,18 +220,20 @@ def update_isms_likelihood(public_id: int, data: dict, request_user: CmdbUser):
     try:
         likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        to_update_likelihood: IsmsLikelihood = likelihood_manager.get_item(public_id)
+        to_update_likelihood = get_item_or_404(likelihood_manager, public_id,
+                                               f"The Likelihood with ID:{public_id} was not found!",
+                                               as_dict=False)
 
-        if not to_update_likelihood:
-            abort(404, f"The Likelihood with ID:{public_id} was not found!")
+        _coerce_calculation_basis(data)
 
-        try:
-            data['calculation_basis'] = float(f"{float(data['calculation_basis']):.2f}")
-        except Exception:
-            abort(400, "The calculation basis is either not provided or could not be converted to a float!")
+        basis_changed = round(data['calculation_basis'], 2) != round(to_update_likelihood.calculation_basis, 2)
+
+        # A changed basis must not collide with another Likelihood's basis (insert enforces the same rule)
+        if basis_changed and likelihood_manager.likelihood_calculation_basis_exists(data['calculation_basis']):
+            abort(400, "The calculation basis is already used by another Likelihood!")
 
         # If the calculation_basis changed, also update IsmsRiskAssessments
-        if round(data['calculation_basis'], 2) != round(to_update_likelihood.calculation_basis, 2):
+        if basis_changed:
             likelihood_manager.update_with_follow_up(public_id, data)
         else:
             likelihood_manager.update_item(public_id, IsmsLikelihood.from_data(data))
@@ -247,7 +260,7 @@ def update_isms_likelihood(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.delete')
-def delete_isms_likelihood(public_id: int, request_user: CmdbUser):
+def delete_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsLikelihood
 
@@ -261,10 +274,8 @@ def delete_isms_likelihood(public_id: int, request_user: CmdbUser):
     try:
         likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        to_delete_likelihood = likelihood_manager.get_item(public_id, as_dict=True)
-
-        if not to_delete_likelihood:
-            abort(404, f"The Likelihood with ID:{public_id} was not found!")
+        to_delete_likelihood = get_item_or_404(likelihood_manager, public_id,
+                                               f"The Likelihood with ID:{public_id} was not found!")
 
         if likelihood_manager.is_likelihood_used(public_id):
             abort(400, "The Likelihood is used by a RiskAssessment and is therefore not deletable!")

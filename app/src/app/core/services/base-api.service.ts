@@ -1,4 +1,20 @@
-// src/app/services/base-api.service.ts
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2026 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+*
+* You should have received a copy of the GNU Affero General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*/
 import { Injectable } from '@angular/core';
 import { HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
@@ -42,6 +58,9 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
     return httpParams;
   }
 
+  protected extractBody<T>(res: { body?: T } | null | undefined): T {
+    return (res && res.body !== undefined ? res.body : (null as unknown as T));
+  }
 
   /**
    * Handle GET request
@@ -51,7 +70,7 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
   protected handleGetRequest<T>(url: string, params?: HttpParams): Observable<T> {
     const options = { ...this.httpOptions, params };
     return this.api.callGet<T>(url, options).pipe(
-      map((res) => res.body),
+      map((res) => this.extractBody<T>(res)),
       catchError((error) => { throw error; })
     );
   }
@@ -65,7 +84,7 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
    */
   protected handlePostRequest<T>(url: string, body: any): Observable<T> {
     return this.api.callPost<T>(url, body, this.httpOptions).pipe(
-      map((res) => res.body),
+      map((res) => this.extractBody<T>(res)),
       catchError((error) => { throw error; })
     );
   }
@@ -79,7 +98,7 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
    */
   protected handlePutRequest<T>(url: string, body: any): Observable<T> {
     return this.api.callPut<T>(url, body, this.httpOptions).pipe(
-      map((res) => res.body),
+      map((res) => this.extractBody<T>(res)),
       catchError((error) => { throw error; })
     );
   }
@@ -92,7 +111,7 @@ export abstract class BaseApiService<TModel> implements ApiServicePrefix {
    */
   protected handleDeleteRequest<T>(url: string): Observable<T> {
     return this.api.callDelete<T>(url, this.httpOptions).pipe(
-      map((res) => res.body),
+      map((res) => this.extractBody<T>(res)),
       catchError((error) => { throw error; })
     );
   }

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,12 +17,15 @@
 This module contains the implementation of CmdbWebhook, which is representing
 a webhook in Datagarry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.webhook_model.cmdb_webhook_schema import get_cmdb_webhook_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbWebhook - CLASS                                                 #
@@ -36,34 +39,14 @@ class CmdbWebhook(CmdbDAO):
     COLLECTION = 'framework.webhooks'
     MODEL = 'Webhook'
     DEFAULT_VERSION: str = '1.0.0'
-    REQUIRED_INIT_KEYS = [
+    REQUIRED_INIT_KEYS: list[str] = [
         'name',
         'url',
         'event_types',
         'active',
     ]
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-        },
-        'url': {
-            'type': 'string',
-            'required': True,
-        },
-        'event_types': {
-            'type': 'list',
-            'required': True,
-        },
-        'active': {
-            'type': 'boolean',
-            'default': True
-        },
-    }
+    SCHEMA: dict[str, Any] = get_cmdb_webhook_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
@@ -82,8 +65,6 @@ class CmdbWebhook(CmdbDAO):
             url (str): URL endpoint where the webhook will send events
             event_types (list): List of WebhookEventType values that the webhook listens for
             active (bool): Whether the webhook is currently active and should receive events
-
-        Optional Args:
             **kwargs: Additional fields to pass to the superclass initializer
         """
         self.name = name

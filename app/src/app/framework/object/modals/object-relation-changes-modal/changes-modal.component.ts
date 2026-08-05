@@ -2,9 +2,10 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { RelationLog } from 'src/app/framework/services/relation-log.service';
 
 @Component({
-  selector: 'app-changes-modal',
-  templateUrl: './changes-modal.component.html',
-  styleUrls: ['./changes-modal.component.scss']
+    selector: 'app-changes-modal',
+    templateUrl: './changes-modal.component.html',
+    styleUrls: ['./changes-modal.component.scss'],
+    standalone: false
 })
 export class ChangesModalComponent {
   @Input() log: RelationLog;

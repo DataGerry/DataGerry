@@ -1,79 +1,88 @@
-<div *ngIf="!configurationIsValid" class="alert alert-warning">
+@if (!configurationIsValid) {
+<div class="alert alert-warning">
   ISMS configuration is incomplete. Please configure your settings to view the risk assessments.
 </div>
+}
 
 
-<div *ngIf="configurationIsValid">
+@if (configurationIsValid) {
+<div>
 
-<cmdb-table  [items]="rows" [columns]="columns" [page]="page" [pageSize]="limit" [totalItems]="total"
-  [customButtons]="[addButtonTemplate]" [initialVisibleColumns]="initialVisibleColumns" [loading]="loading" [searchEnabled]="false"
-  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)" (searchChange)="onSearchChange($event)">
-</cmdb-table>
+  <cmdb-table [items]="rows" [columns]="columns" [page]="page" [pageSize]="limit" [totalItems]="total"
+    [customButtons]="[addButtonTemplate]" [initialVisibleColumns]="initialVisibleColumns" [loading]="loading"
+    [searchEnabled]="false" (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
+    (sortChange)="onSortChange($event)" (searchChange)="onSearchChange($event)">
+  </cmdb-table>
 </div>
+}
 
-  <!-- Risk name -->
-  <ng-template #riskTpl let-item="item">
-    {{ riskName(item) }}
-  </ng-template>
+<!-- Risk name -->
+<ng-template #riskTpl let-item="item">
+  {{ riskName(item) }}
+</ng-template>
 
-  <!-- Risk BEFORE -->
-  <ng-template #beforeTpl let-item="item">
-    <div class="risk-box" [style.background-color]="riskBeforeColour(item)" [style.color]="getTextColor(riskBeforeColour(item))">
-      {{ riskBeforeValue(item) }}
-    </div>
-  </ng-template>
+<!-- Risk BEFORE -->
+<ng-template #beforeTpl let-item="item">
+  <div class="risk-box" [style.background-color]="riskBeforeColour(item)"
+    [style.color]="getTextColor(riskBeforeColour(item))">
+    {{ riskBeforeValue(item) }}
+  </div>
+</ng-template>
 
-  <!-- Risk AFTER -->
-  <ng-template #afterTpl let-item="item">
-    <div class="risk-box" [style.background-color]="riskAfterColour(item)" [style.color]="getTextColor(riskAfterColour(item))">
-      {{ riskAfterValue(item) }}
-    </div>
-  </ng-template>
+<!-- Risk AFTER -->
+<ng-template #afterTpl let-item="item">
+  <div class="risk-box" [style.background-color]="riskAfterColour(item)"
+    [style.color]="getTextColor(riskAfterColour(item))">
+    {{ riskAfterValue(item) }}
+  </div>
+</ng-template>
 
-  <!-- Implementation state -->
-  <ng-template #implTpl let-item="item">
-    {{ implState(item?.implementation_status) }}
-  </ng-template>
+<!-- Implementation state -->
+<ng-template #implTpl let-item="item">
+  {{ implState(item?.implementation_status) }}
+</ng-template>
 
-  <!-- Responsible -->
-  <ng-template #respTpl let-item="item">
-    {{ responsible(item) }}
-  </ng-template>
+<!-- Responsible -->
+<ng-template #respTpl let-item="item">
+  {{ responsible(item) }}
+</ng-template>
 
-  <!-- Actions -->
-  <!-- <ng-template #actionTpl let-item="item">
-  <i class="far fa-eye   icon-margin"  title="View"      (click)="onView(item)"></i>
-  <i class="far fa-edit  icon-margin"  title="Edit"      (click)="onEdit(item)"></i>
-  <i *ngIf="!fromReport" class="far fa-copy  icon-margin"  title="Duplicate" (click)="onDuplicate(item)"></i>
-  <i *ngIf="!fromReport" class="far fa-trash-alt icon-margin"
-     title="Delete" (click)="onDelete(item)"></i>
-</ng-template> -->
 
-  <!-- Actions -->
-  <ng-template #actionTpl let-item="item">
-    <span>
-      <i class="far fa-eye spacing-right icon-view" title="View" (click)="onView(item)"></i>
-    </span>
-    <span *ngIf="isEditable(item)">
-      <i class="far fa-edit spacing-right icon-edit" title="Edit" (click)="onEdit(item)"></i>
-    </span>
-    <span *ngIf="isEditable(item) && !fromReport">
-      <i class="far fa-copy spacing-right icon-copy" title="Duplicate" (click)="onDuplicate(item)"></i>
-    </span>
-    <span *ngIf="isEditable(item) && !fromReport">
-      <i class="far fa-trash-alt spacing-right icon-delete" title="Delete" (click)="onDelete(item)"></i>
-    </span>
-    <span *ngIf="showInheritedBadge(item)" class="badge badge-secondary" style="margin-left: 2px;">
-      Inherited
-    </span>
-  </ng-template>
+<!-- Actions -->
+<ng-template #actionTpl let-item="item">
+  <span>
+    <i class="far fa-eye spacing-right icon-view" title="View" (click)="onView(item)"></i>
+  </span>
+  @if (isEditable(item)) {
+  <span>
+    <i class="far fa-edit spacing-right icon-edit" title="Edit" (click)="onEdit(item)"></i>
+  </span>
+  }
+  @if (isEditable(item) && !fromReport) {
+  <span>
+    <i class="far fa-copy spacing-right icon-copy" title="Duplicate" (click)="onDuplicate(item)"></i>
+  </span>
+  }
+  @if (isEditable(item) && !fromReport) {
+  <span>
+    <i class="far fa-trash-alt spacing-right icon-delete" title="Delete" (click)="onDelete(item)"></i>
+  </span>
+  }
+  @if (showInheritedBadge(item)) {
+  <span class="badge bg-secondary" style="margin-left: 2px;">
+    Inherited
+  </span>
+  }
+</ng-template>
 
-  <!-- Custom table buttons -->
-  <ng-template #addButtonTemplate>
-    <button *ngIf="!fromReport && (objectId || riskId || groupId)" type="button" (click)="onAddAssessment()"
-      class="btn btn-success btn-sm"><i class="fas fa-plus-circle"></i> Add
-    </button>
-  </ng-template>
+<!-- Custom table buttons -->
+<ng-template #addButtonTemplate>
+  @if (!fromReport && (objectId || riskId || groupId)) {
+  <button type="button" (click)="onAddAssessment()" class="btn btn-success btn-sm"><i class="fas fa-plus-circle"></i>
+    Add
+  </button>
+  }
+</ng-template>
 
 
 

@@ -1,0 +1,22 @@
+.icon-margin {
+    margin-right: 10px;
+}
+
+.margin {
+    margin-right: 10px;
+}
+
+
+:host ::ng-deep {
+    // Validation styling for reports with missing fields
+    tr.invalid-report-row {
+      background-color: #fff0f0 !important;
+      border-left: 3px solid #ff4444 !important;
+    }
+  
+    // Disabled state for report action buttons
+    .btn-run.text-muted {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+  }

@@ -16,15 +16,19 @@
 
    <div class="slider-container">
     <!-- Labels positioned above slider steps -->
-    <div class="slider-labels" *ngIf="showLabels">
-      <ng-container *ngFor="let option of sliderOptions; let i = index">
+    @if (showLabels) {
+<div class="slider-labels">
+      @for (option of sliderOptions; track option; let i = $index) {
+
         <span class="slider-label" 
               [class.active]="sliderValue === i"
               [style.left]="i === 0 ? '0%' : i === sliderOptions.length - 1 ? '100%' : (i / (sliderOptions.length - 1) * 100) + '%'">
           {{ option.label }}
         </span>
-      </ng-container>
+      
+}
     </div>
+}
     
     <div class="slider-track-container">
       <div class="slider-track">
@@ -41,15 +45,19 @@
       
       <!-- Dot indicators for each step -->
       <div class="slider-dots">
-        <ng-container *ngFor="let step of sliderSteps; let i = index">
+        @for (step of sliderSteps; track step; let i = $index) {
+
           <span class="slider-dot"
                 [class.active]="i <= sliderValue">
           </span>
-        </ng-container>
+        
+}
       </div>
     </div>
     
-    <div class="chosen-text" *ngIf="showChosenText">
+    @if (showChosenText) {
+<div class="chosen-text">
       Selected: {{ sliderOptions[sliderValue]?.label }}
     </div>
+}
   </div>

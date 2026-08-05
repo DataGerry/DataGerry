@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -36,7 +36,8 @@ import { errorComponents } from './error.list';
 
 @Component({
     templateUrl: './error.component.html',
-    styleUrls: ['./error.component.scss']
+    styleUrls: ['./error.component.scss'],
+    standalone: false
 })
 export class ErrorComponent implements OnInit, OnDestroy {
 
@@ -68,9 +69,9 @@ export class ErrorComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.errorContainer.clear();
-        this.componentRef.destroy();
-        this.statusCodeSubscription.unsubscribe();
+        this.errorContainer?.clear();
+        this.componentRef?.destroy();
+        this.statusCodeSubscription?.unsubscribe();
       }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

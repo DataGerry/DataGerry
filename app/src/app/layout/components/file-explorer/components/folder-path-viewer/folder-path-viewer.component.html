@@ -1,13 +1,13 @@
+@if (pathViewer.length > 0) {
 
-<ng-container *ngIf="pathViewer.length > 0;then pathCrumbs; else defaultCrumbsView">
-</ng-container>
+@for (crum of pathViewer; track crum) {
 
-<ng-template #pathCrumbs>
-  <ng-container *ngFor="let crum of pathViewer" >
-    <i class="fas fa-caret-right"></i> {{crum}}
-  </ng-container>
-</ng-template>
+<i class="fas fa-caret-right"></i> {{crum}}
 
-<ng-template #defaultCrumbsView >
-  <i class="fas fa-caret-right"></i>
-</ng-template>
+}
+
+} @else {
+
+<i class="fas fa-caret-right"></i>
+
+}

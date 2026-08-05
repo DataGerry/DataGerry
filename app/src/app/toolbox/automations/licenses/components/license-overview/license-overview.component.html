@@ -1,0 +1,104 @@
+<div class="license-overview">
+  <div class="d-flex justify-content-between align-items-center">
+    <h1>License</h1>
+  </div>
+  <hr />
+
+  <div class="row g-3">
+    <!-- Left: License Details -->
+    <div class="col-12 col-lg-6">
+      <div class="card">
+        <div class="card-header">LICENSE DETAILS</div>
+        <div class="card-body">
+          @if (license; as lic) {
+          <section class="license-card">
+            <div class="grid">
+              <div class="cell">
+                <div class="key">Type</div>
+                <div class="val">
+                  <span class="badge" [ngClass]="getSubscriptionBadgeClass(lic.type)">
+                    {{ getSubscriptionDisplayName(lic.type) }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="cell">
+                <div class="key">Status</div>
+                <div class="val">
+                  <span class="dot" [class.on]="lic.active"></span>
+                  {{ lic.active ? 'Active' : 'Inactive' }}
+                </div>
+              </div>
+
+              <div class="cell">
+                <div class="key">Start</div>
+                <div class="val">{{ lic.startDate | date:'dd MMM yyyy' }}</div>
+              </div>
+
+              <!-- <div class="cell">
+                <div class="key">End</div>
+                <div class="val">{{ lic.endDate ? (lic.endDate | date:'dd MMM yyyy') : '—' }}</div>
+              </div> -->
+
+
+              <div class="cell">
+                <div class="key">Expiration Date</div>
+                <div class="val">
+                  @if (lic.duration === '-' || lic.duration === '–') {
+
+                  <span class="infinity-symbol" title="Unlimited Duration">∞</span>
+
+                  } @else {
+                  {{ lic.duration || '—' }}
+                  }
+
+                </div>
+              </div>
+
+
+
+              @if (lic.monthPeriod) {
+              <div class="cell">
+                <div class="key">Monthly Period</div>
+                <div class="val">
+                  {{ lic.monthPeriod?.startDate | date:'dd MMM' }} – {{ lic.monthPeriod?.endDate | date:'dd MMM' }}
+                </div>
+              </div>
+              }
+
+              <div class="cell">
+                <div class="key">Usage (ops)</div>
+                <div class="val strong">
+                  {{ lic.currentOperationUsage | number }} / {{ lic.totalOperationUsage | number }}
+                </div>
+              </div>
+            </div>
+
+            <div class="bar mt-2">
+              <app-usage-bar [min]="0" [max]="lic.totalOperationUsage" [value]="lic.currentOperationUsage"
+                [tickCount]="10" [showTicks]="true" [height]="12" ariaLabel="Operations usage" colorStart="#3b82f6"
+                colorEnd="#22c55e">
+              </app-usage-bar>
+            </div>
+          </section>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Usage Table -->
+    <div class="col-12 col-lg-6">
+      <div class="card">
+        <div class="card-header">USAGE BY CONNECTION</div>
+        <div class="card-body usage-table">
+          <cmdb-table [items]="items" [columns]="columns" [totalItems]="totalItems" [pageSize]="size" [page]="page"
+            [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false" [searchEnabled]="false"
+            (pageChange)="onPageChange($event)">
+          </cmdb-table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

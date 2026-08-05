@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,16 @@
 """
 Implementation of UpdateSingleResponse
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             UpdateSingleResponse - CLASS                                             #
@@ -32,19 +34,18 @@ class UpdateSingleResponse(BaseAPIResponse):
     """
     API Response for update call of a single resource.
     """
-    def __init__(self, result: dict):
+    def __init__(self, result: dict[str, Any]) -> None:
         """
         Constructor of UpdateSingleResponse
 
         Args:
             result: Updated resource
-            failed: Failed data update
         """
-        self.result: dict = result
+        self.result: dict[str, Any] = result
         super().__init__(operation_type=OperationType.UPDATE)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response.
 
@@ -55,15 +56,16 @@ class UpdateSingleResponse(BaseAPIResponse):
         Returns:
             Instance of Response with http status code 202
         """
-        response = self.make_api_response(self.export(), 202)
-
-        return response
+        return self.make_api_response(self.export(), 202)
 
 
-    def export(self, *args, **kwargs) -> dict:
+    def export(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
         Get the update instance as dict
         """
-        return {**{
-            'result': self.result
-        }, **super().export(*args, **kwargs)}
+        return {
+            **{
+                'result': self.result
+            },
+            **super().export(*args, **kwargs)
+        }

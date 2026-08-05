@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of ExcelObjectImporter
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timezone
 
 from cmdb.manager import ObjectsManager
@@ -34,7 +34,7 @@ from cmdb.framework.importer.responses.importer_object_response import ImporterO
 from cmdb.errors.importer import ImportRuntimeError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              ExcelObjectImporter - CLASS                                             #
@@ -51,11 +51,12 @@ class ExcelObjectImporter(ObjectImporter, XLSXContent):
     """
     #pylint: disable=R0917
     def __init__(self,
-                 file=None,
-                 config: ExcelObjectImporterConfig = None,
-                 parser: JsonObjectParser = None,
-                 objects_manager: ObjectsManager = None,
-                 request_user: CmdbUser = None):
+        file = None,
+        config: ExcelObjectImporterConfig = None,
+        parser: JsonObjectParser | None = None,
+        objects_manager: ObjectsManager | None = None,
+        request_user: CmdbUser | None = None
+    ) -> None:
         """
         Initialize the ExcelObjectImporter
 

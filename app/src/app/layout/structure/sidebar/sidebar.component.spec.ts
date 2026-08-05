@@ -9,6 +9,8 @@ import { of, ReplaySubject } from 'rxjs';
 import { CmdbCategoryTree } from '../../../framework/models/cmdb-category';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { CmdbType } from 'src/app/framework/models/cmdb-type';
+import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 
 class MockElementRef extends ElementRef {
     constructor() {
@@ -50,7 +52,9 @@ describe('SidebarComponent', () => {
                 { provide: TypeService, useValue: typeServiceMock },
                 { provide: UserService, useValue: userServiceMock },
                 Renderer2,
-                { provide: ElementRef, useClass: MockElementRef }
+                { provide: ElementRef, useClass: MockElementRef },
+                provideHttpClient(withInterceptorsFromDi()),
+                provideHttpClientTesting()
             ],
             schemas: [NO_ERRORS_SCHEMA]
         }).compileComponents();

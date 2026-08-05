@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -22,7 +22,7 @@ class GridFsResponse:
     """
     Represents a response object for GridFS queries
     """
-    def __init__(self, result, total: int = None):
+    def __init__(self, result, total: int = None) -> None:
         """
         Initializes a GridFsResponse instance
         
@@ -31,5 +31,5 @@ class GridFsResponse:
             total (int, optional): The total number of available items. Defaults to 0
         """
         self.result = result
-        self.count = len(result)
-        self.total = total or 0
+        self.count: int = len(result)
+        self.total: int = total or 0

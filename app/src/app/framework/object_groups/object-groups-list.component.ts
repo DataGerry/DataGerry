@@ -1,4 +1,4 @@
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -14,11 +14,20 @@ import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
 import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
 
 @Component({
-  selector: 'app-object-groups-list',
-  templateUrl: './object-groups-list.component.html',
-  styleUrls: ['./object-groups-list.component.scss']
+    selector: 'app-object-groups-list',
+    templateUrl: './object-groups-list.component.html',
+    styleUrls: ['./object-groups-list.component.scss'],
+    standalone: false
 })
 export class ObjectGroupsListComponent implements OnInit {
+  private readonly objectGroupService = inject(ObjectGroupService);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly router = inject(Router);
+  private readonly modalService = inject(NgbModal);
+  private readonly extendableOptionService = inject(ExtendableOptionService);
+  private readonly filterBuilderService = inject(FilterBuilderService);
+
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;
   @ViewChild('categoriesTemplate', { static: true }) categoriesTemplate: TemplateRef<any>;
 
@@ -42,17 +51,6 @@ export class ObjectGroupsListComponent implements OnInit {
     { name: 'categories', isArray: true },
     { name: 'group_type' }
   ];
-
-  constructor(
-    private objectGroupService: ObjectGroupService,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private router: Router,
-    private modalService: NgbModal,
-    private extendableOptionService: ExtendableOptionService,
-    private filterBuilderService: FilterBuilderService
-
-  ) { }
 
   ngOnInit(): void {
     this.setupColumns();

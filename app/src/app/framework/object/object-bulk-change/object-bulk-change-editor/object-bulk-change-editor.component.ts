@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,9 +23,10 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { CmdbType } from '../../../models/cmdb-type';
 
 @Component({
-  selector: 'cmdb-object-bulk-change-editor',
-  templateUrl: './object-bulk-change-editor.component.html',
-  styleUrls: ['./object-bulk-change-editor.component.scss']
+    selector: 'cmdb-object-bulk-change-editor',
+    templateUrl: './object-bulk-change-editor.component.html',
+    styleUrls: ['./object-bulk-change-editor.component.scss'],
+    standalone: false
 })
 export class ObjectBulkChangeEditorComponent {
 

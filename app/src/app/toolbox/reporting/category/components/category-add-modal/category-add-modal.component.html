@@ -1,0 +1,36 @@
+<div class="modal-header">
+  <h4 class="modal-title">{{ mode === 'add' ? 'Add New Category' : mode === 'edit' ? 'Edit Category' : 'Delete Category'
+    }}</h4>
+  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="modal.dismiss('Cross click')">
+  </button>
+</div>
+<div class="modal-body">
+  @if (mode !== 'delete') {
+
+  <form [formGroup]="addCategoryForm">
+    <div class="mb-3">
+      <label for="categoryName">Category Name</label>
+      <input id="categoryName" type="text" class="form-control" formControlName="name">
+    </div>
+  </form>
+
+  } @else {
+
+  <p>Are you sure you want to delete <strong>{{ categoryData.name }}</strong>?</p>
+
+  }
+
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
+  @if (mode !== 'delete') {
+  <button type="button" class="btn btn-primary" [disabled]="!addCategoryForm.valid" (click)="onSubmit()">
+    {{ mode === 'add' ? 'Add' : 'Update' }}
+  </button>
+  }
+  @if (mode === 'delete') {
+  <button type="button" class="btn btn-danger" (click)="onSubmit()">Delete</button>
+  }
+</div>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

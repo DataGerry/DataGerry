@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -34,9 +34,10 @@ import { APIGetMultiResponse } from '../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-category-form',
-  templateUrl: './category-form.component.html',
-  styleUrls: ['./category-form.component.scss']
+    selector: 'cmdb-category-form',
+    templateUrl: './category-form.component.html',
+    styleUrls: ['./category-form.component.scss'],
+    standalone: false
 })
 export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
 
@@ -158,7 +159,7 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
                 this.totalCategoriesPages = apiResponse.pager.total_pages;
                 this.categoriesLoading = false;
                 },
-                (err) => this.toast.error(err)).add(() => this.categoriesLoading = false);
+                (error) => this.toast.error(error?.error?.message)).add(() => this.categoriesLoading = false);
     }
 
 
@@ -194,11 +195,11 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.valueChangeSubscription.unsubscribe();
-        this.categoryServiceSubscription.unsubscribe();
-        this.submitEmitter.unsubscribe();
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.valueChangeSubscription?.unsubscribe();
+        this.categoryServiceSubscription?.unsubscribe();
+        this.submitEmitter?.unsubscribe();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- EVENT HANDLERS ------------------------------------------------- */
@@ -274,7 +275,7 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
             this.categories = this.categories.concat(apiResponse.results as Array<CmdbCategory>);
             this.categoriesLoading = false;
             },
-            (err) => this.toast.error(err)).add(() => this.categoriesLoading = false);
+            (error) => this.toast.error(error?.error?.message)).add(() => this.categoriesLoading = false);
     }
 
 /* -------------------------------------------------- FORM CONTROL -------------------------------------------------- */

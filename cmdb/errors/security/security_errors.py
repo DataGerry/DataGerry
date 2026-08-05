@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Contains Security Error Classes
+Contains Security error classes
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -22,13 +22,13 @@ class SecurityError(Exception):
     """
     Raised to catch all Security related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all Security related errors
         """
         super().__init__(err)
 
-# -------------------------------------------------- SECURITY ERRORS ------------------------------------------------- #
+# ------------------------------------------------- Security - ERRORS ------------------------------------------------ #
 
 class TokenValidationError(SecurityError):
     """
@@ -66,6 +66,12 @@ class NoAccessTokenError(SecurityError):
     """
 
 
+class MissingApiKeyError(SecurityError):
+    """
+    Raised when an API key is required but missing
+    """
+
+
 class InvalidCloudUserError(SecurityError):
     """
     Raised when Cloud Login failed
@@ -87,4 +93,23 @@ class RequestError(SecurityError):
 class DisallowedActionError(SecurityError):
     """
     Raised when an illegal action is requested
+    """
+
+
+class WrongPasswordError(SecurityError):
+    """
+    Raised when the password is not matching
+    """
+
+
+class NoValidSubscriptionError(SecurityError):
+    """
+    Raised when no subscription matches the given API-KEY
+    """
+
+
+class LicenseDecryptionError(SecurityError):
+    """
+    Raised when a license blob cannot be decrypted or parsed (bad Base64, wrong ciphertext length,
+    malformed PKCS#1 padding or invalid JSON); the verification chain degrades to Community on this
     """

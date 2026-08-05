@@ -3,17 +3,17 @@
         <div class="col-sm-10">
             <h1>Copy of {{typeInstance?.label}} #{{renderResult?.object_information.object_id}}</h1>
         </div>
-        <div class="col-sm-2 text-right">
+        <div class="col-sm-2 text-end">
             <div class="btn-group p-1" role="group">
                 <button
                     type="button"
-                    class="cancel-button btn btn-outline-danger"
+                    class="cancel-button btn btn-warning"
                     routerLink="/framework/object/view/{{renderResult?.object_information.object_id}}"
                 >Cancel</button>
 
                 <button
                     type="submit"
-                    class="btn btn-success mr-2"
+                    class="btn btn-success me-2"
                     (click)="copyObject()"
                     [disabled]="!renderForm.valid"
                 >Save</button>
@@ -55,7 +55,7 @@
                     
                         <button
                             type="submit"
-                            class="btn btn-outline-success mr-2"
+                            class="btn btn-outline-success me-2"
                             [disabled]="!renderForm.valid"
                         >Save</button>
                     </div>

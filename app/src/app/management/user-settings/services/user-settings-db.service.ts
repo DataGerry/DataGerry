@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -62,8 +62,8 @@ export class UserSettingsDBService<T = UserSetting, P = UserSettingPayload> impl
      * Auto unsubscribe when service is destroyed.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
@@ -130,7 +130,7 @@ export class UserSettingsDBService<T = UserSetting, P = UserSettingPayload> impl
                     error: (error) => console.error(`Error while loading user settings: ${error}`)
                 });
         } catch (e) {
-            console.error(`Error while init user settings: ${e}`);
+            // console.error(`Error while init user settings: ${e}`);
         }
     }    
 

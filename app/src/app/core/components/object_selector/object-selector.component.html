@@ -1,41 +1,46 @@
-<ng-select
-  [items]="objectList"
-  [(ngModel)]="selectedObjects"
-  (ngModelChange)="onSelectionChange($event)"
-  [multiple]="multiple"
-  [groupBy]="groupByFn"
-  [groupValue]="groupValueFn"
-  placeholder="Select objects..."
-  [closeOnSelect]="false"
-  [searchable]="true"
-  [clearable]="true"
-  [disabled]="isViewMode"
-  class="w-100"
->
-  <ng-template ng-optgroup-tmp let-item="item">
-    <span>{{ item.name }} [{{ item.total }}]</span>
-  </ng-template>
+<div class="object-select-wrapper">
+  <!-- inline loader -->
+  @if (useInlineLoader && (isLoading$ | async)) {
+  <div class="inline-loader text-warning" aria-label="Object is loading">
+    <div class="spinner-border" role="status" aria-hidden="true"></div>
+    <small>Loading objects…</small>
+  </div>
+  }
+  <ng-container>
+    <ng-select [style.display]="(useInlineLoader && (isLoading$ | async)) ? 'none' : 'block'" [items]="objectList"
+      [(ngModel)]="selectedObjects" (ngModelChange)="onSelectionChange($event)" (scrollToEnd)="onScrollToEnd()"
+      (search)="onSearch($event.term)" [multiple]="multiple" [compareWith]="compareObjects" [groupBy]="groupByFn"
+      [groupValue]="groupValueFn"
+      placeholder="Select objects..." [closeOnSelect]="closeOnSelect" [searchable]="true" [clearable]="true"
+      [disabled]="isViewMode" [loading]="isLoading$ | async" [typeahead]="searchSubject" class="w-100">
+      <ng-template ng-optgroup-tmp let-item="item">
+        <span>{{ item.name }} [{{ item.total }}]</span>
+      </ng-template>
 
-  <ng-template ng-label-tmp let-item="item" let-clear="clear">
-    <ng-container *ngIf="item?.object_information; else noItem">
-      <i class="{{ item.type_information.icon }}" aria-hidden="true"></i>
-      {{ item.type_information.type_label }} #{{ item.object_information.object_id }} - {{ item.summary_line }}
-      <span class="ng-value-icon right" (click)="clear(item)" aria-hidden="true">×</span>
-    </ng-container>
-    <ng-template #noItem>
-      [object not found]
-      <span class="ng-value-icon right" (click)="clear(item)" aria-hidden="true">×</span>
-    </ng-template>
-  </ng-template>
+      <ng-template ng-label-tmp let-item="item" let-clear="clear">
+        @if (item?.object_information) {
 
-  <ng-template ng-option-tmp let-item="item" let-index="index" let-search="searchTerm">
-    <i class="{{ item.type_information.icon }}" aria-hidden="true"></i>
-    {{ item.type_information.type_label }} #{{ item.object_information.object_id }} - {{ item.summary_line }}
-  </ng-template>
-</ng-select>
+        <i class="{{ item.type_information.icon }}" aria-hidden="true"></i>
+        {{ item.type_information.type_label }} #{{ item.object_information.object_id }} - {{ item.summary_line }}
+        <span class="ng-value-icon right" (click)="clear(item)" aria-hidden="true">×</span>
 
+        } @else {
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+        [object not found]
+        <span class="ng-value-icon right" (click)="clear(item)" aria-hidden="true">×</span>
+
+        }
+
+      </ng-template>
+
+      <ng-template ng-option-tmp let-item="item" let-index="index" let-search="searchTerm">
+        <i class="{{ item.type_information.icon }}" aria-hidden="true"></i>
+        {{ item.type_information.type_label }} #{{ item.object_information.object_id }} - {{ item.summary_line }}
+      </ng-template>
+    </ng-select>
+  </ng-container>
+</div>
+
+@if (!useInlineLoader) {
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
+}

@@ -1,0 +1,308 @@
+.ci-node {
+  position: absolute;
+  // @include glass-effect;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: nodeAppear 0.5s ease;
+  overflow: visible;
+  
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    background: linear-gradient(45deg, transparent, $primary, transparent);
+    border-radius: 16px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: -1;
+  }
+
+  &:hover {
+    transform: translateY(-4px) scale(1.02);
+    // box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+
+    // &::before {
+    //   opacity: 0.5;
+    //   animation: spin 2s linear infinite;
+    // }
+
+    .node-actions {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .status-indicator {
+      transform: scale(1.2);
+    }
+  }
+
+  &.selected {
+    // box-shadow: 0 0 0 3px $primary, 0 12px 40px rgba($primary, 0.25);
+    animation: glow 2s ease-in-out infinite;
+  }
+
+  &.root-node {
+    // box-shadow: 0 0 25px rgba(56, 239, 125, 0.5);
+    .node-header {
+      position: relative;
+      overflow: visible;
+      // background: linear-gradient(135deg, #11998e, #38ef7d); 
+      color: #fff;
+
+      &::before {
+        content: '👑';
+        position: absolute;
+        top: -14px;
+        right: -10px;
+        font-size: 24px;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+        animation: pulse 2s ease-in-out infinite;
+      }
+    }
+  }
+
+  &.loading {
+    pointer-events: none;
+    opacity: 0.7;
+  }
+
+  &.highlighted {
+    // box-shadow: 0 0 30px rgba($warning, 0.5);
+    z-index: 10;
+  }
+
+  .node-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 16px 16px 0 0;
+    color: $light;
+    font-size: 13px;
+    font-weight: 600;
+    position: relative;
+    overflow: hidden;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.2), transparent);
+      pointer-events: none;
+    }
+
+    .node-icon {
+      font-size: 20px;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+    }
+
+    .node-type {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+
+    .node-badges {
+      display: flex;
+      gap: 6px;
+    }
+
+    .badge {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px 8px;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      backdrop-filter: blur(10px);
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: rgba(0, 0, 0, 0.4);
+        transform: scale(1.1);
+      }
+
+      .material-icons.tiny {
+        font-size: 12px;
+      }
+
+      &.parent-badge {
+        .material-icons { color: $info; }
+      }
+
+      &.child-badge {
+        .material-icons { color: $warning; }
+      }
+    }
+  }
+
+  .node-body {
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 0 0 16px 16px;
+    position: relative;
+
+    .node-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: $gray-900;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 6px;
+    }
+
+    .node-info {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+
+    .node-level {
+      font-size: 12px;
+      color: $gray-600;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+
+      .level-icon {
+        font-size: 14px;
+        color: $primary;
+      }
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      transition: all 0.3s ease;
+      position: relative;
+
+      &.active {
+        background: $success;
+        box-shadow: 0 0 8px rgba($success, 0.6);
+
+        &::after {
+          content: '';
+          position: absolute;
+          inset: -4px;
+          border: 2px solid rgba($success, 0.3);
+          border-radius: 50%;
+          animation: pulse 2s ease-in-out infinite;
+        }
+      }
+
+      &.inactive {
+        background: $danger;
+        box-shadow: 0 0 8px rgba($danger, 0.6);      }
+
+      &.warning {
+        background: $warning;
+        box-shadow: 0 0 8px rgba($warning, 0.6);
+      }
+
+      &.error {
+        background: $danger;
+        box-shadow: 0 0 8px rgba($danger, 0.6);
+      }
+    }
+  }
+
+  .node-actions {
+    position: absolute;
+    bottom: -16px;
+    right: 12px;
+    display: flex;
+    gap: 8px;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    .action-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: $light;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+
+      &::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at center, transparent 0%, rgba($primary, 0.1) 100%);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      &:hover {
+        transform: scale(1.15) translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+
+        &::after {
+          opacity: 1;
+        }
+      }
+
+      &:active {
+        transform: scale(1.05) translateY(0);
+      }
+
+      .material-icons {
+        font-size: 18px;
+        color: $gray-700;
+        transition: color 0.2s ease;
+      }
+
+      &.expand-btn:hover .material-icons {
+        color: $primary;
+      }
+
+      &.add-btn:hover .material-icons {
+        color: $success;
+      }
+
+      &.focus-btn:hover .material-icons {
+        color: $info;
+      }
+    }
+  }
+
+  .loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba($primary, 0.2);
+      border-top-color: $primary;
+      border-radius: 50%;
+      animation: spin 0.8s cubic-bezier(0.6, 0, 0.4, 1) infinite;
+    }
+  }
+}
+

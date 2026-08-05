@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the RiskMatrixManager
 """
+from typing import Any
+
 from .risk_matrix_manager_errors import (
     RiskMatrixManagerError,
     RiskMatrixManagerInitError,
@@ -27,7 +29,7 @@ from .risk_matrix_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'RiskMatrixManagerError',
     'RiskMatrixManagerInitError',
     'RiskMatrixManagerInsertError',
@@ -38,7 +40,7 @@ __all__ = [
 ]
 
 
-RISK_MATRIX_MANAGER_ERRORS = {
+RISK_MATRIX_MANAGER_ERRORS: dict[str, Any] = {
     "init": RiskMatrixManagerInitError,
     "insert": RiskMatrixManagerInsertError,
     "get": RiskMatrixManagerGetError,

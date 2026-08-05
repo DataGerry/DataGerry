@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -32,7 +32,7 @@ from .measure_control_assignment_routes import control_measure_assignment_bluepr
 from .isms_report_routes import isms_report_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'risk_class_blueprint',
     'likelihood_blueprint',
     'impact_blueprint',

@@ -1,13 +1,12 @@
 <ul id="folder-tree-view">
   <ng-template #recursiveList let-fileTree>
-    <li *ngFor="let item of fileTree">
+    @for (item of fileTree; track item) {
+    <li>
       <div class="d-flex"
-           [ngClass]="item.hasSubFolders ? 'caret caret-down': item.children?.length > 0 ? 'caret caret-with-subs' : 'caret'"
-           [class.selected]="item.public_id === selectedFileFolder.getValue()?.public_id"
-           (dblclick)="dropTree($event, item)"
-           (click)="loadFolderFiles(item)"
-           (contextmenu)="loadContextMenu()">
-        <span class="mr-auto">{{item.filename}}</span>
+        [ngClass]="item.hasSubFolders ? 'caret caret-down': item.children?.length > 0 ? 'caret caret-with-subs' : 'caret'"
+        [class.selected]="item.public_id === selectedFileFolder.getValue()?.public_id"
+        (dblclick)="dropTree($event, item)" (click)="loadFolderFiles(item)" (contextmenu)="loadContextMenu()">
+        <span class="me-auto">{{item.filename}}</span>
         <span class="context-line" [style.display]="item.filename === '' ? 'none' : 'block'">
           <i class="far fa-file" (click)="createFolder()"></i>
           <i class="far fa-edit" (click)="renameFolder()"></i>
@@ -16,10 +15,13 @@
         </span>
       </div>
 
-      <ul class="nested" *ngIf="item.children?.length > 0 && item.hasSubFolders">
+      @if (item.children?.length > 0 && item.hasSubFolders) {
+      <ul class="nested">
         <ng-container *ngTemplateOutlet="recursiveList; context:{ $implicit: item.children }"></ng-container>
       </ul>
+      }
     </li>
+    }
   </ng-template>
   <ng-container *ngTemplateOutlet="recursiveList; context:{ $implicit: fileTree }"></ng-container>
 </ul>

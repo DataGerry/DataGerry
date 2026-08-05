@@ -1,51 +1,57 @@
-<cmdb-search-result-bar
-    [queryParameters]="queryParameters"
-    [searchResultList]="searchResultList"
-    [filterResultList]="filterResultList"
-/>
-<hr/>
+<cmdb-search-result-bar [queryParameters]="queryParameters" [searchResultList]="searchResultList"
+    [filterResultList]="filterResultList" />
+<hr />
 
 <div id="search-results" class="row">
     <div [ngClass]="'col-md-12'" id="searchResultTab">
         <div class="row">
-            <div class="col-md-12" *ngIf="publicIdResult">
+            @if (publicIdResult) {
+            <div class="col-md-12">
                 <div class="mb-2">
                     <h2>Public ID</h2>
                     <cmdb-search-result [searchResult]="publicIdResult">
-                        <hr/>
+                        <hr />
                     </cmdb-search-result>
                     <h2>Search Result</h2>
                 </div>
             </div>
-            <div class="col-md-12" *ngIf="searchResultList">
-                <div *ngIf="searchResultList.total_results == 0" class="alert alert-warning" role="alert">
+            }
+            @if (searchResultList) {
+            <div class="col-md-12">
+                @if (searchResultList.total_results == 0) {
+                <div class="alert alert-warning" role="alert">
                     Unfortunately, we could not find any results with your search query.
                 </div>
-                <ng-container *ngIf="searchResultList.total_results > 0">
-                    <cmdb-search-result *ngFor="let result of searchResultList.results" [searchResult]="result">
-                        <hr/>
-                    </cmdb-search-result>
-                </ng-container>
+                }
+                @if (searchResultList.total_results > 0) {
+
+                @for (result of searchResultList.results; track result) {
+                <cmdb-search-result [searchResult]="result">
+                    <hr />
+                </cmdb-search-result>
+                }
+
+                }
             </div>
+            }
         </div>
     </div>
     <div class="col-md-12">
         <div class="row">
             <div class="col-2">
                 <form [formGroup]="resultSizeForm" class="form-inline">
-                    <label class="mr-1">Show:</label>
-                        <select formControlName="size" class="custom-select custom-select-sm" title="table-page-size-changer">
-                            <option [ngValue]="size.value" *ngFor="let size of defaultResultSizeList">{{size.label}}</option>
-                        </select>
+                    <label class="me-1">Show:</label>
+                    <select formControlName="size" class="custom-select custom-select-sm"
+                        title="table-page-size-changer">
+                        @for (size of defaultResultSizeList; track size) {
+                        <option [ngValue]="size.value">{{size.label}}</option>
+                        }
+                    </select>
                 </form>
             </div>
             <div class="col-md-10">
-                <table-pagination
-                    [currentPage]="currentPage"
-                    [pageSize]="limit"
-                    [totalItems]="searchResultList?.total_results"
-                    (pageChange)="onChangePage($event)"
-                />
+                <table-pagination [currentPage]="currentPage" [pageSize]="limit"
+                    [totalItems]="searchResultList?.total_results" (pageChange)="onChangePage($event)" />
             </div>
         </div>
     </div>

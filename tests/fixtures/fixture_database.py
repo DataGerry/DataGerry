@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,13 +17,14 @@
 This module defines pytest fixtures for MongoDB connection and database management.
 These fixtures provide necessary parameters and connections for testing purposes.
 """
-import logging
+from logging import Logger, getLogger
+
 import pytest
 
 from cmdb.database import MongoConnector, MongoDatabaseManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 

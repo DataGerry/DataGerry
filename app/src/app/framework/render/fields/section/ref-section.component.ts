@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -28,9 +28,10 @@ import { RenderResult } from '../../../models/cmdb-render';
 import { NgSelectComponent } from '@ng-select/ng-select';
 
 @Component({
-  selector: 'cmdb-ref-section',
-  templateUrl: './ref-section.component.html',
-  styleUrls: ['./ref-section.component.scss']
+    selector: 'cmdb-ref-section',
+    templateUrl: './ref-section.component.html',
+    styleUrls: ['./ref-section.component.scss'],
+    standalone: false
 })
 export class RefSectionComponent extends RenderFieldComponent implements OnInit, OnDestroy {
 
@@ -168,8 +169,8 @@ export class RefSectionComponent extends RenderFieldComponent implements OnInit,
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 

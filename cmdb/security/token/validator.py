@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,9 @@
 """
 Implementation of TokenValidator
 """
-import logging
+from logging import Logger, getLogger
 import time
-from typing import Union
+
 from authlib.jose import jwt, JsonWebToken
 from authlib.jose.errors import BadSignatureError, InvalidClaimError
 
@@ -29,7 +29,7 @@ from cmdb.security.key.holder import KeyHolder
 from cmdb.errors.security import TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                TokenValidator - CLASS                                                #
@@ -48,12 +48,12 @@ class TokenValidator:
         self.key_holder = KeyHolder(dbm)
 
 
-    def decode_token(self, token: Union[JsonWebToken, str, dict]) -> dict:
+    def decode_token(self, token: JsonWebToken | str | dict) -> dict:
         """
         Decodes a given JWT token
 
         Args:
-            token (Union[JsonWebToken, str, dict]): The JWT token to be decoded
+            token (JsonWebToken | str | dict): The JWT token to be decoded
 
         Returns:
             dict: The decoded JWT claims
@@ -71,12 +71,12 @@ class TokenValidator:
             raise TokenValidationError(err) from err
 
 
-    def validate_token(self, token: Union[JsonWebToken, str, dict]):
+    def validate_token(self, token: JsonWebToken | str | dict):
         """
         Validates a given token regarding its expiration
 
         Params:
-            token(JsonWebToken, str, dict): the given token
+            token(JsonWebToken | str | dict): the given token
 
         Returns:
             JWTClaims: decoded token

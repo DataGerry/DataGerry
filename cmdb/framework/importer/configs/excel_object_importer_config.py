@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,13 @@
 """
 Implementation of ExcelObjectImporterConfig
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.content_types import XLSXContent
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           ExcelObjectImporterConfig - CLASS                                          #
@@ -39,13 +39,13 @@ class ExcelObjectImporterConfig(ObjectImporterConfig, XLSXContent):
     MANUALLY_MAPPING = True
 
     def __init__(
-            self,
-            type_id: int,
-            mapping: list = None,
-            start_element: int = 0,
-            max_elements: int = 0,
-            overwrite_public: bool = True,
-            *args, **kwargs):
+        self,
+        type_id: int,
+        mapping: list | None = None,
+        start_element: int = 0,
+        max_elements: int = 0,
+        overwrite_public: bool = True
+    ) -> None:
         """
         Initializes the ExcelObjectImporterConfig with the given parameters
 

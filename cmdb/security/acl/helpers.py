@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -13,8 +13,10 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-"""Access Control helper functions"""
-import logging
+"""
+Access Control helper functions
+"""
+from logging import Logger, getLogger
 
 from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.permission import AccessControlPermission
@@ -24,7 +26,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -38,12 +40,18 @@ def has_access_control(target_type: CmdbType, user: CmdbUser, permission: Access
     return True
 
 
-def verify_access(target_type: CmdbType, user: CmdbUser = None, permission: AccessControlPermission = None):
-    """Validate if a user has access to objects of this type."""
+def verify_access(
+    target_type: CmdbType,
+    user: CmdbUser | None = None,
+    permission: AccessControlPermission | None = None
+) -> None:
+    """
+    Validate if a user has access to objects of this type
+    """
     if not user or not permission:
         return
 
-    verify = has_access_control(target_type, user, permission)
+    verify: bool = has_access_control(target_type, user, permission)
 
     if not verify:
         raise AccessDeniedError('Protected by ACL permission!')

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,50 +14,37 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module manages the 'Location'-Profile for the DATAGERRY assistant
+This module manages the 'Location'-Profile for the DataGerry assistant
 """
-import logging
-
-from cmdb.manager.types_manager import TypesManager
-from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from logging import Logger, getLogger
+from typing import Any
 
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
-
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                LocationProfile - CLASS                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
 class LocationProfile(ProfileBase):
     """
     This class cointains all types and logics for the 'Location'-Profile
     """
-    def __init__(
-            self,
-            created_type_ids: dict,
-            types_manager: TypesManager,
-            section_templates_manager: SectionTemplatesManager):
-        self.created_type_ids = created_type_ids
-        super().__init__(created_type_ids, types_manager, section_templates_manager)
-
-
-    def create_location_profile(self) -> dict:
+    def create_profile(self) -> dict[str, int | None]:
         """
-        Creates all types from the 'Location'- Profile
+        Creates all types of the 'Location' profile (Country, City, Building, Room, Rack)
 
         Returns:
-            dict: The created type ids dict
+            dict[str, int | None]: The shared slot map of created type ids
         """
-        # Do NOT change the order of data due dependency
-        location_profile_data: dict = {
-            'country_id' : self.get_country_type(),
-            'city_id': self.get_city_type(),
-            'building_id': self.get_building_type(),
-            'room_id': self.get_room_type(),
-            'rack_id': self.get_rack_type()
-        }
-
-        for type_name, type_dict in location_profile_data.items():
-            self.create_basic_type(type_name, type_dict)
+        # Each type is created (inserted) before the next is built, so a type's reference fields can
+        # resolve the public_ids of types created earlier in this profile
+        self.create_basic_type('country_id', self.get_country_type())
+        self.create_basic_type('city_id', self.get_city_type())
+        self.create_basic_type('building_id', self.get_building_type())
+        self.create_basic_type('room_id', self.get_room_type())
+        self.create_basic_type('rack_id', self.get_rack_type())
 
         return self.created_type_ids
 
@@ -65,11 +52,14 @@ class LocationProfile(ProfileBase):
 #                                                  TYPE DATA - SECTION                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_country_type(self) -> dict:
+    def get_country_type(self) -> dict[str, Any]:
         """
-        Returns the 'Country'-Type for the 'Location'-Profile
+        Builds the 'Country' type for the 'Location' profile
+
+        Returns:
+            dict[str, Any]: The Country CmdbType config
         """
-        country_sections: list = [
+        country_sections: list[dict[str, Any]] = [
             {
                 "name": "section-15910",
                 "label": "Information",
@@ -95,20 +85,25 @@ class LocationProfile(ProfileBase):
             }
         ]
 
-        country_type: dict = self.type_constructor.create_type_config(country_sections,
-                                                                      'country',
-                                                                      'Country',
-                                                                      'far fa-flag')
+        country_type: dict[str, Any] = self.type_constructor.create_type_config(
+            country_sections,
+            'country',
+            'Country',
+            'far fa-flag'
+        )
 
         return country_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_city_type(self) -> dict:
+    def get_city_type(self) -> dict[str, Any]:
         """
-        Returns the 'City'-Type for the 'Location'-Profile
+        Builds the 'City' type for the 'Location' profile
+
+        Returns:
+            dict[str, Any]: The City CmdbType config
         """
-        city_sections: list = [
+        city_sections: list[dict[str, Any]] = [
             {
                 "name": "section-57114",
                 "label": "Information",
@@ -135,20 +130,25 @@ class LocationProfile(ProfileBase):
         ]
 
 
-        city_type: dict = self.type_constructor.create_type_config(city_sections,
-                                                                      'city',
-                                                                      'City',
-                                                                      'fas fa-city')
+        city_type: dict[str, Any] = self.type_constructor.create_type_config(
+            city_sections,
+            'city',
+            'City',
+            'fas fa-city'
+        )
 
         return city_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_building_type(self) -> dict:
+    def get_building_type(self) -> dict[str, Any]:
         """
-        Returns the 'Building'-Type for the 'Location'-Profile
+        Builds the 'Building' type for the 'Location' profile
+
+        Returns:
+            dict[str, Any]: The Building CmdbType config
         """
-        building_sections: list = [
+        building_sections: list[dict[str, Any]] = [
             {
                 "name": "section-67402",
                 "label": "Information",
@@ -198,20 +198,25 @@ class LocationProfile(ProfileBase):
         ]
 
 
-        building_type: dict = self.type_constructor.create_type_config(building_sections,
-                                                                            'building',
-                                                                            'Building',
-                                                                            'fas fa-hotel')
+        building_type: dict[str, Any] = self.type_constructor.create_type_config(
+            building_sections,
+            'building',
+            'Building',
+            'fas fa-hotel'
+        )
 
         return building_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_room_type(self) -> dict:
+    def get_room_type(self) -> dict[str, Any]:
         """
-        Returns the 'Room'-Type for the 'Location'-Profile
+        Builds the 'Room' type for the 'Location' profile
+
+        Returns:
+            dict[str, Any]: The Room CmdbType config
         """
-        room_sections: list = [
+        room_sections: list[dict[str, Any]] = [
             {
                 "name": "section-11343",
                 "label": "Information",
@@ -249,20 +254,25 @@ class LocationProfile(ProfileBase):
             }
         ]
 
-        room_type: dict = self.type_constructor.create_type_config(room_sections,
-                                                                    'room',
-                                                                    'Room',
-                                                                    'fa fa-cube')
+        room_type: dict[str, Any] = self.type_constructor.create_type_config(
+            room_sections,
+            'room',
+            'Room',
+            'fa fa-cube'
+        )
 
         return room_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_rack_type(self) -> dict:
+    def get_rack_type(self) -> dict[str, Any]:
         """
-        Returns the 'Rack'-Type for the 'Location'-Profile
+        Builds the 'Rack' type for the 'Location' profile (includes the dg-rackmounting template)
+
+        Returns:
+            dict[str, Any]: The Rack CmdbType config
         """
-        rack_sections: list = [
+        rack_sections: list[dict[str, Any]] = [
             {
                 "name": "section-39958",
                 "label": "Information",
@@ -289,9 +299,11 @@ class LocationProfile(ProfileBase):
             }
         ]
 
-        rack_type: dict = self.type_constructor.create_type_config(rack_sections,
-                                                                      'rack',
-                                                                      'Rack',
-                                                                      'fas fa-th-large')
+        rack_type: dict[str, Any] = self.type_constructor.create_type_config(
+            rack_sections,
+            'rack',
+            'Rack',
+            'fas fa-th-large'
+        )
 
         return rack_type

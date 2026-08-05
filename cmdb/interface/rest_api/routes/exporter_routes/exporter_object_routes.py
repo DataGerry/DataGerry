@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,10 @@
 """
 Implementation of all API routes for CmdbObject exports
 """
-import logging
+from logging import Logger, getLogger
 from flask import abort, current_app
+from werkzeug import Response
+from werkzeug.exceptions import HTTPException
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.exporter.config.exporter_config import ExporterConfig
@@ -30,17 +32,27 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.utils.helpers import load_class
 from cmdb.security.acl.permission import AccessControlPermission
+
+from cmdb.errors.security import AccessDeniedError
+from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 exporter_blueprint = APIBlueprint('exporter', __name__)
+
+# The 'zip' export packs an underlying format, so its class is a valid dynamic-load target too
+ZIP_EXPORT_FORMAT: str = 'ZipExportFormat'
+
+# Export format classes that may be dynamically loaded from cmdb.framework.exporter.format - the query
+# supplied 'classname' is validated against this set so an arbitrary class cannot be imported
+SUPPORTED_EXPORT_FORMATS: set[str] = set(SupportedExporterExtension().get_extensions()) | {ZIP_EXPORT_FORMAT}
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @exporter_blueprint.route('/extensions', methods=['GET'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_export_file_types():
+def get_export_file_types() -> Response:
     """
     Endpoint to retrieve the supported export file types/extensions.
 
@@ -59,11 +71,11 @@ def get_export_file_types():
 
 
 @exporter_blueprint.route('/', methods=['GET'])
-@exporter_blueprint.parse_collection_parameters(view='native')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @exporter_blueprint.protect(auth=True, right='base.framework.object.view')
-def export_objects(params: CollectionParameters, request_user: CmdbUser):
+@exporter_blueprint.parse_collection_parameters(view='native')
+def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Export objects based on the provided parameters and the requesting user's permissions.
 
@@ -78,11 +90,18 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser):
     Returns:
         Response: The export data in the chosen format (e.g., a JSON or ZIP file)
     """
+    if params.optional.get('zip', False) in ['True', 'true']:
+        export_format = ZIP_EXPORT_FORMAT
+    else:
+        export_format = params.optional.get('classname', 'JsonExportFormat')
+
+    # Only allow known export formats to be dynamically loaded (guards load_class against arbitrary input)
+    if export_format not in SUPPORTED_EXPORT_FORMATS:
+        abort(400, f"Unsupported export format: {export_format}!")
+
     try:
         _config = ExporterConfig(parameters=params, options=params.optional)
-        _class = 'ZipExportFormat' if params.optional.get('zip', False) in ['True','true'] \
-            else params.optional.get('classname', 'JsonExportFormat')
-        exporter_class = load_class('cmdb.framework.exporter.format.' + _class)()
+        exporter_class = load_class('cmdb.framework.exporter.format.' + export_format)()
 
         db_name = None
         if current_app.cloud_mode:
@@ -93,9 +112,17 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser):
         exporter.from_database(current_app.database_manager, request_user, AccessControlPermission.READ, db_name)
 
         return exporter.export()
+    except HTTPException as http_err:
+        raise http_err
+    except AccessDeniedError as err:
+        LOGGER.error("[export_objects] AccessDeniedError: %s", err)
+        abort(403, "No permission to export the Objects!")
+    except ObjectsManagerIterationError as err:
+        LOGGER.error("[export_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
+        abort(400, "Failed to retrieve the Objects to export!")
     except ModuleNotFoundError as err:
-        LOGGER.debug("[export_objects] ModuleNotFoundError: %s", err, exc_info=True)
-        abort(500, f"Module not found for export format:{_class}!")
+        LOGGER.error("[export_objects] ModuleNotFoundError: %s", err, exc_info=True)
+        abort(500, f"Module not found for export format: {export_format}!")
     except Exception as err:
-        LOGGER.error("[get_export_file_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[export_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while exporting Objects!")

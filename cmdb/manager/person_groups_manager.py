@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 This module contains the implementation of the PersonGroupsManager
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 
@@ -29,7 +30,7 @@ from cmdb.models.person_group_model.person_reference_type_enum import PersonRefe
 from cmdb.errors.manager.person_groups_manager import PERSON_GROUPS_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              PersonGroupsManager - CLASS                                             #
@@ -40,7 +41,7 @@ class PersonGroupsManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         super().__init__(dbm, CmdbPersonGroup, PERSON_GROUPS_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -77,50 +78,49 @@ class PersonGroupsManager(GenericManager):
 
     def add_person_to_groups(self, person_id: int, group_ids: list[int]) -> None:
         """
-        Adds a CmdbPerson to the given CmdbPersonGroups
+        Adds a CmdbPerson to the 'group_members' of the given CmdbPersonGroups in a single bulk update
+
+        Uses '$addToSet' so the person is only added where they are not already a member, matching the
+        previous per-group duplicate check without loading each CmdbPersonGroup first.
 
         Args:
             person_id (int): public_id of CmdbPerson which should be added
             group_ids (list[int]): public_id's of CmdbPersonGroups where the CmdbPerson should be added
         """
-        for group_id in group_ids:
-            cur_group = self.get_item(group_id, as_dict=True)
+        if not group_ids:
+            return
 
-            if cur_group:
-                current_members: list = cur_group.get('group_members', [])
-
-                if person_id not in current_members:
-                    current_members.append(person_id)
-                    cur_group['group_members'] = current_members
-                    self.update_item(group_id, cur_group)
+        self.dbm.update_many(
+            self.collection,
+            self.db_name,
+            {'public_id': {'$in': list(group_ids)}},
+            {'group_members': person_id},
+            add_to_set=True,
+        )
 
 
     def delete_person_from_groups(self, person_id: int, groups_ids: list[int] = None) -> None:
         """
-        Removes a CmdbPerson from all CmdbPersonGroups
+        Removes a CmdbPerson from the 'group_members' of CmdbPersonGroups in a single bulk '$pull' update
+
+        When groups_ids is provided the pull is restricted to those CmdbPersonGroups, otherwise it is
+        applied to every CmdbPersonGroup that lists the person as a member.
 
         Args:
-            person_id (int): public_id of CmdbPerson which should be deleted
-            groups_ids (list[int], optional): list of CmdbPersonGroup public_id's which should be deleted
+            person_id (int): public_id of CmdbPerson which should be removed
+            groups_ids (list[int], optional): public_id's of the CmdbPersonGroups to update. Defaults to None
         """
+        criteria: dict[str, Any] = {'group_members': person_id}
+
         if groups_ids is not None:
-            # Use provided group IDs
-            groups_with_person = [self.get_item(group_id) for group_id in groups_ids]
-        else:
-            # Otherwise, find all groups containing the person
-            groups_with_person = self.find_all(criteria={'group_members': person_id})
+            criteria['public_id'] = {'$in': list(groups_ids)}
 
-        for group in groups_with_person:
-            if group is None:
-                continue  # Skip if group wasn't found
-
-            group_id = group['public_id']
-            current_members: list = group.get('group_members', [])
-
-            if person_id in current_members:
-                current_members.remove(person_id)
-                group['group_members'] = current_members
-                self.update_item(group_id, group)
+        self.dbm.update_many_pull(
+            self.collection,
+            self.db_name,
+            criteria,
+            {'group_members': person_id},
+        )
 
 
     def remove_person_group_from_control_measure_assignments(self, deleted_person_group_id: int) -> None:
@@ -166,45 +166,11 @@ class PersonGroupsManager(GenericManager):
         Args:
             deleted_person_group_id (int): The public_id of the deleted CmdbPersonGroup
         """
-        # Query to retrieve all RiskAssessments where any of the relevant fields
-        # reference the deleted PersonGroup's ID
-        query = {
-            '$or': [
-                {'responsible_persons_id_ref_type': PersonReferenceType.PERSON_GROUP},
-                {'risk_owner_id_ref_type': PersonReferenceType.PERSON_GROUP},
-                {'auditor_id_ref_type': PersonReferenceType.PERSON_GROUP}
-            ]
-        }
-
-        # Retrieve all matching RiskAssessments
-        risk_assessments = self.dbm.find(IsmsRiskAssessment.COLLECTION, self.db_name, query)
-
-        # Loop through each RiskAssessment to check and update relevant fields
-        risk_assessment: dict
-        for risk_assessment in risk_assessments:
-            update_fields = {}
-
-            # Check responsible_persons_id field
-            if (risk_assessment.get('responsible_persons_id_ref_type') == PersonReferenceType.PERSON_GROUP and
-                risk_assessment.get('responsible_persons_id') == deleted_person_group_id):
-                update_fields['responsible_persons_id'] = None
-
-            # Check risk_owner_id field
-            if (risk_assessment.get('risk_owner_id_ref_type') == PersonReferenceType.PERSON_GROUP and
-                risk_assessment.get('risk_owner_id') == deleted_person_group_id):
-                update_fields['risk_owner_id'] = None
-
-            # Check auditor_id field
-            if (risk_assessment.get('auditor_id_ref_type') == PersonReferenceType.PERSON_GROUP and
-                risk_assessment.get('auditor_id') == deleted_person_group_id):
-                update_fields['auditor_id'] = None
-
-            # Perform update if any fields need to be updated
-            if update_fields:
-                self.dbm.update_many(
-                    IsmsRiskAssessment.COLLECTION,
-                    self.db_name,
-                    {'public_id': risk_assessment['public_id']},
-                    {'$set': update_fields},
-                    plain=True
-                )
+        # Each field is polymorphic; null it only where it references the deleted PersonGroup
+        for field in ('responsible_persons_id', 'risk_owner_id', 'auditor_id'):
+            self.dbm.update_many(
+                IsmsRiskAssessment.COLLECTION,
+                self.db_name,
+                {field: deleted_person_group_id, f'{field}_ref_type': PersonReferenceType.PERSON_GROUP},
+                {field: None},
+            )

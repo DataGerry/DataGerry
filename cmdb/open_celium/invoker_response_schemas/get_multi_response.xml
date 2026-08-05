@@ -1,0 +1,49 @@
+        <operation name="Get " type="">
+            <request>
+                <method>GET</method>
+                <endpoint>{url}/rest//</endpoint>
+                <header>
+                    <item name="Authorization" type="string">{token}</item>
+                    <item name="Content-Type" type="string">application/json</item>
+                    <item name="x-api-key" type="string">{x-api-key}</item>
+                </header>
+                <body/>
+            </request>
+            <response>
+                <success status="200">
+                    <header/>
+                    <body data="raw" format="json" type="object">
+                        <field name="results" type="array">
+                            <!-- -->
+                        </field>
+                        <field name="count" type="integer"/>
+                        <field name="total" type="integer"/>
+                        <field name="parameters" type="object">
+                            <field name="limit" type="integer"/>
+                            <field name="sort" type="string"/>
+                            <field name="order" type="integer"/>
+                            <field name="page" type="integer"/>
+                            <field name="filter" type="object"/>
+                            <field name="optional" type="object"/>
+                        </field>
+                        <field name="pager" type="object">
+                            <field name="page" type="integer"/>
+                            <field name="page_size" type="integer"/>
+                            <field name="total_pages" type="integer"/>
+                        </field>
+                        <field name="pagination" type="object">
+                            <field name="current" type="string"/>
+                            <field name="first" type="string"/>
+                            <field name="prev" type="string"/>
+                            <field name="next" type="string"/>
+                            <field name="last" type="string"/>
+                        </field>
+                        <field name="response_type" type="string"/>
+                        <field name="time" type="string"/>
+                    </body>
+                </success>
+                <fail status="500">
+                    <header/>
+                    <body/>
+                </fail>
+            </response>

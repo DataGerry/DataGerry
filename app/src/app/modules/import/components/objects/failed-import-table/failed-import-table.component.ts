@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,7 +23,8 @@ import { Column } from '../../../../../layout/table/table.types';
 @Component({
     selector: 'cmdb-failed-import-table',
     templateUrl: './failed-import-table.component.html',
-    styleUrls: ['./failed-import-table.component.scss']
+    styleUrls: ['./failed-import-table.component.scss'],
+    standalone: false
 })
 export class FailedImportTableComponent implements OnInit {
 

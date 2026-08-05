@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -49,7 +49,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-objects-by-type',
     templateUrl: './objects-by-type.component.html',
-    styleUrls: ['./objects-by-type.component.scss']
+    styleUrls: ['./objects-by-type.component.scss'],
+    standalone: false
 })
 export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
@@ -99,6 +100,7 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
     public search_term: string;
 
     private collectionFilterParameter: any[] = [];
+    private objectRequestId: number = 0;
 
     public selectReset: Array<RenderResult> = [];
     public initialVisibleColumns: Array<string> = [];
@@ -158,8 +160,8 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------- TODO - SORT FUNCTIONS --------------------------------------------- */
@@ -169,9 +171,13 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      * @param type
      */
     public reload(type: CmdbType): void {
+        if (!type) {
+            return;
+        }
+
         this.resetTable();
         this.setColumns(type);
-        this.filterBuilder(this.columns);
+        this.setDefaultTypeFilter(type);
 
         if (this.tableState) {
             this.page = this.tableState.page;
@@ -196,7 +202,10 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         this.page = this.initPage;
         this.limit = this.initLimit;
         this.search_term = undefined;
+        this.results = [];
+        this.totalResults = 0;
         this.selectedObjects = [];
+        this.selectedObjectsIDs = [];
     }
 
 
@@ -204,12 +213,9 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         const fields = type.fields || [];
         const summaryFields = type.render_meta.summary.fields || [];
 
-        const myFields: string[] = type.render_meta.sections
-            .filter(newfilter => newfilter.type !== 'multi-data-section')
-            .flatMap(fields => fields.fields.map(field => field));
-
-        const newFields: any[] = fields
-            .filter(newField => myFields.includes(newField.name));
+        // Get sections excluding multi-data-section
+        const sections = type.render_meta.sections
+            .filter(section => section.type !== 'multi-data-section');
 
         const columns = [
             {
@@ -233,27 +239,34 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             }
         ] as Array<Column>;
 
-        newFields.map(field => {
-            columns.push({
-                display: field.label,
-                name: `fields.${field.name}`,
-                data: field.name,
-                type: field.type,
-                sortable: true,
-                searchable: true,
-                hidden: !summaryFields.includes(field.name),
-                render(data: RenderResult, item: RenderResult, column: Column) {
-                    const renderedField = item.fields.find(f => f.name === column.data);
-                    if (!renderedField) {
-                        return {};
-                    }
-                    return {
-                        field: renderedField,
-                        value: renderedField.value
-                    };
-                },
-                template: this.fieldTemplate
-            } as Column);
+        // Iterate through sections and their fields in order
+        sections.forEach(section => {
+            section.fields.forEach(fieldName => {
+                // Find the field definition from the fields array
+                const field = fields.find(f => f.name === fieldName);
+                if (field) {
+                    columns.push({
+                        display: field.label,
+                        name: `fields.${field.name}`,
+                        data: field.name,
+                        type: field.type,
+                        sortable: true,
+                        searchable: true,
+                        hidden: !summaryFields.includes(field.name),
+                        render(data: RenderResult, item: RenderResult, column: Column) {
+                            const renderedField = item.fields.find(f => f.name === column.data);
+                            if (!renderedField) {
+                                return {};
+                            }
+                            return {
+                                field: renderedField,
+                                value: renderedField.value
+                            };
+                        },
+                        template: this.fieldTemplate
+                    } as Column);
+                }
+            });
         });
 
         columns.push({
@@ -325,6 +338,8 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
         this.loading = true;
         this.selectedObjects = [];
         this.selectedObjectsIDs = [];
+        const requestId = this.nextObjectRequestId();
+        const requestedTypeId = this.type?.public_id;
 
         const params: CollectionParameters = {
             filter: this.collectionFilterParameter,
@@ -334,11 +349,12 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             page: this.page
         };
 
-        this.objectService.getObjects(params).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
+        this.objectService.getObjects(params).pipe(
+            takeUntil(this.subscriber),
+            finalize(() => this.loaderService.hide())
+        )
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
-                this.results = apiResponse.results as Array<RenderResult>;
-                this.totalResults = apiResponse.total;
-                this.loading = false;
+                this.applyObjectResponse(apiResponse, requestId, requestedTypeId);
             });
     }
 
@@ -350,16 +366,12 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
      * @param columns {@link Array<Column>} are taken into account in the query.
      */
     private filterBuilder(columns: Array<Column>) {
+        this.loaderService.show();
         this.loading = true;
         let query;
         const numericValue = Number(this.search_term);
 
-        this.collectionFilterParameter = [];
-        this.collectionFilterParameter.push({
-            $match: {
-                type_id: this.type.public_id
-            }
-        });
+        this.setDefaultTypeFilter(this.type);
 
         if (this.search_term) {
             query = [];
@@ -560,12 +572,57 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             };
         }
 
-        this.objectService.getObjects(params).pipe(takeUntil(this.subscriber))
+        const requestId = this.nextObjectRequestId();
+        const requestedTypeId = this.type?.public_id;
+
+        this.objectService.getObjects(params).pipe(
+            takeUntil(this.subscriber),
+            finalize(() => this.loaderService.hide())
+        )
             .subscribe((apiResponse: APIGetMultiResponse<RenderResult>) => {
-                this.results = apiResponse.results as Array<RenderResult>;
-                this.totalResults = apiResponse.total;
-                this.loading = false;
+                this.applyObjectResponse(apiResponse, requestId, requestedTypeId);
             });
+    }
+
+
+    private setDefaultTypeFilter(type: CmdbType): void {
+        this.collectionFilterParameter = [];
+
+        if (!type) {
+            return;
+        }
+
+        this.collectionFilterParameter.push({
+            $match: {
+                type_id: type.public_id
+            }
+        });
+    }
+
+
+    private nextObjectRequestId(): number {
+        this.objectRequestId += 1;
+        return this.objectRequestId;
+    }
+
+
+    private isCurrentObjectRequest(requestId: number, requestedTypeId: number | undefined): boolean {
+        return requestId === this.objectRequestId && requestedTypeId === this.type?.public_id;
+    }
+
+
+    private applyObjectResponse(
+        apiResponse: APIGetMultiResponse<RenderResult>,
+        requestId: number,
+        requestedTypeId: number | undefined
+    ): void {
+        if (!this.isCurrentObjectRequest(requestId, requestedTypeId)) {
+            return;
+        }
+
+        this.results = apiResponse.results as Array<RenderResult>;
+        this.totalResults = apiResponse.total;
+        this.loading = false;
     }
 
 

@@ -1,11 +1,12 @@
 import {
   Component,
+  inject,
   Input,
   OnInit,
   OnChanges,
   SimpleChanges,
   ViewChild,
-  TemplateRef
+  TemplateRef,
 } from '@angular/core';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize, ReplaySubject, takeUntil } from 'rxjs';
@@ -19,11 +20,17 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
 
 @Component({
-  selector: 'relation-log-list',
-  templateUrl: './relation-log-list.component.html',
-  styleUrls: ['./relation-log-list.component.scss']
+    selector: 'relation-log-list',
+    templateUrl: './relation-log-list.component.html',
+    styleUrls: ['./relation-log-list.component.scss'],
+    standalone: false
 })
 export class RelationLogListComponent implements OnInit, OnChanges {
+  private readonly relationLogService = inject(RelationLogService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly modalService = inject(NgbModal);
+
   @Input() publicID: number;
 
   // Table column templates
@@ -53,13 +60,6 @@ export class RelationLogListComponent implements OnInit, OnChanges {
   public selectedLog: RelationLog | null = null;
 
   private unsubscribe$ = new ReplaySubject<void>(1);
-
-  constructor(
-    private relationLogService: RelationLogService,
-    private loaderService: LoaderService,
-    private toast: ToastService,
-    private modalService: NgbModal
-  ) {}
 
   ngOnInit(): void {
     this.setupColumns();

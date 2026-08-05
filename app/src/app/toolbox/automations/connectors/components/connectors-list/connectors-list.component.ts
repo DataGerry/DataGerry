@@ -1,0 +1,126 @@
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2026 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+*
+* You should have received a copy of the GNU Affero General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Router } from '@angular/router';
+import { ConnectorsService } from '../../services/connectors.service';
+import { Connector } from '../../models/connector.model';
+import { ToastService } from 'src/app/layout/toast/toast.service';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
+import { finalize } from 'rxjs';
+import { environment } from 'src/environments/environment';
+import { InternalConnectorHelperService } from '../../services/internal-connector-helper.service';
+
+@Component({
+  selector: 'app-connectors-list',
+  templateUrl: './connectors-list.component.html',
+  styleUrls: ['./connectors-list.component.scss'],
+  standalone: false
+})
+export class ConnectorsListComponent implements OnInit {
+  @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
+
+  rows: Connector[] = [];
+  loading = false;
+  columns: any[];
+  totalConnectors = 0;
+
+  private readonly svc = inject(ConnectorsService);
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly deleteModalService = inject(DeleteModalService);
+  private readonly internalConnectorHelper = inject(InternalConnectorHelperService);
+
+  ngOnInit(): void {
+    this.columns = [
+      { display: 'Public ID', name: 'connectorId', data: 'connectorId', sortable: false, style: { width: '120px', 'text-align': 'center' } },
+      { display: 'Label', name: 'title', data: 'title', sortable: false , style: {'text-align': 'center' } },
+      { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '100px', 'text-align': 'center' } }
+    ];
+    this.internalConnectorHelper.checkInternalConnector({
+      onExists: () => this.loadConnectors(),
+      redirectRoute: ['automations/connectors/internal'],
+      description: 'Internal DATAGerry connector for automations',
+      cancelRoute: ['/automations'],
+      errorRoute: ['/automations']
+    });
+  }
+
+  loadConnectors(): void {
+    this.loaderService.show();
+    this.svc.getConnectors().pipe(finalize(() => this.loaderService.hide())).subscribe({
+      next: (res) => { this.rows = res.filter(r => r.title !== 'DataGerryInternal') ?? []; 
+        this.totalConnectors = this.rows.length;
+      },
+      error: (err) => {
+        this.loading = false;
+        this.toast.error(err?.error?.message);
+      }
+    });
+  }
+
+  add(): void { this.router.navigate(['automations/connectors/add']); }
+  edit(row: Connector): void { 
+    this.router.navigate(['automations/connectors/edit', row.connectorId], {
+      state: { connector: row }
+    });
+  }
+
+  configInternal(): void {
+    this.loaderService.show();
+    this.svc.checkConnectorExists('DataGerryInternal')
+      .pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (exists: boolean) => {
+          // Redirect to internal route without resolver
+        this.router.navigate(['automations/connectors/internal'], {
+          state: { 
+            connectorExists: exists,
+            connector: {
+                title: 'DataGerryInternal',
+                description: 'Internal DATAGerry connector for automations',
+                invoker: { name: environment.cloudMode ? 'DataGerryCloud' : 'DataGerry' },
+                sslCert: false,
+                timeout: 1000
+              }
+            }
+          });
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.message);
+        }
+      });
+  }
+
+  delete(row: Connector): void {
+    this.deleteModalService.confirmDelete({
+      title: `Delete Connector: ${row.title}`,
+      itemType: 'Connector',
+      itemName: row.title,
+      onConfirm: () => {
+        this.svc.deleteConnector(row.connectorId!).subscribe({
+          next: () => { this.toast.success('Connector deleted'); this.loadConnectors(); },
+          error: (error) => this.toast.error(error?.error?.message)
+        });
+      }
+    });
+  }
+
+}

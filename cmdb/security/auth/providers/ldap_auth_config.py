@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,14 @@
 """
 Implementation of LdapAuthenticationProviderConfig
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
 
 from cmdb.errors.provider import GroupMappingError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                       LdapAuthenticationProviderConfig - CLASS                                       #

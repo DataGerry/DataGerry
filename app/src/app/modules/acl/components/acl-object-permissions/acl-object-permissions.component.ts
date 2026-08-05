@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,7 +24,8 @@ import { Group } from 'src/app/management/models/group';
 @Component({
     selector: 'cmdb-acl-object-permissions',
     templateUrl: './acl-object-permissions.component.html',
-    styleUrls: ['./acl-object-permissions.component.scss']
+    styleUrls: ['./acl-object-permissions.component.scss'],
+    standalone: false
 })
 export class AclObjectPermissionsComponent implements OnChanges {
     // Selected group which compares to the acl

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,9 +20,10 @@ import { Component, Input } from '@angular/core';
 import { User } from '../../../models/user';
 
 @Component({
-  selector: 'cmdb-user-image',
-  templateUrl: './user-image.component.html',
-  styleUrls: ['./user-image.component.scss']
+    selector: 'cmdb-user-image',
+    templateUrl: './user-image.component.html',
+    styleUrls: ['./user-image.component.scss'],
+    standalone: false
 })
 export class UserImageComponent {
   public defaultURL = '/assets/img/avatar.png';

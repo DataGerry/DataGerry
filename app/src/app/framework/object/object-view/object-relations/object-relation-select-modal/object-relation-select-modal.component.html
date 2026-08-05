@@ -1,0 +1,73 @@
+<div class="relation-modal">
+  <div class="modal-backdrop show"></div>
+  <div class="modal show" style="display: block;">
+    <div class="modal-dialog modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Select Relationship</h5>
+          <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="onCancel()"></button>
+        </div>
+
+        <div class="modal-body">
+          @if (loading()) {
+            <div class="loading-state text-center">
+              <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading relationships...</span>
+              </div>
+              <span class="ms-2">Loading relationships...</span>
+            </div>
+          } @else if (relations().length) {
+            <div class="table-container" style="overflow-x: auto; max-width: 100%;">
+              <table class="table table-hover">
+                <thead>
+                  <tr>
+                    <th scope="col">Relation ID</th>
+                    <th scope="col">Relation Name</th>
+                    <th scope="col">Label</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (relation of relations(); track relation.public_id) {
+                    @if (relation.canBeParent) {
+                      <tr [class.table-active]="isChosen(relation, 'parent')"
+                        (click)="onSelect(relation, 'parent')" style="cursor: pointer;">
+                        <td>{{ relation.public_id }}</td>
+                        <td>{{ relation.relation_name }}</td>
+                        <td>{{ relation.relation_name_parent }}</td>
+                      </tr>
+                    }
+                    @if (relation.canBeChild) {
+                      <tr [class.table-active]="isChosen(relation, 'child')"
+                        (click)="onSelect(relation, 'child')" style="cursor: pointer;">
+                        <td>{{ relation.public_id }}</td>
+                        <td>{{ relation.relation_name }}</td>
+                        <td>{{ relation.relation_name_child }}</td>
+                      </tr>
+                    }
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <div class="empty-state text-center">
+              <div class="empty-state-icon display-4">!</div>
+              <h4>No Relations Found</h4>
+              <button type="button" class="btn btn-primary" routerLink="/framework/relation" (click)="onCancel()">
+                Create a new relation
+              </button>
+            </div>
+          }
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
+          @if (!loading() && relations().length) {
+            <button type="button" class="btn btn-primary text-white" [disabled]="!chosen()" (click)="onConfirm()">
+              Confirm
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

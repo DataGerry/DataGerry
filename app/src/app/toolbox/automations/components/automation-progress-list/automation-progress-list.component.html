@@ -1,0 +1,11 @@
+@if (runningSchedulers.length) {
+<div class="automation-progress-list">
+  <div class="automation-progress-header">Running automations</div>
+  @for (running of runningSchedulers; track trackByRunningScheduler($index, running)) {
+  <div class="automation-progress-item">
+    <div class="automation-progress-title">{{ running.title }}</div>
+    <app-progress-bar class="automation-progress-bar" [value]="running.progress"></app-progress-bar>
+  </div>
+  }
+</div>
+}

@@ -1,23 +1,17 @@
 <div id="group-edit-headline">
     <h1>Edit group: {{group?.label}}</h1>
 </div>
-<hr/>
+<hr />
 
-<cmdb-group-form
-    [group]="group"
-    [rights]="rights"
-    (submit)="edit($event)"
-    (validation)="valid = $event"
-/>
+<cmdb-group-form [group]="group" [rights]="rights" (submit)="edit($event)" (validation)="valid = $event" />
 
-<ng-container *ngIf="typeEditRight">
-    <h2>Object ACL of {{group?.label}}</h2>
-    <hr/>
-    <cmdb-acl-objects-table [group]="group"/>
-</ng-container>
+@if (typeEditRight) {
+
+<h2>Object ACL of {{group?.label}}</h2>
+<hr />
+<cmdb-acl-objects-table [group]="group" />
+
+}
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

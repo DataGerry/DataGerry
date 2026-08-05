@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,8 @@ import { RenderResult } from '../../../models/cmdb-render';
 
 @Component({
     templateUrl: './object-link-add-modal.component.html',
-    styleUrls: ['./object-link-add-modal.component.scss']
+    styleUrls: ['./object-link-add-modal.component.scss'],
+    standalone: false
 })
 export class ObjectLinkAddModalComponent implements OnInit, OnDestroy {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -60,8 +61,8 @@ export class ObjectLinkAddModalComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 

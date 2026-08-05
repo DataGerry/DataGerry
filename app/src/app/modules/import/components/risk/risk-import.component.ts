@@ -10,6 +10,7 @@ import { ImportSummaryModalComponent } from '../import-summary-dialog/import-sum
 @Component({
     selector: 'cmdb-risk-import',
     templateUrl: './risk-import.component.html',
+    standalone: false
 })
 export class ImportRiskComponent {
     public fileForm: UntypedFormGroup;

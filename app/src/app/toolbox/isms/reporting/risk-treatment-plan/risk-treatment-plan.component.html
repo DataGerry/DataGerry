@@ -1,23 +1,11 @@
 <!-- ­───────── EXPORT BAR ───────── -->
-<!-- <div class="toolbar d-flex flex-wrap gap-2 mb-3">
-  <button type="button" class="btn btn-sm btn-outline-primary" (click)="exportCsv()">
-    <i class="fas fa-file-csv me-1"></i> CSV
-  </button>
-  <button type="button" class="btn btn-sm btn-outline-success" (click)="exportXlsx()">
-    <i class="fas fa-file-excel me-1"></i> Excel
-  </button>
-  <button type="button" class="btn btn-sm btn-outline-danger" (click)="exportPdf()">
-    <i class="fas fa-file-pdf me-1"></i> PDF
-  </button>
-</div> -->
-
 <ng-template #exportTemplate>
   <div class="btn-group" *permissionLink="'base.export.type.*'">
-    <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-toggle="dropdown"
+    <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown"
       aria-haspopup="true" aria-expanded="false">
       <fa-icon icon="file-export"></fa-icon> Export
     </button>
-    <ul class="dropdown-menu dropdown-menu-right dropdown-menu-lg-left" aria-labelledby="exportButton">
+    <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-left" aria-labelledby="exportButton">
       <li>
         <button class="dropdown-item btn btn-outline-secondary" (click)="exportCsv()">
           <i class="fas fa-file-csv me-1"></i> Export CSV
@@ -43,23 +31,14 @@
 </div>
 
 <!-- ­───────── TABLE ───────── -->
-<cmdb-table
-  [items]="viewRows"
-  [columns]="columns"
-  [initialVisibleColumns]="initialVisibleColumns"
-  [page]="page"
-  [pageSize]="limit"
-  [totalItems]="totalItems"
-  [loading]="loading"
-  (pageChange)="onPageChange($event)"
-  (pageSizeChange)="onPageSizeChange($event)"
-  (sortChange)="onSortChange($event)">
+<cmdb-table [items]="viewRows" [columns]="columns" [initialVisibleColumns]="initialVisibleColumns" [page]="page"
+  [pageSize]="limit" [totalItems]="totalItems" [loading]="loading" (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)">
 
   <!-- templates -->
   <ng-template #riskBox let-val="val" let-col="col">
-    <div class="risk-box"
-         [style.background-color]="val?.color || '#777'"
-         [style.color]="getTextColor(val?.color || '#777')">
+    <div class="risk-box" [style.background-color]="val?.color || '#777'"
+      [style.color]="getTextColor(val?.color || '#777')">
       {{ val?.value ?? '-' }}
     </div>
   </ng-template>
@@ -81,40 +60,47 @@
     {{ item.planned_date_str || '-' }}
   </ng-template>
 
-  <!-- <ng-template #controlsTpl let-item="item">
-    <span *ngIf="item.control_measures?.length; else none">
-      <span *ngFor="let c of item.control_measures; index as i">
-        {{ c }}<ng-container *ngIf="i+1 < item.control_measures.length">, </ng-container>
-      </span>
-    </span>
-    <ng-template #none>-</ng-template>
-  </ng-template> -->
 
   <ng-template #controlsTpl let-item="item">
-    <ng-container *ngIf="item.control_measures?.length; else none">
-      <ul class="mb-0">
-        <li *ngFor="let c of item.control_measures">
-          {{ c }}
-        </li>
-      </ul>
-    </ng-container>
+    @if (item.control_measures?.length) {
+
+    <ul class="mb-0">
+      @for (c of item.control_measures; track c) {
+      <li>
+        {{ c }}
+      </li>
+      }
+    </ul>
+
+    } @else {
+    -
+    }
     <ng-template #none>-</ng-template>
   </ng-template>
-  
+
 </cmdb-table>
 
 <!-- ­───────── LOADER ───────── -->
-<app-loading-popup
-  [isVisible]="isLoading$ | async"
-  message="Loading risk-treatment data…">
+<app-loading-popup [isVisible]="isLoading$ | async" message="Loading risk-treatment data…">
 </app-loading-popup>
 
 <style>
-  .risk-box{
-    display:flex; justify-content:center; align-items:center;
-    height:26px; min-width:60px; padding:0 1px;
-    border-radius:2px; font-weight:600;
+  .risk-box {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 26px;
+    min-width: 60px;
+    padding: 0 1px;
+    border-radius: 2px;
+    font-weight: 600;
   }
-  .gap-2{ gap:.5rem }
-  .toolbar .btn i{ pointer-events:none }
+
+  .gap-2 {
+    gap: .5rem
+  }
+
+  .toolbar .btn i {
+    pointer-events: none
+  }
 </style>

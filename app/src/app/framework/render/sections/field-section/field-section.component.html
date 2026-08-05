@@ -1,14 +1,9 @@
 <fieldset>
     <legend>{{section?.label}}</legend>
-    <div *ngFor="let field of section?.fields" class="object-renderInstance">
-        <cmdb-render-element
-            [mode]="mode"
-            [parentFormGroup]="form"
-            [data]="getFieldByName(field)"
-            [changeForm]="changeForm"
-            [section]="section"
-            [objectID]=objectID
-            [value]="getValueByName(field)"
-        />
+    @for (field of section?.fields; track field) {
+    <div class="object-renderInstance">
+        <cmdb-render-element [mode]="mode" [parentFormGroup]="form" [data]="getFieldByName(field)"
+            [changeForm]="changeForm" [section]="section" [objectID]=objectID [value]="getValueByName(field)" />
     </div>
+    }
 </fieldset>

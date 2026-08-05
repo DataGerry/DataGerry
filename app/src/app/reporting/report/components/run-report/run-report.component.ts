@@ -32,7 +32,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'app-run-report',
     templateUrl: './run-report.component.html',
-    styleUrls: ['./run-report.component.scss']
+    styleUrls: ['./run-report.component.scss'],
+    standalone: false
 })
 export class RunReportComponent implements OnInit {
     public reportId: number;
@@ -595,7 +596,7 @@ export class RunReportComponent implements OnInit {
                                 let flattenedData = [];
                                 jsonData.forEach(item => {
                                     const baseData = {
-                                        public_id: String(item.object_id),
+                                        public_id: String(item.public_id),
                                         active: String(item.active),
                                         type_label: item.type_label
                                     };

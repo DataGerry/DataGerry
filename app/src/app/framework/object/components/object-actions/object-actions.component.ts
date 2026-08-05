@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -33,9 +33,10 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-object-actions',
-  templateUrl: './object-actions.component.html',
-  styleUrls: ['./object-actions.component.scss']
+    selector: 'cmdb-object-actions',
+    templateUrl: './object-actions.component.html',
+    styleUrls: ['./object-actions.component.scss'],
+    standalone: false
 })
 export class ObjectActionsComponent implements OnDestroy {
 
@@ -67,8 +68,8 @@ export class ObjectActionsComponent implements OnDestroy {
             this.modalRef.close();
         }
 
-        this.subscriber.unsubscribe();
-        this.locationSubscription.unsubscribe();
+        this.subscriber?.unsubscribe();
+        this.locationSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- MODAL FUNCTIONS ------------------------------------------------ */
@@ -90,7 +91,6 @@ export class ObjectActionsComponent implements OnDestroy {
                 }
             },
             error:  (error) => {
-                console.error("Error:", error);
             }
         });
     }
@@ -120,8 +120,7 @@ export class ObjectActionsComponent implements OnDestroy {
                         this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
                     },
                     error: (error) => {
-                        this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } | Error: ${ error }`);
-                        console.log(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }
@@ -148,8 +147,7 @@ export class ObjectActionsComponent implements OnDestroy {
                         this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
                     },
                     error: (error) => {
-                        this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } and child locations | Error: ${ error }`);
-                        console.log(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }
@@ -164,8 +162,7 @@ export class ObjectActionsComponent implements OnDestroy {
                         this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
                     },
                     error: (error) => {
-                        this.toastService.error(`Error while deleting object ${ this.renderResult.object_information.object_id } and child locations | Error: ${ error }`);
-                        console.log(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }

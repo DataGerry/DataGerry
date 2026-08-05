@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -22,13 +22,19 @@ class DocapiTemplatesManagerError(Exception):
     """
     Raised to catch all DocapiTemplatesManager related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all DocapiTemplatesManager related errors
         """
         super().__init__(err)
 
-# ------------------------------------------- DocapiTemplatesManager errors ------------------------------------------ #
+# ------------------------------------------ DocapiTemplatesManager - ERRORS ----------------------------------------- #
+
+class DocapiTemplatesManagerInitError(DocapiTemplatesManagerError):
+    """
+    Raised when DocapiTemplatesManager could not be initialised
+    """
+
 
 class DocapiTemplatesManagerInsertError(DocapiTemplatesManagerError):
     """

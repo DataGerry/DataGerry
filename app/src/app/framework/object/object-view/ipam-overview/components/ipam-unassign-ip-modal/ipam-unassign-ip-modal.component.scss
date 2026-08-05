@@ -1,0 +1,45 @@
+$brand-orange: #e94d18;
+$brand-orange-tint: rgba(233, 77, 24, 0.06);
+$brand-orange-ring: rgba(233, 77, 24, 0.25);
+
+.ipam-unassign-modal__question {
+    margin-bottom: 1rem;
+    color: #1f2937;
+}
+
+.ipam-unassign-modal__options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.ipam-unassign-modal__option {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease-in-out, background-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+
+    &:hover {
+        border-color: #f0a78f;
+        background-color: #fdf7f4;
+    }
+
+    &--selected {
+        border-color: $brand-orange;
+        background-color: $brand-orange-tint;
+    }
+
+    &:focus-within {
+        border-color: $brand-orange;
+        box-shadow: 0 0 0 1px $brand-orange;
+    }
+}
+
+.ipam-unassign-modal__option-description {
+    margin: 0.125rem 0 0;
+    padding-left: 1.5rem;
+    font-size: 0.8125rem;
+    color: #6b7280;
+}

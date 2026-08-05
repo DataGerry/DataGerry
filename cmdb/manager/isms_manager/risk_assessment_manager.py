@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,35 +16,76 @@
 """
 This module contains the implementation of the RiskAssessmentManager
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.isms_manager.isms_manager_helper import load_calculation_basis, recompute_max_impact
 
-from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
+from cmdb.models.isms_model import (
+    IsmsRiskAssessment,
+    IsmsControlMeasureAssignment,
+    IsmsImpact,
+    IsmsLikelihood,
+)
+from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey, RISK_CALCULATION_MATRIX_KEYS
 
 from cmdb.errors.manager.risk_assessment_manager import RISK_ASSESMENT_MANAGER_ERRORS
 from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             RiskAssessmentManager - CLASS                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
 class RiskAssessmentManager(GenericManager):
     """
-    The ThreatManager manages the interaction between IsmsRiskAssessments and the database
+    The RiskAssessmentManager manages the interaction between IsmsRiskAssessments and the database
 
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str = None):
         super().__init__(dbm, IsmsRiskAssessment, RISK_ASSESMENT_MANAGER_ERRORS, database)
 
+# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def recalculate_risk_values(self, data: dict[str, Any]) -> None:
+        """
+        Derives the risk-calculation values on both matrices server-side, in place.
+
+        The maximum_impact_id / maximum_impact_value and likelihood_value of risk_calculation_before
+        and risk_calculation_after are recomputed from the current IsmsImpact / IsmsLikelihood
+        calculation bases, overwriting any client-supplied values so the backend is the single source
+        of truth for them.
+
+        Args:
+            data (dict[str, Any]): The RiskAssessment payload to normalise in place
+        """
+        impact_basis = load_calculation_basis(self.dbm, self.db_name, IsmsImpact.COLLECTION)
+        likelihood_basis = load_calculation_basis(self.dbm, self.db_name, IsmsLikelihood.COLLECTION)
+
+        for matrix_key in RISK_CALCULATION_MATRIX_KEYS:
+            matrix = data.get(matrix_key.value)
+
+            if not isinstance(matrix, dict):
+                continue
+
+            impacts = matrix.get(RiskCalculationKey.IMPACTS.value, [])
+            max_id, max_value = recompute_max_impact(impacts, impact_basis)
+            matrix[RiskCalculationKey.MAXIMUM_IMPACT_ID.value] = max_id
+            matrix[RiskCalculationKey.MAXIMUM_IMPACT_VALUE.value] = max_value
+
+            likelihood_id = matrix.get(RiskCalculationKey.LIKELIHOOD_ID.value)
+            matrix[RiskCalculationKey.LIKELIHOOD_VALUE.value] = (
+                likelihood_basis.get(likelihood_id) if likelihood_id else None
+            )
+
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-    def delete_with_followup(self, public_id: int) -> bool:
+    def delete_with_follow_up(self, public_id: int) -> bool:
         """
         Deletes an IsmsRiskAssessment from the database with followup logics
 
@@ -58,18 +99,13 @@ class RiskAssessmentManager(GenericManager):
             bool: True if successful, False otherwise
         """
         try:
-            # When an IsmsRiskAssessment is deleted, delete also all IsmsControlMeasureAssignments where it is linked
-            linked_control_measure_assignments = self.get_many_from_other_collection(
+            # When an IsmsRiskAssessment is deleted, delete all IsmsControlMeasureAssignments linked to
+            # it in a single cross-collection delete rather than one delete per assignment
+            self.delete_many_from_other_collection(
                 IsmsControlMeasureAssignment.COLLECTION,
-                risk_assessment_id=public_id
+                {'risk_assessment_id': public_id}
             )
-
-            for control_measure_assignment in linked_control_measure_assignments:
-                self.delete(
-                    {'public_id':control_measure_assignment['public_id']},
-                    IsmsControlMeasureAssignment.COLLECTION
-                )
 
             return self.delete_item(public_id)
         except Exception as err:
-            raise RiskAssessmentManagerDeleteError(err) from err
+            raise RiskAssessmentManagerDeleteError(str(err)) from err

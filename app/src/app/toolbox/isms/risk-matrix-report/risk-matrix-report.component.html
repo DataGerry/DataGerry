@@ -1,34 +1,36 @@
-<div *ngIf="configurationIsValid">
+@if (configurationIsValid) {
+<div>
 
-<div class="header d-flex align-items-center justify-content-between" *permissionLink="'base.isms.riskMatrix.view'">
-  <h1>Risk Matrix</h1>
+  <div class="header d-flex align-items-center justify-content-between" *permissionLink="'base.isms.riskMatrix.view'">
+    <h1>Risk Matrix</h1>
 
-  <!-- Export PDF button aligned to the right -->
-  <button class="btn btn-secondary btn-sm" [disabled]="loading" (click)="exportPdf()">
-    <i class="fas fa-file-pdf"></i> Export PDF
-  </button>
+    <!-- Export PDF button aligned to the right -->
+    <button class="btn btn-secondary btn-sm" [disabled]="loading" (click)="exportPdf()">
+      <i class="fas fa-file-pdf"></i> Export PDF
+    </button>
+  </div>
+
+  <!-- everything inside this wrapper will be rendered to the canvas -->
+  <div #reportContent class="report-wrapper mx-auto">
+
+    <app-risk-matrix-grid [title]="'Risk matrix – BEFORE treatment'" [impacts]="impacts" [likelihoods]="likelihoods"
+      [cells]="before" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
+    </app-risk-matrix-grid>
+
+    <div style="height: 40px;"></div>
+
+    <app-risk-matrix-grid [title]="'Risk matrix – CURRENT state'" [impacts]="impacts" [likelihoods]="likelihoods"
+      [cells]="current" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
+    </app-risk-matrix-grid>
+
+    <div style="height: 40px;"></div>
+
+    <app-risk-matrix-grid [title]="'Risk matrix – AFTER treatment'" [impacts]="impacts" [likelihoods]="likelihoods"
+      [cells]="after" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
+    </app-risk-matrix-grid>
+
+  </div>
 </div>
-
-<!-- everything inside this wrapper will be rendered to the canvas -->
-<div #reportContent class="report-wrapper mx-auto">
-
-  <app-risk-matrix-grid [title]="'Risk matrix – BEFORE treatment'" [impacts]="impacts" [likelihoods]="likelihoods"
-    [cells]="before" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
-  </app-risk-matrix-grid>
-
-  <div style="height: 40px;"></div>
-
-  <app-risk-matrix-grid [title]="'Risk matrix – CURRENT state'" [impacts]="impacts" [likelihoods]="likelihoods"
-    [cells]="current" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
-  </app-risk-matrix-grid>
-
-  <div style="height: 40px;"></div>
-
-  <app-risk-matrix-grid [title]="'Risk matrix – AFTER treatment'" [impacts]="impacts" [likelihoods]="likelihoods"
-    [cells]="after" [riskClasses]="riskClasses" (viewAssessments)="onCell($event)">
-  </app-risk-matrix-grid>
-
-</div>
-</div>
+}
 
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

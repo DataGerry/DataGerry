@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,7 +26,8 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 @Component({
     selector: 'cmdb-docapi-builder-settings-step',
     templateUrl: './docapi-builder-settings-step.component.html',
-    styleUrls: ['./docapi-builder-settings-step.component.scss']
+    styleUrls: ['./docapi-builder-settings-step.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderSettingsStepComponent implements OnInit {
     @Input()
@@ -42,13 +43,13 @@ export class DocapiBuilderSettingsStepComponent implements OnInit {
 
 /* -------------------------------------------------- GETTER/SETTER ------------------------------------------------- */
 
-    public get name() {
-        return this.settingsForm?.get('name');
+    public get name(): UntypedFormControl {
+        return this.settingsForm.get('name') as UntypedFormControl;
     }
 
 
-    public get label() {
-    return this.settingsForm?.get('label');
+    public get label(): UntypedFormControl {
+        return this.settingsForm.get('label') as UntypedFormControl;
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -76,7 +77,7 @@ export class DocapiBuilderSettingsStepComponent implements OnInit {
                 this.settingsForm?.get('name')?.markAsDirty({ onlySelf: true });
                 this.settingsForm?.get('name')?.markAsTouched({ onlySelf: true });
             });
-        } else if (CmdbMode.Edit) {
+        } else if (this.mode === CmdbMode.Edit) {
             this.settingsForm?.markAllAsTouched();
         }
     }

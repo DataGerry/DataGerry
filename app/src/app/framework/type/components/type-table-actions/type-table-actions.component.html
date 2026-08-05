@@ -1,4 +1,5 @@
-<div class="d-flex justify-content-center" *ngIf="publicID">
+@if (publicID) {
+<div class="d-flex justify-content-center">
   <a *permissionLink="['base.framework.type.view', 'base.framework.type.edit']"
      [routerLink]="['/', 'framework', 'type', 'edit', publicID]"
      title="Edit type">
@@ -15,3 +16,4 @@
     <i class="far fa-trash-alt spacing-right icon-delete"></i>
   </a>
 </div>
+}

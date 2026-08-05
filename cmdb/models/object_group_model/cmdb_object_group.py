@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,14 @@
 """
 Implementation of CmdbObjectGroup in DataGerry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.object_group_model.object_group_mode_enum import ObjectGroupMode
 from cmdb.models.extendable_option_model.option_type_enum import OptionType
+
+from cmdb.class_schema.object_group_model.cmdb_object_group_schema import get_cmdb_object_group_schema
 
 from cmdb.errors.models.cmdb_object_group import (
     CmdbObjectGroupInitError,
@@ -29,7 +32,7 @@ from cmdb.errors.models.cmdb_object_group import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                CmdbObjectGroup - CLASS                                               #
@@ -44,39 +47,22 @@ class CmdbObjectGroup(CmdbDAO):
     COLLECTION = "framework.objectGroups"
     MODEL = 'ObjectGroup'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'group_type': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'assigned_ids': {
-            'type': 'list',
-            'required': True,
-            'empty': False
-        },
-        'categories': {
-            'type': 'list',
-        },
-    }
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('group_type', CmdbDAO.DAO_ASCENDING)], 'name': 'group_type', 'unique': False},
+        {'keys': [('assigned_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'assigned_ids', 'unique': False}
+    ]
+
+    SCHEMA: dict = get_cmdb_object_group_schema()
 
     #pylint: disable=R0917
     def __init__(
-            self,
-            public_id: int,
-            name: str,
-            group_type: ObjectGroupMode,
-            assigned_ids: list[int],
-            categories: list[int]):
+        self,
+        public_id: int,
+        name: str,
+        group_type: ObjectGroupMode,
+        assigned_ids: list[int],
+        categories: list[int]
+    ) -> None:
         """
         Initialises a CmdbObjectGroup
 
@@ -98,7 +84,7 @@ class CmdbObjectGroup(CmdbDAO):
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbObjectGroupInitError(err) from err
+            raise CmdbObjectGroupInitError(str(err)) from err
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
@@ -125,11 +111,11 @@ class CmdbObjectGroup(CmdbDAO):
                 categories = data.get('categories', []),
             )
         except Exception as err:
-            raise CmdbObjectGroupInitFromDataError(err) from err
+            raise CmdbObjectGroupInitFromDataError(str(err)) from err
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbObjectGroup") -> dict:
+    def to_json(cls, instance: "CmdbObjectGroup") -> dict[str, Any]:
         """
         Converts a CmdbObjectGroup into a json compatible dict
 
@@ -151,4 +137,4 @@ class CmdbObjectGroup(CmdbDAO):
                 'categories': instance.categories,
             }
         except Exception as err:
-            raise CmdbObjectGroupToJsonError(err) from err
+            raise CmdbObjectGroupToJsonError(str(err)) from err

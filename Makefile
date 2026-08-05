@@ -1,5 +1,5 @@
 # DataGerry - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -15,8 +15,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # set environment variables
-BUILDVAR_VERSION = 3.0.0
+BUILDVAR_VERSION = 3.2.0
 BIN_PYINSTALLER = pyinstaller
+DATEVAR := $(shell date '+%a %b %d %Y')
 
 # Sphinx
 BIN_SPHINX = sphinx-build
@@ -27,26 +28,28 @@ DIR_DOCS_TARGET = cmdb/interface/docs/static
 BIN_PYTEST = pytest
 BIN_PIP = pip
 BIN_NPM = npm
+BIN_YARN = yarn
 BIN_RPMBUILD = rpmbuild
-BIN_DEBBUILD = dpkg-deb
 DIR_BUILD = $(CURDIR)/target
 DIR_BIN_BUILD = ${DIR_BUILD}/bin
 DIR_TEMP= ${DIR_BUILD}/temp
 
 DIR_RPM_BUILD = ${DIR_BUILD}/rpm
 DIR_DEB_BUILD = ${DIR_BUILD}/deb
-DIR_TARGZ_BUILD = ${DIR_BUILD}/targz
+DIR_ZIP_BUILD = ${DIR_BUILD}/zip
 DIR_DOCKER_BUILD = ${DIR_BUILD}/docker
 DIR_WEB_SOURCE = app
-DIR_WEB_BUILD = app/dist/datagerry-app
+DIR_WEB_BUILD = app/dist/datagerry-app/browser
 DIR_WEB_TARGET = cmdb/interface/net_app/datagerry-app
+DIR_FRONTEND_BUILD = app/dist/datagerry-app/browser
+DIR_FRONTEND_TARGET = ${DIR_BUILD}/frontend
 
 # set default goal
 .DEFAULT_GOAL := all
 
 # build whole application
 .PHONY: all
-all: bin rpm targz docker
+all: bin zip deb frontend docker
 
 
 # install Python requirements
@@ -74,21 +77,36 @@ docs: requirements buildvars
 webapp:
 #	cd ${DIR_WEB_SOURCE} && ${BIN_NPM} install
 #	cd ${DIR_WEB_SOURCE} && ${BIN_NPM} run prod
-	${BIN_NPM} install --prefix ${DIR_WEB_SOURCE}
+	${BIN_NPM} install --legacy-peer-deps --prefix ${DIR_WEB_SOURCE}
 	${BIN_NPM} run prod --prefix ${DIR_WEB_SOURCE}
 	cp -R ${DIR_WEB_BUILD}/* ${DIR_WEB_TARGET}
+
+
+# create frontend
+.PHONY: frontend
+frontend:
+	mkdir -p ${DIR_FRONTEND_TARGET}
+	${BIN_YARN}
+	${BIN_YARN} --cwd $(CURDIR)/${DIR_WEB_SOURCE} build
+	cp -R ${DIR_FRONTEND_BUILD}/* ${DIR_FRONTEND_TARGET}
 
 
 # create onefile binary of DataGerry
 .PHONY: bin
 bin: requirements buildvars docs webapp
-	${BIN_PYINSTALLER} --name datagerry --onefile \
+		-rm -rf ${DIR_BIN_BUILD}
+		${BIN_PYINSTALLER} --name datagerry --onefile \
 		--distpath ${DIR_BIN_BUILD} \
 		--workpath ${DIR_TEMP} \
 		--hidden-import cmdb.database.updater.versions.updater_20200512 \
 		--hidden-import cmdb.database.updater.versions.updater_20200513 \
 		--hidden-import cmdb.database.updater.versions.updater_20240603 \
 		--hidden-import cmdb.database.updater.versions.updater_20250619 \
+		--hidden-import cmdb.database.updater.versions.updater_20251203 \
+		--hidden-import cmdb.database.updater.versions.updater_20260225 \
+		--hidden-import cmdb.database.updater.versions.updater_20260226 \
+		--hidden-import cmdb.database.updater.versions.updater_20260417 \
+		--hidden-import cmdb.database.updater.versions.updater_20260604 \
 		--hidden-import cmdb.framework.exporter \
 		--hidden-import cmdb.framework.exporter.format \
 		--hidden-import cmdb.interface.gunicorn \
@@ -109,63 +127,76 @@ bin: requirements buildvars docs webapp
 # create RPM package
 .PHONY: rpm
 rpm: bin
+	-rm -rf ${DIR_RPM_BUILD}
 	mkdir -p ${DIR_RPM_BUILD}
 	mkdir -p ${DIR_RPM_BUILD}/SOURCES
 	cp ${DIR_BIN_BUILD}/datagerry ${DIR_RPM_BUILD}/SOURCES
 	cp contrib/systemd/datagerry.service ${DIR_RPM_BUILD}/SOURCES
 	cp etc/cmdb.conf ${DIR_RPM_BUILD}/SOURCES
+	cp etc/app-config.json ${DIR_RPM_BUILD}/SOURCES
 	cp contrib/tmpfiles.d/datagerry.conf ${DIR_RPM_BUILD}/SOURCES
 	cp contrib/rpm/datagerry.spec ${DIR_RPM_BUILD}
 	sed -i 's/@@DG_BUILDVAR_VERSION@@/$(subst -,_,${BUILDVAR_VERSION})/g' ${DIR_RPM_BUILD}/datagerry.spec
+	sed -i "s/@@DG_BUILDVAR_DATE@@/${DATEVAR}/g" ${DIR_RPM_BUILD}/datagerry.spec
 	${BIN_RPMBUILD} --define '_topdir ${DIR_RPM_BUILD}' -bb ${DIR_RPM_BUILD}/datagerry.spec
 
 
-# create tar.gz package
-.PHONY: targz
-targz: bin
-	mkdir -p ${DIR_TARGZ_BUILD}
-	mkdir -p ${DIR_TARGZ_BUILD}/src/datagerry/
-	mkdir -p ${DIR_TARGZ_BUILD}/src/datagerry/files
-	cp ${DIR_BIN_BUILD}/datagerry ${DIR_TARGZ_BUILD}/src/datagerry/files
-	cp contrib/systemd/datagerry.service ${DIR_TARGZ_BUILD}/src/datagerry/files
-	cp contrib/tmpfiles.d/datagerry.conf ${DIR_TARGZ_BUILD}/src/datagerry/files
-	cp etc/cmdb.conf ${DIR_TARGZ_BUILD}/src/datagerry/files
-	cp LICENSE ${DIR_TARGZ_BUILD}/src/datagerry
-	cp contrib/setup/setup.sh ${DIR_TARGZ_BUILD}/src/datagerry
-	tar -czvf ${DIR_TARGZ_BUILD}/datagerry-${BUILDVAR_VERSION}.tar.gz -C ${DIR_TARGZ_BUILD}/src datagerry
+# create zip package
+.PHONY: zip
+zip: bin
+	-rm -rf ${DIR_ZIP_BUILD}
+	mkdir -p ${DIR_ZIP_BUILD}
+	mkdir -p ${DIR_ZIP_BUILD}/src/datagerry/
+	mkdir -p ${DIR_ZIP_BUILD}/src/datagerry/files
+	cp ${DIR_BIN_BUILD}/datagerry ${DIR_ZIP_BUILD}/src/datagerry/files
+	cp contrib/systemd/datagerry.service ${DIR_ZIP_BUILD}/src/datagerry/files
+	cp contrib/tmpfiles.d/datagerry.conf ${DIR_ZIP_BUILD}/src/datagerry/files
+	cp etc/cmdb.conf ${DIR_ZIP_BUILD}/src/datagerry/files
+	cp etc/app-config.json ${DIR_ZIP_BUILD}/src/datagerry/files
+	cp LICENSE ${DIR_ZIP_BUILD}/src/datagerry
+	cp contrib/setup/setup.sh ${DIR_ZIP_BUILD}/src/datagerry
+	#tar -czvf ${DIR_ZIP_BUILD}/datagerry-${BUILDVAR_VERSION}.tar.gz -C ${DIR_ZIP_BUILD}/src datagerry
+	cd ${DIR_ZIP_BUILD}/src && zip -r ${DIR_ZIP_BUILD}/DataGerry-${BUILDVAR_VERSION}.zip *
 
 # create deb package
 .PHONY: deb
 deb: bin
+	-rm -rf ${DIR_DEB_BUILD}
 	mkdir -p ${DIR_DEB_BUILD}
-	mkdir -p ${DIR_DEB_BUILD}/DEBIAN
-	mkdir -p ${DIR_DEB_BUILD}/usr/bin
-	mkdir -p ${DIR_DEB_BUILD}/usr/lib/systemd/system
-	mkdir -p ${DIR_DEB_BUILD}/usr/lib/tmpfiles.d
-	mkdir -p ${DIR_DEB_BUILD}/etc/datagerry
-	cp contrib/deb/control ${DIR_DEB_BUILD}/DEBIAN
-	cp contrib/deb/postinst ${DIR_DEB_BUILD}/DEBIAN
-	cp contrib/deb/preinst ${DIR_DEB_BUILD}/DEBIAN
-	chmod 755 ${DIR_DEB_BUILD}/DEBIAN/*
-	cp ${DIR_BIN_BUILD}/datagerry ${DIR_DEB_BUILD}/usr/bin
-	cp contrib/systemd/datagerry.service ${DIR_DEB_BUILD}/usr/lib/systemd/system
-	cp etc/cmdb.conf ${DIR_DEB_BUILD}/etc/datagerry/
-	cp contrib/tmpfiles.d/datagerry.conf ${DIR_DEB_BUILD}/usr/lib/tmpfiles.d
-	chmod 755 ${DIR_DEB_BUILD}/usr/*
-	chmod 755 ${DIR_DEB_BUILD}/etc/*
-	cd ${DIR_DEB_BUILD}
-	${BIN_DEBBUILD} --build ${DIR_DEB_BUILD}
+	mkdir -p ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/DEBIAN
+	mkdir -p ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/bin
+	mkdir -p ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/lib/systemd/system
+	mkdir -p ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/lib/tmpfiles.d
+	mkdir -p ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry
+	cp contrib/deb/* ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/DEBIAN
+	chmod 755 ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/DEBIAN/*
+	sed -i 's/@@DG_BUILDVAR_VERSION@@/$(subst -,_,${BUILDVAR_VERSION})/g' ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/DEBIAN/control
+	cp ${DIR_BIN_BUILD}/datagerry ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/bin
+	cp contrib/systemd/datagerry.service ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/lib/systemd/system
+	cp etc/cmdb.conf ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/
+	cp etc/app-config.json ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/datagerry/
+	cp contrib/tmpfiles.d/datagerry.conf ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/lib/tmpfiles.d
+	chmod 755 ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/usr/*
+	chmod 755 ${DIR_DEB_BUILD}/DataGerry_${BUILDVAR_VERSION}_all/etc/*
+	cd ${DIR_DEB_BUILD} && dpkg-deb --build DataGerry_${BUILDVAR_VERSION}_all
 
 # create Docker image
 .PHONY: docker
-docker: rpm
+docker: bin frontend
 	mkdir -p ${DIR_DOCKER_BUILD}
 	mkdir -p ${DIR_DOCKER_BUILD}/src
 	mkdir -p ${DIR_DOCKER_BUILD}/src/files
-	cp contrib/docker/Dockerfile ${DIR_DOCKER_BUILD}/src
-	cp ${DIR_RPM_BUILD}/RPMS/x86_64/DATAGERRY-*.rpm ${DIR_DOCKER_BUILD}/src/files
-	docker build -f ${DIR_DOCKER_BUILD}/src/Dockerfile -t becongmbh/datagerry:${BUILDVAR_VERSION} ${DIR_DOCKER_BUILD}/src
-
+	mkdir -p ${DIR_DOCKER_BUILD}/src/files/backend
+	mkdir -p ${DIR_DOCKER_BUILD}/src/files/frontend
+	mkdir -p ${DIR_DOCKER_BUILD}/src/files/conf
+	cp contrib/docker/DockerfileBackend ${DIR_DOCKER_BUILD}/src
+	cp contrib/docker/DockerfileFrontend ${DIR_DOCKER_BUILD}/src
+	cp ${DIR_BIN_BUILD}/datagerry ${DIR_DOCKER_BUILD}/src/files/backend
+	cp etc/cmdb.conf ${DIR_DOCKER_BUILD}/src/files/conf
+	cp etc/app-config.json ${DIR_DOCKER_BUILD}/src/files/conf
+	cp -r ${DIR_FRONTEND_TARGET} ${DIR_DOCKER_BUILD}/src/files
+	docker build -f ${DIR_DOCKER_BUILD}/src/DockerfileFrontend -t becongmbh/datagerry-frontend:${BUILDVAR_VERSION} -t becongmbh/datagerry-frontend:latest ${DIR_DOCKER_BUILD}/src --no-cache &> build.log
+	docker build -f ${DIR_DOCKER_BUILD}/src/DockerfileBackend -t becongmbh/datagerry-backend:${BUILDVAR_VERSION} -t becongmbh/datagerry-backend:latest ${DIR_DOCKER_BUILD}/src --no-cache
 
 # execute tests
 .PHONY: tests

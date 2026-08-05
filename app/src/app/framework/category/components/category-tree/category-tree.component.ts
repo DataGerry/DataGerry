@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { DndDropEvent, DropEffect } from 'ngx-drag-drop';
 import { CmdbMode } from '../../../modes.enum';
 
 @Component({
-  selector: 'cmdb-category-tree',
-  templateUrl: './category-tree.component.html',
-  styleUrls: ['./category-tree.component.scss']
+    selector: 'cmdb-category-tree',
+    templateUrl: './category-tree.component.html',
+    styleUrls: ['./category-tree.component.scss'],
+    standalone: false
 })
 export class CategoryTreeComponent {
 

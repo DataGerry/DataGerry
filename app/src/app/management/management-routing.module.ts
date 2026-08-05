@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,7 +19,6 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { PermissionGuard } from '../modules/auth/guards/permission.guard';
-import { cloudModeGuard, cloudModeChildGuard } from '../modules/auth/guards/cloud-mode.guard';
 
 import { UserSettingsResolver } from './user-settings/resolvers/user-settings-resolver.service';
 

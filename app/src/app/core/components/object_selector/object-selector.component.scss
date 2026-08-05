@@ -9,3 +9,33 @@
 ::ng-deep ng-select .ng-value {
   padding: 3px 6px;
 }
+
+.object-select-wrapper {
+  position: relative;
+  display: grid;
+  align-items: start;
+  gap: .5rem;
+}
+
+.inline-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  user-select: none;
+  color: #e94d18 !important;
+
+  .spinner-border {
+    width: 50px;
+    height: 50px;
+    border-width: .25rem;
+  }
+
+  &.text-warning {
+    color: #e94d18 !important; 
+  }
+
+  small {
+    font-weight: 600;
+    opacity: .85;
+  }
+}

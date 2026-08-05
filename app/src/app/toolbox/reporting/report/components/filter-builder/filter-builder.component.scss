@@ -1,0 +1,20 @@
+.query-row {
+    display: flex;
+    align-items: center;
+    gap: 8px; // Add small spacing between operator and value input
+    flex-wrap: nowrap; // Prevent wrapping to the next line
+}
+
+.operator-select {
+    min-width: 120px; // Fixed width for the operator dropdown
+    flex-shrink: 0; // Prevent shrinking of the select element
+}
+
+.value-input {
+    flex: 1; // Allow the input to take remaining space
+}
+
+
+.bold-text {
+    font-weight: bold;
+}

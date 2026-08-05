@@ -1,19 +1,16 @@
-<div class="form-group">
+<div class="mb-3">
   <div [formGroup]="iconFormGroup">
-    <label>Icon</label>
+    <label for="iconInput" class="form-label">Icon</label>
     <div class="input-group">
-      <div class="input-group-prepend">
-        <span class="input-group-text" id="basic-addon1"><i [ngClass]="iconFormGroup.get('icon').value"></i></span>
-      </div>
-      <input type="text" name="icon" class="form-control"
-             formControlName="icon"
-             [iconPicker]="preSelectedIcon"
-             [ipPosition]="'bottom'"
-             [ipIconPack]="['fa5']"
-             [ipPlaceHolder]="'Choose an icon'"
-             [ipFallbackIcon]="fallbackIcon"
-             (iconPickerSelect)="onIconPickerSelect($event)" readonly/>
+      <span class="input-group-text" id="basic-addon1">
+        <i [ngClass]="iconFormGroup.get('icon')?.value"></i>
+      </span>
+      <input id="iconInput" type="text" name="icon" class="form-control" formControlName="icon"
+        [iconPicker]="preSelectedIcon" [ipPosition]="'bottom'" [ipIconPack]="['fa5']" [ipPlaceHolder]="'Choose an icon'"
+        [ipFallbackIcon]="fallbackIcon" (iconPickerSelect)="onIconPickerSelect($event)" readonly />
     </div>
   </div>
-  <small id="iconInputDescription" class="form-text text-muted">{{inputDescription}}</small>
+  <small id="iconInputDescription" class="form-text text-muted">
+    {{ inputDescription }}
+  </small>
 </div>

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -28,9 +28,10 @@ import { APIGetMultiResponse } from '../../../../services/models/api-response';
 import { CollectionParameters } from '../../../../services/models/api-parameter';
 
 @Component({
-  selector: 'cmdb-group-form',
-  templateUrl: './group-form.component.html',
-  styleUrls: ['./group-form.component.scss']
+    selector: 'cmdb-group-form',
+    templateUrl: './group-form.component.html',
+    styleUrls: ['./group-form.component.scss'],
+    standalone: false
 })
 export class GroupFormComponent implements OnInit, OnChanges, OnDestroy {
 
@@ -139,8 +140,8 @@ export class GroupFormComponent implements OnInit, OnChanges, OnDestroy {
    * Calls the auto unsubscriber.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
   /**

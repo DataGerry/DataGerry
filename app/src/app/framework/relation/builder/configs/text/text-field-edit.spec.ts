@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,9 +17,10 @@
 */
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { ReactiveFormsModule } from '@angular/forms';
 import { TextFieldEditComponent } from './text-field-edit.component';
-import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
+import { FieldIdentifierValidationService } from 'src/app/framework/type/services/field-identifier-validation.service';
 
 class MockFieldIdentifierValidationService {
     isDuplicate(newValue: string): boolean {
@@ -42,7 +43,8 @@ describe('TextFieldEditComponent', () => {
                     provide: FieldIdentifierValidationService,
                     useClass: MockFieldIdentifierValidationService
                 }
-            ]
+            ],
+            schemas: [NO_ERRORS_SCHEMA]
         }).compileComponents();
     });
 

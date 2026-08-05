@@ -1,37 +1,45 @@
 <h1>Add new status:</h1>
 <hr/>
 <form [formGroup]="addStatusForm" (ngSubmit)="saveStatus()" class="needs-validation" novalidate autocomplete="off">
-  <div class="form-group row">
+  <div class="mb-3 row">
     <label for="statusName" class="col-sm-2 col-form-label">Name: <span class="required">*</span></label>
     <div class="col-sm-10">
       <input type="text" class="form-control" id="statusName" formControlName="name"
              [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
                  'is-invalid': name.invalid && (name.dirty || name.touched)}" lowercase>
       <small class="description form-text text-muted">Name of status - has to be lowercase.</small>
-      <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-        <div *ngIf="name.errors.required">
+      @if (name.invalid && (name.dirty || name.touched)) {
+<div class="invalid-feedback">
+        @if (name.errors.required) {
+<div>
           Name is a required field.
         </div>
+}
         <div class="clearfix"></div>
       </div>
+}
     </div>
   </div>
-  <div class="form-group row">
+  <div class="mb-3 row">
     <label for="statusLabel" class="col-sm-2 col-form-label">Label: <span class="required">*</span></label>
     <div class="col-sm-10">
       <input type="text" class="form-control" id="statusLabel" formControlName="label"
              [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched),
                  'is-invalid': label.invalid && (label.dirty || label.touched)}">
       <small class="description form-text text-muted">Display name/label of status.</small>
-      <div *ngIf="label.invalid && (label.dirty || label.touched)" class="invalid-feedback">
-        <div *ngIf="label.errors.required">
+      @if (label.invalid && (label.dirty || label.touched)) {
+<div class="invalid-feedback">
+        @if (label.errors.required) {
+<div>
           Label is a required field.
         </div>
+}
         <div class="clearfix"></div>
       </div>
+}
     </div>
   </div>
-  <div class="form-group row">
+  <div class="mb-3 row">
     <label for="statusShort" class="col-sm-2 col-form-label">Short:</label>
     <div class="col-sm-10">
       <input type="text" class="form-control" id="statusShort" maxlength="{{shortMaxLength}}" formControlName="short"

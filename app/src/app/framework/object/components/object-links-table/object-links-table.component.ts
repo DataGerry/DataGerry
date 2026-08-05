@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { DatePipe } from '@angular/common';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
@@ -39,7 +39,8 @@ import { ObjectLinkDeleteModalComponent } from '../../modals/object-link-delete-
 @Component({
     selector: 'cmdb-object-links-table',
     templateUrl: './object-links-table.component.html',
-    styleUrls: ['./object-links-table.component.scss']
+    styleUrls: ['./object-links-table.component.scss'],
+    standalone: false
 })
 export class ObjectLinksTableComponent implements OnInit, OnDestroy {
 
@@ -88,7 +89,8 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
     constructor(private linkService: LinkService,
                 private modalService: NgbModal,
-                private toast: ToastService) {
+                private toast: ToastService,
+                private changesRef: ChangeDetectorRef) {
 
     }
 
@@ -137,8 +139,8 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
             this.modalRef.close();
         }
 
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
@@ -190,6 +192,7 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
             this.links = apiResponse.results as Array<CmdbLink>;
             this.totalLinks = apiResponse.total;
             this.loading = false;
+            this.changesRef.markForCheck();
         });
     }
 
@@ -212,15 +215,13 @@ export class ObjectLinksTableComponent implements OnInit, OnDestroy {
                             this.loadLinksFromAPI();
                         },
                         error: (error) => {
-                            console.log("link error", error);
-                            this.toast.error(`${error.error}`);
+                            this.toast.error(error?.error?.message);
                         }
                     });
                 } 
             },
             (reason: any) => {
                 // Handle modal dismissal rejection
-                console.log('Modal dismissed with reason:', reason);
             }
         );
     }

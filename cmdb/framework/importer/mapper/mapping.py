@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,14 +17,14 @@
 This module handles the mapping of data connections to respective memory areas, such as fields.
 It provides functionality to manage mappings, retrieve mapped entries, and manipulate mappings dynamically
 """
-import logging
+from logging import Logger, getLogger
 from typing import Iterator
 from collections.abc import Iterable
 
 from cmdb.framework.importer.mapper.map_entry import MapEntry
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    Mapping - CLASS                                                   #
@@ -33,12 +33,12 @@ class Mapping(Iterable):
     """
     Handles mappings between data sources and their respective memory fields
     """
-    def __init__(self, entries: list[MapEntry] = None):
+    def __init__(self, entries: list[MapEntry] | None = None) -> None:
         """
         Initializes a Mapping
 
         Args:
-            entries (list[MapEntry], optional): List of MapEntry objects. Defaults to an empty list
+            entries (list[MapEntry] | None): List of MapEntry objects. Defaults to an empty list
         """
         self.__entries: list[MapEntry] = entries or []
 
@@ -97,7 +97,7 @@ class Mapping(Iterable):
         self.__entries.append(entry)
 
 
-    def add_entries(self, entries: list[MapEntry]):
+    def add_entries(self, entries: list[MapEntry]) -> None:
         """
         Adds multiple mapping entries
         
@@ -107,7 +107,7 @@ class Mapping(Iterable):
         self.__entries.extend(entries)
 
 
-    def remove_entry(self, entry: MapEntry):
+    def remove_entry(self, entry: MapEntry) -> None:
         """
         Removes a mapping entry
         

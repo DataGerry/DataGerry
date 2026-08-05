@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { finalize, takeUntil } from 'rxjs/operators';
 
 
@@ -31,9 +31,13 @@ import { ReplaySubject } from 'rxjs';
 @Component({
     selector: 'cmdb-relation',
     templateUrl: './relation.component.html',
-    styleUrls: ['./relation.component.scss']
+    styleUrls: ['./relation.component.scss'],
+    standalone: false
 })
 export class RelationComponent implements OnInit, OnDestroy {
+
+    private readonly relationService = inject(RelationService);
+    private readonly loaderService = inject(LoaderService);
 
     // HTML ID of the table. Used for user settings and table-states
     public readonly id: string = 'relation-list-table';
@@ -84,13 +88,6 @@ export class RelationComponent implements OnInit, OnDestroy {
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-    constructor(
-        private relationService: RelationService,
-        private loaderService: LoaderService
-    ) {
-    }
-
-
     /**
      * Starts the component and init the table
      */
@@ -103,7 +100,7 @@ export class RelationComponent implements OnInit, OnDestroy {
                 data: 'public_id',
                 searchable: true,
                 sortable: true,
-                style: { width: '120px', 'text-align': 'center' }
+                style: { width: '130px', 'text-align': 'center' }
             },
             {
                 display: 'Relation',
@@ -111,7 +108,7 @@ export class RelationComponent implements OnInit, OnDestroy {
                 data: 'relation_name',
                 searchable: true,
                 sortable: true,
-                style: { width: '50%', 'text-align': 'center' } 
+                style: { width: '40%', 'text-align': 'center' } 
             },
             {
                 display: 'Description',
@@ -120,7 +117,7 @@ export class RelationComponent implements OnInit, OnDestroy {
                 sortable: true,
                 searchable: false,
                 template: this.descriptionTemplate,
-                style: { width: '50%', 'text-align': 'center' } 
+                style: { width: '40%', 'text-align': 'center' } 
             },
             {
                 display: 'Actions',
@@ -141,8 +138,8 @@ export class RelationComponent implements OnInit, OnDestroy {
      * Destroy subscriptions after closed.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

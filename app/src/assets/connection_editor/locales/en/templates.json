@@ -1,0 +1,63 @@
+{
+  "ADD": {
+    "VALIDATION_MESSAGES": {
+      "NAME_REQUIRED": "Name is a required field",
+      "DESCRIPTION_REQUIRED": "Description is a required field"
+    }
+  },
+  "LIST":{
+    "IMPORT_BUTTON": "Import template",
+    "EMPTY_LIST": "The list of Templates is empty",
+    "HEADER": "Templates",
+    "HEADER_ADMIN_CARDS": "Admin Cards",
+    "NAME": "Name",
+    "DESCRIPTION": "Description",
+    "FROM_INVOKER": "From Invoker",
+    "TO_INVOKER": "To Invoker",
+    "CONVERT_ALL_BUTTON": "Convert Selected"
+  },
+  "UPDATE":{
+    "FORM":{
+      "PAGE_1": "Direction",
+      "TITLE": "Title",
+      "DESCRIPTION": "Description",
+      "CONNECTORS": "Connectors",
+      "CONNECTORS_PLACEHOLDER_1": "Choose from connector",
+      "CONNECTORS_PLACEHOLDER_2": "Choose to connector",
+      "CHOSEN_CONNECTOR_FROM": "From connector",
+      "CHOSEN_CONNECTOR_TO": "To connector",
+      "DIRECTION": "Direction",
+      "HINT_1": "Choose connectors and direction",
+      "PAGE_2": "Mode",
+      "MODE": "Mode",
+      "EXPERT_MODE": "Expert",
+      "TEMPLATE_MODE": "Template",
+      "HINT_2": "Choose mode",
+      "PAGE_3": "Methods",
+      "ADD_TEMPLATE": "Add Template",
+      "ADD_TEMPLATE_TITLE": "Add Template",
+      "HINT_3": "Add methods"
+    },
+    "LIST_BUTTON": "Templates",
+    "UPDATE_BUTTON": "Update & Close",
+    "UPDATE_BUTTON_AND_GO_TO_CONNECTION": "Update & Go to Connections",
+    "HEADER": "Update Template",
+    "VALIDATION_MESSAGES": {
+      "TITLE_REQUIRED": "Title is a required field",
+      "TITLE_EXIST": "Connection with such title already exist",
+      "FROM_CONNECTOR_REQUIRED": "From Connector is a required field",
+      "TO_CONNECTOR_REQUIRED": "To Connector is a required field",
+      "TEMPLATE_REQUIRED": "Template is a required field",
+      "NO_TEMPLATES": "Please, choose the expert mode",
+      "FORM_METHODS": "Wrong data"
+    },
+    "CONFIRMATION": {
+      "TITLE": "OC.Confirmation",
+      "MESSAGE": "If you change mode, all your changes in methods will be lost. Are you sure?"
+    }
+  },
+  "ADD_CONNECTION": {
+    "BUTTON": "Add Connection",
+    "DIALOG_TITLE": "Add Connection"
+  }
+}

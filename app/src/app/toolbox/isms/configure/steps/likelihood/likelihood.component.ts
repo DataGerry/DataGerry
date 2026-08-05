@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnInit, Output, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnInit, Output, TemplateRef, ViewChild } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -29,11 +29,17 @@ import { IsmsConfig } from '../../../models/isms-config.model';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 
 @Component({
-  selector: 'app-isms-likelihood',
-  templateUrl: './likelihood.component.html',
-  styleUrls: ['./likelihood.component.scss']
+    selector: 'app-isms-likelihood',
+    templateUrl: './likelihood.component.html',
+    styleUrls: ['./likelihood.component.scss'],
+    standalone: false
 })
 export class LikelihoodsComponent implements OnInit {
+  private readonly likelihoodService = inject(LikelihoodService);
+  private readonly toast = inject(ToastService);
+  private readonly modalService = inject(NgbModal);
+  private readonly loaderService = inject(LoaderService);
+
   public likelihoods: Likelihood[] = [];
   public totalLikelihoods = 0;
   public page = 1;
@@ -51,14 +57,6 @@ export class LikelihoodsComponent implements OnInit {
   public sort: Sort = { name: 'calculation_basis', order: SortDirection.DESCENDING } as Sort;
 
   public isLoading$ = this.loaderService.isLoading$;
-
-  constructor(
-    private likelihoodService: LikelihoodService,
-    private toast: ToastService,
-    private modalService: NgbModal,
-    private loaderService: LoaderService
-  ) { }
-
 
   ngOnInit(): void {
     this.columns = [

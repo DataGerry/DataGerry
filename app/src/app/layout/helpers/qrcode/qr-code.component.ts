@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,9 +19,10 @@
 import { Component, Input } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-qrcode',
-  templateUrl: './qr-code.component.html',
-  styleUrls: ['./qr-code.component.scss']
+    selector: 'cmdb-qrcode',
+    templateUrl: './qr-code.component.html',
+    styleUrls: ['./qr-code.component.scss'],
+    standalone: false
 })
 export class QrCodeComponent {
 

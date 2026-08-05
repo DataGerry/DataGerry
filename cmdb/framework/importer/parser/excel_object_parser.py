@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 Implementation of ExcelObjectParser
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from openpyxl import load_workbook
 
 from cmdb.framework.importer.content_types import XLSXContent
@@ -26,7 +27,7 @@ from cmdb.framework.importer.responses.excel_object_parser_response import Excel
 from cmdb.errors.importer import ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               ExcelObjectParser - CLASS                                              #
@@ -42,7 +43,7 @@ class ExcelObjectParser(BaseObjectParser, XLSXContent):
             - sheet_name: The name of the sheet to parse (default 'Sheet1')
             - header: Whether the sheet includes a header (default True)
     """
-    DEFAULT_CONFIG = {
+    DEFAULT_CONFIG: dict[str, Any] = {
         'sheet_name': 'Sheet1',
         'header': True
     }

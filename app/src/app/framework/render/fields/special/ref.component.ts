@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -33,7 +33,8 @@ import { CmdbMode } from '../../../modes.enum';
 
 @Component({
     templateUrl: './ref.component.html',
-    styleUrls: ['./ref.component.scss']
+    styleUrls: ['./ref.component.scss'],
+    standalone: false
 })
 export class RefComponent extends RenderFieldComponent implements OnInit, OnDestroy {
 
@@ -65,7 +66,7 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
                         this.mdsInteraction = true;
                     },
                     error: (error) => {
-                        console.error(error);
+                        // console.error(error);
                     }
                 });
             }
@@ -104,7 +105,7 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
                         this.mdsInteraction = true;
                     },
                     error: (error) => {
-                        console.error(error);
+                        // console.error(error);
                     }
                 });
             }
@@ -121,7 +122,7 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
                         this.refObject = refObject;
                     },
                     error: (error) => {
-                        console.error(error);
+                        // console.error(error);
                     }
                 });
             }
@@ -138,8 +139,8 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
             this.data.reference = undefined;
         }
 
-        this.unsubscribe.next();
-        this.unsubscribe.complete();
+        this.unsubscribe?.next();
+        this.unsubscribe?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,9 @@
 """
 Implementation of GetSingleResponse
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
@@ -25,7 +27,7 @@ from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjecti
 from cmdb.interface.rest_api.responses.helpers.api_projector import APIProjector
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               GetSingleResponse - CLASS                                              #
@@ -35,7 +37,7 @@ class GetSingleResponse(BaseAPIResponse):
     API Response for get calls with a single resource.
     """
 
-    def __init__(self, result: dict, body: bool = None, projection: dict = None):
+    def __init__(self, result: dict, body: bool = None, projection: dict | None = None) -> None:
         """
         Constructor of GetSingleResponse
         """
@@ -47,7 +49,7 @@ class GetSingleResponse(BaseAPIResponse):
         super().__init__(operation_type=OperationType.GET, body=body)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response
 
@@ -66,8 +68,13 @@ class GetSingleResponse(BaseAPIResponse):
         return response
 
 
-    def export(self) -> dict:
-        """Get content of the response as dict"""
-        return {**{
-            'result': self.result
-        }, **super().export()}
+    def export(self) -> dict[str, Any]:
+        """
+        Get content of the response as dict
+        """
+        return {
+            **{
+                'result': self.result
+            },
+            **super().export()
+        }

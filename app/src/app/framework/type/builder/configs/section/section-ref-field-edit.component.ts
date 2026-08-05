@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,13 +26,16 @@ import { APIGetMultiResponse } from '../../../../../services/models/api-response
 import { ReplaySubject, Subscription } from 'rxjs';
 import { CmdbMode } from '../../../../modes.enum';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 import { ToastService } from "../../../../../layout/toast/toast.service";
 import { ValidationService } from '../../../services/validation.service';
 import { SectionIdentifierService } from '../../../services/SectionIdentifierService.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 @Component({
     selector: 'cmdb-section-ref-field-edit',
-    templateUrl: './section-ref-field-edit.component.html'
+    templateUrl: './section-ref-field-edit.component.html',
+    standalone: false
 })
 export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
@@ -45,7 +48,7 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
     /**
      * Name form control.
      */
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
 
     /**
      * Label form control.
@@ -123,7 +126,7 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
     public isValid$ = false;
 
     constructor(private typeService: TypeService, private toast: ToastService, private validationService: ValidationService,
-        private sectionIdentifier: SectionIdentifierService) {
+        private sectionIdentifier: SectionIdentifierService, private copyService: CopyService) {
         super();
     }
 
@@ -156,6 +159,7 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
         this.triggerAPICall();
 
         this.initialValue = this.nameControl.value;
+        this.identifierInitialValue = this.nameControl.value;
         this.previousNameControlValue = this.nameControl.value;
 
         this.currentValue = this.identifierInitialValue;
@@ -278,6 +282,15 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
     * @param name The new name for the field.
     */
     public onNameChange(name: string) {
+        if (this.isDuplicateSectionIdentifier(name)) {
+            this.setDuplicateIdentifierState(true);
+            this.validationService.setSectionHighlightState(true);
+            this.fieldChanges$.next({ isDuplicate: true, elementType: 'ref-section' });
+            return;
+        }
+
+        this.setDuplicateIdentifierState(false);
+        this.fieldChanges$.next({ isDuplicate: false, elementType: 'ref-section' });
         let oldName = this.data.name;
 
         const latestField = this.fields.find(x => x.name.startsWith(oldName));
@@ -287,13 +300,11 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
 
         const fieldIdx = this.data.fields.indexOf(`${oldName}-field`);
         if (fieldIdx === -1) {
-            console.error(`Field ${oldName}-field not found in this.data.fields`);
             return;
         }
 
         const field = this.fields.find(x => x.name === `${oldName}-field`);
         if (!field) {
-            console.error(`Field object with name ${oldName}-field not found in this.fields`);
             return;
         }
 
@@ -305,13 +316,36 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
     }
 
 
+    private isDuplicateSectionIdentifier(newValue: string): boolean {
+        if (!newValue || newValue === this.currentValue) {
+            return false;
+        }
+
+        return (this.sections ?? []).some(section => section !== this.data && section?.name === newValue);
+    }
+
+
+    private setDuplicateIdentifierState(isDuplicate: boolean): void {
+        this.isIdentifierValid = !isDuplicate;
+        const errors = { ...(this.nameControl.errors ?? {}) };
+
+        if (isDuplicate) {
+            this.nameControl.setErrors({ ...errors, duplicateIdentifier: true });
+            return;
+        }
+
+        delete errors.duplicateIdentifier;
+        this.nameControl.setErrors(Object.keys(errors).length ? errors : null);
+    }
+
+
 
     /**
      * Destroy component.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
 
         if (this.activeIndexSubscription) {
             this.activeIndexSubscription.unsubscribe();
@@ -346,5 +380,12 @@ export class SectionRefFieldEditComponent extends ConfigEditBaseComponent implem
                 this.isIdentifierValid = true;
             }
         }, 200);
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'section reference identifier');
     }
 }

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -48,7 +48,8 @@ import { NumberControl } from 'src/app/framework/type/builder/controls/number/nu
 @Component({
     selector: 'section-template-builder',
     templateUrl: './section-template-builder.component.html',
-    styleUrls: ['./section-template-builder.component.scss']
+    styleUrls: ['./section-template-builder.component.scss'],
+    standalone: false
 })
 export class SectionTemplateBuilderComponent implements OnInit {
 
@@ -99,7 +100,8 @@ export class SectionTemplateBuilderComponent implements OnInit {
         private router: Router) {
 
         this.formGroup = new FormGroup({
-            'isGlobal': new FormControl(false)
+            'isGlobal': new FormControl(false),
+            'isMultiDataSection': new FormControl(false)
         });
     }
 
@@ -132,6 +134,10 @@ export class SectionTemplateBuilderComponent implements OnInit {
                 }
             }
         });
+
+        this.formGroup?.controls['isMultiDataSection']?.valueChanges?.subscribe(isMultiDataSection => {
+            this.initialSection.type = isMultiDataSection ? 'multi-data-section' : 'section';
+        });
     }
 
     public ngOnDestroy(): void {
@@ -151,6 +157,7 @@ export class SectionTemplateBuilderComponent implements OnInit {
         }
 
         this.initialSection.label = this.sectionComponent.form.controls['label'].value;
+        this.initialSection.type = this.getSectionTemplateType();
 
         if (this.sectionTemplateID > 0) {
             this.updateSectionTemplate();
@@ -167,6 +174,7 @@ export class SectionTemplateBuilderComponent implements OnInit {
         let params = {
             "name": this.sectionComponent?.form?.controls['name']?.value,
             "label": this.initialSection?.label,
+            "type": this.getSectionTemplateType(),
             "is_global": this.formGroup?.value?.isGlobal,
             "predefined": false,
             "fields": JSON.stringify(this.initialSection?.fields)
@@ -191,7 +199,7 @@ export class SectionTemplateBuilderComponent implements OnInit {
         let params = {
             'name': this.initialSection?.name,
             'label': this.initialSection?.label,
-            'type': 'section',
+            'type': this.getSectionTemplateType(),
             'is_global': this.formGroup?.value?.isGlobal,
             'predefined': false,
             'fields': JSON.stringify(this.initialSection?.fields),
@@ -221,6 +229,7 @@ export class SectionTemplateBuilderComponent implements OnInit {
                 next: (response: CmdbSectionTemplate) => {
                     this.initialSection = response;
                     this.formGroup?.controls?.isGlobal?.setValue(this.initialSection?.is_global);
+                    this.formGroup?.controls?.isMultiDataSection?.setValue(this.initialSection?.type === 'multi-data-section');
                 },
                 error: (error) => this.toastService.error(error?.error?.message)
             }
@@ -370,5 +379,10 @@ export class SectionTemplateBuilderComponent implements OnInit {
         }
 
         return `section_template-${uuidv4()}`;
+    }
+
+
+    private getSectionTemplateType(): string {
+        return this.formGroup?.value?.isMultiDataSection ? 'multi-data-section' : 'section';
     }
 }

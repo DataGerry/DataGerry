@@ -1,0 +1,121 @@
+<div class="license-management container-fluid py-4">
+
+  <header class="license-management__header mb-3 d-flex flex-wrap justify-content-between align-items-start gap-3">
+    <div class="license-management__heading">
+      <h1 class="h3 mb-1">
+        <i class="fas fa-id-card-clip me-2" aria-hidden="true"></i>License Management
+      </h1>
+      <p class="text-muted mb-0">Manage your license and unlock Self Hosted features for this instance.</p>
+    </div>
+
+    @if (showCatalogTrigger) {
+      <app-button
+        label="Explore Self-Hosted features"
+        icon="fas fa-arrow-up-right-dots"
+        bootstrapClass="btn-outline-primary"
+        ariaLabel="View the Self-Hosted feature catalogue"
+        (clicked)="onShowCatalog()">
+      </app-button>
+    }
+
+    @if (canDeleteLicense) {
+      <div class="license-management__actions d-flex flex-wrap align-items-center gap-2">
+        <app-button
+          *permissionLink="'base.license.edit'"
+          label="Import license"
+          icon="fas fa-file-import"
+          bootstrapClass="btn-outline-primary"
+          ariaLabel="Import a new license through the activation steps"
+          (clicked)="onImportLicense()">
+        </app-button>
+
+        <app-button
+          *permissionLink="'base.license.delete'"
+          label="Remove license"
+          icon="fas fa-trash-can"
+          bootstrapClass="btn-outline-danger"
+          ariaLabel="Remove the active license from this instance"
+          (clicked)="onDeleteLicense()">
+        </app-button>
+      </div>
+    }
+
+    @if (canCancelImport) {
+      <app-button
+        label="Cancel"
+        icon="fas fa-arrow-left"
+        bootstrapClass="btn-outline-secondary"
+        ariaLabel="Cancel the import and return to the license overview"
+        (clicked)="onCancelImport()">
+      </app-button>
+    }
+  </header>
+
+  @if (loadError) {
+    <div class="card">
+      <div class="card-body text-center py-5">
+        <i class="fas fa-triangle-exclamation text-danger license-management__error-icon" aria-hidden="true"></i>
+        <h2 class="h5 mt-3">Unable to load the license</h2>
+        <p class="text-muted">Something went wrong while contacting the license service.</p>
+        <app-button
+          label="Try again"
+          icon="fas fa-rotate-right"
+          bootstrapClass="btn-primary"
+          ariaLabel="Retry loading the license"
+          (clicked)="onRetry()">
+        </app-button>
+      </div>
+    </div>
+  } @else if (!loaded) {
+    <div class="card">
+      <div class="card-body text-center py-5" role="status" aria-live="polite">
+        <div class="spinner-border text-primary" aria-hidden="true"></div>
+        <h2 class="h5 mt-3">Loading your license…</h2>
+        <p class="text-muted mb-0">Fetching the current license details.</p>
+      </div>
+    </div>
+  } @else {
+
+    <!-- <cmdb-license-status-banner
+      class="d-block mb-4"
+      [edition]="edition"
+      [entitlement]="entitlement"
+      [remainingDays]="remainingDays">
+    </cmdb-license-status-banner> -->
+
+    @if (rejectionMessage) {
+      <app-warning-alert
+        [title]="rejectionTitle"
+        [message]="rejectionMessage"
+        [iconClass]="rejectionIcon">
+      </app-warning-alert>
+    }
+
+    @if (wizardActive) {
+      <cmdb-license-activation-workflow
+        [generated]="wizardGenerated"
+        [activationKey]="activationKey"
+        [importing]="importing"
+        [activatedEntitlement]="activatedEntitlement"
+        [features]="features"
+        (generate)="onGenerateActivationRequest()"
+        (download)="onDownloadActivationRequest()"
+        (activate)="onActivateLicense($event)"
+        (finished)="onWizardFinished()">
+      </cmdb-license-activation-workflow>
+    } @else {
+      <cmdb-license-overview-card
+        variant="summary"
+        [edition]="edition"
+        [entitlement]="entitlement"
+        [remainingDays]="remainingDays"
+        [features]="features">
+      </cmdb-license-overview-card>
+    }
+  }
+</div>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data...">
+</app-loading-popup>

@@ -1,7 +1,6 @@
 ::selection {
-  background: lighten(theme-color('primary'), 10%);
+  background: lighten($primary, 10%);
 }
-
-::-moz-selection{
-  background: lighten(theme-color('primary'), 10%);
+::-moz-selection {
+  background: lighten($primary, 10%);
 }

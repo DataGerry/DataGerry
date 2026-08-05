@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,10 @@
 """
 Implementation of PersonReferenceType enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class PersonReferenceType(str, Enum):
+class PersonReferenceType(BaseStrEnum):
     """
     Enumeration of available reference types for CmdbPersons.
 
@@ -32,17 +32,3 @@ class PersonReferenceType(str, Enum):
     """
     PERSON = 'PERSON'
     PERSON_GROUP = 'PERSON_GROUP'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid PersonReferenceType
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing PersonReferenceType, False otherwise
-        """
-        return value in PersonReferenceType.__members__

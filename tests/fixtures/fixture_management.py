@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,9 @@
 """
 This module defines pytest fixtures for rights management, user groups, and user access levels.
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime
+
 import pytest
 
 from cmdb.manager import RightsManager
@@ -26,7 +27,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.group_model import CmdbUserGroup
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 @pytest.fixture(scope="session", name="rights_manager")

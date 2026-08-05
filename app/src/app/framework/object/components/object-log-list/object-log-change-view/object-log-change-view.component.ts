@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { LogMode } from '../../../../modes.enum';
 export const isArray = Array.isArray || (<T>(x: any): x is T[] => x && typeof x.length === 'number');
 
 @Component({
-  selector: 'cmdb-object-log-change-view',
-  templateUrl: './object-log-change-view.component.html',
-  styleUrls: ['./object-log-change-view.component.scss']
+    selector: 'cmdb-object-log-change-view',
+    templateUrl: './object-log-change-view.component.html',
+    styleUrls: ['./object-log-change-view.component.scss'],
+    standalone: false
 })
 export class ObjectLogChangeViewComponent {
 

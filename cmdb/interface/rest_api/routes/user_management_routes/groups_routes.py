@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for CmdbUserGroups
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -72,7 +74,7 @@ groups_blueprint = APIBlueprint('groups', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right='base.user-management.group.add')
 @groups_blueprint.validate(CmdbUserGroup.SCHEMA)
-def insert_cmdb_user_group(data: dict, request_user: CmdbUser):
+def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` to insert a single CmdbUserGroup
 
@@ -87,12 +89,10 @@ def insert_cmdb_user_group(data: dict, request_user: CmdbUser):
 
         result_id = groups_manager.insert_group(data)
 
-        created_group = groups_manager.get_group(result_id)
+        created_group: CmdbUserGroup = groups_manager.get_group(result_id)
 
         if created_group:
-            api_response = InsertSingleResponse(result_id=result_id, raw=CmdbUserGroup.to_json(created_group))
-
-            return api_response.make_response()
+            return InsertSingleResponse(CmdbUserGroup.to_json(created_group), result_id).make_response()
 
         abort(404, "Could not retrieve the created UserGroup from the database!")
     except HTTPException as http_err:
@@ -105,7 +105,7 @@ def insert_cmdb_user_group(data: dict, request_user: CmdbUser):
         abort(400, "Failed to retrieve the created UserGroup from the database!")
     except Exception as err:
         LOGGER.error("[insert_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while creating the new UserGroup!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -114,7 +114,7 @@ def insert_cmdb_user_group(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right='base.user-management.group.view')
 @groups_blueprint.parse_collection_parameters()
-def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbUserGroups
 
@@ -144,14 +144,14 @@ def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser):
         abort(400, "Failed to iterate the UserGroups!")
     except Exception as err:
         LOGGER.error("[get_cmdb_user_groups] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while iterating UserGroups!")
 
 
 @groups_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right='base.user-management.group.view')
-def get_cmdb_user_group(public_id: int, request_user: CmdbUser):
+def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbUserGroup
 
@@ -167,9 +167,10 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser):
         requested_group = groups_manager.get_group(public_id)
 
         if requested_group:
-            api_response = GetSingleResponse(CmdbUserGroup.to_json(requested_group), body=request.method == 'HEAD')
-
-            return api_response.make_response()
+            return GetSingleResponse(
+                CmdbUserGroup.to_json(requested_group),
+                body=request.method == 'HEAD'
+            ).make_response()
 
         abort(404, f"The UserGroup with ID:{public_id} was not found!")
     except HTTPException as http_err:
@@ -179,8 +180,7 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
     except Exception as err:
         LOGGER.error("[get_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
-
+        abort(500, f"An internal server error occured while retrieving UserGroup with ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -189,7 +189,7 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right='base.user-management.group.edit')
 @groups_blueprint.validate(CmdbUserGroup.SCHEMA)
-def update_cmdb_user_group(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route fto update a single CmdbUserGroup
 
@@ -203,7 +203,7 @@ def update_cmdb_user_group(public_id: int, data: dict, request_user: CmdbUser):
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        to_update_group = groups_manager.get_group(public_id)
+        to_update_group: CmdbUserGroup = groups_manager.get_group(public_id)
 
         if to_update_group:
             group = CmdbUserGroup.from_data(data=data, rights=flat_rights_tree(ALL_RIGHTS))
@@ -212,9 +212,7 @@ def update_cmdb_user_group(public_id: int, data: dict, request_user: CmdbUser):
 
             groups_manager.update_group(public_id, group_dict)
 
-            api_response = UpdateSingleResponse(group_dict)
-
-            return api_response.make_response()
+            return UpdateSingleResponse(group_dict).make_response()
 
         abort(404, f"The UserGroup with ID:{public_id} was not found!")
     except HTTPException as http_err:
@@ -227,7 +225,7 @@ def update_cmdb_user_group(public_id: int, data: dict, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
     except Exception as err:
         LOGGER.error("[update_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while updating the UserGroup with ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -236,7 +234,7 @@ def update_cmdb_user_group(public_id: int, data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right='base.user-management.group.delete')
 @groups_blueprint.parse_parameters(GroupDeletionParameters)
-def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, request_user: CmdbUser):
+def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbUserGroup
 
@@ -283,6 +281,7 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
             groups_manager.delete_group(public_id)
 
             return DeleteSingleResponse(raw=CmdbUserGroup.to_json(to_delete_group)).make_response()
+
         abort(404, f"The UserGroup with ID:{public_id} was not found!")
     except HTTPException as http_err:
         raise http_err
@@ -297,4 +296,4 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while deleting the UserGroup with ID:{public_id}!")

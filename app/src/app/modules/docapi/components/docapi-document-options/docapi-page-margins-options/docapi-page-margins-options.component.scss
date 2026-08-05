@@ -1,0 +1,90 @@
+.margin-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.preview-pane {
+  background: #f5f7fa;
+  border: 1px solid #d9dee5;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.a4-page {
+  width: 100%;
+  aspect-ratio: 210 / 297;
+  background: #ffffff;
+  border: 1px solid #ced4da;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  position: relative;
+}
+
+.a4-content-area {
+  position: absolute;
+  border: 1px dashed #e95f33;
+  background: linear-gradient(180deg, rgba(233, 95, 51, 0.08) 0%, rgba(233, 95, 51, 0.03) 100%);
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #e95f33;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.brand-mark {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e95f33;
+  color: #ffffff;
+  font-size: 0.52rem;
+  line-height: 1;
+}
+
+.preview-title {
+  margin-top: 25%;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.76rem;
+  color: #1f2a37;
+}
+
+.preview-subtitle {
+  text-align: center;
+  margin-top: 0.25rem;
+  color: #5f6b7a;
+  font-size: 0.58rem;
+}
+
+.preview-footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.5rem;
+  color: #667085;
+}
+
+.controls-pane .form-label {
+  margin-bottom: 0.35rem;
+}
+
+@media (max-width: 991.98px) {
+  .margin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-pane {
+    max-width: 320px;
+  }
+}

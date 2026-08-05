@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,9 +27,10 @@ import { SidebarService } from '../../../layout/services/sidebar.service';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 
 @Component({
-  selector: 'cmdb-category-add',
-  templateUrl: './category-add.component.html',
-  styleUrls: ['./category-add.component.scss']
+    selector: 'cmdb-category-add',
+    templateUrl: './category-add.component.html',
+    styleUrls: ['./category-add.component.scss'],
+    standalone: false
 })
 export class CategoryAddComponent implements OnInit, OnDestroy {
 
@@ -70,8 +71,8 @@ export class CategoryAddComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.typeServiceSubscription.unsubscribe();
-    this.categorySubmitSubscription.unsubscribe();
+    this.typeServiceSubscription?.unsubscribe();
+    this.categorySubmitSubscription?.unsubscribe();
   }
 
   /**

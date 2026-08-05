@@ -5,42 +5,39 @@
         <div class="row">
           <div class="col-3 m-0 p-0">
             <!-- Folder Settings -->
-            <button type="button" class="btn btn-sm btn-success mr-2" (click)="addFolder()">
+            <button type="button" class="btn btn-sm btn-success me-2" (click)="addFolder()">
               <i class="fas fa-folder"></i> New Folder
             </button>
-            <button type="button" class="btn btn-sm btn-secondary mr-2" (click)="uploadFile()">
+            <button type="button" class="btn btn-sm btn-secondary me-2" (click)="uploadFile()">
               <i class="fas fa-upload"></i> Upload
             </button>
           </div>
           <div class="col-6 m-0 p-0">
             <!-- File Settings -->
-            <button type="button" class="btn btn-sm btn-secondary mr-2"
-                    (click)="renameFile(selectedFileElements.files[0])"
-                    [disabled]="selectedFileElements.files.length != 1">
-              <i class="fa fa-edit mr-1" title="move to"></i>
+            <button type="button" class="btn btn-sm btn-secondary me-2"
+              (click)="renameFile(selectedFileElements.files[0])" [disabled]="selectedFileElements.files.length != 1">
+              <i class="fa fa-edit me-1" title="move to"></i>
               Rename ({{this.selectedFileElements.files.length}})
             </button>
-            <button type="button" class="btn btn-sm btn-secondary mr-2"
-                    (click)="moveFiles(selectedFileElements.files)"
-                    [disabled]="selectedFileElements.files.length == 0">
-              <i class="fas fa-expand-arrows-alt mr-1" title="move to"></i>
+            <button type="button" class="btn btn-sm btn-secondary me-2" (click)="moveFiles(selectedFileElements.files)"
+              [disabled]="selectedFileElements.files.length == 0">
+              <i class="fas fa-expand-arrows-alt me-1" title="move to"></i>
               Move ({{this.selectedFileElements.files.length}})
             </button>
-            <button type="button" class="btn btn-sm btn-danger"
-                    (click)="deleteFiles(selectedFileElements.files)"
-                    [disabled]="selectedFileElements.files.length == 0">
+            <button type="button" class="btn btn-sm btn-danger" (click)="deleteFiles(selectedFileElements.files)"
+              [disabled]="selectedFileElements.files.length == 0">
               <i class="far fa-trash-alt" title="delete"></i>
               Delete ({{this.selectedFileElements.files.length}})
             </button>
           </div>
-          <div class="col-3 text-right">
+          <div class="col-3 text-end">
             <div class="btn-group">
-              <button type="button" class="btn btn-sm btn-light mr-2" (click)="listView = !listView">
+              <button type="button" class="btn btn-sm btn-light me-2" (click)="listView = !listView">
                 <i [className]="listView ? 'fas fa-th-large' : 'fas fa-th-list'"></i>
               </button>
               <button type="button" class="btn btn-sm btn-light"
-                      (click)="showMetadataInfo(selectedFileElements.files[0])"
-                      [disabled]="selectedFileElements.files.length!=1">
+                (click)="showMetadataInfo(selectedFileElements.files[0])"
+                [disabled]="selectedFileElements.files.length!=1">
                 <i class="fas fa-info-circle"></i>
               </button>
             </div>
@@ -48,38 +45,38 @@
         </div>
       </div>
     </div>
-    <div class="col-3 border-right p-3 pre-scrollable" style="min-height: 437px" (scroll)="onScrollTreeListHost($event)">
-      <cmdb-folder-tree [fileTree]="fileTree"
-                        [selectedFileFolder]="selectedFolderElement"
-                        (createFileElementEvent)="addFolder()"
-                        (renameFileElementEvent)="renameFile()"
-                        (moveFileElementEvent)="moveFile()"
-                        (deleteFileElementEvent)="deleteFile($event)"
-                        (loadFileElementEvent)="loadFiles()">
+    <div class="col-3 border-end p-3 pre-scrollable" style="min-height: 437px" (scroll)="onScrollTreeListHost($event)">
+      <cmdb-folder-tree [fileTree]="fileTree" [selectedFileFolder]="selectedFolderElement"
+        (createFileElementEvent)="addFolder()" (renameFileElementEvent)="renameFile()"
+        (moveFileElementEvent)="moveFile()" (deleteFileElementEvent)="deleteFile($event)"
+        (loadFileElementEvent)="loadFiles()">
       </cmdb-folder-tree>
     </div>
     <div class="col-9">
       <div class="row">
         <div class="col-12 p-2 d-flex justify-content-between align-items-center border-bottom">
           <span class="col-9">
-            <ng-container *ngIf="searchForm.get('search').value;then showPath; else defaultPhatView"></ng-container>
-            <ng-template #showPath>
-              <i class="fas fa-caret-right"></i>
-            </ng-template>
-            <ng-template #defaultPhatView>
-              <cmdb-folder-path-viewer [selectedFileFolder]="selectedFolderElement"
-                                       [folderTree]="fileTree"></cmdb-folder-path-viewer>
-            </ng-template>
+            @if (searchForm.get('search').value) {
+
+            <i class="fas fa-caret-right"></i>
+
+            } @else {
+
+            <cmdb-folder-path-viewer [selectedFileFolder]="selectedFolderElement"
+              [folderTree]="fileTree"></cmdb-folder-path-viewer>
+
+            }
+
+
           </span>
           <form [formGroup]="searchForm">
             <input type="text" formControlName="search" class="form-control form-control-sm" placeholder="Filter File">
           </form>
         </div>
         <div id="file-view-list" class="col-12 p-0" (scroll)="onScrollListViewHost($event)">
-          <cmdb-file-view-list [fileElements]="fileElements"
-                               [listView]="listView"
-                               [selectedFiles]="selectedFileElements"
-                               (loadFileElementEvent)="loadFiles($event, false)"></cmdb-file-view-list>
+          <cmdb-file-view-list [fileElements]="fileElements" [listView]="listView"
+            [selectedFiles]="selectedFileElements"
+            (loadFileElementEvent)="loadFiles($event, false)"></cmdb-file-view-list>
         </div>
       </div>
     </div>
@@ -94,7 +91,4 @@
 </div>
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

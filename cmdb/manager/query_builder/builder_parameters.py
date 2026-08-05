@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,6 @@
 """
 Implementation of BuilderParameters
 """
-from typing import Union
-# -------------------------------------------------------------------------------------------------------------------- #
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BuilderParameters - CLASS                                              #
@@ -31,7 +29,7 @@ class BuilderParameters:
     """
 
     def __init__(self,
-                 criteria: Union[dict, list[dict]],
+                 criteria: dict | list[dict],
                  limit: int = 0,
                  skip: int = 0,
                  sort: str = 'public_id',
@@ -40,7 +38,7 @@ class BuilderParameters:
         Initializes the BuilderParameters
 
         Args:
-            criteria (Union[dict, list[dict]]): The filtering criteria for the query
+            criteria (dict | list[dict]): The filtering criteria for the query
             limit (int, optional): The maximum number of results to return. Defaults to 0 (no limit)
             skip (int, optional): The number of results to skip for pagination. Defaults to 0
             sort (str, optional): The field to sort by. Defaults to 'public_id'
@@ -64,12 +62,12 @@ class BuilderParameters:
                 f"skip={self.skip}, sort='{self.sort}', order={self.order})")
 
 
-    def get_criteria(self) -> Union[dict, list[dict]]:
+    def get_criteria(self) -> dict | list[dict]:
         """
         Retrieves the filtering criteria
 
         Returns:
-            Union[dict, list[dict]]: The criteria used for filtering the query
+            dict | list[dict]: The criteria used for filtering the query
         """
         return self.criteria
 

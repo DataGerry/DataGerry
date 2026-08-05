@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -35,7 +35,8 @@ import { CollectionParameters } from '../../services/models/api-parameter';
 @Component({
     selector: 'cmdb-auth-settings',
     templateUrl: './auth-settings.component.html',
-    styleUrls: ['./auth-settings.component.scss']
+    styleUrls: ['./auth-settings.component.scss'],
+    standalone: false
 })
 export class AuthSettingsComponent implements OnInit, OnDestroy {
 
@@ -95,14 +96,14 @@ export class AuthSettingsComponent implements OnInit, OnDestroy {
             next: (apiResponse: APIGetMultiResponse<Group>) => {
                 this.groups = apiResponse.results as Array<Group>;
             },
-            error: (error) => this.toast.error(error)
+            error: (error) => this.toast.error(error?.error?.message)
         });
     }
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */

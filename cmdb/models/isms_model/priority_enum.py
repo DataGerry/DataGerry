@@ -16,7 +16,7 @@ from enum import Enum
 
 class Priority(int, Enum):
     """
-    Available Priority for IsmsRiskAssesssments
+    Available Priority for IsmsRiskAssessments
     """
     LOW = 1
     MEDIUM = 2
@@ -27,12 +27,12 @@ class Priority(int, Enum):
     @classmethod
     def is_valid(cls, value: int) -> bool:
         """
-        Checks if a given string is a valid Priority
+        Checks if a given value is a valid Priority
 
         Args:
-            value (str): The string to check
+            value (int): The value to check
 
         Returns:
-            bool: True if the string matches an existing Priority, False otherwise
+            bool: True if the value matches an existing Priority, False otherwise
         """
         return value in cls._value2member_map_

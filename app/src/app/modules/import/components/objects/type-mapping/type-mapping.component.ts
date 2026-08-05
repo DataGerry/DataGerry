@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -55,7 +55,8 @@ export const mappingComponents: { [type: string]: any } = {
     selector: 'cmdb-type-mapping',
     templateUrl: './type-mapping.component.html',
     styleUrls: ['./type-mapping.component.scss'],
-    providers: [{ provide: TypeMappingBaseComponent, useExisting: forwardRef(() => TypeMappingComponent) }]
+    providers: [{ provide: TypeMappingBaseComponent, useExisting: forwardRef(() => TypeMappingComponent) }],
+    standalone: false
 })
 export class TypeMappingComponent extends TypeMappingBaseComponent implements OnInit, OnChanges, OnDestroy {
 
@@ -162,9 +163,9 @@ export class TypeMappingComponent extends TypeMappingBaseComponent implements On
 
 
     public ngOnDestroy(): void {
-        this.typeListSubscription.unsubscribe();
-        this.valueChangeSubscription.unsubscribe();
-        this.typeIDSubscription.unsubscribe();
+        this.typeListSubscription?.unsubscribe();
+        this.valueChangeSubscription?.unsubscribe();
+        this.typeIDSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

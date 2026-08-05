@@ -1,0 +1,81 @@
+<div class="card">
+  <!-- Single-level tab strip: Attributes + one tab per relation + add button -->
+  <div class="card-header" style="overflow-x: auto; white-space: nowrap;">
+    <ul class="nav nav-tabs card-header-tabs">
+      <li class="nav-item d-inline-block">
+        <button type="button" class="nav-link" [class.active]="isAttributesActive()"
+          (click)="selectTab('attributes')">
+          Attributes
+        </button>
+      </li>
+
+      @for (tab of tabs(); track tabKey(tab)) {
+        <li class="nav-item d-inline-block">
+          <button type="button" class="nav-link" [class.active]="activeKey() === tabKey(tab)"
+            [attr.title]="tab.label + ' (' + tab.count + ')'" (click)="selectTab(tabKey(tab))">
+            <i [class]="tab.icon" class="me-1"></i>
+            {{ tab.label }} ({{ tab.count }})
+          </button>
+        </li>
+      }
+
+      <li class="nav-item d-inline-block" style="margin-left: 5px;">
+        <button type="button" class="btn btn-sm btn-success ml-2"
+          *permissionLink="'base.framework.objectRelation.add'"
+          style="display: inline-flex; align-items: center;" (click)="openSelectModal()">
+          <i class="fas fa-plus me-1"></i> Add Relation
+        </button>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Tab content -->
+  <div class="card-body">
+    <!-- Attributes content is projected from the object view; kept mounted so
+         switching back is instant. -->
+    <div [hidden]="!isAttributesActive()">
+      <ng-content></ng-content>
+    </div>
+
+    @if (activeTab(); as tab) {
+      <cmdb-object-relation-tab-content
+        [objectId]="objectId()"
+        [tab]="tab"
+        (add)="onAddForTab(tab)"
+        (view)="onViewRow(tab, $event)"
+        (edit)="onEditRow(tab, $event)"
+        (copy)="onCopyRow(tab, $event)"
+        (remove)="onDeleteRow(tab, $event)"
+        (removeSelected)="onDeleteSelected(tab, $event)">
+      </cmdb-object-relation-tab-content>
+    }
+  </div>
+</div>
+
+<!-- Relation selection modal -->
+@if (showSelectModal()) {
+  <cmdb-object-relation-select-modal
+    [typeId]="typeId()"
+    [existingTabs]="tabs()"
+    (select)="onRelationSelected($event)"
+    (cancel)="onSelectModalCancel()">
+  </cmdb-object-relation-select-modal>
+}
+
+<!-- Relation role dialog (create / edit / view / copy) -->
+@if (showRoleDialog()) {
+  <relation-role-dialog
+    [chosenRole]="chosenRole"
+    [currentObjectTypeID]="typeId()"
+    [parentTypeIDs]="roleParentTypeIDs"
+    [childTypeIDs]="roleChildTypeIDs"
+    [currentObjectID]="objectId()"
+    [relation]="chosenRelation"
+    [mode]="dialogMode"
+    [relationInstance]="selectedInstance"
+    (onConfirm)="onRoleDialogConfirm()"
+    (onCancel)="onRoleDialogCancel()">
+  </relation-role-dialog>
+}
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

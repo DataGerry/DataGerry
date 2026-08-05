@@ -1,11 +1,12 @@
 import {
   Component,
+  inject,
   EventEmitter,
   Input,
   OnInit,
   Output,
   TemplateRef,
-  ViewChild
+  ViewChild,
 } from '@angular/core';
 import { debounceTime, distinctUntilChanged, finalize, switchMap } from 'rxjs/operators';
 
@@ -23,11 +24,16 @@ import { Warning } from 'src/app/core/models/warning.model';
 import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
 
 @Component({
-  selector: 'app-isms-risk-classes',
-  templateUrl: './risk-classes.component.html',
-  styleUrls: ['./risk-classes.component.scss']
+    selector: 'app-isms-risk-classes',
+    templateUrl: './risk-classes.component.html',
+    styleUrls: ['./risk-classes.component.scss'],
+    standalone: false
 })
 export class RiskClassesComponent implements OnInit {
+  private readonly riskClassService = inject(RiskClassService);
+  private readonly toast = inject(ToastService);
+  private readonly modalService = inject(NgbModal);
+  private readonly loaderService = inject(LoaderService);
 
   // Table column templates
   @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
@@ -45,14 +51,6 @@ export class RiskClassesComponent implements OnInit {
   public loading = false;
   public columns: Array<any>;
   public isLoading$ = this.loaderService.isLoading$;
-
-  constructor(
-    private riskClassService: RiskClassService,
-    private toast: ToastService,
-    private modalService: NgbModal,
-    private loaderService: LoaderService
-  ) { }
-
 
   ngOnInit(): void {
 

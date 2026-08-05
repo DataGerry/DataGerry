@@ -1,0 +1,56 @@
+
+.base-progress {
+  position: relative;
+  width: 100%;
+  background: #FFFFFF;
+  border-radius: 9999px;
+  overflow: hidden;
+  box-shadow: 
+    inset 0 1px 2px rgba(0, 0, 0, 0.5),
+    0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.base-progress-bar {
+  position: relative;
+  height: 100%;
+  background: linear-gradient(90deg, #1fc600 0%, #0a5d00 100%);
+  border-radius: 9999px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+  
+  // Subtle top highlight
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, transparent 100%);
+    border-radius: 9999px 9999px 0 0;
+  }
+  
+  // Smooth shine effect
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, 
+      transparent 0%, 
+      rgba(255, 255, 255, 0.3) 50%, 
+      transparent 100%);
+    animation: shine 2.5s ease-in-out infinite;
+  }
+}
+
+@keyframes shine {
+  0% {
+    left: -100%;
+  }
+  50%, 100% {
+    left: 200%;
+  }
+}

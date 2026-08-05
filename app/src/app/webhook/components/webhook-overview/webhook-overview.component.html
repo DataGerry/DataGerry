@@ -1,13 +1,13 @@
 <div class="d-flex justify-content-between align-items-center">
   <h1>Webhooks</h1>
   <div>
-  <button type="button" class="btn btn-sm btn-secondary ml-2 text-white spacing-right" [routerLink]="['/webhooks/logs']"
+  <button type="button" class="btn btn-sm btn-secondary ms-2 text-white spacing-right" [routerLink]="['/webhooks/logs']"
   *permissionLink="['base.framework.webhook.view']">
       <i class="fas fa-history"></i> Webhook Logs
     </button>
   <button type="button" class="btn btn-sm btn-success" [routerLink]="['/webhooks/create']"
   *permissionLink="['base.framework.webhook.add']">
-    <i class="fas fa-plus"></i> Create Webhook
+    <i class="fas fa-plus"></i> Add
   </button>
 </div>
 </div>
@@ -22,6 +22,7 @@
   [loading]="loading"
   (pageChange)="onPageChange($event)"
   (pageSizeChange)="onPageSizeChange($event)"
+  (searchChange)="onSearchChange($event)"
 >
 </cmdb-table>
 

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -13,14 +13,20 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-"""This module contains all available profile names for the DATAGERRY assistant"""
+"""
+This module contains all available profile names for the DataGerry assistant
+"""
 
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ProfileName(str, Enum):
+class ProfileName(BaseStrEnum):
     """
-    Enumeration of all valid profile names which can be created through the DATAGERRY assistant
+    Enumeration of all valid profile names which can be created through the DataGerry assistant
+
+    The member values are the wire tokens the assistant receives (the '#'-separated 'data' request
+    parameter is split into these). ProfileAssistant.create_profiles tests membership of these
+    values to decide which profiles to build.
     """
     USER_MANAGEMENT = 'user-management-profile'
     LOCATION = 'location-profile'

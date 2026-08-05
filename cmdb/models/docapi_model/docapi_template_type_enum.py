@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,12 @@
 """
 This module contains the DocapiTemplateType Enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class DocapiTemplateType(str, Enum):
+class DocapiTemplateType(BaseStrEnum):
     """
     The different Types for which the DocapiTemplate is created for
     """
     OBJECT = "OBJECT"
+    DEFAULT = "DEFAULT"

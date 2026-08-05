@@ -3,7 +3,7 @@
         <h4 class="modal-title">
             <fa-icon icon="{{modalIcon}}"></fa-icon> <span class="mx-3">{{title}}</span>
         </h4>
-      <button type="button" class="close" aria-hidden="true" (click)="activeModal.close('cancel')">x</button>
+      <button type="button" class="btn-close btn-close-white" aria-hidden="true" (click)="activeModal.close('cancel')"></button>
     </div>
     <div class="modal-body">
       <blockquote class="blockquote text-center">
@@ -22,6 +22,6 @@
     <div class="modal-footer">
         <button type="button" class="btn btn-primary"  (click)="activeModal.close('objects')">{{deleteObjectsButton}}</button>
         <button type="button" class="btn btn-primary"  (click)="activeModal.close('locations')">{{deleteChildrenButton}}</button>
-        <button type="button" class="btn btn-secondary mr-1" (click)="activeModal.close('cancel')">{{cancelButton}}</button>
+        <button type="button" class="btn btn-secondary me-1" (click)="activeModal.close('cancel')">{{cancelButton}}</button>
     </div>
   </div>

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -62,13 +62,6 @@ export class HttpErrorInterceptor implements HttpInterceptor {
             const statusCode = error.status;
 
             if (this.REDIRECT_ERRORS.indexOf(statusCode) !== -1) {
-                // if (statusCode === this.CONNECTION_REFUSED || statusCode === this.INTERNAL_SERVER_ERROR) {
-                //     this.router.navigate(['/connect']);
-                // } else if (statusCode === this.UNAUTHORIZED) {
-                //     this.authService.logout();
-                // } else {
-                //     this.router.navigate(['/error/', statusCode]);
-                // }
                 if (statusCode === this.CONNECTION_REFUSED) {
                     if(!environment.cloudMode){
                         this.router.navigate(['/connect']);
@@ -76,10 +69,7 @@ export class HttpErrorInterceptor implements HttpInterceptor {
                     this.toastService.error("The connection to the backend has been refused!");
                 }
                 else if (statusCode === this.INTERNAL_SERVER_ERROR) {
-                    // if(!environment.cloudMode){
-                    //     this.router.navigate(['/connect']);
-                    // }
-                    this.toastService.error("An internal server error occured!"); 
+                    // this.toastService.error("An internal server error occured!"); 
                 }
                 else if (statusCode === this.UNAUTHORIZED) {
                     this.authService.logout();

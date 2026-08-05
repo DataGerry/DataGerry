@@ -1,0 +1,10 @@
+{
+  "server": {
+    "port": "",
+    "endpoint": "/api/"
+  },
+  "socket": {
+    "port": "",
+    "endpoint": "/ws"
+  }
+}

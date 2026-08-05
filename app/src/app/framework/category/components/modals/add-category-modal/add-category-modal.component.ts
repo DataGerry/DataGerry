@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,9 +24,10 @@ import { CategoryService, checkCategoryExistsValidator } from '../../../../servi
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-add-category-modal',
-  templateUrl: './add-category-modal.component.html',
-  styleUrls: ['./add-category-modal.component.scss']
+    selector: 'cmdb-add-category-modal',
+    templateUrl: './add-category-modal.component.html',
+    styleUrls: ['./add-category-modal.component.scss'],
+    standalone: false
 })
 export class AddCategoryModalComponent implements OnInit {
 

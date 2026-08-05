@@ -1,0 +1,380 @@
+$brand: #e94d18;
+
+.license-overview {
+  &__success {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    font-weight: 600;
+    color: #198754;
+
+    i {
+      font-size: 1.05rem;
+    }
+  }
+
+  &__grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 1.5rem;
+  }
+}
+
+/* ----------------------------------------------------- CARD ------------------------------------------------------- */
+/*
+ * One structure, four treatments. Each tier only overrides the design tokens below; adding a future
+ * tier is a single `&--<tier>` block. Base tokens describe the Business tier (the brand orange card).
+ */
+.dg-card {
+  --bg: linear-gradient(135deg, #c2410c 0%, #d8430f 50%, #e94d18 100%);
+  --ink: #ffffff;
+  --ink-soft: rgba(255, 255, 255, 0.78);
+  --tier-color: #ffffff;
+  --border: transparent;
+  --shadow: 0 14px 32px -14px rgba(194, 65, 12, 0.6);
+  --shadow-text: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --sheen: radial-gradient(circle at 88% -20%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 58%);
+  --scrim: linear-gradient(180deg, transparent 42%, rgba(0, 0, 0, 0.32) 100%);
+  --status-bg: rgba(0, 0, 0, 0.3);
+  --status-text: #ffffff;
+  --reveal-bg: rgba(255, 255, 255, 0.16);
+  --reveal-bg-hover: rgba(255, 255, 255, 0.28);
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: min(100%, 440px);
+  min-height: 232px;
+  padding: 1.5rem 1.6rem;
+  border-radius: 18px;
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  text-shadow: var(--shadow-text);
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--sheen);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--scrim);
+  }
+
+  /* ---- FREE: neutral starter ---- */
+  &--free {
+    --bg: linear-gradient(180deg, #ffffff 0%, #f7f8fa 100%);
+    --ink: #1f2937;
+    --ink-soft: #6b7280;
+    --tier-color: #111827;
+    --border: #e3e6ea;
+    --shadow: 0 6px 20px -12px rgba(17, 24, 39, 0.2);
+    --shadow-text: none;
+    --sheen: none;
+    --scrim: none;
+    --status-bg: #f3f4f6;
+    --status-text: #374151;
+    --reveal-bg: rgba(17, 24, 39, 0.06);
+    --reveal-bg-hover: rgba(17, 24, 39, 0.12);
+  }
+
+  /* ---- CORE: professional starting point ---- */
+  &--core {
+    --bg: linear-gradient(135deg, #fff4ef 0%, #ffe7db 100%);
+    --ink: #3a2114;
+    --ink-soft: #8a6555;
+    --tier-color: #c2410c;
+    --border: rgba(233, 77, 24, 0.28);
+    --shadow: 0 10px 26px -14px rgba(233, 77, 24, 0.3);
+    --shadow-text: none;
+    --sheen: radial-gradient(circle at 90% -25%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 55%);
+    --scrim: none;
+    --status-bg: rgba(233, 77, 24, 0.12);
+    --status-text: #b23b12;
+    --reveal-bg: rgba(233, 77, 24, 0.1);
+    --reveal-bg-hover: rgba(233, 77, 24, 0.18);
+  }
+
+  /* ---- BUSINESS uses the base tokens above. ---- */
+
+  /* ---- CORPORATE: top enterprise tier ---- */
+  &--corporate {
+    --bg: linear-gradient(150deg, #2b2d33 0%, #1b1c20 55%, #111216 100%);
+    --ink: #f4f5f7;
+    --ink-soft: rgba(255, 255, 255, 0.6);
+    --tier-color: #f4671f;
+    --border: rgba(255, 255, 255, 0.09);
+    --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.65);
+    --shadow-text: none;
+    --sheen: radial-gradient(circle at 88% -25%, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 55%);
+    --scrim: none;
+    --status-bg: rgba(255, 255, 255, 0.1);
+    --status-text: rgba(255, 255, 255, 0.85);
+    --reveal-bg: rgba(255, 255, 255, 0.1);
+    --reveal-bg-hover: rgba(255, 255, 255, 0.2);
+  }
+
+  &--expired {
+    filter: grayscale(0.55) brightness(0.92);
+  }
+
+  &__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  &__logo {
+    display: block;
+    height: 22px;
+    width: auto;
+  }
+
+  &__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--status-text);
+    background: var(--status-bg);
+  }
+
+  &__status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  }
+
+  &__status--expired &__status-dot {
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
+  }
+
+  &__tier {
+    display: flex;
+    flex-direction: column;
+    margin-top: 20px;
+  }
+
+  &__tier-kicker {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  &__tier-name {
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--tier-color);
+  }
+
+  &__key {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0.7rem 0 0.95rem;
+  }
+
+  &__key-label {
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  &__key-value {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  &__key-text {
+    font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+    font-size: 1.02rem;
+    letter-spacing: 0.05em;
+    color: var(--ink);
+
+    &.is-masked {
+      letter-spacing: 0.18em;
+    }
+  }
+
+  &__reveal {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    color: var(--ink);
+    background: var(--reveal-bg);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+
+    &:hover {
+      background: var(--reveal-bg-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px;
+    }
+  }
+
+  &__bottom {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5rem;
+  }
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+
+    &--end {
+      margin-left: auto;
+      text-align: right;
+    }
+  }
+
+  &__field-label {
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  &__field-value {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* ----------------------------------------------------- META ------------------------------------------------------- */
+
+.license-meta {
+  flex: 1 1 260px;
+  min-width: 240px;
+  margin: 0;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+
+  &__row {
+    display: grid;
+    grid-template-columns: minmax(7rem, 38%) 1fr;
+    gap: 0.5rem 1rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid #f1f3f5;
+
+    &:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    &:first-child {
+      padding-top: 0;
+    }
+
+    dt {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #6b7280;
+    }
+
+    dd {
+      margin: 0;
+      font-size: 0.9rem;
+      color: #111827;
+      word-break: break-word;
+    }
+  }
+
+  &__row--features {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  &__remaining {
+    font-weight: 600;
+
+    &.is-ok {
+      color: #198754;
+    }
+
+    &.is-soon {
+      color: #b45309;
+    }
+
+    &.is-expired {
+      color: #dc2626;
+    }
+
+    &.is-perpetual {
+      color: #374151;
+    }
+  }
+
+  &__features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+}
+
+.license-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 500;
+
+  i {
+    color: #16a34a;
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .dg-card {
+    width: 100%;
+  }
+}

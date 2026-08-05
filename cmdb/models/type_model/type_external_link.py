@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,31 +16,42 @@
 """
 This class represents an external link
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 import re
 
 from cmdb.errors.models.cmdb_type import CmdbTypeExternalFillError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                   TypeExternalLink                                                   #
+#                                               TypeExternalLink - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TypeExternalLink:
-    """This class represents an external link"""
+    """
+    This class represents an external link
+    """
 
-    def __init__(self, name: str, href: str, label: str = None, icon: str = None, fields: list = None):
-        self.name = name
-        self.href = href
-        self.label = label or self.name.title()
-        self.icon = icon
-        self.fields = fields or []
+    def __init__(
+        self,
+        name: str,
+        href: str,
+        label: str | None = None,
+        icon: str | None = None,
+        fields: list[str] | None = None
+    ) -> None:
+        """TODO: document"""
+        self.name: str = name
+        self.href: str = href
+        self.label: str = label or self.name.title()
+        self.icon: str | None = icon
+        self.fields: list[str] = fields or []
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "TypeExternalLink":
+    def from_data(cls, data: dict[str, Any]) -> "TypeExternalLink":
         """
         Generates a TypeExternalLink object from a dict
 
@@ -51,16 +62,16 @@ class TypeExternalLink:
             TypeExternalLink: TypeExternalLink class with given data
         """
         return cls(
-            name = data.get('name'),
-            href = data.get('href'),
-            label = data.get('label', None),
-            icon = data.get('icon', None),
-            fields = data.get('fields', None)
+            name = data['name'],
+            href = data['href'],
+            label = data.get('label'),
+            icon = data.get('icon'),
+            fields = data.get('fields', [])
         )
 
 
     @classmethod
-    def to_json(cls, instance: "TypeExternalLink") -> dict:
+    def to_json(cls, instance: "TypeExternalLink") -> dict[str, Any]:
         """
         Returns a TypeExternalLink as JSON representation
 
@@ -75,7 +86,7 @@ class TypeExternalLink:
             'href': instance.href,
             'label': instance.label,
             'icon': instance.icon,
-            'fields': instance.fields
+            'fields': instance.fields,
         }
 
 # ------------------------------------------------- GENERAL FUNCTIONS ------------------------------------------------ #
@@ -94,14 +105,17 @@ class TypeExternalLink:
         """
         the type of arguments passed to it and formats it according to the format codes defined in the string
         checks if the href link requires field informations.
+
         Examples:
             http://example.org/{}/dynamic/ -> True
             http://example.org/static/ -> False
+
         Returns:
             bool
         """
         if re.search('{.*?}', self.href):
             return True
+
         return False
 
 
@@ -115,8 +129,10 @@ class TypeExternalLink:
         return len(self.fields) > 0
 
 
-    def fill_href(self, inputs) -> None:
-        """Fills the href brackets with data"""
+    def fill_href(self, inputs: list[Any]) -> None:
+        """
+        Fills the href brackets with data
+        """
         try:
             self.href = self.href.format(*inputs)
         except Exception as err:

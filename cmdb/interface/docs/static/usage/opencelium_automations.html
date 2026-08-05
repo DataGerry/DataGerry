@@ -1,0 +1,238 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Automations &mdash; DataGerry latest documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=f76a5f1d" />
+
+  
+    <link rel="shortcut icon" href="../_static/datagerry_favicon.png"/>
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=c6e86fd7"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Users" href="../management/user.html" />
+    <link rel="prev" title="File Explorer" href="file_explorer.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            DataGerry
+              <img src="../_static/datagerry_logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/welcome.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/cloud_vs_on_premises.html">Cloud vs. On-Premises</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/service_portal.html">Cloud version</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/dg_installation.html">On-Premises Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/updates.html">Updating DataGerry</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/administration.html">Administration</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Usage</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="cmdb_concepts.html">CMDB Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="datagerry_assistant.html">DataGerry Assistant</a></li>
+<li class="toctree-l1"><a class="reference internal" href="section_templates.html">Section Templates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="multi_data_sections.html">Multi Data Sections (MDS)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="n_m_relations.html">n:m Relations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ci_explorer.html">CI Explorer</a></li>
+<li class="toctree-l1"><a class="reference internal" href="locations.html">Locations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reports.html">Reports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="document_generator.html">Document generator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="isms.html">ISMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="webhooks.html">Webhooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="imports.html">Imports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="exports.html">Exports</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_explorer.html">File Explorer</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Automations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#setup-opencelium">Setup OpenCelium</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Management</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../management/user.html">Users</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../management/user_group.html">User Groups</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../management/authentication.html">Authentication</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../management/access_control_list.html">Access Control List (ACL)</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Media</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../media/media.html">Website</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../media/media.html#service-portal">Service Portal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../media/media.html#community-forum">Community Forum</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../media/media.html#contact-us">Contact us</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Sources</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../sources/packages.html">Download Packages</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://hub.docker.com/r/becongmbh/datagerry" rel="noreferrer" target="_blank">Download Docker</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://github.com/DATAGerry/DATAGerry" rel="noreferrer" target="_blank">Repository</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../sources/changelog.html">Changelogs</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">REST API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../rest_api/overview.html">API Docs</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">License</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started/license.html">License</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">DataGerry</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Automations</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/usage/opencelium_automations.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="automations">
+<h1>Automations<a class="headerlink" href="#automations" title="Link to this heading"></a></h1>
+<p id="automations-anchor">The Automations module provides a flexible framework for orchestrating and executing automated processes across
+connected systems via APIs. It enables the definition, configuration, and execution of workflows that react to
+events, transform data, and trigger actions in external services without requiring tight coupling or custom
+integration code.</p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<p>Automations are intended for:</p>
+<ul class="simple">
+<li><p>Connect and synchronize data between multiple systems</p></li>
+<li><p>Trigger actions based on events, schedules, or incoming API requests</p></li>
+<li><p>Transform, enrich, and route data between different interfaces</p></li>
+<li><p>Reduce manual processes by encapsulating recurring integration logic</p></li>
+<li><p>Monitor and control automated executions in a centralized way</p></li>
+</ul>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<p>By abstracting API interactions into reusable automation components, the system allows complex integration scenarios
+to be implemented in a structured, maintainable, and scalable manner. This makes Automations suitable for both simple
+task automation and advanced cross-system process orchestration.</p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<hr class="docutils" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<section id="setup-opencelium">
+<h2>Setup OpenCelium<a class="headerlink" href="#setup-opencelium" title="Link to this heading"></a></h2>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This step is not required when using the cloud version of DataGerry, as OpenCelium is already installed and
+preconfigured</p>
+</div>
+<p>The <strong>Automations</strong> module depends on an external integration runtime (OpenCelium) that must be installed and operated
+locally. A local installation is required in order to execute automation workflows, manage integrations, and handle API
+communication within your environment.</p>
+<p>Before using Automations, ensure that the integration runtime is properly installed and configured. Detailed information
+about system requirements, installation steps, and initial setup is available in the official installation documentation:</p>
+<p><a class="reference external" href="https://docs.opencelium.io/en/prod/gettinginvolved/index.html" rel="noreferrer" target="_blank">Integration Runtime Installation Guide</a></p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<p>Once the local installation is complete configure the credentials in the <strong>etc/cmdb.conf</strong> file</p>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">Database</span><span class="p">]</span>
+<span class="n">host</span> <span class="o">=</span> <span class="mf">127.0.0.1</span>
+<span class="n">port</span> <span class="o">=</span> <span class="mi">27017</span>
+<span class="n">database_name</span> <span class="o">=</span> <span class="n">cmdb</span>
+
+<span class="p">[</span><span class="n">WebServer</span><span class="p">]</span>
+<span class="n">host</span> <span class="o">=</span> <span class="mf">0.0.0.0</span>
+<span class="n">port</span> <span class="o">=</span> <span class="mi">4000</span>
+<span class="n">ssl</span> <span class="o">=</span> <span class="n">false</span>
+<span class="n">certfile</span> <span class="o">=</span> <span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">ssl</span><span class="o">/</span><span class="n">certs</span><span class="o">/</span><span class="n">cmdb</span><span class="o">.</span><span class="n">pem</span>
+<span class="n">keyfile</span> <span class="o">=</span> <span class="o">/</span><span class="n">etc</span><span class="o">/</span><span class="n">ssl</span><span class="o">/</span><span class="n">private</span><span class="o">/</span><span class="n">cmdb</span><span class="o">.</span><span class="n">key</span>
+
+<span class="p">[</span><span class="n">OpenCelium</span><span class="p">]</span>
+<span class="n">host</span> <span class="o">=</span> <span class="mf">127.0.0.1</span>
+<span class="n">port</span> <span class="o">=</span> <span class="mi">9090</span>
+<span class="n">protocol</span> <span class="o">=</span> <span class="n">http</span>
+<span class="n">email</span> <span class="o">=</span> <span class="n">email</span>
+<span class="n">user</span> <span class="o">=</span> <span class="n">username</span>
+<span class="n">password</span> <span class="o">=</span> <span class="n">password</span>
+</pre></div>
+</div>
+<p>Set your credentials in the OpenCelium section</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="file_explorer.html" class="btn btn-neutral float-left" title="File Explorer" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../management/user.html" class="btn btn-neutral float-right" title="Users" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, becon GmbH.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

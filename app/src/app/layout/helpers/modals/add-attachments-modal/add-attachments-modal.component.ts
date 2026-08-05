@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit } from '@angular/core';
 import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { ToastService } from '../../../toast/toast.service';
 import { GeneralModalComponent } from '../general-modal/general-modal.component';
@@ -30,11 +30,17 @@ import { FileService } from '../../../components/file-explorer/service/file.serv
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-add-attachments-modal',
-  templateUrl: './add-attachments-modal.component.html',
-  styleUrls: ['./add-attachments-modal.component.scss']
+    selector: 'cmdb-add-attachments-modal',
+    templateUrl: './add-attachments-modal.component.html',
+    styleUrls: ['./add-attachments-modal.component.scss'],
+    standalone: false
 })
 export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
+  private readonly fileService = inject(FileService);
+  private readonly modalService = inject(NgbModal);
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
 
   /**
    * Global unsubscriber for http calls to the rest backend.
@@ -50,10 +56,6 @@ export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
   private readonly defaultApiParameter: CollectionParameters = { page: 1, limit: 100, order: 1 };
 
   public isLoading$ = this.loaderService.isLoading$;
-
-  constructor(private fileService: FileService,
-    private modalService: NgbModal, public activeModal: NgbActiveModal, private toast: ToastService,   private loaderService: LoaderService
-  ) { }
 
   public ngOnInit(): void {
     this.loaderService.show();
@@ -177,8 +179,8 @@ export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.unSubscribe.next();
-    this.unSubscribe.complete();
+    this.unSubscribe?.next();
+    this.unSubscribe?.complete();
   }
 
 }

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -38,7 +38,8 @@ import { CmdbType } from '../../../models/cmdb-type';
     selector: 'cmdb-type-meta-step',
     templateUrl: './type-meta-step.component.html',
     styleUrls: ['./type-meta-step.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class TypeMetaStepComponent extends TypeBuilderStepComponent implements DoCheck, OnInit, OnDestroy {
 
@@ -87,7 +88,7 @@ export class TypeMetaStepComponent extends TypeBuilderStepComponent implements D
             label: new UntypedFormControl('', Validators.required),
             icon: new UntypedFormControl(''),
             href: new UntypedFormControl('', [Validators.required]),
-            fields: new UntypedFormControl('')
+            fields: new UntypedFormControl([])
         });
     }
 
@@ -108,8 +109,8 @@ export class TypeMetaStepComponent extends TypeBuilderStepComponent implements D
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

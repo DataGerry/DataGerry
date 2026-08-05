@@ -1,41 +1,61 @@
-<div class="form-group mb-2 row" [formGroup]="parentFormGroup">
+<div class="mb-3 row" [formGroup]="parentFormGroup">
   <label class="col-sm-3 col-form-label">
-    {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
+    {{data.label}}: @if (data?.required) {
+<span class="required">*</span>
+}
   </label>
   <div class="col-sm-9">
     <div class="input-group input-group-sm ">
-      <ng-container [ngSwitch]="true">
-        <ng-container *ngSwitchCase="mode == MODES.View">
+      
+@switch (true) {
+        @case (mode == MODES.View) {
+
           <input type="{{data.type}}" name="{{data.name}}" placeholder="{{data?.placeholder}}" class="form-control"
                  [formControlName]="data.name"/>
-          <div class="input-group-append">
             <span class="input-group-text" (click)="copyToClipboard()">
               <fa-icon [icon]="['far', 'clipboard']"></fa-icon>
             </span>
-          </div>
-        </ng-container>
-        <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk">
-          <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"
+        
+}
+        @case (mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk) {
+
+          @if (mode == MODES.Bulk) {
+<cmdb-object-bulk-input-appends [data]="data" [controller]="controller"
                                           [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
+}
             <input type="{{data.type}}" name="{{data.name}}" placeholder="{{data?.placeholder}}" class="form-control"
                    [formControlName]="data.name"
                    [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
                  'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"/>
             <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup"></cmdb-input-appends>
-        </ng-container>
-        <div *ngSwitchDefault>
+        
+}
+        @default {
+<div>
           <cmdb-mode-error></cmdb-mode-error>
         </div>
-      </ng-container>
-      <div *ngIf="controller.invalid && (controller.dirty || controller.touched)" class="invalid-feedback">
-        <div class="float-right" *ngIf="controller.errors?.required">
+}
+      }
+
+      @if (controller.invalid && (controller.dirty || controller.touched)) {
+<div class="invalid-feedback">
+        @if (controller.errors?.required) {
+<div class="text-end">
           {{data.label}} is a required field.
         </div>
-        <div class="float-right" *ngIf="controller.errors?.pattern">
+}
+        @if (controller.errors?.pattern) {
+<div class="text-end">
           {{data.value}} your input does not match the set regex pattern: {{data.regex}}
         </div>
-        <div class="clearfix"></div>
+}
+        @if (controller.errors?.backendValidation; as backendError) {
+<div class="text-end">
+          {{ backendError.message }}
+        </div>
+}
       </div>
+}
     </div>
     <small class="description form-text text-muted">{{data?.description}}</small>
   </div>

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,9 +26,10 @@ import { takeUntil } from 'rxjs/operators';
 import { ToastService } from '../../../../layout/toast/toast.service';
 
 @Component({
-  selector: 'cmdb-reference-section',
-  templateUrl: './reference-section.component.html',
-  styleUrls: ['./reference-section.component.scss']
+    selector: 'cmdb-reference-section',
+    templateUrl: './reference-section.component.html',
+    styleUrls: ['./reference-section.component.scss'],
+    standalone: false
 })
 export class ReferenceSectionComponent extends BaseSectionComponent implements OnDestroy {
 
@@ -70,14 +71,14 @@ export class ReferenceSectionComponent extends BaseSectionComponent implements O
   }
 
   public getFieldByName(name: string) {
-    const field: any = this.fields.find(s => s.name === `${ this.section.name }-field`).references.fields.find(f => f.name === name);
+    const field: any = this.fields?.find(s => s?.name === `${ this.section?.name }-field`).references?.fields.find(f => f?.name === name);
     switch (field.type) {
       case 'ref': {
         field.default = parseInt(field.default, 10);
         break;
       }
       default: {
-        field.default = field.value;
+        field.default = field?.value;
         break;
       }
     }
@@ -95,8 +96,8 @@ export class ReferenceSectionComponent extends BaseSectionComponent implements O
 
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 

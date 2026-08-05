@@ -1,6 +1,6 @@
 /*
 * dataGerry - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { AccessControlList } from "src/app/modules/acl/acl.types";
+import { SpecialType } from "./special-type";
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export class RenderResult {
@@ -38,6 +39,7 @@ export class RenderResult {
         editor_name?: string;
         active: boolean;
         version: string;
+        special_type?: SpecialType;
     };
 
     public type_information: {

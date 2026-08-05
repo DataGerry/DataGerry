@@ -1,41 +1,74 @@
-<div class="modal-content" *ngIf="isUsable; else notUsableModal">
-  <div class="modal-body">
+@if (isUsable) {
+<div class="assistant assistant--intro">
+  <div class="assistant__header">
+    <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.dismiss(false)">
+      <i class="fas fa-times" aria-hidden="true"></i>
+    </button>
 
-    <img id="login-logo" src="/assets/img/datagerry_logo.svg" class="img-fluid mx-auto d-block w-50"
-           alt="DATAGERRY"/>
+    <img class="assistant__logo" src="/assets/img/datagerry_logo.svg" alt="DATAGERRY" />
+    <h2 class="assistant__title">Welcome to DATAGERRY</h2>
+    <p class="assistant__subtitle">
+      Let's set up your initial data structure in a couple of quick, guided steps.
+    </p>
+  </div>
 
-    <div class="card text-center border-0">
-      <div class="card-body">
-        <h3 class="card-title">Welcome to your first DataGerry launch.</h3>
+  <div class="assistant__body">
+    <ol class="assistant__plan">
+      <li class="assistant__plan-item">
+        <span class="assistant__plan-badge">1</span>
+        <span class="assistant__plan-text">
+          <span class="assistant__plan-title">Choose your industry</span>
+          <span class="assistant__plan-desc">We'll recommend the data categories that fit your organisation best.</span>
+        </span>
+      </li>
+      <li class="assistant__plan-item">
+        <span class="assistant__plan-badge">2</span>
+        <span class="assistant__plan-text">
+          <span class="assistant__plan-title">Select data categories</span>
+          <span class="assistant__plan-desc">Pick the building blocks for your CMDB starter model.</span>
+        </span>
+      </li>
+    </ol>
 
-        <p class="card-text text-muted">
-          <!-- Take a short spin through your DATAGERRY CMDB.<br>
-          See how DATAGERRY is making life a bit easier for you. -->
-          The assistant can help you setup up your initial structure for DataGerry in a few simple steps.<br/>
-          Try it out by clicking the <b>'Start Assistant'</b>-button.<br/>
-          Click the <b>Cancel</b>-button to start with an empty data model to define your own.
-          <br />
-          <br />
-          The Assistant can also be started by pressing " <i class="fas fa-th"></i><b> => Assistant</b>" in the top right corner.
-        </p>
-      </div>
+    <div class="assistant__note">
+      <i class="fas fa-lightbulb" aria-hidden="true"></i>
+    
+      <span>
+        Prefer to start from scratch? Choose <strong>Cancel</strong> to create your own data model.
+        You can reopen the assistant while your data model is still empty from
+        <strong>Toolbox</strong> <strong>&rarr;</strong> <strong>Assistant</strong>
+        in the top-right corner.
+      </span>
     </div>
   </div>
-  <div class="modal-footer">
+
+  <div class="assistant__footer">
     <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
-    <button type="button" class="btn btn-primary p-2" (click)="activeModal.close(true)">Start Assistant</button>
+    <button type="button" class="btn btn-primary" (click)="activeModal.close(true)">
+      Start Assistant <i class="fas fa-arrow-right" aria-hidden="true"></i>
+    </button>
   </div>
 </div>
+} @else {
+<div class="assistant assistant--status">
+  <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.close(false)">
+    <i class="fas fa-times" aria-hidden="true"></i>
+  </button>
 
-<ng-template #notUsableModal>
-    <div class="modal-content">
-        <div class="modal-body">
-          <img id="login-logo" src="/assets/img/datagerry_logo.svg" class="img-fluid mx-auto d-block w-50" alt="DATAGERRY"/>
-          <br>
-            The assistant is only usable when no categories, types and objects exist in the database.
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-primary" (click)="activeModal.close(false)">Close</button>
-        </div>
-    </div>
-</ng-template>
+  <div class="assistant__status">
+    <span class="assistant__status-icon" aria-hidden="true">
+      <i class="fas fa-check"></i>
+    </span>
+    <span class="assistant__eyebrow assistant__eyebrow--muted">Start Assistant</span>
+    <h2 class="assistant__title">You're already set up</h2>
+    <p class="assistant__status-text">
+      The Start Assistant helps you build your starter data model, so it's only available on a
+      brand-new workspace during first-time setup.
+    </p>
+  </div>
+
+  <div class="assistant__footer assistant__footer--center">
+    <button type="button" class="btn btn-primary" (click)="activeModal.close(false)">Got it</button>
+  </div>
+</div>
+}

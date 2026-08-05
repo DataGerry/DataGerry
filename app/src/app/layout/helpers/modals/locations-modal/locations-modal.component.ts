@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,15 +16,16 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Component, Input } from '@angular/core';
+import {Component, inject, Input } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 /* -------------------------------------------------------------------------- */
 
 
 @Component({
-  selector: 'cmdb-locations-modal',
-  templateUrl: './locations-modal.component.html',
-  styleUrls: ['./locations-modal.component.scss']
+    selector: 'cmdb-locations-modal',
+    templateUrl: './locations-modal.component.html',
+    styleUrls: ['./locations-modal.component.scss'],
+    standalone: false
 })
 export class LocationsModalComponent {
   @Input() title = 'Information';
@@ -33,5 +34,5 @@ export class LocationsModalComponent {
   @Input() deleteChildrenButton = 'Remove locations from sub objects';
   @Input() cancelButton = 'Cancel';
 
-  constructor(public activeModal: NgbActiveModal) {}
+  public readonly activeModal = inject(NgbActiveModal);
 }

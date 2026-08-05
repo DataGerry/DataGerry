@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,6 +29,7 @@ import { ObjectsByTypeComponent } from './objects-by-type/objects-by-type.compon
 import { ObjectViewResolver } from '../resolvers/object-view-resolver.service';
 import { UserSettingsResolver } from '../../management/user-settings/resolvers/user-settings-resolver.service';
 import { ObjectComponent } from './object.component';
+import { ipamObjectGuard } from './guards/ipam-object.guard';
 
 
 const routes: Routes = [
@@ -63,6 +64,7 @@ const routes: Routes = [
       breadcrumb: 'Edit',
       right: 'base.framework.object.edit'
     },
+    canActivate: [ipamObjectGuard],
     component: ObjectEditComponent
   },
   {
@@ -71,6 +73,7 @@ const routes: Routes = [
       breadcrumb: 'Copy',
       right: 'base.framework.object.add'
     },
+    canActivate: [ipamObjectGuard],
     component: ObjectCopyComponent
   },
   {
@@ -99,6 +102,7 @@ const routes: Routes = [
       breadcrumb: 'View',
       right: 'base.framework.object.view'
     },
+    canActivate: [ipamObjectGuard],
     resolve: {
       userSetting: UserSettingsResolver,
       object: ObjectViewResolver,

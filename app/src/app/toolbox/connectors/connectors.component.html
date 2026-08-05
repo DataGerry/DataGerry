@@ -1,0 +1,7 @@
+<router-outlet></router-outlet>
+
+
+<app-loading-popup 
+[isVisible]="isLoading$ | async"
+message="We're Processing the Data..."
+></app-loading-popup>

@@ -1,22 +1,26 @@
+@use "sass:color";
+
 .renderForm {
 
   fieldset {
     border: 1px solid #ddd;
     margin-bottom: 15px;
     min-width: 0;
-    padding: 5px 15px 5px 5px;
+    padding: 10px 15px 15px 15px;
     position: relative;
 
     legend {
       font-size: 14px;
       font-weight: bold;
-      margin-left: -6px;
-      margin-bottom: 11px;
-      width: 35%;
+      width: auto; 
+      max-width: 100%;
+      margin-bottom: 0.5rem; 
+      margin-left: 0;
       border: 1px solid #ddd;
       border-radius: 0;
-      padding: 5px 5px 5px 15px;
+      padding: 5px 15px;
       background-color: #ffffff;
+      float: none;
     }
 
     label {
@@ -40,7 +44,7 @@
 }
 
 /* NG-SELECT THEME*/
-$ng-select-highlight: theme-color('primary') !default;
+$ng-select-highlight: $primary !default;
 $ng-select-primary-text: #333 !default;
 $ng-select-disabled-text: #f9f9f9 !default;
 $ng-select-border: #ccc !default;
@@ -66,21 +70,23 @@ $ng-select-value-font-size: 0.9em !default;
   &.ng-select-opened {
     > .ng-select-container {
       background: $ng-select-bg;
-      border-color: darken($ng-select-border, 10) $ng-select-border lighten($ng-select-border, 5);
-
+      border-color:
+          color.scale($ng-select-border, $lightness: -10%) // left border
+          $ng-select-border // right border
+          color.scale($ng-select-border, $lightness: 5%); // bottom border
       &:hover {
         box-shadow: none;
       }
 
       .ng-arrow {
         top: -2px;
-        border-color: transparent transparent darken($ng-select-border, 20);
+        border-color: transparent transparent color.scale($ng-select-border, $lightness: -20%);
         border-width: 0 5px 5px;
-
+      
         &:hover {
-          border-color: transparent transparent darken($ng-select-border, 60);
+          border-color: transparent transparent color.scale($ng-select-border, $lightness: -60%);
         }
-      }
+      }      
     }
 
     &.ng-select-bottom {
@@ -192,21 +198,19 @@ $ng-select-value-font-size: 0.9em !default;
           .ng-value-icon {
             display: inline-block;
             padding: 1px 5px;
-
+          
             &:hover {
-              background-color: darken($ng-select-selected, 5);
+              background-color: color.scale($ng-select-selected, $lightness: -5%);
             }
-
+          
             &.left {
-              border-right: 1px solid darken($ng-select-selected, 10);
-
+              border-right: 1px solid color.scale($ng-select-selected, $lightness: -10%);
             }
-
+          
             &.right {
-              border-left: 1px solid darken($ng-select-selected, 10);
-
+              border-left: 1px solid color.scale($ng-select-selected, $lightness: -10%);
             }
-          }
+          }          
         }
 
         .ng-input {
@@ -225,12 +229,12 @@ $ng-select-value-font-size: 0.9em !default;
   }
 
   .ng-clear-wrapper {
-    color: darken($ng-select-border, 20);
-
+    color: color.scale($ng-select-border, $lightness: -20%);
+  
     &:hover .ng-clear {
       color: #D0021B;
     }
-  }
+  }  
 
   .ng-spinner-zone {
     padding: 5px 5px 0 0;
@@ -239,19 +243,19 @@ $ng-select-value-font-size: 0.9em !default;
   .ng-arrow-wrapper {
     width: 25px;
     padding-right: 5px;
-
+  
     &:hover {
       .ng-arrow {
-        border-top-color: darken($ng-select-border, 40);
+        border-top-color: color.scale($ng-select-border, $lightness: -40%);
       }
     }
-
+  
     .ng-arrow {
-      border-color: darken($ng-select-border, 20) transparent transparent;
+      border-color: color.scale($ng-select-border, $lightness: -20%) transparent transparent;
       border-style: solid;
       border-width: 5px 5px 2.5px;
     }
-  }
+  }  
 }
 
 .ng-dropdown-panel {

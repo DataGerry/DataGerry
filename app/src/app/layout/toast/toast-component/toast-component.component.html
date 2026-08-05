@@ -1,19 +1,28 @@
-<div class="toast-container shadow mb-2 {{toast.classname}}">
-  <span>{{waitTillDisposal((toast.delayTime * 1000) || 3500, toast)}}</span>
-  <div class="toast-body border-0">
-    <div class="container">
-      <div class="row">
-        <div class="col-2 pl-0"><i class="{{toast?.icon}} {{toast.iconClass}} fa-3x fa-align-center icon-center"></i></div>
-        <div class="col-9"><h5>{{toast?.headerName}}</h5> <p>{{toast?.text}}</p></div>
-        <div class="col-1 pr-0">
-          <button type="button" class="ml-2 mb-2 close" data-dismiss="toast" aria-label="Close">
-            <span aria-hidden="true" (click)="toastService?.remove(toast)">×</span>
-          </button>
-        </div>
+<div class="toast-container shadow-lg {{toast.classname}}" role="alert" aria-live="assertive" aria-atomic="true">
+  <span class="d-none">{{waitTillDisposal((toast.delayTime * 1000) || 3500, toast)}}</span>
+  
+  <div class="toast-body p-0 border-0">
+    <div class="toast-content">
+      <div class="toast-icon-wrapper">
+        <i class="{{toast?.icon}} {{toast.iconClass}}"></i>
       </div>
+      
+      <div class="toast-text-wrapper">
+        <h5 class="toast-header-text mb-1">{{toast?.headerName}}</h5>
+        <p class="toast-message mb-0">{{toast?.text}}</p>
+      </div>
+      
+      <button 
+        type="button" 
+        class="toast-close-btn" 
+        (click)="closeToast(toast); $event.stopPropagation(); $event.preventDefault()"
+        aria-label="Close">
+        <span>×</span>
+      </button>
     </div>
-  </div>
-  <div class="meter">
-    <span style="width: 100%"><span class="progress" [style.animation]="parse(toast?.delayTime)"></span></span>
+    
+    <div class="toast-progress-bar">
+      <div class="toast-progress-fill" [style.animation]="parse(toast?.delayTime)"></div>
+    </div>
   </div>
 </div>

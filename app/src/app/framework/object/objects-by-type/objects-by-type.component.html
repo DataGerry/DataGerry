@@ -1,4 +1,15 @@
-<h1><i class="{{type?.render_meta?.icon}}"></i> {{type?.label}}</h1>
+<h1>
+  <i class="{{type?.render_meta?.icon}}"></i> {{type?.label}}
+  @if (type?.description) {
+<i 
+     class="fas fa-info-circle text-muted ml-2" 
+     data-bs-toggle="tooltip" 
+     data-bs-placement="top"
+     [title]="type?.description"
+     style="cursor: help; font-size: 0.4em; ">
+  </i>
+}
+</h1>
 <hr/>
 <div class="mt-2 mb-2">
     <cmdb-object-table-head
@@ -52,8 +63,9 @@
 <ng-template #dateTemplate let-data="data">{{data | dateFormatter}}</ng-template>
 
 <ng-template #actionTemplate let-item="item">
-    <cmdb-object-table-actions
-        *ngIf="type"
+    @if (type) {
+<cmdb-object-table-actions
+       
         [publicID]="item.object_information.object_id"
         [result]="item"
         [acl]="type?.acl"
@@ -61,6 +73,7 @@
         (deleteObjectsEmitter)="onObjectDeleteWithObjects(item.object_information.object_id)"
         (deleteLocationsEmitter)="onObjectDeleteWithLocations(item.object_information.object_id)"
     ></cmdb-object-table-actions>
+}
 </ng-template>
 
 <app-loading-popup 

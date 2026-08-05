@@ -2,7 +2,7 @@
 
 .note {
   background: $gray-200;
-  border-left: 3px solid theme-color('primary');
+  border-left: 3px solid $primary;
   padding-left: 20px;
 }
 
@@ -14,7 +14,7 @@
 
 .warning {
   background: $gray-200;
-  border-left: 3px solid theme-color('primary');
+  border-left: 3px solid $primary;
   padding-left: 20px;
 }
 

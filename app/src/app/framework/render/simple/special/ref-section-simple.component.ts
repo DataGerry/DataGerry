@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,9 +21,10 @@ import { Component, OnInit } from '@angular/core';
 import { RenderFieldComponent } from '../../fields/components.fields';
 
 @Component({
-  selector: 'cmdb-ref-section-simple',
-  templateUrl: './ref-section-simple.component.html',
-  styleUrls: ['./ref-section-simple.component.scss']
+    selector: 'cmdb-ref-section-simple',
+    templateUrl: './ref-section-simple.component.html',
+    styleUrls: ['./ref-section-simple.component.scss'],
+    standalone: false
 })
 export class RefSectionSimpleComponent extends RenderFieldComponent implements OnInit {
 

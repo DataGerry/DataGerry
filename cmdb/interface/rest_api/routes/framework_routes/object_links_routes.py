@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ Implementation of all API routes for CmdbObjectLinks
 """
 import logging
 from flask import abort, request
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -52,7 +53,7 @@ LOGGER = logging.getLogger(__name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @links_blueprint.protect(auth=True, right='base.framework.object.add')
-def create_cmdb_object_link(request_user: CmdbUser):
+def create_cmdb_object_link(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to create a new CmdbObjectLink in the database
 
@@ -80,31 +81,28 @@ def create_cmdb_object_link(request_user: CmdbUser):
         if object_link_exists:
             abort(400, f"The ObjectLink between {primary_id} and {secondary_id} already exists!")
 
-
         result_id = object_links_manager.insert_object_link(object_link_creation_data)
 
         inserted_object_link = object_links_manager.get_object_link(result_id)
 
         if inserted_object_link:
-            api_response = InsertSingleResponse(CmdbObjectLink.to_json(inserted_object_link), result_id)
-
-            return api_response.make_response()
+            return InsertSingleResponse(CmdbObjectLink.to_json(inserted_object_link), result_id).make_response()
 
         abort(404, "Could not retrieve the created ObjectLink from the database!")
     except HTTPException as http_err:
         raise http_err
     except ObjectLinksManagerInsertError as err:
-        LOGGER.error("[create_cmdb_object_link] %s", err, exc_info=True)
+        LOGGER.error("[create_cmdb_object_link] ObjectLinksManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not create the ObjectLink in the database!")
     except ObjectLinksManagerGetError as err:
-        LOGGER.error("[delete_cmdb_object_link] %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_object_link] ObjectLinksManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created ObjectLink from the database!")
     except ObjectLinksManagerGetObjectError as err:
-        LOGGER.error("[create_cmdb_object_link] %s", err, exc_info=True)
+        LOGGER.error("[create_cmdb_object_link] ObjectLinksManagerGetObjectError: %s", err, exc_info=True)
         abort(404, "Could not retrieve an Object from the database which should be linked!")
     except Exception as err:
         LOGGER.error("[create_cmdb_object_link] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while creating the ObjectLink!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -113,7 +111,7 @@ def create_cmdb_object_link(request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @links_blueprint.protect(auth=True, right='base.framework.object.view')
 @links_blueprint.parse_collection_parameters()
-def get_cmdb_object_links(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_object_links(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve multiple CmdbObjectLinks regarding the given 'params'
 
@@ -133,19 +131,19 @@ def get_cmdb_object_links(params: CollectionParameters, request_user: CmdbUser):
 
         object_links = [CmdbObjectLink.to_json(object_link) for object_link in iteration_result.results]
 
-        api_response = GetMultiResponse(object_links,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        request.method == 'HEAD')
-
-        return api_response.make_response()
+        return GetMultiResponse(
+                    object_links,
+                    iteration_result.total,
+                    params,
+                    request.url,
+                    request.method=="HEAD"
+                ).make_response()
     except ObjectLinksManagerIterationError as err:
-        LOGGER.error("[get_cmdb_object_links] %s", err, exc_info=True)
+        LOGGER.error("[get_cmdb_object_links] ObjectLinksManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to iterate the ObjectLinks!")
     except Exception as err:
         LOGGER.error("[get_cmdb_object_links] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while iterating ObjectLinks!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -153,7 +151,7 @@ def get_cmdb_object_links(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @links_blueprint.protect(auth=True, right='base.framework.object.delete')
-def delete_cmdb_object_link(public_id: int, request_user: CmdbUser):
+def delete_cmdb_object_link(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a CmdbObjectLink with the given public_id
 
@@ -168,25 +166,22 @@ def delete_cmdb_object_link(public_id: int, request_user: CmdbUser):
         object_links_manager: ObjectLinksManager = ManagerProvider.get_manager(ManagerType.OBJECT_LINKS,
                                                                                request_user)
 
-
         to_delete_object_link = object_links_manager.get_object_link(public_id)
 
         if to_delete_object_link:
             object_links_manager.delete_object_link(public_id)
 
-            api_response = DeleteSingleResponse(raw=to_delete_object_link)
-
-            return api_response.make_response()
+            return DeleteSingleResponse(to_delete_object_link).make_response()
 
         abort(404, f"ObjectLink with ID:{public_id} not found!")
     except HTTPException as http_err:
         raise http_err
     except ObjectLinksManagerDeleteError as err:
-        LOGGER.error("[delete_cmdb_object_link] %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_object_link] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Could not delete the ObjectLink with ID:{public_id}!")
     except ObjectLinksManagerGetError as err:
-        LOGGER.error("[delete_cmdb_object_link] %s", err, exc_info=True)
+        LOGGER.error("[delete_cmdb_object_link] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to retrieve the ObjectLink with ID:{public_id}  which should be deleted!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_object_link] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while deleting ObjectLink with ID:{public_id}!")

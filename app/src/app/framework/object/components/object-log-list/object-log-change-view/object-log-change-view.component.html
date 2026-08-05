@@ -1,22 +1,34 @@
-<div [ngSwitch]="mode">
-  <div *ngSwitchCase="MODES.ACTIVE_CHANGE" class="d-flex justify-content-between align-items-center">
+<div>
+@switch (mode) {
+  @case (MODES.ACTIVE_CHANGE) {
+<div class="d-flex justify-content-between align-items-center">
     <cmdb-active-badge [activeStatus]="changes['old']"></cmdb-active-badge>
     <i class="fas fa-arrow-right"></i>
     <cmdb-active-badge [activeStatus]="changes['new']"></cmdb-active-badge>
   </div>
-  <div *ngSwitchCase="MODES.CREATE">
+}
+  @case (MODES.CREATE) {
+<div>
     -
   </div>
-  <div class="container-fluid" *ngSwitchCase="MODES.EDIT">
-    <div *ngFor="let change of changes?.old; let i = index" [className]="i % 2 == 0 ? 'row bg-light' : 'row'">
+}
+  @case (MODES.EDIT) {
+<div class="container-fluid">
+    @for (change of changes?.old; track change; let i = $index) {
+<div [className]="i % 2 == 0 ? 'row bg-light' : 'row'">
       <div class="col-12 col-xl-3"><strong>{{change?.name}}:</strong></div>
       <div class="col-12 col-xl-4"><span>{{change?.value | dateFormatter}}</span></div>
       <div class="col-12 col-xl-1"><i class="fas fa-arrow-right p-3"></i></div>
       <div class="col-12 col-xl-4"><span>{{changes?.new[i]?.value | dateFormatter}}</span></div>
       <hr>
     </div>
+}
   </div>
-  <div *ngSwitchDefault>
+}
+  @default {
+<div>
     Unknown action
   </div>
+}
+}
 </div>

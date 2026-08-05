@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -34,9 +34,10 @@ import { APIUpdateMultiResponse } from '../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-object-bulk-change',
-  templateUrl: './object-bulk-change.component.html',
-  styleUrls: ['./object-bulk-change.component.scss']
+    selector: 'cmdb-object-bulk-change',
+    templateUrl: './object-bulk-change.component.html',
+    styleUrls: ['./object-bulk-change.component.scss'],
+    standalone: false
 })
 export class ObjectBulkChangeComponent implements OnDestroy {
 
@@ -75,8 +76,8 @@ export class ObjectBulkChangeComponent implements OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */

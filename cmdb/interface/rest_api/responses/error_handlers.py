@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -24,8 +24,8 @@ Notes:
     the description field of the respective class is used.
     This field is used normally again after the message has been saved.
 """
-import logging
-from typing import Optional
+from logging import Logger, getLogger
+
 from flask import request, jsonify
 from werkzeug.exceptions import (
     HTTPException,
@@ -41,27 +41,27 @@ from werkzeug.exceptions import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ErrorResponse - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class ErrorResponse:
     """TODO: documentation"""
-    def __init__(self, status: int, prefix: str, description: str, message: str, joke: str = None):
+    def __init__(self, status: int, prefix: str, description: str, message: str):
+        """TODO: documentation"""
         self.status: int = status
         self.response: str = f'{prefix}: {request.url}'
         self.description: str = description
         self.message: str = self._validate_message(message, description) or ''
-        if joke:
-            self.joke: str = joke
 
 
     @staticmethod
-    def _validate_message(message, description) -> Optional[str]:
+    def _validate_message(message, description) -> str | None:
         """Checks if description and message are the same"""
         if message != description:
             return message
+
         return None
 
 
@@ -72,7 +72,6 @@ class ErrorResponse:
 
     def make_error(self, error: HTTPException) -> dict:
         """make a flask valid error response"""
-
         resp = jsonify(self.__dict__)
         resp.status_code = self.get_status_code()
         error.description = self.description
@@ -86,35 +85,35 @@ def bad_request(error):
     """400 Bad Request"""
 
     resp = ErrorResponse(status=400, prefix='Bad Request', description=BadRequest.description,
-                            message=error.description, joke='... cause the access was nuts!')
+                            message=error.description)
     return resp.make_error(error)
 
 
 def unauthorized(error):
     """401 Unauthorized"""
     resp = ErrorResponse(status=401, prefix='Unauthorized', description=Unauthorized.description,
-                         message=error.description, joke='Even a blind squirrel finds a nut once in a while.')
+                         message=error.description)
     return resp.make_error(error)
 
 
 def forbidden(error):
     """403 Forbidden"""
     resp = ErrorResponse(status=403, prefix='Forbidden', description=Forbidden.description,
-                         message=error.description, joke='a hard nut to crack for you!')
+                         message=error.description)
     return resp.make_error(error)
 
 
 def page_not_found(error):
     """404 Not Found"""
     resp = ErrorResponse(status=404, prefix='Not Found', description=NotFound.description,
-                         message=error.description, joke='Even a blind squirrel finds a nut once in a while.')
+                         message=error.description)
     return resp.make_error(error)
 
 
 def method_not_allowed(error):
     """405 Method Not Allowed"""
     resp = ErrorResponse(status=405, prefix='Method Not Allowed', description=MethodNotAllowed.description,
-                         message=error.description, joke='to not be able to do something for toffee/nuts.')
+                         message=error.description)
     return resp.make_error(error)
 
 
@@ -128,7 +127,7 @@ def not_acceptable(error):
 def page_gone(error):
     """410 Page Gone"""
     resp = ErrorResponse(status=410, prefix='Gone', description=Gone.description,
-                         message=error.description, joke='i am nuts about it...')
+                         message=error.description)
     return resp.make_error(error)
 
 
@@ -136,7 +135,7 @@ def page_gone(error):
 def internal_server_error(error):
     """500 Internal Server Error"""
     resp = ErrorResponse(status=500, prefix='Internal Server Error', description=InternalServerError.description,
-                         message=error.description, joke='Are you nuts?')
+                         message=error.description)
     return resp.make_error(error)
 
 

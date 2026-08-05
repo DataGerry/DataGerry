@@ -1,0 +1,61 @@
+.license-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #6c757d;
+  border-radius: 0.5rem;
+  background-color: #fff;
+
+  &--self-hosted {
+    border-left-color: #198754;
+  }
+
+  &--expired {
+    border-left-color: #dc3545;
+    background-color: #fdf7f7;
+  }
+
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.4rem;
+    background-color: rgba(108, 117, 125, 0.12);
+    color: #495057;
+    font-size: 0.9rem;
+
+    .license-strip--self-hosted & {
+      background-color: rgba(25, 135, 84, 0.12);
+      color: #198754;
+    }
+
+    .license-strip--expired & {
+      background-color: rgba(220, 53, 69, 0.12);
+      color: #dc3545;
+    }
+  }
+
+  &__description {
+    color: #6b7280;
+    font-size: 0.88rem;
+  }
+
+  &__meta {
+    margin-left: auto;
+    color: #6b7280;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .license-strip__meta {
+    margin-left: 0;
+    white-space: normal;
+  }
+}

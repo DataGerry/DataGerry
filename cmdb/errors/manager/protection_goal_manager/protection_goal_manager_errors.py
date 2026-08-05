@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -22,7 +22,7 @@ class ProtectionGoalManagerError(Exception):
     """
     Raised to catch all ProtectionGoalManager related errors
     """
-    def __init__(self, err: str):
+    def __init__(self, err: str) -> None:
         """
         Raised to catch all ProtectionGoalManager related errors
         """
@@ -68,5 +68,5 @@ class ProtectionGoalManagerIterationError(ProtectionGoalManagerError):
 
 class ProtectionGoalManagerRiskUsageError(ProtectionGoalManagerError):
     """
-    Raised when ThreatManager could not delete an IsmsProtectionGoal because an IsmsRisk is using it
+    Raised when ProtectionGoalManager could not delete an IsmsProtectionGoal because an IsmsRisk is using it
     """

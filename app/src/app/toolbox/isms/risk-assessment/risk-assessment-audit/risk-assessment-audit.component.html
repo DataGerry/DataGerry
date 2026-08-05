@@ -1,12 +1,12 @@
     <div>
 
         <div class="mb-3">
-            <label>Audit Done Date</label>
+            <label class="mb-1">Audit Done Date</label>
             <app-form-date [formControl]="parentForm.get('audit_done_date')"></app-form-date>
         </div>
 
         <div class="form-block mt-4">
-          <label>Auditor</label>
+          <label class="mb-1">Auditor</label>
         
           <app-form-select
               class="w-100"
@@ -21,7 +21,7 @@
         </div>
 
         <div class="mb-3">
-            <label>Audit Result</label>
+            <label class="mb-1">Audit Result</label>
             <app-form-textarea [formControl]="parentForm.get('audit_result')"></app-form-textarea>
         </div>
 

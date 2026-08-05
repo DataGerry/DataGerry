@@ -12,24 +12,30 @@
   <hr />
 
   <cmdb-table [items]="protectionGoals" [columns]="columns" [totalItems]="totalProtectionGoals" [pageSize]="limit"
-    [page]="page" [searchEnabled]="false" [paginationEnabled]="false" [loading]="loading" [infoEnabled]="false" [pageSizeEnabled]="false"
-    (pageChange)="onPageChange($event)">
+    [page]="page" [searchEnabled]="false" [paginationEnabled]="false" [loading]="loading" [infoEnabled]="false"
+    [pageSizeEnabled]="false" (pageChange)="onPageChange($event)">
   </cmdb-table>
 </div>
 
 <!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
   <div>
-    <ng-container *ngIf="!isDefaultProtectionGoal(item); else defaultBadge">
-      <a *permissionLink="['base.isms.protectionGoal.edit']" (click)="editProtectionGoal(item)"
-        title="Edit Protection Goal">
-        <i class="far fa-edit icon-edit spacing-right"></i>
-      </a>
-      <a *permissionLink="['base.isms.protectionGoal.delete']" (click)="deleteProtectionGoal(item)"
-        title="Delete Protection Goal">
-        <i class="far fa-trash-alt icon-delete"></i>
-      </a>
-    </ng-container>
+    @if (!isDefaultProtectionGoal(item)) {
+
+    <a *permissionLink="['base.isms.protectionGoal.edit']" (click)="editProtectionGoal(item)"
+      title="Edit Protection Goal">
+      <i class="far fa-edit icon-edit spacing-right"></i>
+    </a>
+    <a *permissionLink="['base.isms.protectionGoal.delete']" (click)="deleteProtectionGoal(item)"
+      title="Delete Protection Goal">
+      <i class="far fa-trash-alt icon-delete"></i>
+    </a>
+
+    } @else {
+
+    <span class="badge bg-secondary">Predefined</span>
+
+    }
     <ng-template #defaultBadge>
       <span class="badge bg-secondary">Predefined</span>
     </ng-template>

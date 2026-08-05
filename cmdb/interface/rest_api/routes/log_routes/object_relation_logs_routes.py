@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,9 @@
 """
 Implementation of all API routes for CmdbObjectRelationLogs
 """
-import logging
+from logging import Logger, getLogger
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectRelationLogsManager
@@ -37,6 +38,8 @@ from cmdb.interface.rest_api.responses import (
     DeleteSingleResponse,
 )
 
+from cmdb.interface.rest_api.routes.log_routes.object_relation_log_constants import ObjectRelationLogRight
+
 from cmdb.errors.manager.object_relation_logs_manager import (
     ObjectRelationLogsManagerIterationError,
     ObjectRelationLogsManagerGetError,
@@ -44,7 +47,7 @@ from cmdb.errors.manager.object_relation_logs_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 object_relation_logs_blueprint = APIBlueprint('object_relation_logs', __name__)
 
@@ -53,9 +56,9 @@ object_relation_logs_blueprint = APIBlueprint('object_relation_logs', __name__)
 @object_relation_logs_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@object_relation_logs_blueprint.protect(auth=True, right='base.framework.objectRelationLog.view')
+@object_relation_logs_blueprint.protect(auth=True, right=ObjectRelationLogRight.VIEW.value)
 @object_relation_logs_blueprint.parse_collection_parameters()
-def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjectRelationLogs
 
@@ -78,7 +81,7 @@ def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: Cm
         iteration_result: IterationResult[CmdbObjectRelationLog] = object_relation_logs_manager.iterate(builder_params)
 
         object_relation_logs_list = [CmdbObjectRelationLog.to_json(object_relation_log) for
-                                      object_relation_log in iteration_result.results]
+                                     object_relation_log in iteration_result.results]
 
         api_response = GetMultiResponse(object_relation_logs_list,
                                         iteration_result.total,
@@ -92,14 +95,14 @@ def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: Cm
         abort(400, "Failed to retrieve ObjectRelationLogs from database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_object_relation_logs] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while iterating ObjectRelationLogs!")
 
 
 @object_relation_logs_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@object_relation_logs_blueprint.protect(auth=True, right='base.framework.objectRelationLog.view')
-def get_cmdb_object_relation_log(public_id: int, request_user: CmdbUser):
+@object_relation_logs_blueprint.protect(auth=True, right=ObjectRelationLogRight.VIEW.value)
+def get_cmdb_object_relation_log(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbObjectRelationLog
 
@@ -118,7 +121,7 @@ def get_cmdb_object_relation_log(public_id: int, request_user: CmdbUser):
         requested_object_relation_log = object_relation_logs_manager.get_object_relation_log(public_id)
 
         if requested_object_relation_log:
-            api_response = GetSingleResponse(requested_object_relation_log, body = request.method == 'HEAD')
+            api_response = GetSingleResponse(requested_object_relation_log, body=request.method == 'HEAD')
 
             return api_response.make_response()
 
@@ -130,15 +133,15 @@ def get_cmdb_object_relation_log(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the ObjectRelationLog with ID: {public_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_object_relation_log] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while retrieving ObjectRelationLog with ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @object_relation_logs_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@object_relation_logs_blueprint.protect(auth=True, right='base.framework.objectRelationLog.delete')
-def delete_object_relation_log(public_id: int, request_user: CmdbUser):
+@object_relation_logs_blueprint.protect(auth=True, right=ObjectRelationLogRight.DELETE.value)
+def delete_object_relation_log(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbObjectRelationLog
 
@@ -159,9 +162,7 @@ def delete_object_relation_log(public_id: int, request_user: CmdbUser):
         if to_delete_object_relation_log:
             object_relation_logs_manager.delete_object_relation_log(public_id)
 
-            api_response = DeleteSingleResponse(raw=to_delete_object_relation_log)
-
-            return api_response.make_response()
+            return DeleteSingleResponse(raw=to_delete_object_relation_log).make_response()
 
         abort(404, f"The ObjectRelationLog with ID:{public_id} was not found!")
     except HTTPException as http_err:
@@ -174,4 +175,4 @@ def delete_object_relation_log(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the ObjectRelationLog ID:{public_id} from the database!")
     except Exception as err:
         LOGGER.error("[delete_object_relation_log] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while deleting the ObjectRelationLog with ID:{public_id}!")

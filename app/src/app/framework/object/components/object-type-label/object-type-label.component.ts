@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,9 +20,10 @@ import { Component, Input } from '@angular/core';
 import { CmdbType } from '../../../models/cmdb-type';
 
 @Component({
-  selector: 'cmdb-object-type-label',
-  templateUrl: './object-type-label.component.html',
-  styleUrls: ['./object-type-label.component.scss']
+    selector: 'cmdb-object-type-label',
+    templateUrl: './object-type-label.component.html',
+    styleUrls: ['./object-type-label.component.scss'],
+    standalone: false
 })
 export class ObjectTypeLabelComponent {
 

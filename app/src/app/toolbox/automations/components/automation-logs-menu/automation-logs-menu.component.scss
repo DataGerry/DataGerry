@@ -1,0 +1,78 @@
+@use "sass:color";
+
+$dg-primary-color: #e94d18;
+
+:host {
+  display: inline-flex;
+  align-items: center;
+}
+
+.log-menu-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.log-menu-trigger {
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  color: #1f6feb;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.log-menu-trigger:hover {
+  color: #134aa3;
+}
+
+.log-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  min-width: 220px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(16, 24, 40, 0.12);
+  z-index: 10;
+  padding: 8px;
+  text-align: left;
+}
+
+.log-menu-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #111827;
+  padding: 6px 8px;
+  border-bottom: 1px solid #eef2f7;
+  margin-bottom: 6px;
+}
+
+.log-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.log-menu-item:hover {
+  background: #f3f4f6;
+}
+
+.log-menu-loading,
+.log-menu-empty {
+  font-size: 12px;
+  color: #6b7280;
+  padding: 6px 8px;
+}

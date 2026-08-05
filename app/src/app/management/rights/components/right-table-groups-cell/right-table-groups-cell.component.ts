@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy } from '@angular/core';
+import { Component, inject, Input, OnDestroy } from '@angular/core';
 import { Right } from '../../../models/right';
 import { GroupService } from '../../../services/group.service';
 import { takeUntil } from 'rxjs/operators';
@@ -26,9 +26,10 @@ import { RightGroupsModalComponent } from '../../modals/right-groups-modal/right
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-right-table-groups-cell',
-  templateUrl: './right-table-groups-cell.component.html',
-  styleUrls: ['./right-table-groups-cell.component.scss']
+    selector: 'cmdb-right-table-groups-cell',
+    templateUrl: './right-table-groups-cell.component.html',
+    styleUrls: ['./right-table-groups-cell.component.scss'],
+    standalone: false
 })
 export class RightTableGroupsCellComponent implements OnDestroy {
 
@@ -59,8 +60,8 @@ export class RightTableGroupsCellComponent implements OnDestroy {
       });
   }
 
-  constructor(private groupService: GroupService, private modalService: NgbModal) {
-  }
+  private readonly groupService = inject(GroupService);
+  private readonly modalService = inject(NgbModal);
 
   public openGroupListModal(): void {
     this.modalRef = this.modalService.open(RightGroupsModalComponent, {size: 'lg'});
@@ -71,8 +72,8 @@ export class RightTableGroupsCellComponent implements OnDestroy {
     if (this.modalRef) {
       this.modalRef.close();
     }
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

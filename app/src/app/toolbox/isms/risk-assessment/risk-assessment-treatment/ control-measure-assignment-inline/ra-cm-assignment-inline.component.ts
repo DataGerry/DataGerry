@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -39,10 +39,11 @@ interface RespItem {
 }
 
 @Component({
-  selector: 'ra-cm-assignment-inline',
-  templateUrl: './ra-cm-assignment-inline.component.html',
-  styleUrls: ['./ra-cm-assignment-inline.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'ra-cm-assignment-inline',
+    templateUrl: './ra-cm-assignment-inline.component.html',
+    styleUrls: ['./ra-cm-assignment-inline.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
 
@@ -151,7 +152,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
     this.columns = [
       { display: 'Identifier', name: 'ident', data: 'identifier', sortable: true },
       { display: 'Control Name', name: 'title', data: 'title', sortable: true },
-      // { display:'Responsible', name:'resp',  data:'responsibleLabel'               },
       { display: 'Status', name: 'stat', data: 'statusLabel' },
       {
         display: 'Actions', name: 'act', data: 'dummy',
@@ -176,19 +176,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
 
   /* ═════════════════════ table rows ═════════════════════ */
   get rowsLength(): number { return this.cmArray.length; }
-  // get tableRows():any[]{
-  //   return this.cmArray.controls.map(ctrl=>{
-  //     const v  = ctrl.value as ControlMeasureAssignment;
-  //     const cm = this.cmMap.get(v.control_measure_id);
-  //     return {
-  //       ...v,
-  //       identifier      : cm?.identifier ?? `#${v.control_measure_id}`,
-  //       title           : cm?.title ?? '',
-  //       responsibleLabel: this.responsibleOptions.find(r=>r.public_id===v.responsible_for_implementation_id)?.display_name ?? '',
-  //       statusLabel     : this.stsMap.get(v.implementation_status) ?? v.implementation_status
-  //     };
-  //   });
-  // }
 
   get tableRows(): any[] {
     const allRows = this.cmArray.controls.map(ctrl => {
@@ -226,29 +213,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
   }
 
 
-  // public updateAvailableControlMeasures(currentId?: number): void {
-  //   const used = new Set<number>();
-  //   const controls = this.cmArray.value;
-
-  //   for (let i = 0; i < controls.length; i++) {
-  //     used.add(controls[i].control_measure_id);
-  //   }
-
-  //   if (currentId != null) {
-  //     used.delete(currentId);
-  //   }
-
-  //   const filtered: CmItem[] = [];
-  //   for (const cm of this.allControlMeasures) {
-  //     if (!used.has(cm.public_id)) {
-  //       filtered.push(cm);
-  //     }
-  //   }
-
-  //   filtered.sort((a, b) => a.title.localeCompare(b.title));
-  //   this.availableControlMeasures = filtered;
-  // }
-
   public updateAvailableControlMeasures(currentId?: number): void {
     const used = new Set<number>();
     const controls = this.cmArray?.value;
@@ -278,23 +242,6 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
     this.availableControlMeasures = temp;
   }
   /* -------- open modal ------- */
-  // openModal(idx?:number, mode:'add'|'edit'|'view'='add'):void{
-  //   this.modalMode = mode;
-  //   this.editIndex = idx ?? null;
-
-  //   const seed = idx!=null ? { ...this.cmArray.at(idx).getRawValue() } : undefined;
-  //   this.modalForm.reset();
-  //   this.modalForm.patchValue(seed ?? {});
-  //   (mode==='view') ? this.modalForm.disable() : this.modalForm.enable();
-
-  //   this.updateAvailableControlMeasures(seed?.control_measure_id);
-
-  //   queueMicrotask(()=>{
-  //     this.modalRef = this.modal.open(this.modalTpl,
-  //       { size:'lg', centered:true, backdrop:'static', windowClass:'dg-modal' });
-  //   });
-  // }
-
   openModal(idx?: number, mode: 'add' | 'edit' | 'view' = 'add'): void {
     this.modalMode = mode;
     this.editIndex = idx ?? null;

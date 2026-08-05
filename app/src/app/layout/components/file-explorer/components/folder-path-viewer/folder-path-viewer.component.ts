@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,15 +16,16 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { FileElement } from '../../model/file-element';
 import { FileService } from '../../service/file.service';
 
 @Component({
-  selector: 'cmdb-folder-path-viewer',
-  templateUrl: './folder-path-viewer.component.html',
-  styleUrls: ['./folder-path-viewer.component.scss']
+    selector: 'cmdb-folder-path-viewer',
+    templateUrl: './folder-path-viewer.component.html',
+    styleUrls: ['./folder-path-viewer.component.scss'],
+    standalone: false
 })
 export class FolderPathViewerComponent implements OnInit {
 
@@ -41,8 +42,7 @@ export class FolderPathViewerComponent implements OnInit {
     return this.selectedFileElement;
   }
 
-  constructor(private fileService: FileService) {
-  }
+  private readonly fileService = inject(FileService);
 
   public ngOnInit(): void {
     this.selectedFileFolder.subscribe(folder => {

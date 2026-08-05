@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,12 +16,13 @@
 """
 Implementation of CmdbLog
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CmdbLog - CLASS                                                   #
@@ -34,10 +35,10 @@ class CmdbLog:
     allows registration of custom log types, and provides 
     serialization methods for log instances.
     """
-    REGISTERED_LOG_TYPE = {}
+    REGISTERED_LOG_TYPE: dict[Any, Any] = {}
     DEFAULT_LOG_TYPE = CmdbObjectLog
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args, **kwargs) -> Any:
         """
         Dynamically creates an instance of the appropriate log class 
         based on provided arguments
@@ -73,7 +74,7 @@ class CmdbLog:
 
 
     @classmethod
-    def register_log_type(cls, log_name, log_class) -> None:
+    def register_log_type(cls, log_name: str, log_class: Any) -> None:
         """
         Registers a new log type to the log factory
 

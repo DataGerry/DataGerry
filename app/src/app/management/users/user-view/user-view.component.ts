@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -32,9 +32,10 @@ import { UsersPasswdModalComponent } from '../modals/users-passwd-modal/users-pa
 import { environment } from 'src/environments/environment';
 
 @Component({
-  selector: 'cmdb-user-view',
-  templateUrl: './user-view.component.html',
-  styleUrls: ['./user-view.component.scss']
+    selector: 'cmdb-user-view',
+    templateUrl: './user-view.component.html',
+    styleUrls: ['./user-view.component.scss'],
+    standalone: false
 })
 export class UserViewComponent implements OnInit, OnDestroy {
 
@@ -86,8 +87,8 @@ export class UserViewComponent implements OnInit, OnDestroy {
     if (this.modalRef) {
       this.modalRef.close();
     }
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
   public openPasswordModal() {

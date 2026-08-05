@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,7 +21,8 @@ import { QueryBuilderConfig, QueryBuilderClassNames } from 'shout-angular-query-
 @Component({
     selector: 'app-filter-builder',
     templateUrl: './filter-builder.component.html',
-    styleUrls: ['./filter-builder.component.scss']
+    styleUrls: ['./filter-builder.component.scss'],
+    standalone: false
 })
 export class FilterBuilderComponent implements OnInit, OnChanges {
     @Input() fields: Array<{ name: string; label: string; type?: string; options?: Array<{ name: string; value: any }> }> = [];

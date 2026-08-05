@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C)  becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 """
 Implementation of XmlExportFormat
 """
-import logging
+from logging import Logger, getLogger
 import json
 import xml.dom.minidom
 import xml.etree.ElementTree as ET
@@ -26,7 +26,7 @@ from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterCon
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                XmlExportFormat - CLASS                                               #
@@ -166,7 +166,7 @@ class XmlExportFormat(BaseExporterFormat):
         cmdb_object_fields = ET.SubElement(cmdb_object, 'fields')
 
         for field in columns:
-            field_attribs = {
+            field_attribs: dict[str, str] = {
                 'name': str(field),
                 'value': str(obj_fields_dict.get(field, ''))
             }

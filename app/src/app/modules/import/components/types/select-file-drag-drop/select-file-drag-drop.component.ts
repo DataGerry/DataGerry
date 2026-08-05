@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,7 +23,8 @@ import { UntypedFormGroup} from '@angular/forms';
 @Component({
     selector: 'cmdb-select-file-drag-drop',
     templateUrl: './select-file-drag-drop.component.html',
-    styleUrls: ['./select-file-drag-drop.component.scss']
+    styleUrls: ['./select-file-drag-drop.component.scss'],
+    standalone: false
 })
 export class SelectFileDragDropComponent {
     @Input() formGroup: UntypedFormGroup;
@@ -45,7 +46,6 @@ export class SelectFileDragDropComponent {
                 try {
                     this.formGroup.get('file').setValue(JSON.parse(fileReader.result));
                 } catch (err) {
-                    console.log(err);
                     this.syntaxError = true;
                     this.formGroup.get('file').setValue(null);
                 }
@@ -53,7 +53,6 @@ export class SelectFileDragDropComponent {
         };
 
         fileReader.onerror = (error) => {
-            console.log(error);
             this.syntaxError = true;
         };
     }

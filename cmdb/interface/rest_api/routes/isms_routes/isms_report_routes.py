@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,10 @@
 """
 Implementation of all API routes for Isms Reports
 """
-import logging
+from logging import Logger, getLogger
 import re
 from flask import abort
+from werkzeug import Response
 
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
@@ -31,18 +32,52 @@ from cmdb.manager.query_builder.builder_parameters import BuilderParameters
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsReportBuilder
 from cmdb.models.extendable_option_model import OptionType, CmdbExtendableOption
+from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
+    object_reference_lookup_stages,
+    risk_matrix_class_lookup_stages,
+)
 
 from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 isms_report_blueprint = APIBlueprint('isms_report', __name__)
+
+
+def _replace_object_ids_with_summaries(items: list[dict], object_key: str, objects_manager: ObjectsManager) -> None:
+    """
+    Replaces each report item's OBJECT-referenced public_id (under ``object_key``) with the object's
+    summary line, resolved in a single batch rather than one lookup per item.
+
+    Only items whose ``object_id_ref_type`` is OBJECT are touched; an id with no resolvable object
+    becomes 'Unknown object'.
+
+    Args:
+        items (list[dict]): The aggregated report rows to enrich in place
+        object_key (str): The key holding the object public_id to replace
+        objects_manager (ObjectsManager): Manager used to resolve the summary lines
+    """
+    target_items = [
+        item for item in items
+        if item.get(object_key) and item.get('object_id_ref_type') == ObjectReferenceType.OBJECT
+    ]
+
+    if not target_items:
+        return
+
+    summaries = objects_manager.get_summary_lines_lookup(
+        [item[object_key] for item in target_items], with_type=False
+    )
+
+    for item in target_items:
+        item[object_key] = summaries.get(item[object_key], 'Unknown object')
 
 # ---------------------------------------------------- CRUD-CREATE --------------------------------------------------- #
 
@@ -50,7 +85,7 @@ isms_report_blueprint = APIBlueprint('isms_report', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_risk_matrix_report(request_user: CmdbUser):
+def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the IsmsRiskMatrix report
 
@@ -89,7 +124,7 @@ def get_isms_risk_matrix_report(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_risk_treatment_plan_report(request_user: CmdbUser):
+def get_isms_risk_treatment_plan_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the Risk Treatment Plan report
 
@@ -154,33 +189,8 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser):
                 }
             },
 
-            # Step 4: Lookup Object or ObjectGroup based on object_id_ref_type
-            {
-                "$lookup": {
-                    "from": "framework.objects",
-                    "localField": "object_id",
-                    "foreignField": "public_id",
-                    "as": "object"
-                }
-            },
-            {
-                "$lookup": {
-                    "from": "framework.objectGroups",
-                    "localField": "object_id",
-                    "foreignField": "public_id",
-                    "as": "object_group"
-                }
-            },
-
-            # Step 5: Lookup type label if object is used
-            {
-                "$lookup": {
-                    "from": "framework.types",
-                    "localField": "object.type_id",
-                    "foreignField": "public_id",
-                    "as": "object_type"
-                }
-            },
+            # Lookup Object / ObjectGroup / type label for the assessed object
+            *object_reference_lookup_stages(),
 
             # Step 6: Lookup person/personGroup
             {
@@ -200,79 +210,9 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser):
                 }
             },
 
-            # Step 7: Lookup risk class matrix values for risk_before
-            {
-                "$lookup": {
-                    "from": "isms.riskMatrix",
-                    "let": {
-                        "likelihood_id": "$risk_calculation_before.likelihood_id",
-                        "impact_id": "$risk_calculation_before.maximum_impact_id"
-                    },
-                    "pipeline": [
-                        { "$match": { "public_id": 1 } },
-                        { "$unwind": "$risk_matrix" },
-                        {
-                            "$match": {
-                                "$expr": {
-                                    "$and": [
-                                        { "$eq": ["$risk_matrix.likelihood_id", "$$likelihood_id"] },
-                                        { "$eq": ["$risk_matrix.impact_id", "$$impact_id"] }
-                                    ]
-                                }
-                            }
-                        },
-                        { "$replaceRoot": { "newRoot": "$risk_matrix" } }
-                    ],
-                    "as": "risk_before"
-                }
-            },
-            { "$unwind": { "path": "$risk_before", "preserveNullAndEmptyArrays": True } },
-            {
-                "$lookup": {
-                    "from": "isms.riskClass",
-                    "localField": "risk_before.risk_class_id",
-                    "foreignField": "public_id",
-                    "as": "risk_before_class"
-                }
-            },
-            { "$unwind": { "path": "$risk_before_class", "preserveNullAndEmptyArrays": True } },
-
-            # Step 8: Repeat for risk after treatment
-            {
-                "$lookup": {
-                    "from": "isms.riskMatrix",
-                    "let": {
-                        "likelihood_id": "$risk_calculation_after.likelihood_id",
-                        "impact_id": "$risk_calculation_after.maximum_impact_id"
-                    },
-                    "pipeline": [
-                        { "$match": { "public_id": 1 } },
-                        { "$unwind": "$risk_matrix" },
-                        {
-                            "$match": {
-                                "$expr": {
-                                    "$and": [
-                                        { "$eq": ["$risk_matrix.likelihood_id", "$$likelihood_id"] },
-                                        { "$eq": ["$risk_matrix.impact_id", "$$impact_id"] }
-                                    ]
-                                }
-                            }
-                        },
-                        { "$replaceRoot": { "newRoot": "$risk_matrix" } }
-                    ],
-                    "as": "risk_after"
-                }
-            },
-            { "$unwind": { "path": "$risk_after", "preserveNullAndEmptyArrays": True } },
-            {
-                "$lookup": {
-                    "from": "isms.riskClass",
-                    "localField": "risk_after.risk_class_id",
-                    "foreignField": "public_id",
-                    "as": "risk_after_class"
-                }
-            },
-            { "$unwind": { "path": "$risk_after_class", "preserveNullAndEmptyArrays": True } },
+            # Resolve each risk_calculation matrix cell + its risk class (before and after treatment)
+            *risk_matrix_class_lookup_stages("risk_calculation_before", "risk_before", "risk_before_class"),
+            *risk_matrix_class_lookup_stages("risk_calculation_after", "risk_after", "risk_after_class"),
 
             # Step 9: Lookup assigned control measures
             {
@@ -364,16 +304,10 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser):
 
         query_result: list[dict] = list(risk_assessment_manager.aggregate(query_pipeline))
 
-        # Replace Object public_id with Summary line
-        for item in query_result:
-            if item.get("object") and item.get("object_id_ref_type") == "OBJECT":
-                try:
-                    object_summary = objects_manager.get_summary_line(item["object"], with_type=False)
-                    item["object"] = object_summary
-                except Exception:
-                    item["object"] = "Unknown object"
+        # Replace Object public_ids with their summary lines (batched), then drop the internal ref type
+        _replace_object_ids_with_summaries(query_result, "object", objects_manager)
 
-            # Clean up unnecessary internal fields
+        for item in query_result:
             item.pop("object_id_ref_type", None)
 
         return DefaultResponse(query_result).make_response()
@@ -391,7 +325,7 @@ def get_isms_risk_treatment_plan_report(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_soa_report(request_user: CmdbUser):
+def get_isms_soa_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the Statement of Applicability(SOA) report
 
@@ -409,47 +343,39 @@ def get_isms_soa_report(request_user: CmdbUser):
                                                                                 ManagerType.EXTENDABLE_OPTIONS,
                                                                                 request_user)
 
-        # Get all implementation states for IsmsControlMeasures
-        implementation_states = extendable_options_manager.iterate_items(BuilderParameters(
-                                                                    {'option_type':OptionType.IMPLEMENTATION_STATE}
-                                                                ))
-        all_implementation_states = [CmdbExtendableOption.to_json(imp_state) for
-                                     imp_state in implementation_states.results]
+        # Fetch both the implementation-state and source options in a single query, then split them
+        # by option_type into their lookup maps
+        options = extendable_options_manager.iterate_items(BuilderParameters(
+            {'option_type': {'$in': [OptionType.IMPLEMENTATION_STATE, OptionType.CONTROL_MEASURE]}}
+        ))
 
-        # Create a lookup map from public_id to value for implementation states
-        implementation_state_lookup = {
-            option['public_id']: option['value'] for option in all_implementation_states
-        }
+        implementation_state_lookup: dict[int, str] = {}
+        source_lookup: dict[int, str] = {}
 
-        all_control_meassures = control_measure_manager.get_many()
+        for option in options.results:
+            option_json = CmdbExtendableOption.to_json(option)
 
-        # Replace implementation_state public_id with its corresponding value
-        for cm in all_control_meassures:
-            original_id = cm.get('implementation_state')
-            if original_id in implementation_state_lookup:
-                cm['implementation_state'] = implementation_state_lookup[original_id]
+            if option_json['option_type'] == OptionType.IMPLEMENTATION_STATE:
+                implementation_state_lookup[option_json['public_id']] = option_json['value']
+            else:
+                source_lookup[option_json['public_id']] = option_json['value']
 
+        all_control_measures = control_measure_manager.get_many()
 
-        cm_sources = extendable_options_manager.iterate_items(BuilderParameters(
-                                                                    {'option_type':OptionType.CONTROL_MEASURE}
-                                                                ))
-        all_sources = [CmdbExtendableOption.to_json(source) for source in cm_sources.results]
+        # Single pass: replace the implementation_state and source public_ids with their values
+        for cm in all_control_measures:
+            state_id = cm.get('implementation_state')
+            if state_id in implementation_state_lookup:
+                cm['implementation_state'] = implementation_state_lookup[state_id]
 
-        # Create a lookup map from public_id to value for sources
-        source_lookup = {
-            option['public_id']: option['value'] for option in all_sources
-        }
-
-        # Replace source public_id with its corresponding value
-        for cm in all_control_meassures:
             source_id = cm.get('source')
             if source_id in source_lookup:
                 cm['source'] = source_lookup[source_id]
 
         # Order all control measures
-        all_control_meassures.sort(key=sort_key)
+        all_control_measures.sort(key=sort_key)
 
-        return DefaultResponse(all_control_meassures).make_response()
+        return DefaultResponse(all_control_measures).make_response()
     except Exception as err:
         LOGGER.error("[get_isms_soa_report] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving the SOA report!")
@@ -459,15 +385,15 @@ def get_isms_soa_report(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
-def get_isms_risk_assessments_report(request_user: CmdbUser):
+def get_isms_risk_assessments_report(request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route to retrieve the Statement of Applicability(SOA) report
+    HTTP `GET`/`HEAD` route to retrieve the RiskAssessment report
 
     Args:
-        request_user (CmdbUser): CmdbUser requesting the SOA report
+        request_user (CmdbUser): CmdbUser requesting the RiskAssessment report
 
     Returns:
-        DefaultResponse: The SOA report as a dictionary
+        DefaultResponse: The RiskAssessment report as a list of dictionaries
     """
     try:
         risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
@@ -519,31 +445,8 @@ def get_isms_risk_assessments_report(request_user: CmdbUser):
             },
             {"$unwind": {"path": "$implementation_status", "preserveNullAndEmptyArrays": True}},
 
-            # Step 6: Lookup Object or ObjectGroup based on object_id_ref_type
-            {
-                "$lookup": {
-                    "from": "framework.objects",
-                    "localField": "object_id",
-                    "foreignField": "public_id",
-                    "as": "object"
-                }
-            },
-            {
-                "$lookup": {
-                    "from": "framework.objectGroups",
-                    "localField": "object_id",
-                    "foreignField": "public_id",
-                    "as": "object_group"
-                }
-            },
-            {
-                "$lookup": {
-                    "from": "framework.types",
-                    "localField": "object.type_id",
-                    "foreignField": "public_id",
-                    "as": "object_type"
-                }
-            },
+            # Lookup Object / ObjectGroup / type label for the assessed object
+            *object_reference_lookup_stages(),
 
             # Step 7: Lookup the Risk Assessor (P)
             {
@@ -1015,15 +918,8 @@ def get_isms_risk_assessments_report(request_user: CmdbUser):
 
         query_result: list[dict] = list(risk_assessment_manager.aggregate(pipeline))
 
-        # Replace Object public_id with Summary line
-        for item in query_result:
-            if item.get("assigned_object") and item.get("object_id_ref_type") == "OBJECT":
-                try:
-                    object_summary = objects_manager.get_summary_line(item["assigned_object"], with_type=False)
-                    item["assigned_object"] = object_summary
-                except Exception:
-                    item["assigned_object"] = "Unknown object"
-
+        # Replace Object public_ids with their summary lines (batched)
+        _replace_object_ids_with_summaries(query_result, "assigned_object", objects_manager)
 
         return DefaultResponse(query_result).make_response()
     except Exception as err:
@@ -1056,8 +952,12 @@ def sort_key(cm: dict) -> tuple:
     # This ensures that empty identifiers get a higher "penalty"
     empty_priority: int = 1 if identifier_is_empty else 0
 
-    # 3. Convert the identifier into a list of integers for numeric sorting
-    identifier_sort_value: list[int] = [int(part) if part.isdigit() else part
-                                        for part in re.split(r'(\D+|\d+)', identifier or '')]
+    # 3. Split the identifier into numeric / non-numeric parts for natural sorting. Each part is
+    #    wrapped as (type_rank, value) so numeric and string parts never compare against each other
+    #    (which would raise a TypeError) - digit groups (rank 0) sort before non-digit groups (rank 1)
+    identifier_sort_value: list[tuple[int, object]] = [
+        (0, int(part)) if part.isdigit() else (1, part)
+        for part in re.split(r'(\D+|\d+)', identifier or '')
+    ]
 
     return (source_priority, empty_priority, identifier_sort_value)

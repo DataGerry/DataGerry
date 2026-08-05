@@ -1,0 +1,33 @@
+.automation-progress-list {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8fafc 0%, #eef2f7 100%);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+}
+
+.automation-progress-header {
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 10px;
+}
+
+.automation-progress-item {
+  padding: 10px 0;
+  border-top: 1px solid #e2e8f0;
+}
+
+.automation-progress-item:first-of-type {
+  border-top: none;
+}
+
+.automation-progress-title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.automation-progress-bar {
+  display: block;
+  margin-top: 6px;
+}

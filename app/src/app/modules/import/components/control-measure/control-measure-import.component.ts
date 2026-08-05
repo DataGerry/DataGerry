@@ -10,6 +10,7 @@ import { ImportSummaryModalComponent } from '../import-summary-dialog/import-sum
 @Component({
     selector: 'cmdb-control-measure-import',
     templateUrl: './control-measure-import.component.html',
+    standalone: false
 })
 export class ImportControlMeasureComponent {
     public fileForm: UntypedFormGroup;

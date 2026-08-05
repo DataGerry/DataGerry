@@ -1,13 +1,19 @@
-.mce-content-body pdf\:barcode {
+.mce-content-body pdf\:barcode,
+.mce-content-body pdf-barcode {
     display: block;
     width: 100px;
     height: 100px;
     background: #F2F2F2;
     border: 1px solid #CCCCCC;
+    position: relative;
 }
 
-.mce-content-body pdf\:barcode:after {
+.mce-content-body pdf\:barcode:after,
+.mce-content-body pdf-barcode:after {
     content: 'Barcode';
     position: absolute;
     font-size: 8pt;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
 }

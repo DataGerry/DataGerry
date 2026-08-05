@@ -1,4 +1,6 @@
-<div class="block-overlay" *ngIf="blocked">
+@if (blocked) {
+<div class="block-overlay">
     <i class="fas fa-lock fa-5x"></i>
 </div>
+}
 <ng-content></ng-content>

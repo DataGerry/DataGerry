@@ -1,0 +1,30 @@
+<div class="d-flex justify-content-between align-items-center">
+  <h2>Connectors</h2>
+  <div>
+    <button type="button" class="btn btn-sm btn-internal-connectors  ms-2 text-white" (click)="configInternal()"
+      *permissionLink="'base.openCelium.connector.*'">
+      <i class="fa-solid fa-plug"></i> Edit build-in Connnector
+    </button>
+    <button type="button" class="btn btn-sm btn-add ms-2 text-white" (click)="add()"
+      *permissionLink="'base.openCelium.connector.add'">
+      <i class="fas fa-plus"></i> Add Connnector
+    </button>
+  </div>
+</div>
+
+<hr />
+
+<cmdb-table [items]="rows" [columns]="columns" [searchEnabled]="false" [totalItems]="totalConnectors"
+  [paginationEnabled]="false" [pageSizeEnabled]="false" *permissionLink="'base.openCelium.connector.view'">
+</cmdb-table>
+
+<!-- Actions Template -->
+<ng-template #actionsTemplate let-item="item">
+  <span *permissionLink="'base.openCelium.connector.edit'">
+    <i class="far fa-edit icon-margin btn-edit spacing-right" (click)="edit(item)" title="Edit Connector"></i>
+  </span>
+
+  <span *permissionLink="'base.openCelium.connector.delete'">
+    <i class="far fa-trash-alt btn-delete" (click)="delete(item)" title="Delete Connector"></i>
+  </span>
+</ng-template>

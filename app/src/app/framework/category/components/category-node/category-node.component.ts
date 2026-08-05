@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,8 +19,7 @@
 import { Component, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
 import { CmdbCategory, CmdbCategoryNode } from '../../../models/cmdb-category';
 import { CmdbMode } from '../../../modes.enum';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { NgbModalRef } from '@ng-bootstrap/ng-bootstrap/modal/modal-ref';
+import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { CategoryService } from '../../../services/category.service';
 import { Router } from '@angular/router';
 import { DeleteCategoryModalComponent } from '../modals/delete-category-modal/delete-category-modal.component';
@@ -28,9 +27,10 @@ import {ReplaySubject} from "rxjs";
 import {takeUntil} from "rxjs/operators";
 
 @Component({
-  selector: 'cmdb-category-node',
-  templateUrl: './category-node.component.html',
-  styleUrls: ['./category-node.component.scss']
+    selector: 'cmdb-category-node',
+    templateUrl: './category-node.component.html',
+    styleUrls: ['./category-node.component.scss'],
+    standalone: false
 })
 export class CategoryNodeComponent implements OnDestroy {
 
@@ -74,8 +74,8 @@ export class CategoryNodeComponent implements OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.unSubscribe.next();
-    this.unSubscribe.complete();
+    this.unSubscribe?.next();
+    this.unSubscribe?.complete();
   }
 
 }

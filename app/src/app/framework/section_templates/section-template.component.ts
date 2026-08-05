@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 
 import { finalize, takeUntil } from 'rxjs/operators';
 import { ReplaySubject } from 'rxjs';
@@ -43,9 +43,15 @@ export interface GlobalTemplateCounts {
 @Component({
     selector: 'cmdb-section-template',
     templateUrl: './section-template.component.html',
-    styleUrls: ['./section-template.component.scss']
+    styleUrls: ['./section-template.component.scss'],
+    standalone: false
 })
 export class SectionTemplateComponent implements OnInit, OnDestroy {
+    private readonly sectionTemplateService = inject(SectionTemplateService);
+    private readonly modalService = inject(NgbModal);
+    private readonly toastService = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
+
     public sectionTemplates: any = [];
     private unsubscribe: ReplaySubject<void> = new ReplaySubject<void>();
 
@@ -53,15 +59,6 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
     public isLoading$ = this.loaderService.isLoading$;
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
-
-    constructor(
-        private sectionTemplateService: SectionTemplateService,
-        private modalService: NgbModal,
-        private toastService: ToastService,
-        private loaderService: LoaderService) {
-
-    }
-
 
     ngOnInit(): void {
         this.getAllSectionTemplates();
@@ -200,8 +197,7 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
                         this.getAllSectionTemplates();
                     },
                     error: error => {
-                        console.log("error in clone section template response");
-                        this.toastService.error(error);
+                        this.toastService.error(error?.error?.message);
                     }
                 });
             }

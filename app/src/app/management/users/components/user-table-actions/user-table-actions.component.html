@@ -1,19 +1,19 @@
-<div class="d-flex justify-content-center" *ngIf="user">
+@if (user) {
+<div class="d-flex justify-content-center">
   <a *permissionLink="'base.user-management.user.edit'" [routerLink]="['/management/users/edit/', user.public_id]">
     <i class="far fa-edit spacing-right icon-edit"></i>
   </a>
-  
-  <ng-container *ngIf="!isCloudMode">
-    <a class="text-dark pointer" (click)="passWordAction.emit(user)"
-       *permissionLink="'base.user-management.user.edit'">
-      <i class="fas fa-key"></i>
-    </a>
-  </ng-container>
-  
-  <ng-container *ngIf="user.public_id != 1">
-    <a *permissionLink="'base.user-management.user.delete'"
-       [routerLink]="['/management/users/delete/', user.public_id]">
-      <i class="far fa-trash-alt spacing-right icon-delete"></i>
-    </a>
-  </ng-container>
+
+  @if (!isCloudMode) {
+  <a class="text-dark pointer" (click)="passWordAction.emit(user)" *permissionLink="'base.user-management.user.edit'">
+    <i class="fas fa-key"></i>
+  </a>
+  }
+
+  @if (user.public_id != 1) {
+  <a *permissionLink="'base.user-management.user.delete'" [routerLink]="['/management/users/delete/', user.public_id]">
+    <i class="far fa-trash-alt spacing-right icon-delete"></i>
+  </a>
+  }
 </div>
+}

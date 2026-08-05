@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,9 @@
 Implementation of all API routes for CmdbLocations
 """
 import logging
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -68,7 +70,7 @@ location_blueprint = APIBlueprint('locations', __name__)
 @location_blueprint.protect(auth=True, right='base.framework.object.edit')
 @location_blueprint.parse_request_parameters()
 # @location_blueprint.validate(CmdbLocation.SCHEMA)
-def insert_cmdb_location(params: dict, request_user: CmdbUser):
+def insert_cmdb_location(params: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbLocation into the database
 
@@ -175,7 +177,7 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser):
         abort(400, "Failed to retrieve Locations from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_locations] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while iterating Locations!")
 
 
 #TODO: DOCUMENT-API-FIX
@@ -201,7 +203,7 @@ def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
         iteration_result: IterationResult[CmdbLocation] = locations_manager.iterate(builder_params)
 
-        location_list: list[dict] = [CmdbLocation.to_json(location) for location in iteration_result.results]
+        location_list: list[dict[str, Any]] = [CmdbLocation.to_json(location) for location in iteration_result.results]
 
         # get all root locations
         filtered_location_list = []
@@ -236,7 +238,7 @@ def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser
         abort(400, "Failed to retrieve Locations from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_locations_tree] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while requesting the Location tree!")
 
 
 @location_blueprint.route('/<int:public_id>', methods=['GET'])
@@ -270,7 +272,7 @@ def get_cmdb_location(public_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the Location with ID: {public_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_location] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while retrieving the Location with ID:{public_id}!")
 
 
 #TODO: DOCUMENT-API-FIX
@@ -302,7 +304,7 @@ def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the Location for Object with ID: {object_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while retrieving the Location for Object with ID:{object_id}!")
 
 
 #TODO: DOCUMENT-API-FIX
@@ -338,7 +340,9 @@ def get_cmdb_location_parent(object_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve the parent Location for Object with ID: {object_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_location_parent] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500,
+            f"An internal server error occured while retrieving the parent location for Object with ID:{object_id}!"
+        )
 
 
 #TODO: DOCUMENT-API-FIX
@@ -374,7 +378,9 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser):
         abort(400, f"Failed to retrieve Location for Object with ID: {object_id} from the database!")
     except Exception as err:
         LOGGER.error("[get_cmdb_children] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500,
+            f"An internal server error occured while retrieving childen for Location of Object with ID: {object_id}!"
+        )
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -439,7 +445,7 @@ def update_cmdb_location_for_object(params: dict, request_user: CmdbUser):
         abort(400, "Failed to update the Location in the database!")
     except Exception as err:
         LOGGER.error("[update_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while updating a Location!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -477,4 +483,4 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser):
         abort(400, f"Failed to delete the Location linked to Object with ID: {object_id} from the database!")
     except Exception as err:
         LOGGER.error("[delete_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, f"An internal server error occured while deleting an Location for Object with ID:{object_id}!")

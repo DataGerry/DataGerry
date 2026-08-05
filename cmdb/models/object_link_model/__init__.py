@@ -19,6 +19,6 @@ Provides all CmdbObjectLink relevant classes
 from .cmdb_object_link import CmdbObjectLink
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'CmdbObjectLink',
 ]

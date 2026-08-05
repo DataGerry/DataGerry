@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,18 +16,18 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { Router } from '@angular/router';
 
 @Component({
-  selector: 'cmdb-relation-table-actions',
-  templateUrl: './relation-table-actions.component.html',
-  styleUrls: ['./relation-table-actions.component.scss']
+    selector: 'cmdb-relation-table-actions',
+    templateUrl: './relation-table-actions.component.html',
+    styleUrls: ['./relation-table-actions.component.scss'],
+    standalone: false
 })
 export class RelationTableActionsComponent {
 
-  constructor(private router: Router,
-  ) { }
+  private readonly router = inject(Router);
 
 
   /**

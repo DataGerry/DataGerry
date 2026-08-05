@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,10 @@
 """
 Implementation of SearchParam
 """
-import logging
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  SearchParam - CLASS                                                 #
@@ -45,8 +45,8 @@ class SearchParam:
         Args:
             search_text (str): The user input used for searching in the database
             search_form (str): The kind of search parameter, must be one of the POSSIBLE_FORM_TYPES
-            settings (dict, optional): Optional settings specific to the search form
-            disjunction (bool, optional): If True, indicates the search should be treated as a
+            settings (dict | None): Settings specific to the search form
+            disjunction (bool): If True, indicates the search should be treated as a
                                           disjunction (OR operation). Defaults to False.
 
         Raises:

@@ -1,6 +1,9 @@
 import { ComponentFixture, fakeAsync, TestBed, tick } from "@angular/core/testing";
 import { BuilderComponent } from "./builder.component"
-import { ChangeDetectorRef } from "@angular/core";
+import { ChangeDetectorRef, NO_ERRORS_SCHEMA } from "@angular/core";
+import { provideHttpClient, withInterceptorsFromDi } from "@angular/common/http";
+import { provideHttpClientTesting } from "@angular/common/http/testing";
+import { LocationFieldDeletionService } from "../services/location-field-deletion.service";
 
 
 describe('Builder Component', () => {
@@ -12,7 +15,13 @@ describe('Builder Component', () => {
     beforeEach(async () => {
         await TestBed.configureTestingModule({
             declarations: [BuilderComponent],
-            providers: [ChangeDetectorRef]
+            providers: [
+                ChangeDetectorRef,
+                { provide: LocationFieldDeletionService, useValue: {} },
+                provideHttpClient(withInterceptorsFromDi()),
+                provideHttpClientTesting()
+            ],
+            schemas: [NO_ERRORS_SCHEMA]
         }).compileComponents();
 
         fixture = TestBed.createComponent(BuilderComponent);

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,25 +16,27 @@
 """
 Class - Contains the summary fields of the CmdbType 'Type'
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                      TypeSummary                                                     #
+#                                                  TypeSummary - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TypeSummary:
     """
-    Contains the summary fields of the CmdbType 'Type'
+    Contains the summary fields of CmdbType
     """
-    def __init__(self, fields: list[str] = None):
-        self.fields = fields or []
+    def __init__(self, fields: list[str] | None = None) -> None:
+        """TODO: document"""
+        self.fields: list[str] = fields or []
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "TypeSummary":
+    def from_data(cls, data: dict[str, Any]) -> "TypeSummary":
         """
         Generates a TypeSummary object from a dict
 
@@ -48,7 +50,7 @@ class TypeSummary:
 
 
     @classmethod
-    def to_json(cls, instance: "TypeSummary") -> dict:
+    def to_json(cls, instance: "TypeSummary") -> dict[str, Any]:
         """
         Returns a TypeSummary as JSON representation
 

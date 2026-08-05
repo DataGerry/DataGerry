@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,13 +27,14 @@ import { ReplaySubject } from 'rxjs';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 
 @Component({
-  selector: 'cmdb-date',
-  templateUrl: './date.component.html',
-  styleUrls: ['./date.component.scss'],
-  providers: [
-    { provide: NgbDateAdapter, useClass: NgbStringAdapter },
-    { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
-  ]
+    selector: 'cmdb-date',
+    templateUrl: './date.component.html',
+    styleUrls: ['./date.component.scss'],
+    providers: [
+        { provide: NgbDateAdapter, useClass: NgbStringAdapter },
+        { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
+    ],
+    standalone: false
 })
 export class DateComponent extends RenderFieldComponent implements OnInit {
 

@@ -1,0 +1,59 @@
+***********
+Automations
+***********
+
+.. _automations-anchor:
+
+The Automations module provides a flexible framework for orchestrating and executing automated processes across
+connected systems via APIs. It enables the definition, configuration, and execution of workflows that react to
+events, transform data, and trigger actions in external services without requiring tight coupling or custom
+integration code.
+
+| 
+
+Automations are intended for:
+
+- Connect and synchronize data between multiple systems
+- Trigger actions based on events, schedules, or incoming API requests
+- Transform, enrich, and route data between different interfaces
+- Reduce manual processes by encapsulating recurring integration logic
+- Monitor and control automated executions in a centralized way
+
+| 
+
+By abstracting API interactions into reusable automation components, the system allows complex integration scenarios
+to be implemented in a structured, maintainable, and scalable manner. This makes Automations suitable for both simple
+task automation and advanced cross-system process orchestration.
+
+| 
+
+=======================================================================================================================
+
+| 
+
+Setup OpenCelium
+----------------
+
+.. note::
+  This step is not required when using the cloud version of DataGerry, as OpenCelium is already installed and
+  preconfigured
+
+The **Automations** module depends on an external integration runtime (OpenCelium) that must be installed and operated
+locally. A local installation is required in order to execute automation workflows, manage integrations, and handle API
+communication within your environment.
+
+Before using Automations, ensure that the integration runtime is properly installed and configured. Detailed information
+about system requirements, installation steps, and initial setup is available in the official installation documentation:
+
+`Integration Runtime Installation Guide <https://docs.opencelium.io/en/prod/gettinginvolved/index.html>`_
+
+| 
+
+Once the local installation is complete configure the credentials in the **etc/cmdb.conf** file
+
+| 
+
+.. include:: ../../../etc/cmdb.conf
+    :literal:
+
+Set your credentials in the OpenCelium section

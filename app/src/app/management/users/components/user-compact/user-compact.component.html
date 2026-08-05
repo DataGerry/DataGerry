@@ -1,10 +1,13 @@
-<ng-container *ngIf="user; else userLoading">
-  <cmdb-user-display maxWidth="30" [user]="user"></cmdb-user-display>
-</ng-container>
-<ng-template #userLoading>
-  <div class="text-center">
-    <div class="spinner-grow spinner-grow-sm" role="status">
-      <span class="sr-only">Loading...</span>
-    </div>
+@if (user) {
+
+<cmdb-user-display maxWidth="30" [user]="user"></cmdb-user-display>
+
+} @else {
+
+<div class="text-center">
+  <div class="spinner-grow spinner-grow-sm" role="status">
+    <span class="sr-only">Loading...</span>
   </div>
-</ng-template>
+</div>
+
+}

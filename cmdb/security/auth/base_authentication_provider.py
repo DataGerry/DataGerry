@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of BaseAuthenticationProvider
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.manager import (
     UsersManager,
@@ -27,7 +27,7 @@ from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
 from cmdb.models.user_model import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          BaseAuthenticationProvider - CLASS                                          #
@@ -50,9 +50,10 @@ class BaseAuthenticationProvider:
 
     def __init__(
         self,
-        config: BaseAuthProviderConfig = None,
-        security_manager: SecurityManager = None,
-        users_manager: UsersManager = None):
+        config: BaseAuthProviderConfig | None = None,
+        security_manager: SecurityManager | None = None,
+        users_manager: UsersManager | None = None
+    ) -> None:
         """
         Initializes the base authentication provider
 

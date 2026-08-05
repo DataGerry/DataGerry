@@ -6,11 +6,11 @@
 
                 <div class="card">
                     <div class="card-header">
-                        <a href="#" class="btn btn-link" data-toggle="collapse" data-target="#structureControls">
+                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#structureControls">
                             Structure Controls
                         </a>
                     </div>
-                    <div id="structureControls" class="collapse" data-parent="#controlsPanel">
+                    <div id="structureControls" class="collapse" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group section-template-item">
                                 <div 
@@ -32,11 +32,11 @@
                 </div>
                 <div class="card">
                     <div class="card-header">
-                        <a href="#" class="btn btn-link" data-toggle="collapse" data-target="#basicControls">
+                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#basicControls">
                             Basic Controls
                         </a>
                     </div>
-                    <div id="basicControls" class="collapse" data-parent="#controlsPanel">
+                    <div id="basicControls" class="collapse" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group section-template-item">
                                 <div 
@@ -82,17 +82,17 @@
                     <div class="card-header" [ngClass]="getSectionHeaderClass(section)">
                         <fa-icon [icon]="['far', 'object-group']"></fa-icon>
                             {{section.label}}
-                        <span class="float-right">
+                        <span class="float-end">
                             <button 
-                                class="btn btn-link mr-1"
+                                class="btn btn-link me-1"
                                 type="button"
-                                data-toggle="collapse"
-                                [attr.data-target]="'#section-' + x + section.name"
+                                data-bs-toggle="collapse"
+                                [attr.data-bs-target]="'#section-' + x + section.name"
                             >
                                 <fa-icon [icon]="getSectionCollapseIcon(section)"></fa-icon>
                             </button>
                             
-                            <button class="btn btn-link mr-1" type="button" dndHandle 
+                            <button class="btn btn-link me-1" type="button" dndHandle 
                             (dragstart)="preventDragForAllSections($event)"
                             [class.disabled]="disableFields">
                                 <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
@@ -145,15 +145,15 @@
                                                     </span>
                                                     <span>
                                                         <button
-                                                            class="btn btn-link mr-1"
+                                                            class="btn btn-link me-1"
                                                             type="button"
-                                                            data-toggle="collapse"
-                                                            [attr.data-target]="'#field-'+ x + y + field.name"
+                                                            data-bs-toggle="collapse"
+                                                            [attr.data-bs-target]="'#field-'+ x + y + field.name"
                                                             [class.disabled]="isLocked() || disableFields"
                                                             >
                                                             <fa-icon [icon]="['far', 'edit']"></fa-icon>
                                                         </button>
-                                                        <button class="btn btn-link mr-1" type="button" dndHandle
+                                                        <button class="btn btn-link me-1" type="button" dndHandle
                                                         (dragstart)="preventDragForAllFields($event, section)"
                                                         [class.disabled]="isLocked() || disableFields"
                                                          >    

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C)  becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 """
 Implementation of the CsvExportFormat
 """
-import logging
+from logging import Logger, getLogger
 import csv
 from io import StringIO
 import json
@@ -28,7 +28,7 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.errors.exporter import ExporterCSVTypeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                CsvExportFormat - CLASS                                               #
@@ -64,11 +64,11 @@ class CsvExportFormat(BaseExporterFormat):
         if not data:
             raise ValueError("No data provided for CSV export")
 
-        header = ['public_id', 'active']
-        columns = [x['name'] for x in data[0].fields] if data else []
-        rows = []
+        header: list[str] = ['public_id', 'active']
+        columns: list = [x['name'] for x in data[0].fields] if data else []
+        rows: list = []
         view = 'native'
-        current_type_id = data[0].type_information['type_id']
+        current_type_id: int = data[0].type_information['type_id']
 
         # Export only the shown fields chosen by the user
         if args and args[0].get("metadata") and\
@@ -91,7 +91,7 @@ class CsvExportFormat(BaseExporterFormat):
             obj_fields_dict = {}
 
             for field in obj.fields:
-                obj_field_name = field.get('name')
+                obj_field_name: str = field.get('name')
                 obj_fields_dict[obj_field_name] = BaseExporterFormat.summary_renderer(obj, field, view)
 
             # define output row

@@ -17,9 +17,12 @@
 </ng-template>
 
 <ng-template #descriptionTemplate let-item="item">
-  <span *ngIf="item.description?.length <= 120">{{ item.description }}</span>
+  @if (item.description?.length <= 120) {
+<span>{{ item.description }}</span>
+}
 
-  <span *ngIf="item.description?.length > 120" 
+  @if (item.description?.length > 120) {
+<span 
         matTooltip="{{ item.description }}" 
         matTooltipPosition="right"
         matTooltipClass="custom-tooltip"
@@ -27,11 +30,12 @@
         class="tooltip-text">
     {{ item.description | slice:0:120 }}...
   </span>
+}
 </ng-template>
 
 
 <ng-template #addTemplate>
-  <button type="button" *permissionLink="['base.framework.relation.add']" class="btn btn-success btn-sm mr-1 ml-1"
+  <button type="button" *permissionLink="['base.framework.relation.add']" class="btn btn-success btn-sm me-1 ms-1"
     [routerLink]="['/framework/relation/add']">
     <i class="fas fa-plus"></i> Add
   </button>

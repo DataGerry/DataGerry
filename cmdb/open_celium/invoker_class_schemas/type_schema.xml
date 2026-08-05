@@ -1,0 +1,66 @@
+<field name="public_id" type="integer"/>
+<field name="name" type="string"/>
+<field name="label" type="string"/>
+<field name="author_id" type="integer"/>
+<field name="editor_id" type="integer"/>
+<field name="creation_time" type="object"/>
+<field name="last_edit_time" type="object"/>
+<field name="selectable_as_parent" type="boolean"/>
+<field name="global_template_ids" type="array"/>
+<field name="active" type="boolean"/>
+<field name="fields" type="array">
+    <field name="type" type="string"/>
+    <field name="required" type="boolean"/>
+    <field name="name" type="string"/>
+    <field name="rows" type="integer"/>
+    <field name="label" type="string"/>
+    <field name="description" type="string"/>
+    <field name="regex" type="string"/>
+    <field name="placeholder" type="string"/>
+    <field name="value" type="string"/>
+    <field name="helperText" type="string"/>
+    <field name="default" type="string"/>
+    <field name="options" type="array">
+        <field name="name" type="string"/>
+        <field name="label" type="string"/>
+    </field>
+    <field name="ref_types" type="array"/>
+    <field name="summaries" type="array">
+        <field name="type_id" type="integer"/>
+        <field name="line" type="string"/>
+        <field name="label" type="string"/>
+        <field name="fields" type="array"/>
+        <field name="icon" type="string"/>
+        <field name="prefix" type="boolean"/>
+    </field>
+</field>
+<field name="version" type="string"/>
+<field name="description" type="string"/>
+<field name="render_meta" type="object">
+    <field name="icon" type="string"/>
+    <field name="sections" type="array">
+        <field name="type" type="string"/>
+        <field name="name" type="string"/>
+        <field name="label" type="string"/>
+        <field name="hidden_fields" type="array"/>
+        <field name="reference" type="object">
+            <field name="type_id" type="integer"/>
+            <field name="section_name" type="string"/>
+            <field name="selected_fields" type="array"/>
+        </field>
+        <field name="fields" type="array"/>
+    </field>
+    <field name="externals" type="array">
+        <field name="name" type="string"/>
+        <field name="href" type="string"/>
+        <field name="label" type="string"/>
+        <field name="icon" type="string"/>
+        <field name="fields" type="array"/>
+    </field>
+    <field name="summary" type="object">
+        <field name="fields" type="array"/>
+    </field>
+</field>
+<field name="acl" type="object"/>
+<field name="ci_explorer_label" type="string"/>
+<field name="ci_explorer_color" type="string"/>

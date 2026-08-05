@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,84 +16,39 @@
 """
 Implementation of IsmsControlMeasure in DataGerry - ISMS
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
-
 from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
+
+from cmdb.class_schema.isms_model.isms_control_measure_schema import get_isms_control_measure_schema
+
 from cmdb.errors.models.isms_control_measure import (
     IsmsControlMeasureInitError,
     IsmsControlMeasureInitFromDataError,
     IsmsControlMeasureToJsonError,
 )
-
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                              IsmsControlMeasure - CLASS                                             #
+#                                              IsmsControlMeasure - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class IsmsControlMeasure(CmdbDAO):
     """
-    Implementation of IsmsControlMeasure which represents a threat in ISMS
+    Implementation of IsmsControlMeasure which represents a control measure in ISMS
 
     Extends: CmdbDAO
     """
     COLLECTION = "isms.controlMeasure"
-    MODEL = 'ControlMeasure'
-    # pylint: disable=R0801
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'title': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'control_measure_type': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'source': {
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
-        'implementation_state': {
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
-        'identifier': {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        },
-        'chapter': {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        },
-        'description': {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        },
-        'is_applicable': {
-            'type': 'boolean',
-            'required': True,
-            'nullable': True,
-        },
-        'reason': {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        }
-    }
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('control_measure_type', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_type', 'unique': False},
+    ]
+
+    SCHEMA: dict = get_isms_control_measure_schema()
 
     #pylint: disable=R0913, R0917
     def __init__(
@@ -107,8 +62,8 @@ class IsmsControlMeasure(CmdbDAO):
             chapter: str = None,
             description: str = None,
             is_applicable: bool = False,
-            reason: str = None,
-        ):
+            reason: str = None
+        ) -> None:
         """
         Initialises an IsmsControlMeasure
 

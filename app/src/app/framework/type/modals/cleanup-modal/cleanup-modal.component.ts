@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { AfterViewInit, Component, Input, OnDestroy } from '@angular/core';
+import { Component, inject, AfterViewInit, Input, OnDestroy } from '@angular/core';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
 
@@ -30,7 +30,8 @@ import { CmdbType } from '../../../models/cmdb-type';
 @Component({
     selector: 'cmdb-cleanup-modal',
     templateUrl: './cleanup-modal.component.html',
-    styleUrls: ['./cleanup-modal.component.scss']
+    styleUrls: ['./cleanup-modal.component.scss'],
+    standalone: false
 })
 export class CleanupModalComponent implements AfterViewInit, OnDestroy {
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -46,13 +47,9 @@ export class CleanupModalComponent implements AfterViewInit, OnDestroy {
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    constructor(
-        private objectService: ObjectService,
-        public userService: UserService,
-        public activeModal: NgbActiveModal
-    ) {
-
-    }
+    private readonly objectService = inject(ObjectService);
+    public readonly userService = inject(UserService);
+    public readonly activeModal = inject(NgbActiveModal);
 
 
     public ngAfterViewInit(): void {
@@ -64,8 +61,8 @@ export class CleanupModalComponent implements AfterViewInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
       }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

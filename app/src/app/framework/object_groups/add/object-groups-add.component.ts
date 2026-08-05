@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { Observable } from 'rxjs';
@@ -20,11 +20,20 @@ interface SelectOption {
 }
 
 @Component({
-  selector: 'app-object-groups-add',
-  templateUrl: './object-groups-add.component.html',
-  styleUrls: ['./object-groups-add.component.scss']
+    selector: 'app-object-groups-add',
+    templateUrl: './object-groups-add.component.html',
+    styleUrls: ['./object-groups-add.component.scss'],
+    standalone: false
 })
 export class ObjectGroupsAddComponent implements OnInit {
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly objectGroupService = inject(ObjectGroupService);
+  private readonly extendableOptionService = inject(ExtendableOptionService);
+  private readonly typeService = inject(TypeService);
+
   public isEditMode = false;
   public isViewMode = false;
   public groupId?: number;
@@ -52,20 +61,6 @@ export class ObjectGroupsAddComponent implements OnInit {
   public typeOptions: SelectOption[] = [];
   public allTypeIds: number[] = [];
   public typesLoaded = false;
-
-
-
-  constructor(
-    private route: ActivatedRoute,
-    private router: Router,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private objectGroupService: ObjectGroupService,
-    private extendableOptionService: ExtendableOptionService,
-    private typeService: TypeService
-  ) { }
-
-
 
   ngOnInit(): void {
     const state = history.state;
@@ -143,7 +138,22 @@ export class ObjectGroupsAddComponent implements OnInit {
     }
 
     this.loaderService.show();
-    const params = { filter: '', limit: 0, sort: 'sort', order: 1, page: 1 };
+
+    const params = {
+      filter:
+        (this.isViewMode &&
+          this.group.group_type === ObjectGroupMode.DYNAMIC &&
+          Array.isArray(this.group.assigned_ids) &&
+          this.group.assigned_ids.length > 0)
+          ? { public_id: { $in: this.group.assigned_ids } }
+          : '',
+      limit: 0,
+      sort: 'sort',
+      order: 1,
+      page: 1,
+      projection: ['public_id', 'label', 'name'],
+    };
+
     this.typeService.getTypes(params)
       .pipe(finalize(() => this.loaderService.hide()))
       .subscribe({

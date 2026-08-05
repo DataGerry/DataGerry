@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,7 +21,8 @@ import { UntypedFormArray } from '@angular/forms';
 
 @Pipe({
     name: 'activeProviders',
-    pure: false
+    pure: false,
+    standalone: false
 })
 export class ActiveProvidersPipe implements PipeTransform {
 

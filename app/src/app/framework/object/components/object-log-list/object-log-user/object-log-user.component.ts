@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,28 +16,34 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, SimpleChanges } from '@angular/core';
 import { User } from '../../../../../management/models/user';
 import { UserService } from '../../../../../management/services/user.service';
 
 @Component({
   selector: 'cmdb-object-log-user',
   templateUrl: './object-log-user.component.html',
-  styleUrls: ['./object-log-user.component.scss']
+  styleUrls: ['./object-log-user.component.scss'],
+  standalone: false
 })
 export class ObjectLogUserComponent implements OnChanges {
 
   @Input() userID: number = 0;
   @Input() userName: string = '';
+  @Input() user?: Partial<User> | null;
 
-  public logUser: User;
+  public logUser: Partial<User>;
   public userExists: boolean = false;
 
-  constructor(private userService: UserService) {
-  }
+  private readonly userService = inject(UserService);
 
   public ngOnChanges(changes: SimpleChanges): void {
-    if (changes.userID !== undefined && changes.userID.isFirstChange()) {
+    if (changes.user) {
+      this.applyResolvedUser();
+      return;
+    }
+
+    if (changes.userID !== undefined && changes.userID.isFirstChange() && this.userID) {
       this.userService.getUser(this.userID)
         .subscribe({
           next: (possibleUser: User) => {
@@ -49,6 +55,15 @@ export class ObjectLogUserComponent implements OnChanges {
           }
         }
         );
+    }
+  }
+
+  private applyResolvedUser(): void {
+    if (this.user) {
+      this.logUser = this.user;
+      this.userExists = true;
+    } else {
+      this.userExists = false;
     }
   }
 

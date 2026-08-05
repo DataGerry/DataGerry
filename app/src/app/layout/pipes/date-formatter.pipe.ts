@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,12 +16,13 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import * as moment from 'moment';
+import moment from 'moment';
 import { Pipe, PipeTransform } from '@angular/core';
 import { DateSettingsService} from '../../settings/services/date-settings.service';
 
 @Pipe({
-  name: 'dateFormatter'
+    name: 'dateFormatter',
+    standalone: false
 })
 export class DateFormatterPipe implements PipeTransform {
 

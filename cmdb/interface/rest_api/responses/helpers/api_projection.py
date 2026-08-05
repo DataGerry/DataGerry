@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,10 @@
 """
 Implementation of APIProjection
 """
-import logging
-from typing import Union
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 APIProjection - CLASS                                                #
@@ -29,8 +28,7 @@ class APIProjection:
     """
     ApiProjection is a wrapper for the api http parameters under `projection`.
     """
-
-    def __init__(self, projection: Union[dict, list] = None):
+    def __init__(self, projection: dict | list = None) -> None:
         if isinstance(projection, list):
             projection = dict.fromkeys(projection, 1)
         self.projection = projection or {}

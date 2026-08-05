@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -35,9 +35,10 @@ export const CONTROL_MEASURE = 'CONTROL_MEASURE';
 export const IMPLEMENTATION_STATE = 'IMPLEMENTATION_STATE';
 
 @Component({
-  selector: 'app-control-measures-add',
-  templateUrl: './control-measures-add.component.html',
-  styleUrls: ['./control-measures-add.component.scss']
+    selector: 'app-control-measures-add',
+    templateUrl: './control-measures-add.component.html',
+    styleUrls: ['./control-measures-add.component.scss'],
+    standalone: false
 })
 export class ControlMeasuresAddComponent implements OnInit {
 

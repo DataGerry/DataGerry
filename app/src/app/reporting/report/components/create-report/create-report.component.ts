@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'app-create-report',
     templateUrl: './create-report.component.html',
-    styleUrls: ['./create-report.component.scss']
+    styleUrls: ['./create-report.component.scss'],
+    standalone: false
 })
 export class CreateReportComponent implements OnInit, OnDestroy {
     public createReportForm: FormGroup;
@@ -107,8 +108,8 @@ export class CreateReportComponent implements OnInit, OnDestroy {
     }
 
     ngOnDestroy(): void {
-        this.unsubscribe$.next();
-        this.unsubscribe$.complete();
+        this.unsubscribe$?.next();
+        this.unsubscribe$?.complete();
     }
 
     /* --------------------------------------------------- LOADING FROM API -------------------------------------------------- */

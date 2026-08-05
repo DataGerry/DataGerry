@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,6 +17,7 @@
 */
 import {
   Component,
+  inject,
   DestroyRef,
   Input,
   OnChanges,
@@ -39,11 +40,14 @@ import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
 const FALLBACK_GREY = '#f5f5f5';
 
 @Component({
-  selector: 'app-risk-assessment-before',
-  templateUrl: './risk-assessment-before.component.html',
-  styleUrls: ['./risk-assessment-before.component.scss'],
+    selector: 'app-risk-assessment-before',
+    templateUrl: './risk-assessment-before.component.html',
+    styleUrls: ['./risk-assessment-before.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentBeforeComponent implements OnInit, OnChanges {
+  private readonly destroyRef = inject(DestroyRef);
+
   @Input({ required: true }) parentForm!: FormGroup;
   @Input() isView = false;
 
@@ -66,13 +70,6 @@ export class RiskAssessmentBeforeComponent implements OnInit, OnChanges {
 
   private riskClassMap = new Map<number, RiskClass>();
   ownerOptions: any[] = [];
-
-
-  constructor(
-    private readonly destroyRef: DestroyRef
-  ) { }
-
-
 
   ngOnInit(): void {
     // Include "Not rated" in the labels

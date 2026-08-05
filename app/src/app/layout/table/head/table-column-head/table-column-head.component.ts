@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,11 +29,12 @@ import {
 import { Column, Sort, SortDirection } from '../../table.types';
 
 @Component({
-  selector: 'th[table-column-head]',
-  templateUrl: './table-column-head.component.html',
-  styleUrls: ['./table-column-head.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  encapsulation: ViewEncapsulation.Emulated
+    selector: 'th[table-column-head]',
+    templateUrl: './table-column-head.component.html',
+    styleUrls: ['./table-column-head.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    encapsulation: ViewEncapsulation.Emulated,
+    standalone: false
 })
 export class TableColumnHeadComponent {
 

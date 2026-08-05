@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,11 @@
 """
 Implementation of IsmsRiskClass in DataGerry - ISMS
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.isms_model.isms_risk_class_schema import get_isms_risk_class_schema
 
 from cmdb.errors.models.isms_risk_class import (
     IsmsRiskClassInitError,
@@ -27,7 +29,7 @@ from cmdb.errors.models.isms_risk_class import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 IsmsRiskClass - CLASS                                                #
@@ -39,30 +41,8 @@ class IsmsRiskClass(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.riskClass"
-    MODEL = 'RiskClass'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1
-        },
-        'name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'description': {
-            'type': 'string',
-        },
-        'color': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'sort': {
-            'type': 'integer',
-        }
-    }
+    SCHEMA: dict = get_isms_risk_class_schema()
 
 
     #pylint: disable=R0917

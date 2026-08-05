@@ -1,0 +1,11 @@
+<span
+  class="badge license-status-badge"
+  [class.bg-secondary]="edition === LicenseEdition.Community"
+  [class.bg-success]="edition === LicenseEdition.SelfHosted"
+  [class.bg-warning]="edition === LicenseEdition.Expired"
+  [class.text-dark]="edition === LicenseEdition.Expired"
+  role="status"
+  [attr.aria-label]="'License status: ' + view.label">
+  <i [class]="view.icon" aria-hidden="true"></i>
+  {{ view.label }}
+</span>

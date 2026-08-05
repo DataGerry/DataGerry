@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,9 @@
 """
 Implementation of TokenGenerator
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime, timedelta, timezone
+
 from authlib.jose import jwt
 
 from cmdb.database import MongoDatabaseManager
@@ -28,7 +29,7 @@ from cmdb.security.auth.auth_module import AuthModule
 from cmdb.security.key.holder import KeyHolder
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                TokenGenerator - CLASS                                                #

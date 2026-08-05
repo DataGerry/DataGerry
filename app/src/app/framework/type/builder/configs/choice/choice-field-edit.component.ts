@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,10 +17,13 @@
 */
 import { Component, OnInit } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from '../../../services/field-identifier-validation.service';
@@ -29,14 +32,15 @@ import { FieldIdentifierValidationService } from '../../../services/field-identi
 @Component({
     selector: 'cmdb-choice-field-edit',
     templateUrl: './choice-field-edit.component.html',
-    styleUrls: ['./choice-field-edit.component.scss']
+    styleUrls: ['./choice-field-edit.component.scss'],
+    standalone: false
 })
 export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements OnInit {
 
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
     public requiredControl: UntypedFormControl = new UntypedFormControl(false);
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
     public descriptionControl: UntypedFormControl = new UntypedFormControl('');
     public helperTextControl: UntypedFormControl = new UntypedFormControl('');
@@ -55,7 +59,11 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-    constructor(private validationService: ValidationService, private fieldIdentifierValidation: FieldIdentifierValidationService) {
+    constructor(
+        private validationService: ValidationService, 
+        private fieldIdentifierValidation: FieldIdentifierValidationService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -96,6 +104,9 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
             this.identifierInitialValue = this.nameControl.value;
         }
 
+        // Reactive replacement for the removed (ngModelChange) template bindings
+        this.registerFieldChangeListeners();
+
         this.isValid$ = this.form.valid;
 
         // Subscribe to form status changes and update isValid$ based on form validity
@@ -110,8 +121,8 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
@@ -242,28 +253,58 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
 
 
     /**
+     * Subscribes to each control's value changes so field edits are propagated,
+     * replacing the deprecated (ngModelChange) bindings paired with the reactive formControl.
+     */
+    private registerFieldChangeListeners(): void {
+        const controls: Array<[UntypedFormControl, string]> = [
+            [this.nameControl, 'name'],
+            [this.labelControl, 'label'],
+            [this.descriptionControl, 'description'],
+            [this.helperTextControl, 'helperText'],
+            [this.valueControl, 'value'],
+            [this.hideFieldControl, 'hideField']
+        ];
+
+        controls.forEach(([control, type]) => {
+            control.valueChanges
+                .pipe(takeUntil(this.subscriber))
+                .subscribe(value => this.onInputChange(value, type));
+        });
+    }
+
+
+    /**
      * Toggles the enabled or disabled state of the form controls based on the `disable` parameter.
      * If `disable` is true, the form controls are disabled; otherwise, they are enabled.
+     * `emitEvent: false` keeps these programmatic toggles from re-triggering the value change listeners.
      * @param disable - A boolean value determining whether to disable or enable the form controls.
      */
     private toggleFormControls(disable: boolean) {
         // Disable or enable form controls based on the value of `disable`
         if (disable) {
-            this.labelControl.disable();
-            this.descriptionControl.disable();
-            this.valueControl.disable();
-            this.helperTextControl.disable();
-            this.hideFieldControl.disable();
-            this.requiredControl.disable();
-            this.optionsControl.disable();
+            this.labelControl.disable({ emitEvent: false });
+            this.descriptionControl.disable({ emitEvent: false });
+            this.valueControl.disable({ emitEvent: false });
+            this.helperTextControl.disable({ emitEvent: false });
+            this.hideFieldControl.disable({ emitEvent: false });
+            this.requiredControl.disable({ emitEvent: false });
+            this.optionsControl.disable({ emitEvent: false });
         } else {
-            this.labelControl.enable();
-            this.descriptionControl.enable();
-            this.valueControl.enable();
-            this.helperTextControl.enable();
-            this.hideFieldControl.enable();
-            this.requiredControl.enable();
-            this.optionsControl.enable();
+            this.labelControl.enable({ emitEvent: false });
+            this.descriptionControl.enable({ emitEvent: false });
+            this.valueControl.enable({ emitEvent: false });
+            this.helperTextControl.enable({ emitEvent: false });
+            this.hideFieldControl.enable({ emitEvent: false });
+            this.requiredControl.enable({ emitEvent: false });
+            this.optionsControl.enable({ emitEvent: false });
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'choice field identifier');
     }
 }

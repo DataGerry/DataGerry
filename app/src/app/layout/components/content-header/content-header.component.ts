@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -21,7 +21,8 @@ import { Component, Input } from '@angular/core';
 @Component({
     selector: 'cmdb-content-header',
     templateUrl: './content-header.component.html',
-    styleUrls: ['./content-header.component.scss']
+    styleUrls: ['./content-header.component.scss'],
+    standalone: false
 })
 export class ContentHeaderComponent {
     @Input() public title: string;

@@ -1,0 +1,242 @@
+<div class="modal-header ai-modal-header">
+    <h4 class="modal-title">
+        <span class="ai-modal-header__badge"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
+        AI Assistant
+    </h4>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
+</div>
+
+<!-- Stepper -->
+<nav class="ai-stepper" aria-label="AI generation progress">
+    <ol class="ai-stepper__track">
+        @for (step of steps; track step.id; let last = $last) {
+            <li class="ai-stepper__item"
+                [class.is-complete]="isStepCompleted(step.id)"
+                [class.is-current]="isStepCurrent(step.id)"
+                [class.is-pending]="isStepPending(step.id)"
+                [attr.aria-current]="isStepCurrent(step.id) ? 'step' : null">
+                <button type="button"
+                    class="ai-stepper__node"
+                    [disabled]="isStepPending(step.id)"
+                    (click)="goToStep(step.id)">
+                    <span class="ai-stepper__indicator">
+                        @if (isStepCompleted(step.id)) {
+                            <i class="fa-solid fa-check" aria-hidden="true"></i>
+                        } @else {
+                            <i class="{{ step.icon }}" aria-hidden="true"></i>
+                        }
+                    </span>
+                    <span class="ai-stepper__text">
+                        <span class="ai-stepper__eyebrow">{{ step.eyebrow }}</span>
+                        <span class="ai-stepper__title">{{ step.title }}</span>
+                    </span>
+                    @if (isStepCompleted(step.id)) {
+                        <span class="visually-hidden">completed</span>
+                    }
+                </button>
+
+                @if (!last) {
+                    <span class="ai-stepper__connector" [class.is-complete]="isStepCompleted(step.id)" aria-hidden="true"></span>
+                }
+            </li>
+        }
+    </ol>
+</nav>
+
+<div class="modal-body ai-modal-body">
+
+    <!-- ───────────── STEP 1 · Describe Content ───────────── -->
+    @if (currentStep() === 1) {
+        <section class="step-pane" aria-labelledby="aiStepDescribeHeading">
+            <header class="step-pane__head">
+                <h5 id="aiStepDescribeHeading" class="step-pane__title">Describe your content</h5>
+                <p class="step-pane__subtitle">Tell the assistant what document you'd like to generate.</p>
+            </header>
+
+            <div class="field">
+                <label class="field__label" for="aiAssistantPrompt">Prompt</label>
+                <textarea
+                    id="aiAssistantPrompt"
+                    class="form-control field__input"
+                    [formControl]="promptControl"
+                    placeholder="Describe the document content you want to generate…"
+                    rows="4"
+                    maxlength="4000">
+                </textarea>
+                <div class="field__footer">
+                    @if (promptControl.invalid && promptControl.touched) {
+                        <small class="field__error">
+                            <i class="fa-solid fa-circle-exclamation me-1" aria-hidden="true"></i>A prompt is required.
+                        </small>
+                    }
+                    <span class="field__counter" [class.is-warning]="(promptControl.value?.length || 0) > 3800">
+                        {{ promptControl.value?.length || 0 }} / 4000
+                    </span>
+                </div>
+            </div>
+
+            <div class="examples">
+                <p class="examples__label">Need inspiration? Start from an example</p>
+                <div class="examples__grid">
+                    @for (example of examplePrompts; track example) {
+                        <button type="button" class="example-chip" [title]="example" (click)="applyExamplePrompt(example)">
+                            <span class="example-chip__icon"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i></span>
+                            <span class="example-chip__text">{{ example }}</span>
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <p class="guide-hint">
+                <i class="fa-solid fa-compass" aria-hidden="true"></i>
+                <span><strong>Tip:</strong> name the CI type, list the fields to include, and describe the layout — a table, sections, or lists.</span>
+            </p>
+        </section>
+    }
+
+    <!-- ───────────── STEP 2 · Generate & Insert ───────────── -->
+    @if (currentStep() === 2) {
+        <section class="step-pane step-pane--review" aria-labelledby="aiStepReviewHeading">
+            <header class="step-pane__head">
+                <h5 id="aiStepReviewHeading" class="step-pane__title">Review &amp; insert</h5>
+                <p class="step-pane__subtitle">Preview the result, regenerate if needed, then insert it into your template.</p>
+            </header>
+
+            <div class="preview-card">
+                <div class="preview-card__toolbar">
+                    <span class="preview-card__name">
+                        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+                        Generated document
+                    </span>
+
+                    @if (hasGeneratedContent()) {
+                        <span class="preview-card__badge">
+                            <i class="fa-solid fa-circle-check" aria-hidden="true"></i> Ready
+                        </span>
+                    }
+
+                    <div class="preview-card__actions">
+                        @if (hasGeneratedContent()) {
+                            <div class="seg-toggle" role="group" aria-label="Preview mode">
+                                <button type="button" class="seg-toggle__btn"
+                                    [class.active]="previewMode() === 'preview'"
+                                    [attr.aria-pressed]="previewMode() === 'preview'"
+                                    (click)="setPreviewMode('preview')">
+                                    <i class="fa-solid fa-eye" aria-hidden="true"></i> Preview
+                                </button>
+                                <button type="button" class="seg-toggle__btn"
+                                    [class.active]="previewMode() === 'source'"
+                                    [attr.aria-pressed]="previewMode() === 'source'"
+                                    (click)="setPreviewMode('source')">
+                                    <i class="fa-solid fa-code" aria-hidden="true"></i> HTML
+                                </button>
+                            </div>
+
+                            <button type="button" class="ghost-btn" (click)="generate()" [disabled]="isGenerating()">
+                                <i class="fa-solid fa-rotate" aria-hidden="true"></i> Regenerate
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <div class="preview-card__surface">
+                    <!-- AI generating state -->
+                    @if (isGenerating()) {
+                        <div class="ai-loading" role="status" aria-live="polite" aria-busy="true">
+                            <div class="ai-loading__header">
+                                <span class="ai-orb" aria-hidden="true">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                                </span>
+                                <span class="ai-loading__copy">
+                                    <span class="ai-loading__title">
+                                        Generating your document<span class="ai-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
+                                    </span>
+                                    <span class="ai-loading__sub">The assistant is drafting your content</span>
+                                </span>
+                            </div>
+
+                            <div class="ai-progress" aria-hidden="true"><span class="ai-progress__bar"></span></div>
+
+                            <div class="skeleton" aria-hidden="true">
+                                <div class="skeleton__bar skeleton__bar--title"></div>
+                                <div class="skeleton__bar skeleton__bar--lg"></div>
+                                <div class="skeleton__bar"></div>
+                                <div class="skeleton__bar skeleton__bar--md"></div>
+                                <div class="skeleton__block"></div>
+                                <div class="skeleton__bar"></div>
+                                <div class="skeleton__bar skeleton__bar--sm"></div>
+                            </div>
+                        </div>
+                    } @else if (requestError()) {
+                        <!-- Error state -->
+                        <div class="state state--error" role="alert">
+                            <div class="state__icon"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></div>
+                            <p class="state__title">Generation failed</p>
+                            <p class="state__desc">{{ requestError() }}</p>
+                            <button type="button" class="ghost-btn ghost-btn--solid" (click)="generate()">
+                                <i class="fa-solid fa-rotate" aria-hidden="true"></i> Try again
+                            </button>
+                        </div>
+                    } @else if (generatedHtml()) {
+                        <!-- Success: rendered preview -->
+                        @if (previewMode() === 'preview') {
+                            <div class="preview-content" [innerHTML]="generatedHtml()"></div>
+                        } @else {
+                            <pre class="source-content"><code>{{ generatedHtml() }}</code></pre>
+                        }
+                    } @else {
+                        <!-- Empty / ready to generate -->
+                        <div class="state">
+                            <div class="state__icon state__icon--brand"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></div>
+                            <p class="state__title">Ready to generate</p>
+                            <p class="state__desc">Generate the document from your description.</p>
+                            <button type="button" class="ghost-btn ghost-btn--solid" (click)="generate()">
+                                <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Generate
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </section>
+    }
+</div>
+
+<div class="modal-footer ai-modal-footer">
+    <app-button
+        [bootstrapClass]="'btn-secondary'"
+        label="Cancel"
+        type="button"
+        (clicked)="cancel()">
+    </app-button>
+
+    <div class="footer-actions-right">
+        @if (currentStep() > 1) {
+            <app-button
+                [bootstrapClass]="'btn-outline-secondary'"
+                label="Back"
+                type="button"
+                (clicked)="previousStep()">
+            </app-button>
+        }
+
+        @if (currentStep() === 1) {
+            <app-button
+                [bootstrapClass]="'btn-primary'"
+                label="Continue"
+                type="button"
+                [disabled]="!canContinueFromDescribe"
+                (clicked)="proceedToReview()">
+            </app-button>
+        }
+
+        @if (currentStep() === 2) {
+            <app-button
+                [bootstrapClass]="'btn-success'"
+                label="Insert"
+                type="button"
+                [disabled]="!hasGeneratedContent()"
+                (clicked)="insertGeneratedHtml()">
+            </app-button>
+        }
+    </div>
+</div>

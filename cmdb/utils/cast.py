@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -57,7 +57,7 @@ def noneify(s: str) -> None:
     raise ValueError(f"Invalid None value: {s}")
 
 
-def auto_cast(val: str):
+def auto_cast(val: str) -> float | int | str | bool | None:
     """
     Attempts to automatically convert a string into its most appropriate data type
     

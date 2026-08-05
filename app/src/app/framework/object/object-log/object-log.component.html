@@ -19,7 +19,7 @@
           <dt class="col-sm-3">Comment</dt>
           <dd class="col-sm-9">{{log?.comment}}</dd>
         </dl>
-        <hr/>
+        <hr />
         <dl class="row">
           <dt class="col-sm-3">Render time</dt>
           <dd class="col-sm-9">{{renderResult?.current_render_time?.$date | dateFormatter}}</dd>
@@ -45,10 +45,11 @@
     <div class="card">
       <div class="card-header d-flex">
         <span class="p-2">Compare: </span>
-        <select class="custom-select flex-grow-1"
-                (change)="loadCompareRender($event.target.value)">
+        <select class="custom-select flex-grow-1" (change)="loadCompareRender($event.target.value)">
           <option selected></option>
-          <option *ngFor="let other of completeLogList" value="{{other.public_id}}">v {{other.version}}</option>
+          @for (other of completeLogList; track other) {
+          <option value="{{other.public_id}}">v {{other.version}}</option>
+          }
         </select>
       </div>
       <div class="card-body">
@@ -62,7 +63,7 @@
     <div class="col-12">
       <button class="btn btn-secondary btn-sm custom-back-button" type="button" (click)="goBack()">
         <i class="fas fa-arrow-left"></i> Go Back
-    </button>   
+      </button>
     </div>
   </div>
 </div>

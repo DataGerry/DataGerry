@@ -1,32 +1,21 @@
 <div class="modal-header bg-primary text-white">
     <h4 class="modal-title">{{ title }}</h4>
-    <button type="button" class="close" (click)="activeModal.dismiss('cancel')">
-      <span>&times;</span>
+    <button type="button" class="btn-close btn-close-white" (click)="activeModal.dismiss('cancel')">
     </button>
   </div>
   <div class="modal-body">
     <div id="delete-message">
       Do you want to <b>delete</b> the {{ itemType }} <b>"{{ itemName }}"</b>?
       <br /><br />
-      <!-- <ng-container *ngIf="item?.impact">
-        This action affects <b>{{ item.impact.types }} types</b> and <b>{{ item.impact.objects }} objects</b>!
-      </ng-container> -->
     </div>
-    <!-- <ng-container *ngIf="item?.impact">
-      <br />
-      <div class="warning-text text-danger">
-        This will delete this {{ itemType }} and its associated data. <br />
-        This action cannot be undone!
-      </div>
-    </ng-container> -->
 
-    <ng-container *ngIf="warningMessage">
+    @if (warningMessage) {
       <app-warning-alert
         [title]="warningTitle"
         [message]="warningMessage"
         [iconClass]="warningIconClass">
       </app-warning-alert>
-    </ng-container>
+}
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss()">Close</button>

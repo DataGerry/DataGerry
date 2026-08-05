@@ -1,11 +1,8 @@
 <div id="uploadfileform">
-    <div *ngIf="formGroup.get('file').value != null && !syntaxError; else reloadTemplate">
-        <div
-            class="card-body text-center align-items-center text-center uploadfiledone"
-            (click)="fileInput.click()"
-            appDragDrop
-            (fileDropped)="uploadFile($event)"
-        >
+    @if (formGroup.get('file').value != null && !syntaxError) {
+    <div>
+        <div class="card-body text-center align-items-center text-center uploadfiledone" (click)="fileInput.click()"
+            appDragDrop (fileDropped)="uploadFile($event)">
             <div class="container card-body">
                 <div class="row">
                     <div class="col my-auto">
@@ -32,42 +29,45 @@
             </div>
         </div>
     </div>
+    } @else {
 
-    <ng-template #reloadTemplate>
-        <div
-            class="card-body jumbotron text-center align-items-center text-center uploadfilestart"
-            (click)="fileInput.click()"
-            appDragDrop
-            (fileDropped)="uploadFile($event)"
-        >
-            <ng-container *ngIf="formGroup.get('file').value == null && !syntaxError; else errorTemplate">
-                <h1 class="display-1 text-info"><fa-icon icon="cloud-upload-alt"></fa-icon></h1>
-                <p class="lead">
-                    <button class="btn btn-secondary btn-lg" role="button">
-                        Choose file to Upload
-                    </button>
-                </p>
-            </ng-container>
-            <ng-template #errorTemplate>
-                <h1 class="display-1 text-danger"><fa-icon icon="exclamation-triangle"></fa-icon></h1>
-                <h6 class="card-subtitle mb-2">
-                    Oops, The uploaded file format is not correct. Please try again uploading a JSON
-                </h6>
-                <p class="lead">
-                    <button class="btn btn-secondary btn-lg" role="button">
-                        Try again
-                    </button>
-                </p>
-            </ng-template>
-            <h6 class="card-subtitle mb-2 text-muted">
-                Drag & Drop a File here
-            </h6>
-            <input hidden type="file" #fileInput (change)="uploadFile($event.target.files)">
-        </div>
-    </ng-template>
+    <div class="card-body jumbotron text-center align-items-center text-center uploadfilestart"
+        (click)="fileInput.click()" appDragDrop (fileDropped)="uploadFile($event)">
+        @if (formGroup.get('file').value == null && !syntaxError) {
+
+        <h1 class="display-1 text-info"><fa-icon icon="cloud-upload-alt"></fa-icon></h1>
+        <p class="lead">
+            <button class="btn btn-secondary btn-lg" role="button">
+                Choose file to Upload
+            </button>
+        </p>
+
+        } @else {
+
+        <h1 class="display-1 text-danger"><fa-icon icon="exclamation-triangle"></fa-icon></h1>
+        <h6 class="card-subtitle mb-2">
+            Oops, The uploaded file format is not correct. Please try again uploading a JSON
+        </h6>
+        <p class="lead">
+            <button class="btn btn-secondary btn-lg" role="button">
+                Try again
+            </button>
+        </p>
+
+        }
+
+        <h6 class="card-subtitle mb-2 text-muted">
+            Drag & Drop a File here
+        </h6>
+        <input hidden type="file" #fileInput (change)="uploadFile($event.target.files)">
+    </div>
+
+    }
+
+
 </div>
 
-<hr/>
+<hr />
 <button class="btn btn-primary next" type="button" awNextStep [disabled]="formGroup.invalid">
     Next Step <i class="fas fa-angle-double-right"></i>
 </button>

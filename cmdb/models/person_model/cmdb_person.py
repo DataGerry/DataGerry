@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,11 @@
 """
 Implementation of CmdbPerson
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.person_model.cmdb_person_schema import get_cmdb_person_schema
 
 from cmdb.errors.models.cmdb_person import (
     CmdbPersonInitError,
@@ -27,7 +29,7 @@ from cmdb.errors.models.cmdb_person import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbPerson - CLASS                                                  #
@@ -41,43 +43,7 @@ class CmdbPerson(CmdbDAO):
     COLLECTION = "management.person"
     MODEL = 'Person'
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'display_name': { # Displayed name of the Person
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'first_name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'last_name': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'phone_number': {
-            'type': 'string',
-        },
-        'email': {
-            'type': 'string',
-            'required': False,
-            'empty': True,
-            'regex': r'^(?!.*\.\.)[\w\.-]+@[a-zA-Z\d-]+(\.[a-zA-Z]{2,})+$',  # Email regex pattern
-        },
-        'groups': {
-            'type': 'list',
-            'schema': {
-                'type': 'integer',
-                'min': 1,
-            },
-        },
-    }
+    SCHEMA: dict = get_cmdb_person_schema()
 
     #pylint: disable=R0917
     def __init__(

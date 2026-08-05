@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,12 +16,12 @@
 """
 JsonObjectParserResponse
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           JsonObjectParserResponse - CLASS                                           #
@@ -33,7 +33,7 @@ class JsonObjectParserResponse(ObjectParserResponse):
     Extends: ObjectParserResponse
     """
 
-    def __init__(self, count: int, entries: list):
+    def __init__(self, count: int, entries: list) -> None:
         """
         Initializes the JsonObjectParserResponse instance with the provided count and entries
 

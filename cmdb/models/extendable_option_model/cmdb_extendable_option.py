@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,13 @@
 """
 Implementation of CmdbExtendableOption in DataGerry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.extendable_option_model.option_type_enum import OptionType
+
+from cmdb.class_schema.extendable_option_model.cmdb_extendable_option_schema import get_cmdb_extendable_option_schema
 
 from cmdb.errors.models.cmdb_extendable_option import (
     CmdbExtendableOptionInitError,
@@ -28,7 +31,7 @@ from cmdb.errors.models.cmdb_extendable_option import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             CmdbExtendableOption - CLASS                                             #
@@ -41,32 +44,11 @@ class CmdbExtendableOption(CmdbDAO):
     """
     COLLECTION = "framework.extendableOptions"
     MODEL = 'ExtendableOption'
-    INDEX_KEYS = [
+    INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('option_type', CmdbDAO.DAO_ASCENDING)], 'name': 'option_type', 'unique': False}
     ]
 
-    # pylint: disable=R0801
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer',
-            'min': 1,
-        },
-        'value': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'option_type': {
-            'type': 'string',
-            'required': True,
-            'empty': False
-        },
-        'predefined': {
-            'type': 'boolean',
-            'required': True,
-            'empty': False
-        }
-    }
+    SCHEMA: dict = get_cmdb_extendable_option_schema()
 
 
     def __init__(self, public_id: int, value: str, option_type: OptionType, predefined: bool = False):

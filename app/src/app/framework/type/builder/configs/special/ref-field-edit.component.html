@@ -1,17 +1,17 @@
-<div [formGroup]="form" class="form-row">
-    <div class="form-group col-md-12">
-        <label>Required/Identifier<span class="required">*</span>:</label>
+<div [formGroup]="form" class="row">
+    <div class="col-md-12 mb-3">
+        <label class="form-label mb-1">Required/Identifier<span class="required">*</span>:</label>
         <div class="input-group">
             <div class="input-group-prepend">
-                <span class="input-group-text pr-1">
-                    <div class="custom-control custom-checkbox">
+                <span class="input-group-text pe-1">
+                    <div class="form-check custom-checkbox">
                         <input
                             type="checkbox"
                             [formControl]="requiredControl"
-                            class="custom-control-input"
+                            class="form-check-input"
                             [id]="nameControl.value+'-required'"
                         />
-                        <label class="custom-control-label" [for]="nameControl.value+'-required'"></label>
+                        <label class="form-label form-check-label" [for]="nameControl.value+'-required'"></label>
                     </div>
                 </span>
             </div>
@@ -23,14 +23,19 @@
                 placeholder="Field name"
                 [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                     'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}"
-                (ngModelChange)="onNameChange($event)"
             />
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
+                        [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
+                    <fa-icon [icon]="['far', 'copy']"></fa-icon>
+                </button>
+            </div>
         </div>
-        <small class="form-text text-muted float-left">Use a unique field identifier</small>
-        <div class="clearfix"></div>
+        <cmdb-identifier-hint [control]="nameControl"></cmdb-identifier-hint>
+        <!-- <div class="clearfix"></div> -->
     </div>
-    <div class="form-group col-md-12">
-        <label>Label:</label>
+    <div class="col-md-12 mb-3">
+        <label class="form-label mb-1">Label:</label>
         <input
             [formControl]="labelControl"
             type="text"
@@ -38,19 +43,17 @@
             placeholder="Field label"
             [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
                 'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
-            (ngModelChange)="onInputChange()"
-            (ngModelChange)="onRefInputChange($event, 'label')"
         />
         <small class="form-text text-muted">a static display name</small>
     </div>
     <div 
-        class="form-group col-md-12"
+        class="col-md-12 mb-3"
         [ngClass]="{'is-valid': form.get('ref_types').valid &&
             (form.get('ref_types').dirty || form.get('ref_types').touched),
             'is-invalid': form.get('ref_types').invalid && (form.get('ref_types').dirty ||
             form.get('ref_types').touched)}"
     >
-        <label>Reference type selections<span class="required">*</span>:</label>
+        <label class="form-label mb-1">Reference type selections<span class="required">*</span>:</label>
         <ng-select
             [items]="typeList"
             bindLabel="label"
@@ -63,12 +66,14 @@
             [formControl]="form.get('ref_types')"
         ></ng-select>
         <small class="form-text text-muted">Multiple types possible</small>
-        <div *ngIf="form.get('ref_types').hasError('required')" class="invalid-feedback">
+        @if (form.get('ref_types').hasError('required')) {
+<div class="invalid-feedback">
             Reference type is required
         </div>
+}
     </div>
-    <div class="form-group col-md-12">
-        <label>Description:</label>
+    <div class="col-md-12 mb-3">
+        <label class="mb-1">Description:</label>
         <textarea
             [(ngModel)]="data.description"
             class="form-control"
@@ -79,8 +84,8 @@
         </textarea>
         <small class="form-text text-muted">short field description or helper text</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Helper text:</label>
+    <div class="col-md-12 mb-3">
+        <label class="form-label">Helper text:</label>
         <input
             [(ngModel)]="data.helperText"
             [ngModelOptions]="{standalone: true}"
@@ -90,8 +95,8 @@
             (ngModelChange)="onRefInputChange($event, 'helperText')"
         >
     </div>
-    <div class="form-group col-md-12">
-        <label>Summaries:</label>
+    <div class="col-md-12 mb-3">
+        <label class="form-label mb-1">Summaries:</label>
         <table class="table table-bordered">
             <thead>
                 <tr>
@@ -104,7 +109,8 @@
                 </tr>
             </thead>
             <tbody>
-                <tr *ngFor="let summary of summaries; let i = index">
+                @for (summary of summaries; track summary; let i = $index) {
+<tr>
                     <th scope="row">{{i + 1}}</th>
                     <td>
                         <ng-select
@@ -167,6 +173,7 @@
                         </button>
                     </td>
                 </tr>
+}
                 <tr>
                     <td colspan="6">
                         <button type="button" class="btn btn-outline-secondary" (click)="addSummary()">
@@ -177,8 +184,8 @@
             </tbody>
         </table>
     </div>
-    <div class="form-group col-md-12">
-        <label>Default value:</label>
+    <div class="col-md-12 mb-3">
+        <label class="form-label mb-1">Default value:</label>
         <select 
             [(ngModel)]="data.value"
             [ngModelOptions]="{standalone: true}"
@@ -186,12 +193,14 @@
             (ngModelChange)="onRefInputChange($event, 'value')"
         >
             <option></option>
-            <option
-                *ngFor="let obj of objectList; let i = index"
+            @for (obj of objectList; track obj; let i = $index) {
+<option
+               
                 [value]="changeDefault(obj.object_information.object_id)"
             >
                 ID: {{obj.object_information.object_id}} Summaries: {{obj.summary_line}}
             </option>
+}
         </select>
     </div>
 </div>

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,15 +16,16 @@
 """
 This module defines pytest fixtures for setting up and managing the REST API test client.
 """
-import logging
-import pytest
-from cmdb.interface.cmdb_app import BaseCmdbApp
+from logging import Logger, getLogger
 
+import pytest
+
+from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.init_rest_api import create_rest_api
 from tests.utils.flask_test_client import RestAPITestClient
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 @pytest.fixture(scope="session")

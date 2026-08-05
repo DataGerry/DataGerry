@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -22,6 +22,7 @@ from .builder import Builder
 from .pipeline_builder import PipelineBuilder
 from .quick_search_pipeline_builder import QuickSearchPipelineBuilder
 from .search_references_pipeline_builder import SearchReferencesPipelineBuilder
+from .search_pipeline_builder import SearchPipelineBuilder
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     'PipelineBuilder',
     'QuickSearchPipelineBuilder',
     'SearchReferencesPipelineBuilder',
+    'SearchPipelineBuilder',
 ]

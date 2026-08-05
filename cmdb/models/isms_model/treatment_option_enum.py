@@ -11,10 +11,10 @@
 """
 Implementation of TreatmentOption enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class TreatmentOption(str, Enum):
+class TreatmentOption(BaseStrEnum):
     """
     Available TreatmentOptions for IsmsRiskAssesssments
     """
@@ -22,17 +22,3 @@ class TreatmentOption(str, Enum):
     ACCEPT = 'ACCEPT'
     REDUCE = 'REDUCE'
     TRANSFER_SHARE = 'TRANSFER_SHARE'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid TreatmentOption
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing TreatmentOption, False otherwise
-        """
-        return value in TreatmentOption.__members__

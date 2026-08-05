@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,6 +17,7 @@
 */
 import { Component, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject, Subscription } from 'rxjs';
 
@@ -25,16 +26,18 @@ import { ValidationService } from '../../../services/validation.service';
 import { ConfigEditBaseComponent } from '../config.edit';
 import { SectionIdentifierService } from '../../../services/SectionIdentifierService.service';
 import { CmdbMode } from 'src/app/framework/modes.enum';
+import { CopyService } from '../../../../../core/services/copy.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-section-field-edit',
-    templateUrl: './section-field-edit.component.html'
+    templateUrl: './section-field-edit.component.html',
+    standalone: false
 })
 export class SectionFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
 
     private initialValue: string;
@@ -49,7 +52,11 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    public constructor(private validationService: ValidationService, private sectionIdentifier: SectionIdentifierService) {
+    public constructor(
+        private validationService: ValidationService, 
+        private sectionIdentifier: SectionIdentifierService,
+        private copyService: CopyService
+    ) {
         super();
     }
 
@@ -89,8 +96,8 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
 
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
         if (this.activeIndexSubscription) {
             this.activeIndexSubscription.unsubscribe();
         }
@@ -114,6 +121,18 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
      * @param type - The type of the input field being changed.
      */
     onInputChange(event: any, type: string) {
+        if (type === 'name') {
+            if (this.isDuplicateSectionIdentifier(event)) {
+                this.setDuplicateIdentifierState(true);
+                this.validationService.setSectionHighlightState(true);
+                this.fieldChanges$.next({ isDuplicate: true, elementType: 'section' });
+                return;
+            }
+
+            this.setDuplicateIdentifierState(false);
+            this.fieldChanges$.next({ isDuplicate: false, elementType: 'section' });
+        }
+
         this.fieldChanges$.next({
             "newValue": event,
             "inputName": type,
@@ -135,6 +154,29 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
         if (this.mode === CmdbMode.Create) {
             this.updateSectionValue(this.nameControl.value)
         }
+    }
+
+
+    private isDuplicateSectionIdentifier(newValue: string): boolean {
+        if (!newValue || newValue === this.currentValue) {
+            return false;
+        }
+
+        return (this.sections ?? []).some(section => section !== this.data && section?.name === newValue);
+    }
+
+
+    private setDuplicateIdentifierState(isDuplicate: boolean): void {
+        this.isIdentifierValid = !isDuplicate;
+        const errors = { ...(this.nameControl.errors ?? {}) };
+
+        if (isDuplicate) {
+            this.nameControl.setErrors({ ...errors, duplicateIdentifier: true });
+            return;
+        }
+
+        delete errors.duplicateIdentifier;
+        this.nameControl.setErrors(Object.keys(errors).length ? errors : null);
     }
 
 
@@ -180,5 +222,12 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
                 name: newData.name
             });
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'section field identifier');
     }
 }

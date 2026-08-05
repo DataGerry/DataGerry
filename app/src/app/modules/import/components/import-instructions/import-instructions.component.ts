@@ -1,8 +1,9 @@
 import { Component, Input } from '@angular/core';
 
 @Component({
-  selector: 'app-import-instructions',
-  templateUrl: './import-instructions.component.html',
+    selector: 'app-import-instructions',
+    templateUrl: './import-instructions.component.html',
+    standalone: false
 })
 export class ImportInstructionsComponent {
   @Input() title!: string;

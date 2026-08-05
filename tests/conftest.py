@@ -1,6 +1,6 @@
 
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -19,8 +19,9 @@ This module provides pytest configuration and database setup for testing.
 It includes command-line options for MongoDB connection settings and a fixture
 for preparing the database before running tests.
 """
-import logging
+from logging import Logger, getLogger
 from datetime import datetime
+
 import pytest
 
 from cmdb.database import MongoDatabaseManager
@@ -36,7 +37,7 @@ from cmdb.models.user_model import CmdbUser
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 def pytest_addoption(parser):

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,7 +27,8 @@ import { LoaderService } from 'src/app/core/services/loader.service';
 @Component({
     selector: 'cmdb-select-file',
     templateUrl: './select-file.component.html',
-    styleUrls: ['./select-file.component.scss']
+    styleUrls: ['./select-file.component.scss'],
+    standalone: false
 })
 export class SelectFileComponent implements OnInit, OnDestroy {
 
@@ -97,9 +98,9 @@ export class SelectFileComponent implements OnInit, OnDestroy {
 
 
     public ngOnDestroy(): void {
-        this.importerDefinitionSubscription.unsubscribe();
-        this.fileFormatChangeSubscription.unsubscribe();
-        this.fileChangeSubscription.unsubscribe();
+        this.importerDefinitionSubscription?.unsubscribe();
+        this.fileFormatChangeSubscription?.unsubscribe();
+        this.fileChangeSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

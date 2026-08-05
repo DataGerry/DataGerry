@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,11 +20,11 @@ import { Component, EventEmitter, Input, OnDestroy, OnInit, Output, TemplateRef,
 import { CmdbLog } from '../../../../framework/models/cmdb-log';
 import { Column, Sort, SortDirection, TableState, TableStatePayload } from '../../../../layout/table/table.types';
 import { CollectionParameters } from '../../../../services/models/api-parameter';
-import { LogService } from '../../../../framework/services/log.service';
-import { APIGetMultiResponse } from '../../../../services/models/api-response';
+import { APILogsWithUsersResponse, LogService, LogUserMap } from '../../../../framework/services/log.service';
 import { TableComponent } from '../../../../layout/table/table.component';
 import { BehaviorSubject, ReplaySubject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { finalize, takeUntil } from 'rxjs/operators';
+import { LoaderService } from 'src/app/core/services/loader.service';
 import { ActivatedRoute, Data, Router } from '@angular/router';
 import { UserSetting } from '../../../../management/user-settings/models/user-setting';
 import {
@@ -37,7 +37,8 @@ import { UserSettingsDBService } from '../../../../management/user-settings/serv
 @Component({
   selector: 'cmdb-deactivate-tab',
   templateUrl: './deactivate-tab.component.html',
-  styleUrls: ['./deactivate-tab.component.scss']
+  styleUrls: ['./deactivate-tab.component.scss'],
+  standalone: false
 })
 export class DeactivateTabComponent implements OnInit, OnDestroy {
 
@@ -75,6 +76,8 @@ export class DeactivateTabComponent implements OnInit, OnDestroy {
 
   public deActiveLogList: CmdbLog[] = [];
 
+  public logUsers: LogUserMap = {};
+
   public columns: Array<Column>;
 
   public sort: Sort = { name: 'public_id', order: SortDirection.ASCENDING } as Sort;
@@ -105,10 +108,13 @@ export class DeactivateTabComponent implements OnInit, OnDestroy {
     return this.tableStateSubject.getValue() as TableState;
   }
 
+  public isLoading$ = this.loaderService.isLoading$;
+
   constructor(private logService: LogService,
     private route: ActivatedRoute, private router: Router,
     private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
-    private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>) {
+    private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
+    private loaderService: LoaderService) {
     this.route.data.pipe(takeUntil(this.subscriber)).subscribe((data: Data) => {
       if (data.userSetting) {
         const userSettingPayloads = (data.userSetting as UserSetting<TableStatePayload>).payloads
@@ -137,11 +143,14 @@ export class DeactivateTabComponent implements OnInit, OnDestroy {
   }
 
   private loadDeActivated() {
+    this.loaderService.show();
     const filter = JSON.stringify(this.filterBuilder());
     this.apiParameters = { filter, limit: this.limit, sort: this.sort.name, order: this.sort.order, page: this.page };
-    this.logService.getLogsWithNotExistingObject(this.apiParameters).pipe(takeUntil(this.subscriber))
-      .subscribe((apiResponse: APIGetMultiResponse<CmdbLog>) => {
-        this.deActiveLogList = apiResponse.results;
+    this.logService.getLogsWithNotExistingObject(this.apiParameters)
+      .pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
+      .subscribe((apiResponse: APILogsWithUsersResponse<CmdbLog>) => {
+        this.deActiveLogList = apiResponse.results?.logs ?? [];
+        this.logUsers = apiResponse.results?.users ?? {};
         this.total = apiResponse.total;
       });
   }
@@ -357,7 +366,7 @@ export class DeactivateTabComponent implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

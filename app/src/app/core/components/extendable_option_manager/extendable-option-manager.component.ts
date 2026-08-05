@@ -1,4 +1,21 @@
-import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2026 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+
+* You should have received a copy of the GNU Affero General Public License
+* along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+import { Component, inject, EventEmitter, Input, OnInit, Output } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
@@ -9,13 +26,13 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CoreDeleteConfirmationModalComponent } from '../dialog/delete-dialog/core-delete-confirmation-modal.component';
 
-// (Optional) Just a small helper so we can display the item name (e.g. "Category", "Status", "Tag", etc.)
 const DEFAULT_MODAL_TITLE = 'Manage Options';
 
 @Component({
-  selector: 'app-extendable-option-manager',
-  templateUrl: './extendable-option-manager.component.html',
-  styleUrls: ['./extendable-option-manager.component.scss']
+    selector: 'app-extendable-option-manager',
+    templateUrl: './extendable-option-manager.component.html',
+    styleUrls: ['./extendable-option-manager.component.scss'],
+    standalone: false
 })
 export class ExtendableOptionManagerComponent implements OnInit {
   /**
@@ -53,12 +70,10 @@ export class ExtendableOptionManagerComponent implements OnInit {
   public editingItemId?: number;
   public editingItemValue = '';
 
-  constructor(
-    private extendableOptionService: ExtendableOptionService,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private modalService: NgbModal
-  ) { }
+  private readonly extendableOptionService = inject(ExtendableOptionService);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly modalService = inject(NgbModal);
 
   ngOnInit(): void {
     // Make a local copy so user can edit them freely

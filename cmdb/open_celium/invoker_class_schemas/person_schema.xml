@@ -1,0 +1,7 @@
+<field name="public_id" type="integer"/>
+<field name="display_name" type="string"/>
+<field name="first_name" type="string"/>
+<field name="last_name" type="string"/>
+<field name="phone_number" type="string"/>
+<field name="email" type="string"/>
+<field name="groups" type="array"/>

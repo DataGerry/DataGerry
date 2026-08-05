@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, Input, OnDestroy, OnInit, Output, EventEmitter } from '@angular/core';
 import {
   FormControl,
   FormGroup,
@@ -32,15 +32,17 @@ import { alphanumericValidator } from 'src/app/framework/type/type-builder/type-
 import { CmdbMode } from 'src/app/framework/modes.enum';
 
 @Component({
-  selector: 'cmdb-relation-basic-step',
-  templateUrl: './relation-basic-step.component.html',
-  styleUrls: ['./relation-basic-step.component.scss']
+    selector: 'cmdb-relation-basic-step',
+    templateUrl: './relation-basic-step.component.html',
+    styleUrls: ['./relation-basic-step.component.scss'],
+    standalone: false
 })
 export class RelationBasicStepComponent
   extends RelationBuilderStepComponent
   implements OnInit, OnDestroy {
   @Input() public relationInstance!: CmdbRelation;
   @Input() public mode: CmdbMode;
+  @Output() public availableTypesChange = new EventEmitter<any[]>();
 
   private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
@@ -144,10 +146,12 @@ export class RelationBasicStepComponent
       .subscribe({
         next: resp => {
           this.availableTypes = resp.results || [];
+          // Emit the available types to parent component
+          this.availableTypesChange.emit(this.availableTypes);
           this.isLoadingTypes = false;
         },
         error: err => {
-          console.error('Failed to load types:', err);
+          // console.error('Failed to load types:', err);
           this.isLoadingTypes = false;
         }
       });
@@ -268,7 +272,7 @@ export class RelationBasicStepComponent
   }
 
   ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

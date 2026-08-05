@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { debounceTime, takeUntil } from 'rxjs/operators';
 import { ReplaySubject } from 'rxjs';
 
 @Component({
-  selector: 'table-search',
-  templateUrl: './table-search.component.html',
-  styleUrls: ['./table-search.component.scss']
+    selector: 'table-search',
+    templateUrl: './table-search.component.html',
+    styleUrls: ['./table-search.component.scss'],
+    standalone: false
 })
 export class TableSearchComponent implements OnInit, OnDestroy {
 
@@ -103,8 +104,8 @@ export class TableSearchComponent implements OnInit, OnDestroy {
    * Sends complete call to the component subscriber.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

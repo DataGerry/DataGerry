@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Module for reading and managing system configuration files
 """
 import os
-import logging
+from logging import Logger, getLogger
 from typing import Any
 
 import configparser
@@ -33,7 +33,7 @@ from cmdb.errors.system_config import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               ConfigFileReader - CLASS                                               #
@@ -50,7 +50,7 @@ class ConfigFileReader(SystemReader):
     CONFIG_NOT_LOADED = False
 
 
-    def __init__(self, config_name: str, config_location: str):
+    def __init__(self, config_name: str | None, config_location: str) -> None:
         """
         Initializes the configuration reader
 

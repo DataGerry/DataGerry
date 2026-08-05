@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { FileMetadata } from '../../model/metadata';
 import { BehaviorSubject } from 'rxjs';
 
 @Component({
-  selector: 'cmdb-folder-tree',
-  templateUrl: './folder-tree.component.html',
-  styleUrls: ['./folder-tree.component.scss']
+    selector: 'cmdb-folder-tree',
+    templateUrl: './folder-tree.component.html',
+    styleUrls: ['./folder-tree.component.scss'],
+    standalone: false
 })
 export class FolderTreeComponent implements OnInit, OnChanges {
 
@@ -129,6 +130,5 @@ export class FolderTreeComponent implements OnInit, OnChanges {
   }
 
   public loadContextMenu() {
-   console.log('loadContextMenu TODO');
   }
 }

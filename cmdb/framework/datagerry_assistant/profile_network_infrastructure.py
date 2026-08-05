@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,49 +14,36 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module manages the 'Network Infrastructure'-Profile for the DATAGERRY assistant
+This module manages the 'Network Infrastructure'-Profile for the DataGerry assistant
 """
-import logging
-
-from cmdb.manager.types_manager import TypesManager
-from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from logging import Logger, getLogger
+from typing import Any
 
 from .profile_base import ProfileBase
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
-
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         NetworkInfrastructureProfile - CLASS                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
 class NetworkInfrastructureProfile(ProfileBase):
     """
     This class cointains all types and logics for the 'Network Infrastructure'-Profile
     """
-    def __init__(
-            self,
-            created_type_ids: dict,
-            types_manager: TypesManager,
-            section_templates_manager: SectionTemplatesManager):
-        self.created_type_ids = created_type_ids
-        super().__init__(created_type_ids, types_manager, section_templates_manager)
-
-
-    def create_network_infrastructure_profile(self) -> dict:
+    def create_profile(self) -> dict[str, int | None]:
         """
-        Creates all types from the 'Network Infrastructure'- Profile
+        Creates all types of the 'Network Infrastructure' profile (Switch, Router, Patch Panel, WAP)
 
         Returns:
-            dict: The created type ids dict
+            dict[str, int | None]: The shared slot map of created type ids
         """
-        # Do NOT change the order of data due dependency
-        network_infrastructure_profile_data: dict = {
-            'switch_id' : self.get_switch_type(),
-            'router_id': self.get_router_type(),
-            'patch_panel_id': self.get_patch_panel_type(),
-            'wireless_access_point_id': self.get_wireless_access_point_type(),
-        }
-
-        for type_name, type_dict in network_infrastructure_profile_data.items():
-            self.create_basic_type(type_name, type_dict)
+        # Each type is created (inserted) before the next is built, so a type's conditional reference
+        # sections can resolve the public_ids of types created earlier in this (and prior) profiles
+        self.create_basic_type('switch_id', self.get_switch_type())
+        self.create_basic_type('router_id', self.get_router_type())
+        self.create_basic_type('patch_panel_id', self.get_patch_panel_type())
+        self.create_basic_type('wireless_access_point_id', self.get_wireless_access_point_type())
 
         return self.created_type_ids
 
@@ -64,11 +51,17 @@ class NetworkInfrastructureProfile(ProfileBase):
 #                                                  TYPE DATA - SECTION                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_switch_type(self) -> dict:
+    def get_switch_type(self) -> dict[str, Any]:
         """
-        Returns the 'Switch'-Type for the 'Network Infrastructure'-Profile
+        Builds the 'Switch' type for the 'Network Infrastructure' profile
+
+        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
+        reference sections to the Operating System and User / Customer User types.
+
+        Returns:
+            dict[str, Any]: The Switch CmdbType config
         """
-        switch_sections: list = [
+        switch_sections: list[dict[str, Any]] = [
             {
                 "name": "section-25269",
                 "label": "Information",
@@ -82,7 +75,7 @@ class NetworkInfrastructureProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec',['dg-modelspec-model']),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             self.type_constructor.get_predefined_template_data('dg-rackmounting', ['dg-rackmounting-position']),
             {
                 "name": "section-78906",
@@ -97,12 +90,14 @@ class NetworkInfrastructureProfile(ProfileBase):
             }
         ]
 
-        switch_type: dict = self.type_constructor.create_type_config(switch_sections,
-                                                                    'switch',
-                                                                    'Switch',
-                                                                    'far fa-object-ungroup')
+        switch_type: dict[str, Any] = self.type_constructor.create_type_config(
+            switch_sections,
+            'switch',
+            'Switch',
+            'far fa-object-ungroup'
+        )
 
-        conditional_sections: list = [
+        conditional_sections: list[dict[str, Any]] = [
             self.type_constructor.create_conditional_ref_section(
                                         "ref-71899",
                                         "OS",
@@ -128,11 +123,17 @@ class NetworkInfrastructureProfile(ProfileBase):
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_router_type(self):
+    def get_router_type(self) -> dict[str, Any]:
         """
-        Returns the 'Router'-Type for the 'Network Infrastructure'-Profile
+        Builds the 'Router' type for the 'Network Infrastructure' profile
+
+        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
+        reference sections to the Operating System and User / Customer User types.
+
+        Returns:
+            dict[str, Any]: The Router CmdbType config
         """
-        router_sections: list = [
+        router_sections: list[dict[str, Any]] = [
             {
                 "name": "section-64712",
                 "label": "Information",
@@ -146,7 +147,7 @@ class NetworkInfrastructureProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec',['dg-modelspec-model']),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             self.type_constructor.get_predefined_template_data('dg-rackmounting', ['dg-rackmounting-position']),
             {
                 "name": "section-98615",
@@ -161,12 +162,14 @@ class NetworkInfrastructureProfile(ProfileBase):
             },
         ]
 
-        router_type: dict = self.type_constructor.create_type_config(router_sections,
-                                                                    'router',
-                                                                    'Router',
-                                                                    'fas fa-route')
+        router_type: dict[str, Any] = self.type_constructor.create_type_config(
+            router_sections,
+            'router',
+            'Router',
+            'fas fa-route'
+        )
 
-        conditional_sections: list = [
+        conditional_sections: list[dict[str, Any]] = [
             self.type_constructor.create_conditional_ref_section(
                                         "ref-68233",
                                         "OS",
@@ -192,11 +195,17 @@ class NetworkInfrastructureProfile(ProfileBase):
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_patch_panel_type(self):
+    def get_patch_panel_type(self) -> dict[str, Any]:
         """
-        Returns the 'Patch Panel'-Type for the 'Network Infrastructure'-Profile
+        Builds the 'Patch Panel' type for the 'Network Infrastructure' profile
+
+        Includes the dg-modelspec and dg-rackmounting templates. Unlike the other network types it
+        has no conditional reference sections.
+
+        Returns:
+            dict[str, Any]: The Patch Panel CmdbType config
         """
-        patch_panel_sections: list = [
+        patch_panel_sections: list[dict[str, Any]] = [
             {
                 "name": "section-51132",
                 "label": "Information",
@@ -224,20 +233,28 @@ class NetworkInfrastructureProfile(ProfileBase):
             }
         ]
 
-        patch_panel_type: dict = self.type_constructor.create_type_config(patch_panel_sections,
-                                                            'patch_panel',
-                                                            'Patch Panel',
-                                                            'fas fa-bezier-curve')
+        patch_panel_type: dict[str, Any] = self.type_constructor.create_type_config(
+            patch_panel_sections,
+            'patch_panel',
+            'Patch Panel',
+            'fas fa-bezier-curve'
+        )
 
         return patch_panel_type
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-    def get_wireless_access_point_type(self):
+    def get_wireless_access_point_type(self) -> dict[str, Any]:
         """
-        Returns the 'Wireless Access Point'-Type for the 'Network Infrastructure'-Profile
+        Builds the 'Wireless Access Point' type for the 'Network Infrastructure' profile
+
+        Includes the dg-modelspec and dg-ipam-interface templates plus a conditional reference section
+        to the User / Customer User types (no Operating System reference, unlike the other devices).
+
+        Returns:
+            dict[str, Any]: The Wireless Access Point CmdbType config
         """
-        wap_sections: list = [
+        wap_sections: list[dict[str, Any]] = [
             {
                 "name": "section-18971",
                 "label": "Information",
@@ -251,7 +268,7 @@ class NetworkInfrastructureProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec'),
-            self.type_constructor.get_predefined_template_data('dg-network'),
+            self.get_ipam_interface_section(),
             {
                 "name": "section-30882",
                 "label": "WIFI data",
@@ -297,12 +314,14 @@ class NetworkInfrastructureProfile(ProfileBase):
             }
         ]
 
-        wap_type: dict = self.type_constructor.create_type_config(wap_sections,
-                                                    'wireless_access_point',
-                                                    'Wireless Access Point',
-                                                    'fas fa-exchange-alt')
+        wap_type: dict[str, Any] = self.type_constructor.create_type_config(
+            wap_sections,
+            'wireless_access_point',
+            'Wireless Access Point',
+            'fas fa-exchange-alt'
+        )
 
-        conditional_sections: list = [
+        conditional_sections: list[dict[str, Any]] = [
             self.type_constructor.create_conditional_ref_section(
                                         "ref-36834",
                                         "User",

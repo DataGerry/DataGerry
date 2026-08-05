@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of BaseExportWriter
 """
-import logging
+from logging import Logger, getLogger
 import datetime
 from flask import Response
 
@@ -33,7 +33,7 @@ from cmdb.framework.exporter.config.exporter_config import ExporterConfig
 from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BaseExportWriter - CLASS                                               #
@@ -51,8 +51,8 @@ class  BaseExportWriter:
             export_format (BaseExporterFormat): The format in which data will be exported (CSV, JSON, XLSX, XML)
             export_config (ExporterConfig): Configuration parameters such as filters or zip settings
         """
-        self.export_format = export_format
-        self.export_config = export_config
+        self.export_format: BaseExporterFormat = export_format
+        self.export_config: ExporterConfig = export_config
         self.data: list[RenderResult] = [] #Storage for exportable data
 
 
@@ -61,7 +61,7 @@ class  BaseExportWriter:
             dbm: MongoDatabaseManager,
             user: CmdbUser,
             permission: AccessControlPermission,
-            db_name: str = None
+            db_name: str | None = None
         ) -> None:
         """
         Retrieves all objects from the collection and processes them for export
@@ -84,12 +84,7 @@ class  BaseExportWriter:
         objects: list[CmdbObject] = objects_manager.iterate(builder_params, user, permission).results
 
         # Process and store exportable data
-        self.data = RenderList(
-            objects,
-            user,
-            True,
-            objects_manager
-        ).render_result_list(raw=False)
+        self.data = RenderList(objects, user, True).render_result_list(raw=False)
 
 
     def export(self) -> Response:

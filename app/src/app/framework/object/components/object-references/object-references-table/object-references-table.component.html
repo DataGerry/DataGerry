@@ -42,19 +42,23 @@
 <ng-template #exportButtonTemplate>
   <div class="btn-group" *permissionLink="'base.export.object.*'">
     <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle"
-            data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
       <fa-icon icon="file-export"></fa-icon>
       Export
     </button>
-    <ul class="dropdown-menu dropdown-menu-right dropdown-menu-lg-left" aria-labelledby="exportButton">
-      <li *ngFor="let item of formatList" id="export-{{item.extension}}"
+    <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-left" aria-labelledby="exportButton">
+      @for (item of formatList; track item) {
+<li id="export-{{item.extension}}"
           [className]="item.active && selectedObjects?.length > 0 ? 'dropdown-item' : 'dropdown-item disabled'"
           (click)="exportingFiles(item)"
           [ngbTooltip]="item.helperText">
         <fa-icon icon="{{item.icon}}"></fa-icon>
         {{item.label}}
-        <span *ngIf="selectedObjects"> ( {{selectedObjects.length}} )</span>
+        @if (selectedObjects) {
+<span> ( {{selectedObjects.length}} )</span>
+}
       </li>
+}
     </ul>
   </div>
 </ng-template>

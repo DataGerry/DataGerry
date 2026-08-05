@@ -1,26 +1,54 @@
-<div class="modal-content">
-    <div class="modal-body">
-        <img id="login-logo" 
-            src="/assets/img/datagerry_logo.svg" 
-            class="img-fluid mx-auto d-block w-50"
-            alt="DATAGERRY"/>
-        <br>
-        Select the data categories for which you want to use DataGerry. Each of these categories has a set of configuration
-        item classes. The pre-selected categories are recommended by your previous industry selection.
-        <br>
-        <br>
-        <form [formGroup]="profileForm">
-            <div class="checkbox-section">
-                <div class="form-group" *ngFor="let profileName of activeProfiles">
-                    <input formControlName="{{profileName}}" type="checkbox" id="{{profileName}}">
-                    <label class="profile-label" for="{{profileName}}">{{branchProfileNames[profileName]}}</label>
-                </div>
-            </div>
-        </form>
+<div class="assistant">
+  <div class="assistant__header">
+    <button type="button" class="assistant__close" aria-label="Close" (click)="activeModal.dismiss(false)">
+      <i class="fas fa-times" aria-hidden="true"></i>
+    </button>
+
+    <span class="assistant__icon"><i class="fas fa-layer-group" aria-hidden="true"></i></span>
+    <div class="assistant__heading">
+      <span class="assistant__eyebrow">Start Assistant</span>
+      <h2 class="assistant__title">Select data categories</h2>
+      <p class="assistant__subtitle">
+        Each category adds a set of configuration item classes. Pre-selected items are recommended for your industry.
+      </p>
+
+      <div class="assistant__steps" role="group" aria-label="Setup progress">
+        <span class="assistant__step assistant__step--done">
+          <span class="assistant__step-dot"><i class="fas fa-check" aria-hidden="true"></i></span> Industry
+        </span>
+        <span class="assistant__step-line assistant__step-line--done"></span>
+        <span class="assistant__step assistant__step--active" aria-current="step">
+          <span class="assistant__step-dot">2</span> Categories
+        </span>
+      </div>
     </div>
-    <div class="modal-footer">
-        <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
-        <button type="button" class="btn btn-light " (click)="activeModal.close('back')">Back</button>
-        <button type="button" class="btn btn-primary p-2" [disabled]="!profileForm.valid" (click)="activeModal.close(profileForm.value)">Create</button>
-    </div>
+  </div>
+
+  <div class="assistant__body">
+    <form [formGroup]="profileForm">
+      <div class="assistant__grid">
+        @for (profileName of activeProfiles; track profileName) {
+        <label class="assistant-option">
+          <input class="assistant-option__input" formControlName="{{profileName}}" type="checkbox" id="{{profileName}}">
+          <span class="assistant-option__box">
+            <span class="assistant-option__icon"><i class="fas fa-cube" aria-hidden="true"></i></span>
+            <span class="assistant-option__label">{{ branchProfileNames[profileName] }}</span>
+            <span class="assistant-option__check" aria-hidden="true"><i class="fas fa-check"></i></span>
+          </span>
+        </label>
+        }
+      </div>
+    </form>
+  </div>
+
+  <div class="assistant__footer">
+    <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
+    <button type="button" class="btn btn-light" (click)="activeModal.close('back')">
+      <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
+    </button>
+    <button type="button" class="btn btn-primary" [disabled]="!profileForm.valid"
+      (click)="activeModal.close(profileForm.value)">
+      Create <i class="fas fa-check" aria-hidden="true"></i>
+    </button>
+  </div>
 </div>

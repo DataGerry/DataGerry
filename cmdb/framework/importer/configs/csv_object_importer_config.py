@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,13 @@
 """
 Implementation of CsvObjectImporterConfig
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.framework.importer.content_types import CSVContent
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            CsvObjectImporterConfig - CLASS                                           #
@@ -40,7 +40,7 @@ class CsvObjectImporterConfig(ObjectImporterConfig, CSVContent):
                  type_id: int,
                  start_element: int = 0,
                  max_elements: int = 0,
-                 mapping: list = None,
+                 mapping: list | None = None,
                  overwrite_public: bool = True):
         """
         Initializes a CsvObjectImporterConfig

@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2025 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,8 @@
 Implementation of all API routes for CmdbExtendableOptions
 """
 import logging
+from typing import Any
+
 from flask import request, abort
 from werkzeug.exceptions import HTTPException
 
@@ -325,7 +327,7 @@ def delete_cmdb_extendable_option(public_id: int, request_user: CmdbUser):
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-def is_extendable_option_used(extendable_option: dict, request_user: CmdbUser) -> bool:
+def is_extendable_option_used(extendable_option: dict[str, Any], request_user: CmdbUser) -> bool:
     """
     Checks if a CmdbExtendableOption is used in other collections before deletion
 

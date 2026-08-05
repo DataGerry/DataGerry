@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -158,6 +158,7 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
 
 
     public getObjectsByType(typeID: number | Array<number>): Observable<Array<T>> {
+
         if (!Array.isArray(typeID)) {
             typeID = [typeID];
         }
@@ -180,6 +181,7 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
 
 
     public getObject<R>(publicID: number, native: boolean = false): Observable<R> {
+
         const options = this.options;
         options.params = new HttpParams();
         if (native === true) {
@@ -199,6 +201,7 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
 
 
     public getObjectMdsReference<R>(publicID: number): Observable<R> {
+
         const options = this.options;
         options.params = new HttpParams();
 
@@ -233,6 +236,7 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     public getNewestObjects<R>(
         params: CollectionParameters = { limit: 10, order: -1, page: 1 },
         view: string = 'render'): Observable<APIGetMultiResponse<T>> {
+
         params.sort = 'creation_time';
         params.filter = [{ $match: { creation_time: { $ne: null } } }];
 
@@ -248,6 +252,7 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     public getLatestObjects<R>(
         params: CollectionParameters = { limit: 10, order: -1, page: 1 },
         view: string = 'render'): Observable<APIGetMultiResponse<T>> {
+
         params.sort = 'last_edit_time';
         params.filter = [{ $match: { last_edit_time: { $ne: null } } }];
 
