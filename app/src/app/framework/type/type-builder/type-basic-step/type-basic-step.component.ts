@@ -330,7 +330,7 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
 
   /**
    * A rack carries its mounted objects through their location nodes, so a rack type has to stay
-   * selectable as a parent location. The backend rejects a rack type that disables the flag.
+   * selectable as a parent location.
    */
   private enforceRackParentSelection(): void {
     this.typeInstance.selectable_as_parent = true;
