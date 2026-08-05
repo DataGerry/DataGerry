@@ -1,0 +1,71 @@
+<div class="summary-panel">
+  <div class="summary-panel__header">
+    <h6 class="summary-panel__title">Summary</h6>
+    <p class="summary-panel__hint">Review your settings.</p>
+  </div>
+
+  <dl class="summary-panel__list">
+    <dt>Trigger</dt>
+    <dd>
+      <i [class]="triggerIcon" class="summary-panel__icon"></i>
+      {{ triggerTitle }}
+      @if (definition.trigger.type === 'scheduled' && definition.trigger.cronExp) {
+        <code class="summary-panel__cron">{{ definition.trigger.cronExp }}</code>
+      }
+    </dd>
+
+    <dt>Direction</dt>
+    <dd>{{ directionLabel }}</dd>
+
+    <dt>Object type</dt>
+    <dd>
+      @if (definition.objectType.label) {
+        {{ definition.objectType.label }}
+      } @else {
+        <span class="summary-panel__empty">Not selected</span>
+      }
+    </dd>
+
+    <dt>Selected fields ({{ definition.fields.length }})</dt>
+    <dd>
+      @if (definition.fields.length > 0) {
+        <ul class="summary-panel__fields">
+          @for (field of definition.fields; track field.name) {
+            <li>{{ field.label }}</li>
+          }
+        </ul>
+      } @else {
+        <span class="summary-panel__empty">None selected</span>
+      }
+    </dd>
+
+    <dt>Target system</dt>
+    <dd>
+      @if (definition.target.connectorTitle) {
+        <i class="fas fa-plug summary-panel__icon"></i>
+        {{ definition.target.connectorTitle }}
+        <span class="summary-panel__muted">({{ operationLabel }})</span>
+      } @else {
+        <span class="summary-panel__empty">Not selected</span>
+      }
+    </dd>
+
+    <dt>Field mapping</dt>
+    <dd>
+      @if (definition.mapping.length > 0) {
+        {{ mappedCount }} of {{ definition.mapping.length }} matched
+      } @else {
+        <span class="summary-panel__empty">Not matched yet</span>
+      }
+    </dd>
+
+    @if (definition.conditions.rules.length > 0) {
+      <dt>Conditions</dt>
+      <dd>{{ definition.conditions.rules.length }} rule(s), {{ definition.conditions.combinator }}</dd>
+    }
+  </dl>
+
+  @if (readableDescription) {
+    <p class="summary-panel__sentence">{{ readableDescription }}</p>
+  }
+</div>

@@ -1,0 +1,91 @@
+@import '../wizard-step-shared';
+
+// Two panels side by side: what is available, what has been picked - as the mockup shows.
+.field-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+
+  &__panel {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid $border;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  &__header {
+    padding: 0.65rem 0.9rem;
+    background: #f9fafb;
+    border-bottom: 1px solid $border;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #374151;
+  }
+
+  &__search {
+    padding: 0.6rem 0.9rem 0;
+  }
+
+  &__list {
+    list-style: none;
+    margin: 0;
+    padding: 0.5rem 0.9rem;
+    max-height: 260px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+  }
+
+  &__option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  &__selected {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+    font-size: 0.85rem;
+    border-bottom: 1px solid #f3f4f6;
+
+    &:last-child {
+      border-bottom: 0;
+    }
+
+    > span:first-child {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
+  &__type {
+    font-size: 0.7rem;
+    color: $muted;
+    background: #f3f4f6;
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
+  }
+
+  &__remove {
+    padding: 0 0.25rem;
+    color: $muted;
+
+    &:hover {
+      color: #dc3545;
+    }
+  }
+
+  &__empty {
+    font-size: 0.8125rem;
+    color: $muted;
+    padding: 0.5rem 0;
+  }
+}

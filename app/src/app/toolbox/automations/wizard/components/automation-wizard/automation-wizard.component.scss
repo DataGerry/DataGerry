@@ -1,0 +1,81 @@
+$card-radius: 8px;
+$card-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+$accent: #e94d18;
+$border: #e5e7eb;
+
+.automation-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+
+  &__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  &__title {
+    margin: 0;
+  }
+
+  &__lead {
+    margin: 0.25rem 0 0;
+    color: #6b7280;
+    font-size: 0.875rem;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  // Content and summary sidebar side by side, as the mockup shows.
+  &__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 1.25rem;
+    align-items: start;
+  }
+
+  &__main {
+    background: #fff;
+    border-radius: $card-radius;
+    box-shadow: $card-shadow;
+    padding: 1.5rem;
+    min-width: 0;
+  }
+
+  &__stepper {
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid $border;
+  }
+
+  &__content {
+    padding-top: 1.5rem;
+  }
+
+  &__footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid $border;
+  }
+
+  &__sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+  }
+}
+
+// Stack the sidebar under the content once the two columns no longer fit.
+@media (max-width: 1199.98px) {
+  .automation-wizard__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

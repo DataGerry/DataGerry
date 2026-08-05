@@ -1,0 +1,91 @@
+$accent: #e94d18;
+$border: #e5e7eb;
+$muted: #6b7280;
+
+.summary-panel {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  padding: 1.25rem;
+
+  &__title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  &__hint {
+    margin: 0.15rem 0 0;
+    font-size: 0.78rem;
+    color: $muted;
+  }
+
+  &__header {
+    padding-bottom: 0.85rem;
+    margin-bottom: 0.85rem;
+    border-bottom: 1px solid $border;
+  }
+
+  &__list {
+    margin: 0;
+
+    dt {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: $muted;
+      margin-top: 0.85rem;
+
+      &:first-child {
+        margin-top: 0;
+      }
+    }
+
+    dd {
+      margin: 0.2rem 0 0;
+      font-size: 0.85rem;
+      color: #1f2937;
+      word-break: break-word;
+    }
+  }
+
+  &__icon {
+    color: $muted;
+    margin-right: 0.35rem;
+  }
+
+  &__muted {
+    color: $muted;
+  }
+
+  &__empty {
+    color: #9ca3af;
+    font-style: italic;
+  }
+
+  &__cron {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.78rem;
+  }
+
+  &__fields {
+    list-style: disc;
+    margin: 0;
+    padding-left: 1.1rem;
+
+    li {
+      margin-bottom: 0.1rem;
+    }
+  }
+
+  &__sentence {
+    margin: 1rem 0 0;
+    padding-top: 0.85rem;
+    border-top: 1px solid $border;
+    font-size: 0.8125rem;
+    color: $muted;
+    line-height: 1.5;
+  }
+}

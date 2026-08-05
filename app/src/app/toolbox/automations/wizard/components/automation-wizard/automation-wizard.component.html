@@ -1,0 +1,134 @@
+<div class="automation-wizard">
+
+  <!-- Page header with the primary actions, as the mockup places them. -->
+  <div class="automation-wizard__header">
+    <div>
+      <h3 class="automation-wizard__title">
+        {{ mode === 'create' ? 'Create new automation' : 'Edit automation' }}
+      </h3>
+      <p class="automation-wizard__lead">
+        Set up an automation in a few steps - the assistant fills in the technical details.
+      </p>
+    </div>
+
+    <div class="automation-wizard__actions">
+      <button type="button" class="btn btn-secondary btn-sm" (click)="cancel()">Cancel</button>
+      <button
+        type="button"
+        class="btn btn-primary btn-sm"
+        [disabled]="validationErrors.length > 0 || legacyWithoutDefinition"
+        (click)="save()">
+        <i class="fas fa-check me-2"></i>
+        {{ definition.active ? 'Save & activate' : 'Save' }}
+      </button>
+    </div>
+  </div>
+
+  @if (legacyWithoutDefinition) {
+    <div class="alert alert-warning">
+      <strong>This automation was built with the previous editor.</strong>
+      It has no functional description stored, so the wizard cannot reconstruct which fields and
+      mappings were intended. Its technical definition is shown read-only below. Create a new
+      automation with the wizard to manage it here.
+    </div>
+  }
+
+  <div class="automation-wizard__body">
+
+    <div class="automation-wizard__main">
+
+      <div class="automation-wizard__stepper">
+        <cmdb-wizard-stepper
+          orientation="horizontal"
+          [steps]="steps"
+          [current]="currentGroup"
+          [reachable]="reachableGroup"
+          (stepSelected)="onStepSelected($event)">
+        </cmdb-wizard-stepper>
+      </div>
+
+      <div class="automation-wizard__content">
+        @switch (currentGroup) {
+          @case (WizardGroup.TRIGGER) {
+            <app-wizard-step-trigger
+              [definition]="definition"
+              (definitionChange)="onDefinitionChanged($event)">
+            </app-wizard-step-trigger>
+          }
+          @case (WizardGroup.DATA) {
+            <app-wizard-step-data
+              [definition]="definition"
+              [objectTypes]="objectTypes"
+              [availableFields]="availableFields"
+              (objectTypeChange)="onObjectTypeChanged($event)"
+              (definitionChange)="onDefinitionChanged($event)">
+            </app-wizard-step-data>
+          }
+          @case (WizardGroup.TARGET) {
+            <app-wizard-step-target
+              [definition]="definition"
+              [targetSystems]="targetSystems"
+              (definitionChange)="onDefinitionChanged($event)"
+              (targetChange)="onTargetChanged()">
+            </app-wizard-step-target>
+          }
+          @case (WizardGroup.MAPPING) {
+            <app-wizard-step-mapping
+              [definition]="definition"
+              [sourceFields]="sourceFields"
+              [targetFields]="targetFields"
+              (definitionChange)="onDefinitionChanged($event)"
+              (autoMap)="onAutoMap()">
+            </app-wizard-step-mapping>
+          }
+          @case (WizardGroup.REVIEW) {
+            <app-wizard-step-review
+              [definition]="definition"
+              [sourceFields]="sourceFields"
+              [readableDescription]="readableDescription"
+              [validationErrors]="validationErrors"
+              [compileWarnings]="compileWarnings"
+              [sampleValues]="sampleValues"
+              [sampleLoading]="sampleLoading"
+              [sampleObjectId]="sampleObjectId"
+              (definitionChange)="onDefinitionChanged($event)"
+              (loadSample)="onLoadSample()">
+            </app-wizard-step-review>
+          }
+        }
+      </div>
+
+      <div class="automation-wizard__footer">
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          [disabled]="currentGroup === WizardGroup.TRIGGER"
+          (click)="onBack()">
+          <i class="fas fa-arrow-left me-2"></i> Back
+        </button>
+
+        @if (!isLastGroup) {
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            [disabled]="!canAdvance"
+            (click)="onNext()">
+            Next <i class="fas fa-arrow-right ms-2"></i>
+          </button>
+        }
+      </div>
+    </div>
+
+    <aside class="automation-wizard__sidebar">
+      <app-automation-summary-panel
+        [definition]="definition"
+        [readableDescription]="readableDescription">
+      </app-automation-summary-panel>
+
+      <app-automation-json-preview [json]="compiledPreview" [warnings]="compileWarnings">
+      </app-automation-json-preview>
+    </aside>
+  </div>
+</div>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're processing the data..."></app-loading-popup>
