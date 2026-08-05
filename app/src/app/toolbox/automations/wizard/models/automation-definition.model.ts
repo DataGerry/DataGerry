@@ -115,6 +115,15 @@ export interface AutomationTarget {
     /** Invoker behind the connector - selects the adapter in the target catalog. */
     invokerName: string;
     operation: AutomationOperation;
+
+    /**
+     * The foreign system's own identifier for the object type.
+     *
+     * Needed to restrict what an incoming automation reads: an i-doit type id cannot be derived
+     * from a DataGerry type, so the user supplies it. Empty means "read every object", which the
+     * wizard warns about.
+     */
+    remoteObjectTypeId: string;
 }
 
 
@@ -205,7 +214,13 @@ export function createEmptyAutomationDefinition(): AutomationDefinition {
         trigger: { type: 'manual', cronExp: '' },
         objectType: { typeId: null, name: '', label: '' },
         fields: [],
-        target: { connectorId: null, connectorTitle: '', invokerName: '', operation: 'create' },
+        target: {
+            connectorId: null,
+            connectorTitle: '',
+            invokerName: '',
+            operation: 'create',
+            remoteObjectTypeId: ''
+        },
         mapping: [],
         conditions: { combinator: 'and', negate: false, rules: [] },
         advanced: createDefaultAdvancedSettings(),
