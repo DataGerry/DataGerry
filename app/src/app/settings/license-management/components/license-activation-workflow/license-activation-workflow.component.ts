@@ -29,7 +29,7 @@ import {
 import { CopyService } from 'src/app/core/services/copy.service';
 
 import { LicenseEdition, LicenseEntitlement, LicenseFeature } from '../../models/license.model';
-import { WizardStep } from '../license-wizard-stepper/license-wizard-stepper.component';
+import { WizardStep } from 'src/app/core/components/base/wizard-stepper/wizard-stepper.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({

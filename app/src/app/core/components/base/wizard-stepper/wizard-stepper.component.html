@@ -1,11 +1,11 @@
-<ol class="wizard-stepper" role="list">
+<ol class="wizard-stepper" [class.wizard-stepper--horizontal]="orientation === 'horizontal'" role="list">
   @for (step of steps; track step.title; let i = $index; let last = $last) {
     <li
       class="wizard-stepper__item"
       [class.is-completed]="isCompleted(i)"
       [class.is-active]="isActive(i)"
       [class.is-upcoming]="!isCompleted(i) && !isActive(i)"
-      [class.is-clickable]="i <= current">
+      [class.is-clickable]="isReachable(i)">
 
       @if (!last) {
         <span class="wizard-stepper__line" aria-hidden="true"></span>
@@ -14,7 +14,7 @@
       <button
         type="button"
         class="wizard-stepper__button"
-        [disabled]="i > current"
+        [disabled]="!isReachable(i)"
         [attr.aria-current]="isActive(i) ? 'step' : null"
         (click)="onSelect(i)">
         <span class="wizard-stepper__marker" aria-hidden="true">
@@ -27,6 +27,9 @@
         <span class="wizard-stepper__text">
           <span class="wizard-stepper__index">Step {{ i + 1 }}</span>
           <span class="wizard-stepper__title">{{ step.title }}</span>
+          @if (step.subtitle) {
+            <span class="wizard-stepper__subtitle">{{ step.subtitle }}</span>
+          }
         </span>
       </button>
     </li>

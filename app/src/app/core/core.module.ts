@@ -26,6 +26,7 @@ import { FullscreenDirective } from './directives/fullscreen.directive';
 import { PremiumFeatureDirective } from './directives/premium-feature.directive';
 import { PremiumGateDirective } from './directives/premium-gate.directive';
 import { PremiumLockedComponent } from './components/premium-locked/premium-locked.component';
+import { WizardStepperComponent } from './components/base/wizard-stepper/wizard-stepper.component';
 import { CompactNumberPipe } from './pipes/compact-number.pipe';
 
 @NgModule({
@@ -44,6 +45,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     ToggleComponent,
     FormDateComponent,
     ProgressBarComponent,
+    WizardStepperComponent,
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
     AppUsageBarComponent,
@@ -77,6 +79,7 @@ import { CompactNumberPipe } from './pipes/compact-number.pipe';
     ToggleComponent,
     FormDateComponent,
     ProgressBarComponent,
+    WizardStepperComponent,
     CoreDeleteConfirmationModalComponent,
     CoreWarningModalComponent,
     AppUsageBarComponent,
