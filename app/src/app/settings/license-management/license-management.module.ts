@@ -30,7 +30,6 @@ import { LicenseOverviewCardComponent } from './components/license-overview-card
 import { LicenseFeatureCatalogComponent } from './components/license-feature-catalog/license-feature-catalog.component';
 import { LicenseCatalogModalComponent } from './components/license-catalog-modal/license-catalog-modal.component';
 import { LicenseActivationWorkflowComponent } from './components/license-activation-workflow/license-activation-workflow.component';
-import { LicenseWizardStepperComponent } from './components/license-wizard-stepper/license-wizard-stepper.component';
 import { LicenseImportComponent } from './components/license-import/license-import.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -43,7 +42,6 @@ import { LicenseImportComponent } from './components/license-import/license-impo
     LicenseFeatureCatalogComponent,
     LicenseCatalogModalComponent,
     LicenseActivationWorkflowComponent,
-    LicenseWizardStepperComponent,
     LicenseImportComponent
   ],
   imports: [

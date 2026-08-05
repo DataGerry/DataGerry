@@ -91,6 +91,12 @@ $line-done: #7cc9a8;
     transition: color 180ms ease;
   }
 
+  &__subtitle {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    white-space: normal;
+  }
+
   // Hover affordance for steps the user can revisit.
   &__item.is-clickable:not(.is-active):hover &__marker {
     border-color: darken($line-idle, 12%);
@@ -136,6 +142,35 @@ $line-done: #7cc9a8;
   }
 }
 
+// Opt-in horizontal band above the content, markers and text side by side per step.
+.wizard-stepper--horizontal {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+
+  .wizard-stepper__item {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-bottom: 0;
+  }
+
+  .wizard-stepper__line {
+    left: $marker-size;
+    top: calc(#{$marker-size} / 2);
+    right: 0;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    transform: none;
+  }
+
+  .wizard-stepper__button {
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding-right: 0.75rem;
+  }
+}
+
 // Horizontal layout on small screens so the stepper sits above the content.
 @media (max-width: 767.98px) {
   .wizard-stepper {
@@ -171,6 +206,11 @@ $line-done: #7cc9a8;
 
     &__title {
       font-size: 0.78rem;
+    }
+
+    // The subtitle needs the horizontal room a stacked layout does not have.
+    &__subtitle {
+      display: none;
     }
   }
 }
