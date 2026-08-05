@@ -21,6 +21,8 @@ REST routes of the Rack View feature
       here, because each is a multi-step operation with its own conflict reporting that has no
       business being spread across the generic object-edit form
   - rack_mount_helper: the per-step orchestration those routes share
+  - rack_assignable_routes: the picker listing the CmdbObjects still free to be mounted - a read-only
+      projection of the objects collection, so it is its own blueprint rather than a further mount route
   - rack_route_constants: the ACL rights, request keys and query parameters of this route set
 
 A Rack itself is an ordinary CmdbObject of the RACK SpecialType, so it is created, read, edited and

@@ -29,8 +29,9 @@ These routes are the only way a mount is written. Four invariants hold across th
    stronger verb - it removes the object from the rack entirely, but never touches the object itself.
 
 A Rack itself is an ordinary CmdbObject, so it is created and edited through the /objects routes.
-Location mirroring and the CI-Explorer are deliberately NOT wired up here yet: the mount row is the
-authority and the location tree is a projection of it, so the authority is built first
+The mount row is the authority and the location tree is a projection of it: a POST mirrors the mounted
+object under the Rack's location and a DELETE removes that mirror again (see rack_location_helper). The
+CI-Explorer is not wired up yet
 """
 from logging import Logger, getLogger
 from datetime import datetime, timezone
@@ -193,8 +194,8 @@ def get_rack_mounts(rack_id: int, request_user: CmdbUser) -> Response:
     HTTP `GET`/`HEAD` route to list the CmdbRackMounts of a Rack
 
     Returns the raw mounts, optionally limited to one area with `?area=`. This is the membership list,
-    not the rack view: resolving each mounted object and computing the free slot ranges is the job of
-    the overview route
+    not the rack view: resolving each mounted object and grouping the mounts per area is the job of the
+    overview route
 
     Args:
         rack_id (int): public_id of the Rack
@@ -297,12 +298,15 @@ def get_rack_overview(rack_id: int, request_user: CmdbUser) -> Response:
     HTTP `GET`/`HEAD` route to retrieve everything needed to draw one Rack
 
     One document: the rack's own fields, its mounts grouped per area and resolved to each object's
-    summary line and type metadata, the free slot ranges per placement target, and the member count.
-    Three bulk reads regardless of how full the rack is, so opening a rack costs the same whether it
-    holds one object or forty
+    summary line and type metadata, a legend of the distinct types the rack holds and how many of each,
+    and the member count. Three bulk reads regardless of how full the rack is, so opening a rack costs
+    the same whether it holds one object or forty - the legend is tallied from the same batch the rows
+    are projected from, not read separately
 
-    The free ranges are computed from the same conflict map the mount write enforces, so the overview can
-    not offer a slot the write would then refuse
+    Which slots are free is deliberately not part of the answer: the frontend draws the rack from the
+    buckets, so an unoccupied slot is visible without being told, and whether a specific placement is
+    actually allowed is answered by POST /racks/<rack_id>/mounts/validate - which runs the very checks
+    the write runs, so it can never offer something the write would refuse
 
     Args:
         rack_id (int): public_id of the Rack

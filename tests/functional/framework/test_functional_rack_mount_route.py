@@ -57,6 +57,8 @@ OTHER_OBJECT_ID: int = 9572
 
 RACK_HEIGHT: int = 42
 PLAIN_FIELD: str = 'plain-field'
+MEMBER_TYPE_LABEL: str = 'Member'
+MEMBER_TYPE_ICON: str = 'fa-cube'
 MEMBER_TYPE_COLOR: str = '#4b9e46'
 
 ALL_TYPE_IDS: list[int] = [RACK_TYPE_ID, PLAIN_TYPE_ID]
@@ -102,13 +104,13 @@ def _plain_type_doc() -> dict[str, Any]:
         'public_id': PLAIN_TYPE_ID,
         'ci_explorer_color': MEMBER_TYPE_COLOR,
         'name': 'rack-mount-member',
-        'label': 'Member',
+        'label': MEMBER_TYPE_LABEL,
         'author_id': SEED_AUTHOR_ID,
         'creation_time': datetime.now(timezone.utc),
         'active': True,
         'fields': [{'type': 'text', 'name': PLAIN_FIELD, 'label': 'Plain'}],
         'render_meta': {
-            'icon': 'fa-cube',
+            'icon': MEMBER_TYPE_ICON,
             'sections': [{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [PLAIN_FIELD]}],
             'summary': {'fields': [PLAIN_FIELD]},
         },
@@ -769,8 +771,42 @@ class TestRackOverview:
         assert rows[0]['object_id'] == OBJECT_ID
         assert rows[0]['start_slot'] == 10
         assert rows[0]['summary_line'] is not None
-        assert rows[0]['type_label'] == 'Member'
+        assert rows[0]['type_label'] == MEMBER_TYPE_LABEL
         assert rows[0]['type_color'] == MEMBER_TYPE_COLOR
+
+    def test_the_legend_names_each_type_the_rack_holds_once(self, rest_api) -> None:
+        """The key to the colours in the drawing: one entry per type, however many objects carry it"""
+        _mount(rest_api, area=RackArea.FRONT.value, start_slot=10, height=1)
+        _mount(rest_api, object_id=OTHER_OBJECT_ID, area=RackArea.FRONT.value, start_slot=20, height=1)
+
+        legend = rest_api.get(f'{ROUTE_URL}/{RACK_ID}/overview').get_json()['types_legend']
+
+        assert len(legend) == 1
+        assert legend[0]['type_id'] == PLAIN_TYPE_ID
+        assert legend[0]['type_label'] == MEMBER_TYPE_LABEL
+        assert legend[0]['type_icon'] == MEMBER_TYPE_ICON
+        assert legend[0]['type_color'] == MEMBER_TYPE_COLOR
+        assert legend[0]['count'] == 2
+
+    def test_the_legend_counts_unplaced_members_too(self, rest_api) -> None:
+        """It follows membership, not placement"""
+        _mount(rest_api)
+
+        legend = rest_api.get(f'{ROUTE_URL}/{RACK_ID}/overview').get_json()['types_legend']
+
+        assert [entry['count'] for entry in legend] == [1]
+
+    def test_the_legend_excludes_the_racks_own_type(self, rest_api) -> None:
+        """The rack is the container, not content - and a Rack can not be mounted inside a Rack anyway"""
+        _mount(rest_api, area=RackArea.FRONT.value, start_slot=10, height=1)
+
+        legend = rest_api.get(f'{ROUTE_URL}/{RACK_ID}/overview').get_json()['types_legend']
+
+        assert RACK_TYPE_ID not in [entry['type_id'] for entry in legend]
+
+    def test_an_empty_rack_has_an_empty_legend(self, rest_api) -> None:
+        """An empty list rather than nothing, so the frontend renders it without a special case"""
+        assert rest_api.get(f'{ROUTE_URL}/{RACK_ID}/overview').get_json()['types_legend'] == []
 
     def test_the_overview_reports_no_free_slots(self, rest_api) -> None:
         """

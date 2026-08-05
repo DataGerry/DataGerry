@@ -257,6 +257,29 @@ class RackMountsManager(GenericManager):
         return existing.get(RackMountKey.PUBLIC_ID.value) != exclude_mount_id
 
 
+    def get_mounted_object_ids(self) -> list[int]:
+        """
+        Retrieves the public_ids of every CmdbObject that belongs to some rack
+
+        The complement of "assignable": an object is free exactly when it is not in this list. One
+        distinct query on the unique 'object_id' index, so no mount document is loaded
+
+        Raises:
+            RackMountsManagerGetError: If the lookup failed
+
+        Returns:
+            list[int]: The mounted object ids, empty when no rack holds anything
+        """
+        try:
+            return [
+                object_id
+                for object_id in self.get_distinct(RackMountKey.OBJECT_ID.value, {})
+                if isinstance(object_id, int)
+            ]
+        except BaseManagerGetError as err:
+            raise RackMountsManagerGetError(str(err)) from err
+
+
     def get_unassigned_mounts(self, rack_id: int) -> list[dict[str, Any]]:
         """
         Retrieves the rack members that carry no placement

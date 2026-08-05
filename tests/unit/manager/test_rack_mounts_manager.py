@@ -284,3 +284,41 @@ def test_a_failed_object_delete_surfaces_as_the_managers_delete_error() -> None:
 
     with pytest.raises(RackMountsManagerDeleteError):
         manager.delete_mount_of_object(OBJECT_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          get_mounted_object_ids                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_get_mounted_object_ids_asks_for_every_mount() -> None:
+    """The complement of 'assignable' is every mount there is, so the criteria is empty"""
+    manager = _manager()
+    manager.get_distinct = MagicMock(return_value=[OBJECT_ID, 801])
+
+    assert manager.get_mounted_object_ids() == [OBJECT_ID, 801]
+    manager.get_distinct.assert_called_once_with('object_id', {})
+
+
+def test_get_mounted_object_ids_drops_non_integer_values() -> None:
+    """A drifted document can not be excluded by public_id, and would poison a '$nin' of ints"""
+    manager = _manager()
+    manager.get_distinct = MagicMock(return_value=[OBJECT_ID, None, 'garbage'])
+
+    assert manager.get_mounted_object_ids() == [OBJECT_ID]
+
+
+def test_get_mounted_object_ids_is_empty_when_nothing_is_mounted() -> None:
+    """An empty list rather than None, so the caller can drop it straight into a criteria builder"""
+    manager = _manager()
+    manager.get_distinct = MagicMock(return_value=[])
+
+    assert manager.get_mounted_object_ids() == []
+
+
+def test_a_failed_mounted_id_read_surfaces_as_the_managers_get_error() -> None:
+    """A route never has to catch a raw distinct failure"""
+    manager = _manager()
+    manager.get_distinct = MagicMock(side_effect=BaseManagerGetError('boom'))
+
+    with pytest.raises(RackMountsManagerGetError):
+        manager.get_mounted_object_ids()

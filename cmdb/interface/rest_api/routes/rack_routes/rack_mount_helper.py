@@ -45,6 +45,7 @@ from cmdb.framework.rack.rack_constants import (
 )
 from cmdb.framework.rack.rack_validator import coerce_rack_height
 from cmdb.framework.rack.mount_validator import coerce_slot_value, validate_mount_placement
+from cmdb.framework.rack.assignable_objects import build_assignable_rows
 
 from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import (
     RackMountRequestKey,
@@ -546,16 +547,74 @@ def resolve_mounted_object_meta(
         object_ids, with_type=False, object_docs=object_docs,
     )
 
-    type_meta: dict[int, dict[str, Any]] = {
+    return summary_lines, build_type_meta(types_manager, list(object_types.values())), object_types
+
+
+def shape_assignable_page(
+        objects_manager: ObjectsManager,
+        types_manager: TypesManager,
+        object_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Resolves one page of mount candidates into the rows the rack picker draws
+
+    Two bulk reads for the whole page - the summary lines (composed from the documents already in hand,
+    so nothing is re-fetched) and the type metadata of the types actually present on the page. Scoping
+    the type read to the page rather than to every mountable type keeps a tenant with many types but a
+    small page from paying for lookups it never renders
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        object_docs (list[dict[str, Any]]): The candidate CmdbObject documents of one page
+
+    Returns:
+        list[dict[str, Any]]: One picker row per document, in input order
+    """
+    object_ids: list[int] = [
+        doc[CmdbObjectKey.PUBLIC_ID.value]
+        for doc in object_docs
+        if isinstance(doc.get(CmdbObjectKey.PUBLIC_ID.value), int)
+    ]
+    type_ids: list[int] = [
+        doc[CmdbObjectKey.TYPE_ID.value]
+        for doc in object_docs
+        if isinstance(doc.get(CmdbObjectKey.TYPE_ID.value), int)
+    ]
+
+    summary_lines: dict[int, str] = objects_manager.get_summary_lines_lookup(
+        object_ids, with_type=False, object_docs=object_docs,
+    ) if object_ids else {}
+
+    return build_assignable_rows(object_docs, summary_lines, build_type_meta(types_manager, type_ids))
+
+
+def build_type_meta(types_manager: TypesManager, type_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """
+    Batch-resolves the type metadata a rack row carries, keyed by type id
+
+    One bulk read for however many ids are given, duplicates collapsed. Shared by the overview and the
+    assignable-objects picker so both render a type identically - the picker rows and the mount rows are
+    deliberately the same shape
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        type_ids (list[int]): The CmdbType public_ids to resolve; duplicates are allowed
+
+    Returns:
+        dict[int, dict[str, Any]]: {type_id: {label, icon, colour}}, absent for a type that did not
+                                   resolve
+    """
+    if not type_ids:
+        return {}
+
+    return {
         type_id: {
             RackOverviewKey.TYPE_LABEL.value: cmdb_type.label,
             RackOverviewKey.TYPE_ICON.value: cmdb_type.get_icon(),
             RackOverviewKey.TYPE_COLOR.value: cmdb_type.ci_explorer_color,
         }
-        for type_id, cmdb_type in types_manager.get_types_lookup(list(set(object_types.values()))).items()
+        for type_id, cmdb_type in types_manager.get_types_lookup(list(set(type_ids))).items()
     }
-
-    return summary_lines, type_meta, object_types
 
 
 def get_requested_height_or_abort(raw_height: Any) -> int:

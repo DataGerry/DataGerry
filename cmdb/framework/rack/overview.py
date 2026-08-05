@@ -21,6 +21,8 @@ unit-testable without a database. Two things it computes rather than stores:
 
   - the **buckets**: the rack's mounts grouped by area, each resolved to the object's summary line and
     type metadata (label, icon, colour) so the frontend needs no follow-up request per mounted object
+  - the **types legend**: one entry per distinct type among the rack's members, with how many of them
+    carry it - the same metadata the rows already hold, tallied so a legend needs no scan of the buckets
 
 Slot 1 is the bottom of the rack and the numbers increase upward; a mount is anchored at its ``start_slot``
 and extends downward from there (see cmdb.models.rack_model.rack_mount_helpers).
@@ -151,6 +153,62 @@ def build_area_buckets(
     return buckets
 
 
+def build_types_legend(
+        mounts: list[dict[str, Any]],
+        type_meta: dict[int, dict[str, Any]],
+        object_types: dict[int, int]) -> list[dict[str, Any]]:
+    """
+    Tallies the distinct types among a rack's members into the legend the rack view renders
+
+    Follows MEMBERSHIP, not placement: an unplaced member is in the rack and its type belongs in the
+    legend. The Rack's own type never appears - a Rack can not be mounted inside a Rack, so no mount
+    contributes it. A mount whose object no longer resolves has no type and is tallied nowhere, so the
+    counts can sum to less than the rack's total mount count
+
+    Ordered by label with the type id as a tie-break: two types may carry the same label, and without
+    the tie-break their order would wobble between two reads of the same rack
+
+    Args:
+        mounts (list[dict[str, Any]]): Every mount of the rack, all areas
+        type_meta (dict[int, dict[str, Any]]): {type_id: metadata}, batch-resolved
+        object_types (dict[int, int]): {object_id: type_id}, from the same batch
+
+    Returns:
+        list[dict[str, Any]]: One entry per distinct type, empty when the rack holds nothing resolvable
+    """
+    counts: dict[int, int] = {}
+
+    for mount in mounts:
+        type_id: int | None = object_types.get(mount.get(RackMountKey.OBJECT_ID.value))
+
+        if type_id is None:
+            continue
+
+        counts[type_id] = counts.get(type_id, 0) + 1
+
+    legend: list[dict[str, Any]] = []
+
+    for type_id, count in counts.items():
+        meta: dict[str, Any] = type_meta.get(type_id, {})
+
+        legend.append({
+            RackOverviewKey.TYPE_ID.value: type_id,
+            RackOverviewKey.TYPE_LABEL.value: meta.get(RackOverviewKey.TYPE_LABEL.value),
+            RackOverviewKey.TYPE_ICON.value: meta.get(RackOverviewKey.TYPE_ICON.value),
+            RackOverviewKey.TYPE_COLOR.value: meta.get(RackOverviewKey.TYPE_COLOR.value),
+            RackOverviewKey.COUNT.value: count,
+        })
+
+    # A type whose document vanished keeps its entry with a null label, the same way a row keeps its
+    # slots - so 'or' rather than a filter, and it sorts to the front instead of breaking the compare
+    legend.sort(key=lambda entry: (
+        entry[RackOverviewKey.TYPE_LABEL.value] or '',
+        entry[RackOverviewKey.TYPE_ID.value],
+    ))
+
+    return legend
+
+
 def build_rack_header(rack: dict[str, Any], rack_height: int, display_name: str) -> dict[str, Any]:
     """
     Projects the Rack CmdbObject's own fields into the overview header
@@ -194,7 +252,8 @@ def build_rack_overview(
         object_types (dict[int, int]): {object_id: type_id}, from the same batch
 
     Returns:
-        dict[str, Any]: The overview document: the rack header, the area buckets and the member count
+        dict[str, Any]: The overview document: the rack header, the types legend, the area buckets and
+                        the member count
     """
     buckets: dict[str, list[dict[str, Any]]] = build_area_buckets(
         mounts, summary_lines, type_meta, object_types,
@@ -202,6 +261,7 @@ def build_rack_overview(
 
     return {
         RackOverviewKey.RACK.value: build_rack_header(rack, rack_height, display_name),
+        RackOverviewKey.TYPES_LEGEND.value: build_types_legend(mounts, type_meta, object_types),
         RackOverviewKey.AREAS.value: buckets,
         RackOverviewKey.TOTAL_MOUNTS.value: sum(len(rows) for rows in buckets.values()),
     }
