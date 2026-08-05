@@ -241,10 +241,10 @@ export interface OcCreateAutomationRequest {
 /**
  * Builds the reference string one method uses to read another method's field.
  *
- * Format: #COLOR.(response|request).body.$.path
+ * Format: #COLOR.(response|request).body.$.path - the colour already carries its own '#'.
  */
 export function ocFieldReference(color: string, side: 'request' | 'response', path: string): string {
-    return `#${color}.(${side}).body.$.${path}`;
+    return `${color}.(${side}).body.$.${path}`;
 }
 
 
@@ -254,7 +254,7 @@ export function ocFieldReference(color: string, side: 'request' | 'response', pa
  * Format: for {%#COLOR.(response).body.$.path[*]%}
  */
 export function ocLoopExpression(color: string, arrayPath: string): string {
-    return `for {%#${color}.(response).body.$.${arrayPath}[*]%}`;
+    return `for {%${color}.(response).body.$.${arrayPath}[*]%}`;
 }
 
 

@@ -38,6 +38,35 @@ export interface TargetOperationCandidates {
 }
 
 
+/**
+ * Where the object-type restriction goes in the list operation's request.
+ *
+ * Without it an automation reads every object of the system instead of the selected type - the
+ * reference payload sets params.filter.type = ["10"] on i-doit's cmdb.objects.read.
+ */
+export interface ListFilterPlacement {
+    /** Dotted path inside request.body.fields, e.g. 'params.filter.type'. */
+    bodyPath?: string;
+
+    /**
+     * Query parameter appended to request.endpoint, for list operations that take no body
+     * (DataGerry's Get Objects is a GET).
+     */
+    endpointQuery?: string;
+
+    /** Whether the value is written as a single-element array. */
+    asArray: boolean;
+
+    /**
+     * Whether the parent object of bodyPath is reduced to just this key.
+     *
+     * The reference prunes i-doit's filter object down to `type` alone, dropping the seven unused
+     * filter keys the invoker template carries.
+     */
+    pruneSiblings: boolean;
+}
+
+
 export interface TargetSystemAdapter {
     /** Invoker name as reported by OpenCelium - the lookup key. */
     invokerName: string;
@@ -51,11 +80,38 @@ export interface TargetSystemAdapter {
      */
     verified: boolean;
     operations: TargetOperationCandidates;
+
+    /** How to restrict the list operation to one object type. Absent when unknown. */
+    listFilter?: ListFilterPlacement;
+
+    /**
+     * Where the read operation takes its page size, so the wizard's batch size setting has an
+     * effect. Dotted path inside request.body.fields, or a query parameter name.
+     */
+    listLimit?: { bodyPath?: string; endpointQuery?: string };
+
+    /**
+     * Label the wizard gives the system's identifier for an object type, shown when the user has to
+     * supply it by hand (an i-doit type id is not derivable from a DataGerry type).
+     */
+    remoteTypeLabel?: string;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                  VERIFIED ADAPTERS                                                 */
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * DataGerry restricts a list read through the REST filter query parameter.
+ *
+ * Its Get Objects operation is a GET without a body, so the restriction cannot go into
+ * request.body. No reference payload covers the outgoing direction - the compiler warns about this.
+ */
+const DATAGERRY_LIST_FILTER: ListFilterPlacement = {
+    endpointQuery: 'filter',
+    asArray: false,
+    pruneSiblings: false
+};
 
 /** DataGerry's own operation names, taken from cmdb/open_celium/invokers/dg_cloud_invoker.xml. */
 const DATAGERRY_OPERATIONS: TargetOperationCandidates = {
@@ -76,13 +132,17 @@ export const KNOWN_TARGET_ADAPTERS: ReadonlyArray<TargetSystemAdapter> = [
         invokerName: 'DataGerry',
         displayName: 'DataGerry',
         verified: true,
-        operations: DATAGERRY_OPERATIONS
+        operations: DATAGERRY_OPERATIONS,
+        listFilter: DATAGERRY_LIST_FILTER,
+        listLimit: { endpointQuery: 'limit' }
     },
     {
         invokerName: 'DataGerryCloud',
         displayName: 'DataGerry',
         verified: true,
-        operations: DATAGERRY_OPERATIONS
+        operations: DATAGERRY_OPERATIONS,
+        listFilter: DATAGERRY_LIST_FILTER,
+        listLimit: { endpointQuery: 'limit' }
     },
     {
         invokerName: 'i-doit',
@@ -93,7 +153,11 @@ export const KNOWN_TARGET_ADAPTERS: ReadonlyArray<TargetSystemAdapter> = [
             create: ['cmdb.object.create'],
             update: ['cmdb.object.update'],
             delete: ['cmdb.object.delete']
-        }
+        },
+        // Taken from the reference payload: params.filter is pruned to type: ["10"].
+        listFilter: { bodyPath: 'params.filter.type', asArray: true, pruneSiblings: true },
+        listLimit: { bodyPath: 'params.limit' },
+        remoteTypeLabel: 'i-doit object type ID'
     }
 ];
 

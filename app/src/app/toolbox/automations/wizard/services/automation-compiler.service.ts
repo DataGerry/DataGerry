@@ -46,7 +46,7 @@ import {
     OC_SCHEDULER_INACTIVE,
     OC_TO_CONNECTOR
 } from '../models/opencelium-connection.model';
-import { ResolvedOperation } from '../models/target-catalog.model';
+import { findAdapter, ResolvedOperation } from '../models/target-catalog.model';
 import { TargetCatalogService } from './target-catalog.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -105,6 +105,14 @@ export class AutomationCompilerService {
     private static readonly SOURCE_INDEX = '0';
     private static readonly TARGET_INDEX = '0_0';
     private static readonly LOOP_ITERATOR = 'i';
+
+    /**
+     * Display label of the read method, as the reference payloads carry it.
+     *
+     * Operation names are technical ('cmdb.objects.read') and invoker definitions provide no label,
+     * so the compiler supplies a readable one. The target method carries no label at all.
+     */
+    private static readonly SOURCE_LABEL = 'GetObjects';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     VALIDATION                                                     */
@@ -218,8 +226,31 @@ export class AutomationCompilerService {
 
         connection.id = connectionId;
         connection.connectionId = connectionId;
+        this.stripInvokerCredentials(connection);
 
         return { payload: connection, warnings };
+    }
+
+
+    /**
+     * Blanks the credential fields of every embedded invoker.
+     *
+     * The reference update payload sends invoker.data and invoker.auth as empty strings while the
+     * create payload carries the real values - credentials are established once with the connector
+     * and are not resent when a connection is edited.
+     */
+    private stripInvokerCredentials(connection: OcConnection): void {
+        const invokers = [
+            connection.fromConnector.invoker,
+            connection.toConnector.invoker,
+            ...connection.fromConnector.svgItems.map(item => item.entity?.invoker),
+            ...connection.toConnector.svgItems.map(item => item.entity?.invoker)
+        ];
+
+        invokers.filter(Boolean).forEach(invoker => {
+            invoker.data = '';
+            invoker.auth = '';
+        });
     }
 
 
@@ -255,8 +286,11 @@ export class AutomationCompilerService {
             sides.source,
             AutomationCompilerService.SOURCE_INDEX,
             AutomationCompilerService.SOURCE_COLOR,
-            this.friendlyLabel(sides.source.name)
+            AutomationCompilerService.SOURCE_LABEL
         );
+
+        this.applyListFilter(definition, sides, sourceMethod, warnings);
+        this.applyListLimit(definition, sides, sourceMethod);
         const targetMethod = this.buildMethod(
             sides.target,
             AutomationCompilerService.TARGET_INDEX,
@@ -323,8 +357,12 @@ export class AutomationCompilerService {
         currentItemIndex: string,
         includeTitle: boolean
     ): any {
+        // Cloned so later post-processing - stripping credentials for the update payload - cannot
+        // reach back into the caller's connector objects.
+        const invoker = this.clone(connector.invoker);
+
         const side: any = {
-            invoker: connector.invoker,
+            invoker,
             connectorId: connector.connectorId,
             methods,
             icon: connector.icon ?? '',
@@ -336,29 +374,41 @@ export class AutomationCompilerService {
         }
 
         side.currentItemIndex = currentItemIndex;
-        side.svgItems = this.buildSvgItems(connector, methods, operators, connectorType);
+        side.svgItems = this.buildSvgItems(invoker, methods, operators, connectorType);
         side.arrows = this.buildArrows(operators, connectorType);
 
         return side;
     }
 
 
+    /**
+     * Builds one method entry.
+     *
+     * The reference payloads omit `label` entirely on the target method rather than sending null,
+     * so the key is only added when there is a label to send.
+     */
     private buildMethod(
         operation: ResolvedOperation,
         index: string,
         color: string,
         label: string | null
     ): OcMethod {
-        return {
+        const method: any = {
             name: operation.name,
             request: this.clone(operation.definition.request),
             response: this.clone(operation.definition.response),
             dataAggregator: null,
-            index,
-            label,
-            color,
-            error: ocEmptyError()
+            index
         };
+
+        if (label !== null) {
+            method.label = label;
+        }
+
+        method.color = color;
+        method.error = ocEmptyError();
+
+        return method as OcMethod;
     }
 
 
@@ -425,8 +475,8 @@ export class AutomationCompilerService {
                     description: '',
                     language: 'js',
                     simpleCode: null,
-                    expertVar: `//var RESULT_VAR = #${AutomationCompilerService.TARGET_COLOR}.(request).${targetPath};\n`
-                        + `//var VAR_0 = #${AutomationCompilerService.SOURCE_COLOR}.(response).${sourcePath};`,
+                    expertVar: `//var RESULT_VAR = ${AutomationCompilerService.TARGET_COLOR}.(request).${targetPath};\n`
+                        + `//var VAR_0 = ${AutomationCompilerService.SOURCE_COLOR}.(response).${sourcePath};`,
                     expertCode: 'RESULT_VAR = VAR_0;'
                 }
             });
@@ -481,8 +531,110 @@ export class AutomationCompilerService {
     }
 
 
+    /**
+     * Restricts the read operation to the selected object type.
+     *
+     * Without this an automation would read every object the source system holds and then write all
+     * of them, which is the difference between "sync my servers" and "sync everything". Where the
+     * restriction goes is adapter knowledge: i-doit takes it in the request body, DataGerry as a
+     * query parameter on the endpoint.
+     */
+    private applyListFilter(
+        definition: AutomationDefinition,
+        sides: ResolvedSides,
+        sourceMethod: OcMethod,
+        warnings: string[]
+    ): void {
+        const adapter = findAdapter(sides.sourceConnector?.invoker?.name);
+        const placement = adapter?.listFilter;
+
+        if (!placement) {
+            warnings.push(
+                'The source system has no known way to filter by object type, so the automation reads '
+                + 'every object it returns. Narrow it down with a condition.'
+            );
+
+            return;
+        }
+
+        // Incoming automations read the foreign system, so the foreign type id applies. Outgoing
+        // automations read DataGerry, where the object type is known from the wizard.
+        const typeId = definition.direction === 'incoming'
+            ? definition.target.remoteObjectTypeId
+            : String(definition.objectType.typeId ?? '');
+
+        if (!typeId) {
+            warnings.push(
+                'No object type identifier was given for the source system, so the automation reads '
+                + 'every object it returns.'
+            );
+
+            return;
+        }
+
+        if (placement.endpointQuery) {
+            this.appendEndpointQuery(sourceMethod.request, placement.endpointQuery, `{"type_id":${typeId}}`);
+            warnings.push(
+                'Filtering DataGerry by object type is applied as a query parameter. No reference '
+                + 'payload covers the outgoing direction, so run the test step before activating.'
+            );
+
+            return;
+        }
+
+        this.setBodyField(
+            sourceMethod.request,
+            placement.bodyPath!,
+            placement.asArray ? [typeId] as any : typeId,
+            placement.pruneSiblings
+        );
+    }
+
+
+    /**
+     * Applies the batch size to the read operation's page size.
+     *
+     * This is what makes the wizard's "batch size" advanced setting do something rather than be
+     * decorative. A batch size of 0 is treated as "no limit" and leaves the operation untouched.
+     */
+    private applyListLimit(
+        definition: AutomationDefinition,
+        sides: ResolvedSides,
+        sourceMethod: OcMethod
+    ): void {
+        const placement = findAdapter(sides.sourceConnector?.invoker?.name)?.listLimit;
+        const batchSize = definition.advanced.batchSize;
+
+        if (!placement || !batchSize || batchSize <= 0) {
+            return;
+        }
+
+        if (placement.endpointQuery) {
+            this.appendEndpointQuery(sourceMethod.request, placement.endpointQuery, String(batchSize));
+
+            return;
+        }
+
+        this.setBodyField(sourceMethod.request, placement.bodyPath!, String(batchSize));
+    }
+
+
+    /** Appends a query parameter to an operation endpoint, preserving any it already has. */
+    private appendEndpointQuery(request: any, key: string, value: string): void {
+        const endpoint: string = request.endpoint ?? '';
+        const separator = endpoint.includes('?') ? '&' : '?';
+
+        request.endpoint = `${endpoint}${separator}${key}=${encodeURIComponent(value)}`;
+    }
+
+
     /** Writes a value into the request body's field tree, creating intermediate objects as needed. */
-    private setBodyField(request: any, dottedPath: string, value: string): void {
+    private setBodyField(
+        request: any,
+        dottedPath: string,
+        value: string | string[],
+        pruneSiblings = false
+    ): void {
         if (!request.body) {
             request.body = { type: 'object', format: 'json', data: 'raw', fields: {} };
         }
@@ -502,7 +654,19 @@ export class AutomationCompilerService {
             node = node[segment];
         }
 
-        node[segments[segments.length - 1]] = value;
+        const leaf = segments[segments.length - 1];
+
+        if (pruneSiblings) {
+            // The invoker template carries every filter key it supports; the reference keeps only
+            // the one actually used, so unused keys are dropped rather than sent empty.
+            Object.keys(node).forEach(key => {
+                if (key !== leaf) {
+                    delete node[key];
+                }
+            });
+        }
+
+        node[leaf] = value;
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -610,7 +774,7 @@ export class AutomationCompilerService {
      * loop top right with its method below it.
      */
     private buildSvgItems(
-        connector: any,
+        invoker: any,
         methods: OcMethod[],
         operators: OcOperator[],
         connectorType: string
@@ -653,7 +817,7 @@ export class AutomationCompilerService {
                 isSelectedAll: false,
                 connectorType,
                 invoker: null,
-                entity: this.methodEntity(method, connector.invoker)
+                entity: this.methodEntity(method, invoker)
             });
         }
 
@@ -663,16 +827,22 @@ export class AutomationCompilerService {
 
     /** The svgItem entity of a method: the method plus its invoker, without the error block. */
     private methodEntity(method: OcMethod, invoker: any): any {
-        return {
+        const entity: any = {
             name: method.name,
             request: method.request,
             response: method.response,
             dataAggregator: null,
-            index: method.index,
-            label: method.label,
-            color: method.color,
-            invoker
+            index: method.index
         };
+
+        if (method.label !== undefined && method.label !== null) {
+            entity.label = method.label;
+        }
+
+        entity.color = method.color;
+        entity.invoker = invoker;
+
+        return entity;
     }
 
 
