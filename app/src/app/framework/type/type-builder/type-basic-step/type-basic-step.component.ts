@@ -318,8 +318,27 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   private setActiveSpecialType(specialType: SpecialType): void {
     this.typeInstance.special_type = specialType;
     this.previouslySelectedSpecialType = specialType;
+
+    if (specialType === SpecialType.RACK) {
+      this.enforceRackParentSelection();
+    }
+
     this.validationService.setSectionHighlightState(false);
     this.validationService.setFieldHighlightState(false);
+  }
+
+
+  /**
+   * A rack carries its mounted objects through their location nodes, so a rack type has to stay
+   * selectable as a parent location. The backend rejects a rack type that disables the flag.
+   */
+  private enforceRackParentSelection(): void {
+    this.typeInstance.selectable_as_parent = true;
+
+    // The location field config seeds its toggle from the field, so keep both in sync.
+    (this.typeInstance.fields ?? [])
+      .filter((field) => field?.type === 'location')
+      .forEach((field) => field.selectable_as_parent = true);
   }
 
 
