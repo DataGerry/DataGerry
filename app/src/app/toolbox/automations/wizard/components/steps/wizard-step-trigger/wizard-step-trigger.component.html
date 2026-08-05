@@ -1,0 +1,73 @@
+<section class="wizard-section">
+  <h5 class="wizard-section__title">1. Name the automation</h5>
+  <p class="wizard-section__hint">A short name so you can recognise it in the list.</p>
+
+  <div class="form-group">
+    <label for="automation-name">Name <span class="required">*</span></label>
+    <app-form-input
+      id="automation-name"
+      label=""
+      placeholder="e.g. Sync servers to i-doit"
+      [required]="true"
+      [ngModel]="definition.name"
+      (ngModelChange)="onNameChanged($event)">
+    </app-form-input>
+  </div>
+
+  <div class="form-group">
+    <app-form-textarea
+      label="Description"
+      [rows]="2"
+      [ngModel]="definition.description"
+      (ngModelChange)="onDescriptionChanged($event)">
+    </app-form-textarea>
+  </div>
+</section>
+
+<section class="wizard-section">
+  <h5 class="wizard-section__title">2. Choose a trigger</h5>
+  <p class="wizard-section__hint">Decide when the automation should start.</p>
+
+  <div class="choice-grid">
+    @for (choice of triggerChoices; track choice.type) {
+      <button
+        type="button"
+        class="choice-card"
+        [class.is-selected]="isSelected(choice.type)"
+        [disabled]="!choice.available"
+        [attr.aria-pressed]="isSelected(choice.type)"
+        (click)="onSelectTrigger(choice)">
+
+        @if (!choice.available) {
+          <span class="choice-card__badge">Coming soon</span>
+        }
+
+        <span class="choice-card__title">{{ choice.title }}</span>
+        <span class="choice-card__description">{{ choice.description }}</span>
+        <span class="choice-card__icon"><i [class]="choice.icon"></i></span>
+      </button>
+    }
+  </div>
+</section>
+
+@if (definition.trigger.type === 'scheduled') {
+  <section class="wizard-section">
+    <h5 class="wizard-section__title">3. Set the schedule</h5>
+    <p class="wizard-section__hint">Define when and how often the automation runs.</p>
+
+    <div class="schedule-row">
+      <span class="schedule-row__value">
+        @if (definition.trigger.cronExp) {
+          <code>{{ definition.trigger.cronExp }}</code>
+        } @else {
+          <span class="text-muted">No schedule set yet</span>
+        }
+      </span>
+
+      <button type="button" class="btn btn-secondary btn-sm" (click)="openCronEditor()">
+        <i class="fas fa-clock me-2"></i>
+        {{ definition.trigger.cronExp ? 'Change schedule' : 'Set schedule' }}
+      </button>
+    </div>
+  </section>
+}

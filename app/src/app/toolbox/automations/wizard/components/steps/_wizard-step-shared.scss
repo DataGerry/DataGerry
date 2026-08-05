@@ -1,0 +1,97 @@
+// Shared look of a wizard step: numbered sections and the card grid used for choices.
+$accent: #e94d18;
+$border: #e5e7eb;
+$muted: #6b7280;
+
+.wizard-section {
+  & + & {
+    margin-top: 2rem;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  &__hint {
+    margin: 0.25rem 0 1rem;
+    font-size: 0.8125rem;
+    color: $muted;
+  }
+}
+
+// Selectable cards, as the mockup uses for the trigger choices.
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.75rem;
+}
+
+.choice-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 1px solid $border;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+
+  &:hover:not(:disabled) {
+    border-color: darken($border, 10%);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  }
+
+  &.is-selected {
+    border-color: $accent;
+    box-shadow: 0 0 0 3px rgba(233, 77, 24, 0.12);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  &__title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  &__description {
+    font-size: 0.78rem;
+    color: $muted;
+    line-height: 1.4;
+  }
+
+  &__icon {
+    margin-top: auto;
+    color: $muted;
+  }
+
+  &.is-selected &__icon {
+    color: $accent;
+  }
+
+  &__badge {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: $muted;
+  }
+}
+
+.required {
+  color: #dc3545;
+}

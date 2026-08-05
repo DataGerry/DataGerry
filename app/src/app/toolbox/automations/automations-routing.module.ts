@@ -20,7 +20,7 @@ import { Routes, RouterModule } from '@angular/router';
 
 import { AutomationsComponent } from './automations.component';
 import { AutomationsListComponent } from './components/automations-list/automations-list.component';
-import { AutomationFormComponent } from './components/automation-form/automation-form.component';
+import { AutomationWizardComponent } from './wizard/components/automation-wizard/automation-wizard.component';
 import { AuthGuard } from 'src/app/modules/auth/guards/auth.guard';
 import { ConnectorFormComponent } from './connectors/components/connector-form/connector-form.component';
 import { PermissionGuard } from 'src/app/modules/auth/guards/permission.guard';
@@ -45,7 +45,7 @@ const routes: Routes = [
       },
       {
         path: 'add',
-        component: AutomationFormComponent,
+        component: AutomationWizardComponent,
         canActivate: [AuthGuard, PermissionGuard],
         data: {
           right: 'base.openCelium.connection.add',
@@ -55,7 +55,7 @@ const routes: Routes = [
       },
       {
         path: 'edit/:schedulerId',
-        component: AutomationFormComponent,
+        component: AutomationWizardComponent,
         canActivate: [AuthGuard, PermissionGuard],
         data: {
           right: 'base.openCelium.connection.edit',

@@ -1,0 +1,101 @@
+@import '../wizard-step-shared';
+
+.mapping-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.mapping-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+
+  &__pill {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: $muted;
+    white-space: nowrap;
+
+    &--ok {
+      background: rgba(25, 135, 84, 0.12);
+      color: #198754;
+    }
+
+    &--open {
+      background: rgba(255, 193, 7, 0.18);
+      color: #a37200;
+    }
+  }
+
+  &__filter {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+    font-size: 0.8125rem;
+    color: $muted;
+    cursor: pointer;
+  }
+}
+
+.mapping-table {
+  font-size: 0.85rem;
+  vertical-align: middle;
+
+  &__arrow {
+    width: 2rem;
+    text-align: center;
+    color: $muted;
+  }
+
+  tr.is-unresolved td:first-child {
+    // Draw attention to exactly the rows that still need the user.
+    box-shadow: inset 3px 0 0 #ffc107;
+  }
+}
+
+.rule-combinator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: $muted;
+
+  app-form-select {
+    min-width: 190px;
+  }
+}
+
+.rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+
+  &__spacer {
+    display: block;
+  }
+
+  &__remove {
+    color: $muted;
+
+    &:hover {
+      color: #dc3545;
+    }
+  }
+}
+
+@media (max-width: 767.98px) {
+  .rule-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

@@ -1,0 +1,101 @@
+<section class="wizard-section">
+  <h5 class="wizard-section__title">1. Choose the direction</h5>
+  <p class="wizard-section__hint">Every automation has a relation to DataGerry - data either leaves it or enters it.</p>
+
+  <div class="choice-grid">
+    @for (direction of directions; track direction.value) {
+      <button
+        type="button"
+        class="choice-card"
+        [class.is-selected]="definition.direction === direction.value"
+        [attr.aria-pressed]="definition.direction === direction.value"
+        (click)="onSelectDirection(direction.value)">
+        <span class="choice-card__title">{{ direction.title }}</span>
+        <span class="choice-card__description">{{ direction.description }}</span>
+        <span class="choice-card__icon"><i [class]="direction.icon"></i></span>
+      </button>
+    }
+  </div>
+</section>
+
+<section class="wizard-section">
+  <h5 class="wizard-section__title">2. Choose the object type</h5>
+  <p class="wizard-section__hint">Select the DataGerry object type the data belongs to.</p>
+
+  <app-form-select
+    label=""
+    placeholder="Select an object type"
+    [required]="true"
+    [items]="objectTypes"
+    bindLabel="label"
+    bindValue="public_id"
+    [ngModel]="definition.objectType.typeId"
+    (ngModelChange)="onSelectObjectType($event)">
+  </app-form-select>
+</section>
+
+<section class="wizard-section">
+  <h5 class="wizard-section__title">3. Choose the fields</h5>
+  <p class="wizard-section__hint">Select the fields that should be sent or updated.</p>
+
+  @if (!definition.objectType.typeId) {
+    <p class="text-muted">Choose an object type first.</p>
+  } @else {
+    <div class="field-picker">
+
+      <div class="field-picker__panel">
+        <div class="field-picker__header">Available fields</div>
+
+        <div class="field-picker__search">
+          <app-form-input label="" placeholder="Search fields..." [(ngModel)]="fieldFilter"></app-form-input>
+        </div>
+
+        <ul class="field-picker__list">
+          @for (field of filteredFields; track field.name) {
+            <li>
+              <label class="field-picker__option">
+                <input
+                  type="checkbox"
+                  [checked]="isFieldSelected(field)"
+                  (change)="onToggleField(field)">
+                <span>{{ field.label }}</span>
+              </label>
+            </li>
+          } @empty {
+            <li class="field-picker__empty">No fields match your search.</li>
+          }
+        </ul>
+
+        <button type="button" class="btn btn-link btn-sm" (click)="onSelectAll()">Select all shown</button>
+      </div>
+
+      <div class="field-picker__panel">
+        <div class="field-picker__header">Selected fields ({{ selectedCount }})</div>
+
+        <ul class="field-picker__list">
+          @for (field of definition.fields; track field.name) {
+            <li class="field-picker__selected">
+              <span>{{ field.label }}</span>
+              <span class="field-picker__type">{{ field.type }}</span>
+              <button
+                type="button"
+                class="btn btn-link btn-sm field-picker__remove"
+                [attr.aria-label]="'Remove ' + field.label"
+                (click)="removeField(field)">
+                <i class="fas fa-times"></i>
+              </button>
+            </li>
+          } @empty {
+            <li class="field-picker__empty">No fields selected yet.</li>
+          }
+        </ul>
+
+        @if (selectedCount > 0) {
+          <button type="button" class="btn btn-link btn-sm" (click)="onReset()">
+            <i class="fas fa-rotate-left me-1"></i> Reset
+          </button>
+        }
+      </div>
+    </div>
+  }
+</section>

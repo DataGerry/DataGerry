@@ -1,0 +1,148 @@
+<section class="wizard-section">
+  <div class="mapping-head">
+    <div>
+      <h5 class="wizard-section__title">1. Match the fields</h5>
+      <p class="wizard-section__hint mb-0">
+        Matched automatically by name, label and known synonyms. Only correct what is left open.
+      </p>
+    </div>
+
+    <button type="button" class="btn btn-secondary btn-sm" (click)="autoMap.emit()">
+      <i class="fas fa-wand-magic-sparkles me-2"></i> Match automatically
+    </button>
+  </div>
+
+  <div class="mapping-status">
+    <span class="mapping-status__pill mapping-status__pill--ok">{{ resolvedCount }} matched</span>
+
+    @if (unresolvedCount > 0) {
+      <span class="mapping-status__pill mapping-status__pill--open">{{ unresolvedCount }} open</span>
+
+      <label class="mapping-status__filter">
+        <input type="checkbox" [(ngModel)]="showOnlyUnresolved">
+        <span>Show only open</span>
+      </label>
+    }
+  </div>
+
+  @if (definition.mapping.length === 0) {
+    <p class="text-muted">Choose a target system and its action first.</p>
+  } @else {
+    <table class="table mapping-table">
+      <thead>
+        <tr>
+          <th scope="col">Source field</th>
+          <th scope="col" class="mapping-table__arrow"></th>
+          <th scope="col">Target field</th>
+          <th scope="col">Match</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (entry of visibleMapping; track entry.source) {
+          <tr [class.is-unresolved]="!entry.target">
+            <td>{{ labelOf(entry.source) }}</td>
+            <td class="mapping-table__arrow"><i class="fas fa-arrow-right"></i></td>
+            <td>
+              <app-form-select
+                label=""
+                placeholder="Not mapped"
+                [items]="availableTargets(entry.source)"
+                bindLabel="path"
+                bindValue="path"
+                [ngModel]="entry.target"
+                (ngModelChange)="onTargetSelected(entry.source, $event)">
+              </app-form-select>
+            </td>
+            <td>
+              @if (!entry.target) {
+                <span class="text-muted">-</span>
+              } @else if (entry.origin === 'manual') {
+                <span class="mapping-status__pill">manual</span>
+              } @else {
+                <span class="mapping-status__pill mapping-status__pill--ok">
+                  {{ (entry.confidence * 100) | number:'1.0-0' }}%
+                </span>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</section>
+
+<section class="wizard-section">
+  <div class="mapping-head">
+    <div>
+      <h5 class="wizard-section__title">2. Limit which objects take part</h5>
+      <p class="wizard-section__hint mb-0">Optional. Without a rule every object of the type is processed.</p>
+    </div>
+
+    <button
+      type="button"
+      class="btn btn-secondary btn-sm"
+      [disabled]="sourceFields.length === 0"
+      (click)="onAddRule()">
+      <i class="fas fa-plus me-2"></i> Add condition
+    </button>
+  </div>
+
+  @if (definition.conditions.rules.length > 1) {
+    <div class="rule-combinator">
+      <span>Objects must match</span>
+      <app-form-select
+        label=""
+        [items]="[{ label: 'all conditions', value: 'and' }, { label: 'any condition', value: 'or' }]"
+        bindLabel="label"
+        bindValue="value"
+        [ngModel]="definition.conditions.combinator"
+        (ngModelChange)="onCombinatorChanged($event)">
+      </app-form-select>
+    </div>
+  }
+
+  @for (rule of definition.conditions.rules; track $index) {
+    <div class="rule-row">
+      <app-form-select
+        label=""
+        placeholder="Field"
+        [items]="sourceFields"
+        bindLabel="label"
+        bindValue="name"
+        [ngModel]="rule.field"
+        (ngModelChange)="onRuleFieldChanged($index, $event)">
+      </app-form-select>
+
+      <app-form-select
+        label=""
+        placeholder="Comparison"
+        [items]="operatorChoices"
+        bindLabel="label"
+        bindValue="value"
+        [ngModel]="rule.operator"
+        (ngModelChange)="onRuleOperatorChanged($index, $event)">
+      </app-form-select>
+
+      @if (ruleNeedsValue(rule.operator)) {
+        <app-form-input
+          label=""
+          placeholder="Value"
+          [ngModel]="rule.value"
+          (ngModelChange)="onRuleValueChanged($index, $event)">
+        </app-form-input>
+      } @else {
+        <span class="rule-row__spacer"></span>
+      }
+
+      <button
+        type="button"
+        class="btn btn-link btn-sm rule-row__remove"
+        aria-label="Remove condition"
+        (click)="onRemoveRule($index)">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  } @empty {
+    <p class="text-muted mb-0">No conditions - all objects of the type are processed.</p>
+  }
+</section>

@@ -1,0 +1,40 @@
+<div class="json-preview">
+  <button
+    type="button"
+    class="json-preview__header"
+    [attr.aria-expanded]="expanded"
+    (click)="toggle()">
+    <span class="json-preview__title">
+      <i class="fas" [class.fa-chevron-right]="!expanded" [class.fa-chevron-down]="expanded"></i>
+      Technical view (JSON)
+    </span>
+
+    @if (json) {
+      <span class="json-preview__meta">{{ lineCount }} lines</span>
+    }
+  </button>
+
+  @if (expanded) {
+    <div class="json-preview__body">
+      @if (!json) {
+        <p class="json-preview__empty">
+          The definition is not complete enough to compile yet.
+        </p>
+      } @else {
+        @if (warnings.length > 0) {
+          <ul class="json-preview__warnings">
+            @for (warning of warnings; track warning) {
+              <li>{{ warning }}</li>
+            }
+          </ul>
+        }
+
+        <pre class="json-preview__code"><code>{{ json }}</code></pre>
+
+        <button type="button" class="btn btn-secondary btn-sm" (click)="onCopy()">
+          <i class="fas fa-copy me-2"></i> Copy to clipboard
+        </button>
+      }
+    </div>
+  }
+</div>

@@ -1,0 +1,71 @@
+$border: #e5e7eb;
+$muted: #6b7280;
+
+.json-preview {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.85rem 1.25rem;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  &__title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #1f2937;
+
+    i {
+      margin-right: 0.5rem;
+      color: $muted;
+      font-size: 0.75rem;
+    }
+  }
+
+  &__meta {
+    font-size: 0.72rem;
+    color: $muted;
+    white-space: nowrap;
+  }
+
+  &__body {
+    padding: 0 1.25rem 1.25rem;
+    border-top: 1px solid $border;
+  }
+
+  &__empty {
+    margin: 1rem 0 0;
+    font-size: 0.8125rem;
+    color: $muted;
+  }
+
+  &__warnings {
+    margin: 1rem 0 0;
+    padding-left: 1.1rem;
+    font-size: 0.78rem;
+    color: #a37200;
+  }
+
+  // Wide JSON must scroll inside its own box rather than widen the sidebar.
+  &__code {
+    margin: 1rem 0 0.75rem;
+    padding: 0.85rem;
+    max-height: 340px;
+    overflow: auto;
+    background: #f9fafb;
+    border: 1px solid $border;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+  }
+}

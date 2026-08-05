@@ -1,0 +1,166 @@
+<section class="wizard-section">
+  <h5 class="wizard-section__title">1. Test the automation</h5>
+  <p class="wizard-section__hint">
+    Preview what the automation would transfer, using a real object of the selected type.
+  </p>
+
+  @if (validationErrors.length > 0) {
+    <div class="alert alert-danger">
+      <strong>These points need attention before the automation can be saved:</strong>
+      <ul class="mb-0 mt-2">
+        @for (error of validationErrors; track error) {
+          <li>{{ error }}</li>
+        }
+      </ul>
+    </div>
+  } @else {
+    <div class="review-summary">
+      <i class="fas fa-circle-info review-summary__icon"></i>
+      <span>{{ readableDescription }}</span>
+    </div>
+
+    @if (compileWarnings.length > 0) {
+      <div class="alert alert-warning">
+        <strong>Worth knowing:</strong>
+        <ul class="mb-0 mt-2">
+          @for (warning of compileWarnings; track warning) {
+            <li>{{ warning }}</li>
+          }
+        </ul>
+      </div>
+    }
+
+    <div class="review-actions">
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm"
+        [disabled]="sampleLoading || definition.direction !== 'outgoing'"
+        (click)="loadSample.emit()">
+        <i class="fas fa-flask me-2"></i>
+        {{ sampleLoading ? 'Loading...' : hasSample ? 'Load another object' : 'Load a sample object' }}
+      </button>
+
+      @if (definition.direction !== 'outgoing') {
+        <span class="text-muted small">
+          Sample values are available for outgoing automations, where DataGerry is the source.
+        </span>
+      } @else if (sampleObjectId) {
+        <span class="text-muted small">Sample taken from object #{{ sampleObjectId }}.</span>
+      }
+    </div>
+
+    <table class="table review-table">
+      <thead>
+        <tr>
+          <th scope="col">Source field</th>
+          <th scope="col">Target field</th>
+          <th scope="col">Sample value</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of preview; track row.target) {
+          <tr>
+            <td>{{ row.source }}</td>
+            <td><code>{{ row.target }}</code></td>
+            <td>
+              @if (row.value) {
+                {{ row.value }}
+              } @else {
+                <span class="text-muted">-</span>
+              }
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="3" class="text-muted">No field is mapped yet.</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</section>
+
+<section class="wizard-section">
+  <h5 class="wizard-section__title">2. Activate</h5>
+  <p class="wizard-section__hint">An inactive automation is saved but never runs until you enable it.</p>
+
+  <label class="review-toggle">
+    <input
+      type="checkbox"
+      [checked]="definition.active"
+      [disabled]="!canActivate"
+      (change)="onActiveChanged(!definition.active)">
+    <span>Activate this automation after saving</span>
+  </label>
+
+  <button type="button" class="btn btn-link btn-sm review-advanced-toggle" (click)="showAdvanced = !showAdvanced">
+    <i class="fas" [class.fa-chevron-right]="!showAdvanced" [class.fa-chevron-down]="showAdvanced"></i>
+    Advanced settings
+  </button>
+
+  @if (showAdvanced) {
+    <div class="review-advanced">
+      <div class="review-advanced__field">
+        <app-form-input
+          label="Retries on failure"
+          type="number"
+          [ngModel]="definition.advanced.retryCount"
+          (ngModelChange)="onAdvancedChanged('retryCount', +$event)">
+        </app-form-input>
+      </div>
+
+      <div class="review-advanced__field">
+        <app-form-input
+          label="Retry delay (seconds)"
+          type="number"
+          [ngModel]="definition.advanced.retryDelaySeconds"
+          (ngModelChange)="onAdvancedChanged('retryDelaySeconds', +$event)">
+        </app-form-input>
+      </div>
+
+      <div class="review-advanced__field">
+        <app-form-input
+          label="Timeout (ms)"
+          type="number"
+          [ngModel]="definition.advanced.timeoutSeconds"
+          (ngModelChange)="onAdvancedChanged('timeoutSeconds', +$event)">
+        </app-form-input>
+      </div>
+
+      <div class="review-advanced__field">
+        <app-form-input
+          label="Batch size"
+          type="number"
+          [ngModel]="definition.advanced.batchSize"
+          (ngModelChange)="onAdvancedChanged('batchSize', +$event)">
+        </app-form-input>
+      </div>
+
+      <div class="review-advanced__field">
+        <app-form-select
+          label="On error"
+          [items]="errorHandlingChoices"
+          bindLabel="label"
+          bindValue="value"
+          [ngModel]="definition.advanced.errorHandling"
+          (ngModelChange)="onAdvancedChanged('errorHandling', $event)">
+        </app-form-select>
+      </div>
+
+      <div class="review-advanced__field review-advanced__field--toggle">
+        <label class="review-toggle">
+          <input
+            type="checkbox"
+            [checked]="definition.advanced.loggingEnabled"
+            (change)="onAdvancedChanged('loggingEnabled', !definition.advanced.loggingEnabled)">
+          <span>Write detailed logs</span>
+        </label>
+      </div>
+    </div>
+
+    <p class="wizard-section__hint mt-2 mb-0">
+      Retries, retry delay and error handling are stored with the automation. OpenCelium applies the
+      timeout and batch size; the remaining settings take effect once its scheduler exposes them.
+    </p>
+  }
+</section>

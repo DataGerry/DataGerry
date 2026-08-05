@@ -1,0 +1,71 @@
+@import '../wizard-step-shared';
+
+.review-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid $border;
+  border-left: 3px solid $accent;
+  border-radius: 8px;
+  background: #fffaf8;
+  font-size: 0.9rem;
+  color: #1f2937;
+
+  &__icon {
+    margin-top: 0.15rem;
+    color: $accent;
+  }
+}
+
+.review-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.review-table {
+  font-size: 0.85rem;
+  vertical-align: middle;
+
+  code {
+    font-size: 0.8rem;
+  }
+}
+
+.review-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.review-advanced-toggle {
+  display: block;
+  padding-left: 0;
+  margin-top: 1rem;
+
+  i {
+    margin-right: 0.4rem;
+  }
+}
+
+.review-advanced {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem 1rem;
+  padding: 1rem;
+  border: 1px solid $border;
+  border-radius: 8px;
+
+  &__field--toggle {
+    display: flex;
+    align-items: flex-end;
+    padding-bottom: 0.35rem;
+  }
+}
