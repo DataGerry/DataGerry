@@ -19,7 +19,8 @@
 export enum SpecialType {
     SUPERNET = 'SUPERNET',
     SUBNET = 'SUBNET',
-    VLAN = 'VLAN'
+    VLAN = 'VLAN',
+    RACK = 'RACK'
 }
 
 
