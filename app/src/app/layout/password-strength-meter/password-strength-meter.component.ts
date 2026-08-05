@@ -1,11 +1,12 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { Component, inject, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { PasswordStrengthMeterService } from './password-strength-meter.service';
 
 @Component({
-  selector: 'password-strength-meter',
-  templateUrl: './password-strength-meter.component.html',
-  styleUrls: ['./password-strength-meter.component.scss'],
-  providers: [PasswordStrengthMeterService]
+    selector: 'password-strength-meter',
+    templateUrl: './password-strength-meter.component.html',
+    styleUrls: ['./password-strength-meter.component.scss'],
+    providers: [PasswordStrengthMeterService],
+    standalone: false
 })
 export class PasswordStrengthMeterComponent implements OnChanges {
 
@@ -33,10 +34,7 @@ export class PasswordStrengthMeterComponent implements OnChanges {
     'green'
   ];
 
-  constructor(
-    private passwordStrengthMeterService: PasswordStrengthMeterService
-  ) {
-  }
+  private readonly passwordStrengthMeterService = inject(PasswordStrengthMeterService);
 
   public ngOnChanges(changes: SimpleChanges) {
     if (changes.password) {

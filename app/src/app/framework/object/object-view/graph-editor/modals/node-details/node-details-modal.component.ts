@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,6 +17,7 @@
 */
 import {
     Component,
+    inject,
     ChangeDetectionStrategy,
     ChangeDetectorRef,
     AfterViewInit,
@@ -35,6 +36,7 @@ function normalise(v: unknown): unknown {
     templateUrl: './node-details-modal.component.html',
     styleUrls: ['./node-details-modal.component.scss'],
     changeDetection: ChangeDetectionStrategy.Default,
+    standalone: false
 })
 export class NodeDetailsModalComponent implements AfterViewInit {
     @Input() nodeTypeConfigs:
@@ -49,10 +51,8 @@ export class NodeDetailsModalComponent implements AfterViewInit {
     private viewInit = false;
     private _node: GraphNode | null = null;
 
-    constructor(
-        public activeModal: NgbActiveModal,
-        private cdr: ChangeDetectorRef
-    ) { }
+    public readonly activeModal = inject(NgbActiveModal);
+    private readonly cdr = inject(ChangeDetectorRef);
 
     ngAfterViewInit(): void {
         this.viewInit = true;

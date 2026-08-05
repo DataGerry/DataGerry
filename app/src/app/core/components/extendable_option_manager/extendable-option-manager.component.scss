@@ -1,3 +1,4 @@
+@use "sass:color";
 
 $dg-primary-color: #e94d18;
 $dg-border-color: rgba(#dee2e6, 0.5);
@@ -22,6 +23,7 @@ $dg-error-message-color: #dc3545;
   background: white;
   width: 100%;
   max-width: 700px;
+  max-height: calc(100vh - 4rem);
   border-radius: 8px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
   overflow: hidden;
@@ -33,7 +35,11 @@ $dg-error-message-color: #dc3545;
 
 // MODAL HEADER
 .modal-header {
-  background: linear-gradient(195deg, darken($dg-primary-color, 5%), $dg-primary-color);
+  background: linear-gradient(
+    195deg,
+    color.scale($dg-primary-color, $lightness: -5%),
+    $dg-primary-color
+  );
   color: white;
   padding: 1.5rem 2rem;
   border-bottom: none;
@@ -65,7 +71,11 @@ $dg-error-message-color: #dc3545;
 .modal-body {
   padding: 2rem;
   background: white;
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 
   .add-option-inline {
     input.form-control {
@@ -85,6 +95,12 @@ $dg-error-message-color: #dc3545;
     max-height: 300px;
     overflow-y: auto;
     margin-top: 1rem;
+  }
+
+  .table-responsive {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
   }
 
   .invalid-feedback {
@@ -124,5 +140,6 @@ $dg-error-message-color: #dc3545;
 
   .option-manager-modal {
     max-width: 95%;
+    max-height: calc(100vh - 2rem);
   }
 }

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,10 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of Update20250619
+Database update 20250619: backfill CI-Explorer fields on objects and types
 """
 import random
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
@@ -27,36 +28,34 @@ from cmdb.models.type_model import CmdbType
 from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                Update20250619 - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class Update20250619(BaseDatabaseUpdate):
     """
-    Implementation of Update20250619
+    Backfills CI-Explorer fields: 'ci_explorer_tooltip' on objects, plus 'ci_explorer_color' and
+    'ci_explorer_label' on types
     """
-
 
     def creation_date(self) -> int:
         return 20250619
 
 
     def description(self) -> str:
-        return """
-               Add the property 'ci_explorer_tooltip' to all CmdbObjects which don't have it
-
-               dd the property 'ci_explorer_color' to all CmdbTypes which don't have it
-
-               Add the property 'ci_explorer_label' to all CmdbTypes which don't have it
-               """
+        return ("Adds 'ci_explorer_tooltip' to all CmdbObjects and 'ci_explorer_color' / "
+                "'ci_explorer_label' to all CmdbTypes which don't have them")
 
 
     def start_update(self) -> None:
+        """
+        Adds the missing CI-Explorer fields to every object and type that does not already have them
+        """
         try:
             #Update all CmdbObjects
             object_collection = CmdbObject.COLLECTION
-            all_objects: list[dict] = []
+            all_objects: list[dict[str, Any]] = []
 
             all_objects = self.dbm.find_all(object_collection, self.db_name)
 
@@ -74,12 +73,12 @@ class Update20250619(BaseDatabaseUpdate):
 
             # Update all CmdbTypes
             type_collection = CmdbType.COLLECTION
-            all_types: list[dict] = []
+            all_types: list[dict[str, Any]] = []
 
             all_types = self.dbm.find_all(type_collection, self.db_name)
 
             for cur_type in all_types:
-                update_fields = {}
+                update_fields: dict[str, Any] = {}
                 cur_public_id = cur_type.get('public_id')
 
                 if not cur_public_id:
@@ -104,12 +103,15 @@ class Update20250619(BaseDatabaseUpdate):
 
             self.increase_updater_version(self.creation_date())
         except Exception as err:
-            raise UpdaterException(err) from err
+            raise UpdaterException(str(err)) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
 def get_random_color() -> str:
     """
-    Generate a random hex color in the form #RRGGBB
+    Generates a random hex color in the form #RRGGBB
+
+    Returns:
+        str: A random color string such as '#1A2B3C'
     """
     return f'#{random.randint(0, 0xFFFFFF):06X}'

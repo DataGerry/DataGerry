@@ -1,6 +1,6 @@
 <form [formGroup]="typeParamForm" id="typeParamForm" class="needs-validation" novalidate autocomplete="off">
-    <div class="form-group">
-        <label for="docObjectTypeInput">Object Type: <span class="required">*</span></label>
+    <div class="mb-3">
+        <label class="mb-2" for="docObjectTypeInput">Object Type: <span class="required">*</span></label>
         <ng-select
             id="docObjectTypeInput"
             [items]="objectTypeList"

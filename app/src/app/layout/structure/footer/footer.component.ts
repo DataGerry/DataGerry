@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,46 +15,55 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit } from '@angular/core';
-
+import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 import { ReplaySubject, takeUntil } from 'rxjs';
 
 import { ConnectionService } from '../../../modules/connect/services/connection.service';
 import { SessionTimeoutService } from '../../../modules/auth/services/session-timeout.service';
+import { SystemService } from 'src/app/settings/system/system.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-footer',
     templateUrl: './footer.component.html',
-    styleUrls: ['./footer.component.scss']
+    styleUrls: ['./footer.component.scss'],
+    standalone: false
 })
 export class FooterComponent implements OnInit, OnDestroy {
 
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
+    private readonly systemService = inject(SystemService);
 
     public today: number = Date.now();
     public docUrl: string = 'localhost';
     public timeout: string = '';
+    public versionNumber: string = '';
 
-/* ------------------------------------------------------------------------------------------------------------------ */
-/*                                                     LIFE CYCLE                                                     */
-/* ------------------------------------------------------------------------------------------------------------------ */
+    /* ------------------------------------------------------------------------------------------------------------------ */
+    /*                                                     LIFE CYCLE                                                     */
+    /* ------------------------------------------------------------------------------------------------------------------ */
 
     public constructor(private connectionService: ConnectionService, private timeoutService: SessionTimeoutService) {
-        this.docUrl = `${ connectionService.getApiBaseUrl() }/docs`;
+        this.docUrl = `${connectionService.getApiBaseUrl()}/docs`;
     }
 
 
     public ngOnInit(): void {
         this.timeoutService.sessionTimeoutRemaining.asObservable().pipe(takeUntil(this.subscriber))
-        .subscribe((timeout: string) => {
-            this.timeout = timeout;
+            .subscribe((timeout: string) => {
+                this.timeout = timeout;
+            });
+
+        this.systemService.getDatagerryInformation().subscribe({
+            next: (infos: any) => {
+                this.versionNumber = infos.version
+            }
         });
     }
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 }

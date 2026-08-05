@@ -1,26 +1,28 @@
 <h1>Categories Overview</h1>
-<div class="float-right">
+<div class="text-end">
   <ng-container *permissionLink="['base.framework.category.add']">
     <button [routerLink]="['/framework/category/add']" type="button" class="btn btn-sm btn-success">
       <i class="fas fa-plus"></i> Add
     </button>
   </ng-container>
   <ng-container *permissionLink="['base.framework.category.edit']">
-    <button *ngIf="mode != 2; else listButton" [routerLink]="['/framework/category/edit']" type="button"
-            class="btn btn-sm btn-secondary ml-2 text-white">
+    @if (mode != 2) {
+    <button [routerLink]="['/framework/category/edit']" type="button" class="btn btn-sm btn-secondary ms-2 text-white">
       <i class="fas fa-edit"></i> Edit
     </button>
-  </ng-container>
-  <ng-template #listButton>
-    <button [routerLink]="['/framework/category/']" type="button" class="btn btn-sm btn-secondary ml-2 text-white">
+    } @else {
+    
+    <button [routerLink]="['/framework/category/']" type="button" class="btn btn-sm btn-secondary ms-2 text-white">
       <i class="fas fa-list"></i> List
     </button>
-  </ng-template>
+    
+    }
+    </ng-container>
 </div>
 <div class="clearfix"></div>
 <hr/>
 <div class="row">
-  <div id="category-tree" class="col-sm-12 col-md-4 border-right">
+  <div id="category-tree" class="col-sm-12 col-md-4 border-end">
     <div class="card">
       <div class="card-header">
         Category-Tree
@@ -30,11 +32,13 @@
           <cmdb-category-tree [mode]="mode" [tree]="categoryTree" (change)="onTreeChange()"></cmdb-category-tree>
         </div>
       </div>
-      <div *ngIf="mode == 2;" class="card-footer">
-        <div  class="btn-group float-right" role="group">
+      @if (mode == 2;) {
+      <div class="card-footer">
+        <div class="btn-group text-end" role="group">
           <button type="submit" class="btn btn-success" (click)="onSave()">Save</button>
         </div>
       </div>
+      }
     </div>
   </div>
   <div id="category-list" class="col-sm-12 col-md-8">

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,11 @@
 """
 Implementation of RegexConverter
 """
-import logging
+from logging import Logger, getLogger
 from werkzeug.routing import BaseConverter
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                RegexConverter - CLASS                                                #
@@ -29,5 +29,5 @@ class RegexConverter(BaseConverter):
     """
     RegexConverter extends BaseConverter to allow regex-based URL matching
     """
-    def __init__(self, url_map):
+    def __init__(self, url_map) -> None:
         super().__init__(url_map)

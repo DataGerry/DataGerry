@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -54,7 +54,8 @@ import { FieldIdentifierValidationService } from '../../type/services/field-iden
     selector: 'cmdb-builder',
     templateUrl: './builder.component.html',
     styleUrls: ['./builder.component.scss'],
-    changeDetection: ChangeDetectionStrategy.OnPush
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: false
 })
 export class BuilderComponent implements OnDestroy, AfterViewChecked {
 
@@ -136,11 +137,11 @@ export class BuilderComponent implements OnDestroy, AfterViewChecked {
 
 
     ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
-        this.sectionIdentifierService.resetIdentifiers();
-        this.validationService.cleanup();
-        this.fieldIdentifierValidation.clearFieldNames();
+        this.subscriber?.next();
+        this.subscriber?.complete();
+        this.sectionIdentifierService?.resetIdentifiers();
+        this.validationService?.cleanup();
+        this.fieldIdentifierValidation?.clearFieldNames();
     }
 
 
@@ -169,12 +170,10 @@ export class BuilderComponent implements OnDestroy, AfterViewChecked {
 
 
         if (!this.sections || !Array.isArray(this.sections)) {
-            console.error("Sections array is undefined or not an array, initializing...");
             this.sections = [];
         }
 
         if (!sectionData || typeof sectionData !== 'object') {
-            console.error("Dropped section data is invalid", event.data);
             return;
         }
 

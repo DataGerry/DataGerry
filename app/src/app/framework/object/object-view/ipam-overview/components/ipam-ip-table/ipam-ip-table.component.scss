@@ -1,0 +1,169 @@
+:host {
+    display: block;
+    width: 100%;
+}
+
+.ipam-ip-table {
+    display: block;
+    width: 100%;
+}
+
+/* Keep a wide table contained within the card by scrolling it horizontally
+   instead of letting it overflow the layout. */
+.ipam-ip-table ::ng-deep .table-container {
+    overflow-x: auto;
+}
+
+/* In fullscreen the row-actions dropdown renders inline (it cannot escape to the
+   body, which sits behind the fullscreen layer). Drop the scroll clipping so the
+   menu is never cut off; the extra viewport width makes horizontal scroll moot. */
+:host-context(:fullscreen) .ipam-ip-table ::ng-deep .table-container {
+    overflow: visible;
+}
+
+.ipam-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #1f2937;
+}
+
+.ipam-status__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background-color: #9ca3af;
+}
+
+.ipam-status--used .ipam-status__dot {
+    background-color: #198754;
+}
+
+.ipam-status--free .ipam-status__dot {
+    background-color: #adb5bd;
+}
+
+.ipam-status--free {
+    color: #6b7280;
+}
+
+.ipam-badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.4;
+    background-color: #eef2ff;
+    color: #3730a3;
+    border: 1px solid #e0e7ff;
+}
+
+.ipam-muted {
+    color: #9ca3af;
+}
+
+.ipam-assigned-link {
+    color: #000000;
+    text-decoration: none;
+    cursor: pointer;
+    text-decoration: underline;
+
+    &:hover {
+        text-decoration: underline;
+    }
+
+    &:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+        border-radius: 0.125rem;
+    }
+}
+
+.ipam-bulk-unassign {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+
+    i {
+        font-size: 0.875rem;
+    }
+}
+
+.ipam-row-actions {
+    display: inline-flex;
+    justify-content: center;
+}
+
+.ipam-row-actions__trigger {
+    border: none;
+    background: transparent;
+    padding: 0.25rem 0.5rem;
+    color: #6b7280;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    line-height: 1;
+    transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+
+    &:hover {
+        background-color: #f3f4f6;
+        color: #1f2937;
+    }
+
+    &:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+    }
+
+    &.show {
+        background-color: #f3f4f6;
+        color: #1f2937;
+    }
+}
+
+::ng-deep .ipam-row-actions__menu.dropdown-menu {
+    min-width: 10rem;
+    padding: 0.25rem 0;
+    border-radius: 0.375rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    border: 1px solid #e5e7eb;
+
+    .ipam-row-actions__item {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.5rem 0.875rem;
+        font-size: 0.875rem;
+        line-height: 1.25;
+        background-color: transparent;
+        border: none;
+        text-align: left;
+        cursor: pointer;
+        transition: background-color 0.12s ease-in-out, color 0.12s ease-in-out;
+    }
+
+    .ipam-row-actions__item-icon {
+        width: 1rem;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    .ipam-row-actions__item--danger {
+        color: #b91c1c;
+
+        &:hover,
+        &:focus {
+            background-color: #fee2e2;
+            color: #991b1b;
+            outline: none;
+        }
+
+        &:active {
+            background-color: #fecaca;
+            color: #7f1d1d;
+        }
+    }
+}

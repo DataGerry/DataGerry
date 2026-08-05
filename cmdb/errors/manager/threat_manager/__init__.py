@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,7 @@
 """
 This module provides all errors for the ThreatManager
 """
+from typing import Any
 from .threat_manager_errors import (
     ThreatManagerError,
     ThreatManagerInitError,
@@ -28,7 +29,7 @@ from .threat_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ThreatManagerError',
     'ThreatManagerInitError',
     'ThreatManagerInsertError',
@@ -40,7 +41,7 @@ __all__ = [
 ]
 
 
-THREAT_MANAGER_ERRORS = {
+THREAT_MANAGER_ERRORS: dict[str, Any] = {
     "init": ThreatManagerInitError,
     "insert": ThreatManagerInsertError,
     "get": ThreatManagerGetError,

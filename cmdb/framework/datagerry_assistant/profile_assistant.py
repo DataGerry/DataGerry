@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,9 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the "ProfileAssistant" class
+Orchestrator for the DataGerry assistant
+
+ProfileAssistant turns the list of selected profile names into CmdbTypes and CmdbCategories: it runs
+each requested profile in a fixed, dependency-aware order against a shared 'created_type_ids' slot
+map, then derives the categories from whichever slots were filled.
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 
 from cmdb.manager import CategoriesManager
@@ -32,198 +37,162 @@ from .profile_ipam import IPAMProfile
 from .profile_client_management import ClientManagementProfile
 from .profile_server_management import ServerManagementProfile
 from .profile_network_infrastructure import NetworkInfrastructureProfile
+from .profile_base import ProfileBase
+from .predefined_template_provider import PredefinedTemplateProvider
+from .profile_type_constructor import ProfileTypeConstructor
+from .datagerry_assistant_constants import (
+    TypeSlotKey,
+    CategoryBodyKey,
+    CategoryMetaKey,
+    CategoryDefinitionKey,
+    CATEGORY_DEFINITIONS,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
+# Profiles are built in this fixed order regardless of selection order: later profiles reference
+# types created by earlier ones (e.g. conditional reference sections / dependent types)
+PROFILE_BUILDERS: list[tuple[ProfileName, type[ProfileBase]]] = [
+    (ProfileName.USER_MANAGEMENT, UserManagementProfile),
+    (ProfileName.LOCATION, LocationProfile),
+    (ProfileName.IPAM, IPAMProfile),
+    (ProfileName.CLIENT_MANAGEMENT, ClientManagementProfile),
+    (ProfileName.SERVER_MANAGEMENT, ServerManagementProfile),
+    (ProfileName.NETWORK_INFRASTRUCTURE, NetworkInfrastructureProfile),
+]
 
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               ProfileAssistant - CLASS                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
 class ProfileAssistant:
     """
-    This class creates all types and categories selected in the DATAGERRY assistant
+    Creates all CmdbTypes and CmdbCategories selected in the DataGerry assistant
     """
     def __init__(
-            self,
-            categories_manager: CategoriesManager,
-            types_manager: TypesManager,
-            section_templates_manager: SectionTemplatesManager):
-        self.categories_manager = categories_manager
-        self.types_manager = types_manager
-        self.section_templates_manager = section_templates_manager
-
-    def create_profiles(self, profile_list):
+        self,
+        categories_manager: CategoriesManager,
+        types_manager: TypesManager,
+        section_templates_manager: SectionTemplatesManager
+    ) -> None:
         """
-        Creates types from profiles in the profile_list
+        Args:
+            categories_manager (CategoriesManager): db interface for CmdbCategories
+            types_manager (TypesManager): db interface for CmdbTypes
+            section_templates_manager (SectionTemplatesManager): db interface for section templates
+        """
+        self.categories_manager: CategoriesManager = categories_manager
+        self.types_manager: TypesManager = types_manager
+        self.section_templates_manager: SectionTemplatesManager = section_templates_manager
+
+    def create_profiles(self, profile_list: list[str]) -> list[int]:
+        """
+        Creates the CmdbTypes (and their categories) for every requested profile
+
+        Profiles run in a fixed order regardless of the order in 'profile_list', because later
+        profiles reference types created by earlier ones (e.g. conditional reference sections). All
+        creation is wrapped so any failure is re-raised as ProfileCreationError.
 
         Args:
-            profile_list: List of profiles which should be created
+            profile_list (list[str]): ProfileName values selected in the assistant
+
+        Returns:
+            list[int]: public_ids of every CmdbType created during the run
+
+        Raises:
+            ProfileCreationError: If any type or category creation fails
         """
-        # This is passed along the creation process
-        created_type_ids: dict = {
-            'company_id': None,
-            'user_id': None,
-            'customer_user_id': None,
-            'country_id': None,
-            'city_id': None,
-            'building_id': None,
-            'room_id': None,
-            'rack_id': None,
-            'network_id': None,
-            'vlan_id': None,
-            'operating_system_id': None,
-            'client_id': None,
-            'monitor_id': None,
-            'printer_id': None,
-            'server_id': None,
-            'appliance_id': None,
-            'virtual_server_id': None,
-            'switch_id': None,
-            'router_id': None,
-            'patch_panel_id': None,
-            'wireless_access_point_id': None,
-        }
+        # Passed along the whole creation process; every slot starts as None and is filled with the
+        # created type's public_id as profiles run (see TypeSlotKey)
+        created_type_ids: dict[str, int | None] = {slot: None for slot in TypeSlotKey}
 
         try:
-            # create all types from user management profile
-            if ProfileName.USER_MANAGEMENT in profile_list:
-                cur_profile = UserManagementProfile(created_type_ids,
-                                                    self.types_manager,
-                                                    self.section_templates_manager)
-                created_type_ids = cur_profile.create_user_management_profile()
+            # The predefined templates and the type builder are created once and reused by every
+            # profile, so the predefined section templates are loaded from the DB only once per run
+            template_provider: PredefinedTemplateProvider = PredefinedTemplateProvider(self.section_templates_manager)
+            type_constructor: ProfileTypeConstructor = ProfileTypeConstructor(template_provider)
 
-            # create all types from location profile
-            if ProfileName.LOCATION in profile_list:
-                cur_profile = LocationProfile(created_type_ids,
-                                              self.types_manager,
-                                              self.section_templates_manager)
-                created_type_ids = cur_profile.create_location_profile()
-
-            # create all types from ipam profile
-            if ProfileName.IPAM in profile_list:
-                cur_profile = IPAMProfile(created_type_ids,
-                                          self.types_manager,
-                                          self.section_templates_manager)
-                created_type_ids = cur_profile.create_ipam_profile()
-
-            # create all types from client management profile
-            if ProfileName.CLIENT_MANAGEMENT in profile_list:
-                cur_profile = ClientManagementProfile(created_type_ids,
-                                                      self.types_manager,
-                                                      self.section_templates_manager)
-                created_type_ids = cur_profile.create_client_management_profile()
-
-            # create all types from server management profile
-            if ProfileName.SERVER_MANAGEMENT in profile_list:
-                cur_profile = ServerManagementProfile(created_type_ids,
-                                                      self.types_manager,
-                                                      self.section_templates_manager)
-                created_type_ids = cur_profile.create_server_management_profile()
-
-            # create all types from network infrastructure profile
-            if ProfileName.NETWORK_INFRASTRUCTURE in profile_list:
-                cur_profile = NetworkInfrastructureProfile(created_type_ids,
-                                                           self.types_manager,
-                                                           self.section_templates_manager)
-                created_type_ids = cur_profile.create_network_infrastructure_profile()
-
+            profile_name: ProfileName
+            profile_cls: type[ProfileBase]
+            for profile_name, profile_cls in PROFILE_BUILDERS:
+                if profile_name in profile_list:
+                    profile: ProfileBase = profile_cls(
+                        created_type_ids,
+                        self.types_manager,
+                        self.section_templates_manager,
+                        type_constructor,
+                    )
+                    created_type_ids = profile.create_profile()
 
             self.create_all_categories(created_type_ids)
 
         except Exception as err:
-            LOGGER.debug("[create_profiles] Error: %s",err)
-            raise ProfileCreationError(err) from err
+            LOGGER.debug("[create_profiles] Error: %s", err)
+            raise ProfileCreationError(str(err)) from err
 
-        created_ids = []
-
-        for type_id in created_type_ids:
-            if type_id:
-                created_ids.append(type_id)
+        created_ids: list[int] = [type_id for type_id in created_type_ids.values() if type_id]
 
         return created_ids
 
 # ------------------------------------------------- CATEGORY CREATION ------------------------------------------------ #
 
-    def create_all_categories(self, all_type_ids: dict):
+    def create_all_categories(self, all_type_ids: dict[str, int | None]) -> None:
         """
-        Creates all categories for the assistant
+        Builds and inserts every CmdbCategory that has at least one created member type
 
         Args:
-            all_type_ids (dict): All created type_ids from the assistant
+            all_type_ids (dict[str, int | None]): The slot map of created type ids from the run
         """
-        all_categories: list[dict] = self.get_all_categories(all_type_ids)
+        all_categories: list[dict[str, Any]] = self.get_all_categories(all_type_ids)
 
-        for _, category in enumerate(all_categories):
+        category: dict[str, Any]
+        for category in all_categories:
             self.categories_manager.insert_category(category)
 
 
-    def get_all_categories(self, all_type_ids: dict) -> list[dict]:
-        """Gets all category models if at least one type_id is set"""
-        all_categories: list = []
+    def get_all_categories(self, all_type_ids: dict[str, int | None]) -> list[dict[str, Any]]:
+        """
+        Builds a CmdbCategory dict for every entry in CATEGORY_DEFINITIONS that has at least one
+        of its member types created
 
-        # Contact category
-        requested_ids: list = ["company_id","customer_user_id","user_id"]
-        found_type_ids: list = self.get_category_type_ids(all_type_ids, requested_ids)
+        Args:
+            all_type_ids (dict[str, int | None]): The slot map of created type ids from the run
 
-        if len(found_type_ids) > 0:
-            all_categories.append(self.get_category_body("contact",
-                                                         "Contact",
-                                                         "fas fa-male",
-                                                         found_type_ids))
+        Returns:
+            list[dict[str, Any]]: CmdbCategory dict representations to be inserted
+        """
+        all_categories: list[dict[str, Any]] = []
 
-        # Hardware category
-        requested_ids = ["client_id","monitor_id","printer_id","appliance_id","rack_id","server_id"]
-        found_type_ids = self.get_category_type_ids(all_type_ids, requested_ids)
+        definition: dict[str, Any]
+        for definition in CATEGORY_DEFINITIONS:
+            found_type_ids: list[int] = self.get_category_type_ids(
+                all_type_ids,
+                definition[CategoryDefinitionKey.TYPE_SLOTS],
+            )
 
-        if len(found_type_ids) > 0:
-            all_categories.append(self.get_category_body("hardware",
-                                                         "Hardware",
-                                                         "fas fa-hdd",
-                                                         found_type_ids))
-
-        # Location category
-        requested_ids = ["country_id","city_id","building_id","room_id"]
-        found_type_ids = self.get_category_type_ids(all_type_ids, requested_ids)
-
-        if len(found_type_ids) > 0:
-            all_categories.append(self.get_category_body("location",
-                                                         "Location",
-                                                         "fas fa-hotel",
-                                                         found_type_ids))
-
-        # Network category
-        requested_ids = ["network_id","patch_panel_id","router_id","switch_id","vlan_id","wireless_access_point_id"]
-        found_type_ids = self.get_category_type_ids(all_type_ids, requested_ids)
-
-        if len(found_type_ids) > 0:
-            all_categories.append(self.get_category_body("network",
-                                                         "Network",
-                                                         "fas fa-network-wired",
-                                                         found_type_ids))
-
-        # Software category
-        requested_ids = ["operating_system_id","virtual_server_id"]
-        found_type_ids = self.get_category_type_ids(all_type_ids, requested_ids)
-
-        if len(found_type_ids) > 0:
-            all_categories.append(self.get_category_body("software",
-                                                         "Software",
-                                                         "far fa-id-card",
-                                                         found_type_ids))
+            if len(found_type_ids) > 0:
+                all_categories.append(self.get_category_body(definition[CategoryDefinitionKey.NAME],
+                                                             definition[CategoryDefinitionKey.LABEL],
+                                                             definition[CategoryDefinitionKey.ICON],
+                                                             found_type_ids))
 
         return all_categories
 
 
-    def get_category_type_ids(self, all_type_ids: dict, requested_ids: list) -> list:
+    def get_category_type_ids(self,
+                              all_type_ids: dict[str, int | None],
+                              requested_ids: list[TypeSlotKey]) -> list[int]:
         """
-        Extracts all required type_ids for a category
+        Extracts the created public_ids for a category's requested type slots
 
         Args:
-            all_type_ids (dict): All created type ids 
-            requested_ids (list): Required type ids
+            all_type_ids (dict[str, int | None]): The slot map of created type ids from the run
+            requested_ids (list[TypeSlotKey]): Type slots whose created ids belong to the category
 
         Returns:
-            list: All required type_ids as a list
+            list[int]: public_ids of the requested slots that were created (uncreated slots skipped)
         """
-        found_type_ids: list = []
+        found_type_ids: list[int] = []
 
         for type_id in requested_ids:
             if all_type_ids[type_id] is not None:
@@ -232,26 +201,27 @@ class ProfileAssistant:
         return found_type_ids
 
 
-    def get_category_body(self, cat_name: str, cat_label: str, cat_icon: str, cat_types: list) -> dict:
+    def get_category_body(self, cat_name: str, cat_label: str, cat_icon: str, cat_types: list[int]) -> dict[str, Any]:
         """
-        Generates a category model which can be used to create a category
+        Generates a CmdbCategory dict representation which can be used to create a CmdbCategory
 
         Args:
-            cat_name (str): Name for category
-            cat_label (str): Label for category
-            cat_icon (str): Icon for category
+            cat_name (str): Name for CmdbCategory
+            cat_label (str): Label for CmdbCategory
+            cat_icon (str): Icon for CmdbCategory
+            cat_types (list[int]): public_ids of CmdbTypes assigned to this CmdbCategory
 
         Returns:
-            dict: Category model with given params
+            dict[str, Any]: CmdbCategory dict representation
         """
         return {
-            "name": cat_name,
-            "label": cat_label,
-            "meta": {
-                "icon": cat_icon,
-                "order": None
+            CategoryBodyKey.NAME: cat_name,
+            CategoryBodyKey.LABEL: cat_label,
+            CategoryBodyKey.META: {
+                CategoryMetaKey.ICON: cat_icon,
+                CategoryMetaKey.ORDER: None
             },
-            "parent": None,
-            "types": cat_types,
-            "creation_time": datetime.now(timezone.utc)
+            CategoryBodyKey.PARENT: None,
+            CategoryBodyKey.TYPES: cat_types,
+            CategoryBodyKey.CREATION_TIME: datetime.now(timezone.utc)
         }

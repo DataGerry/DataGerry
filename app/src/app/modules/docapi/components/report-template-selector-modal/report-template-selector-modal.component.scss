@@ -1,0 +1,204 @@
+@use "sass:color";
+
+$dg-primary-color: #e94d18;
+$dg-selected-background-color: #cccccc;
+$dg-hover-background-color: #bfbfbf;
+$dg-error-message-color: #dc3545;
+
+:host {
+  display: block;
+}
+
+.modal-header {
+  background: linear-gradient(195deg,
+        color.scale($dg-primary-color, $lightness: -5%),
+        $dg-primary-color);
+  color: white;
+  padding: 1.5rem 2rem;
+  border-bottom: none;
+
+  .modal-title {
+    font-weight: 600;
+    letter-spacing: -0.25px;
+    font-size: 1.25rem;
+    color: white;
+  }
+}
+
+.modal-body {
+  padding: 0;
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  height: calc(90vh - 200px);
+  overflow: hidden;
+  background: white;
+
+  .report-modal-grid {
+    display: contents;
+  }
+
+  /* Left Sidebar - Report Selection */
+  .report-sidebar {
+    padding: 2rem;
+    background: rgba(#f8f9fa, 0.8);
+    border-right: 1px solid rgba(#dee2e6, 0.3);
+    overflow: visible;
+
+    .form-label {
+      font-weight: 500;
+      color: #4a4a4a;
+      font-size: 0.9rem;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+  }
+
+  /* Right Content Area - Table and Preview */
+  .report-content {
+    padding: 2rem;
+    overflow: hidden;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 2rem;
+      background: rgba(white, 0.9);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 300px;
+      color: #6c757d;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      max-width: 450px;
+      margin: auto;
+    }
+
+    // Scrollable wrapper for the table
+    .table-scroll-wrapper {
+      overflow-y: scroll !important; // Force scrollbar to always show
+      overflow-x: auto;
+      max-height: 400px; // Fixed height to ensure scrollbar appears
+      min-height: 300px;
+      flex: 1;
+      
+      // Force scrollbar to always be visible
+      scrollbar-width: thin; // For Firefox
+      scrollbar-color: rgba($dg-primary-color, 0.4) rgba(#f8f9fa, 0.5); // For Firefox
+
+      ::ng-deep cmdb-table {
+        .table-responsive {
+          border: none;
+          border-radius: 0;
+          overflow: visible;
+
+          table {
+            margin-bottom: 0;
+            width: 100%;
+
+            thead {
+              position: sticky;
+              top: 0;
+              z-index: 10;
+              
+              th {
+                background: rgba(#f8f9fa, 0.98);
+                backdrop-filter: blur(10px);
+                border-bottom: 2px solid rgba(#dee2e6, 0.5);
+                font-weight: 600;
+                color: #2f2f2f;
+                font-size: 0.85rem;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                padding: 1rem 0.75rem;
+                white-space: nowrap;
+              }
+            }
+
+            tbody {
+              td {
+                padding: 0.85rem 0.75rem;
+                border-bottom: 1px solid rgba(#dee2e6, 0.3);
+                font-size: 0.9rem;
+                color: #4a4a4a;
+              }
+
+              tr:last-child td {
+                border-bottom: none;
+              }
+
+              tr:hover {
+                background: rgba($dg-primary-color, 0.02);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    .template-preview {
+      background: linear-gradient(135deg, rgba($dg-primary-color, 0.03), rgba($dg-primary-color, 0.06));
+      border: 1px solid rgba($dg-primary-color, 0.2);
+      border-radius: 12px;
+      padding: 1.75rem;
+      flex-shrink: 0;
+
+      .template-label {
+        font-weight: 600;
+        color: #2f2f2f;
+        font-size: 0.95rem;
+        margin-bottom: 0.75rem;
+        display: block;
+      }
+
+      code {
+        background: #f8f9fa;
+        border: 1px solid rgba(#dee2e6, 0.5);
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+        display: block;
+        color: $dg-primary-color;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 1rem;
+        font-weight: 500;
+        word-break: break-all;
+        white-space: pre-wrap;
+      }
+    }
+  }
+}
+
+
+
+/* Custom Scrollbars - Only for table wrapper - WEBKIT (Chrome, Safari, Edge) */
+.table-scroll-wrapper {
+  &::-webkit-scrollbar {
+    width: 12px !important;
+    height: 12px !important;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 0 12px 12px 0;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: $dg-primary-color;
+    border-radius: 6px;
+    border: 2px solid #f1f1f1;
+
+    &:hover {
+      background: color.scale($dg-primary-color, $lightness: -10%);
+    }
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: #f1f1f1;
+  }
+}

@@ -7,7 +7,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Changelogs &mdash; DataGerry latest documentation</title>
-      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fa44fd50" />
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=03e43079" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
       <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=f76a5f1d" />
 
@@ -16,13 +16,13 @@
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="../_static/documentation_options.js?v=c6e86fd7"></script>
-      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="API Docs" href="../rest_api/overview.html" />
-    <link rel="prev" title="Website" href="../media/media.html" /> 
+    <link rel="prev" title="Download Packages" href="packages.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -66,6 +66,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../usage/reports.html">Reports</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/document_generator.html">Document generator</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/isms.html">ISMS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage/automations.html">Automations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/webhooks.html">Webhooks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/imports.html">Imports</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage/exports.html">Exports</a></li>
@@ -87,34 +88,45 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Sources</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference external" href="https://buildkite.com/organizations/becon-gmbh/packages" rel="noreferrer" target="_blank">Download Packages</a></li>
+<li class="toctree-l1"><a class="reference internal" href="packages.html">Download Packages</a></li>
 <li class="toctree-l1"><a class="reference external" href="https://hub.docker.com/r/becongmbh/datagerry" rel="noreferrer" target="_blank">Download Docker</a></li>
 <li class="toctree-l1"><a class="reference external" href="https://github.com/DATAGerry/DATAGerry" rel="noreferrer" target="_blank">Repository</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Changelogs</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#version-3-0-0">Version 3.0.0</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#version-3-1-0">Version 3.1.0</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#new-features">New Features</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#release-of-the-isms-information-security-management-system-module">Release of the ISMS (Information Security Management System) module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#backward-incompatible-changes">Backward incompatible changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#improvements">Improvements</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#location-tree">Location Tree</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#technical-improvements">Technical Improvements</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#changes">Changes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#bugfixes">Bugfixes</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#version-2-2-0">Version 2.2.0</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#version-3-0-0">Version 3.0.0</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#id1">New Features</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id2">Bugfixes</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id3">Changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#release-of-the-isms-information-security-management-system-module">Release of the ISMS (Information Security Management System) module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#backward-incompatible-changes">Backward incompatible changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id2">Changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id3">Bugfixes</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#version-2-1-0">Version 2.1.0</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#version-2-2-0">Version 2.2.0</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#id4">New Features</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id5">Bugfixes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id6">Changes</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#version-2-0-0">Version 2.0.0</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#version-2-1-0">Version 2.1.0</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#id7">New Features</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id8">Bugfixes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id9">Changes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#version-2-0-0">Version 2.0.0</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id10">New Features</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id11">Bugfixes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id12">Changes</a></li>
 </ul>
 </li>
 </ul>
@@ -155,24 +167,224 @@
              
   <section id="changelogs">
 <h1>Changelogs<a class="headerlink" href="#changelogs" title="Link to this heading"></a></h1>
-<div class="line-block">
-<div class="line"><br /></div>
-</div>
-<hr class="docutils" />
-<div class="line-block">
-<div class="line"><br /></div>
-</div>
-<hr class="docutils" />
-<div class="line-block">
-<div class="line"><br /></div>
-</div>
-<section id="version-3-0-0">
-<h2>Version 3.0.0<a class="headerlink" href="#version-3-0-0" title="Link to this heading"></a></h2>
+<section id="version-3-1-0">
+<h2>Version 3.1.0<a class="headerlink" href="#version-3-1-0" title="Link to this heading"></a></h2>
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
 <section id="new-features">
 <h3>New Features<a class="headerlink" href="#new-features" title="Link to this heading"></a></h3>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<p><a class="reference internal" href="../usage/automations.html#automations-anchor"><span class="std std-ref">Automations (OpenCelium Integration)</span></a></p>
+<ul class="simple">
+<li><p>Integration of <strong>OpenCelium</strong> directly into DataGerry</p></li>
+<li><p>Embedded <strong>OpenCelium Connection Editor</strong> within the application</p></li>
+<li><p>Creation and management of interfaces (“Automations”) directly in DataGerry</p></li>
+<li><p>Automation execution options:</p></li>
+</ul>
+<blockquote>
+<div><ul class="simple">
+<li><p>Time-based (Scheduler)</p></li>
+<li><p>Manual execution via button click</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Logging functionality:</p></li>
+</ul>
+<blockquote>
+<div><ul class="simple">
+<li><p>Execution logs available after each automation run</p></li>
+<li><p>Storage of the last two logs for <strong>Success</strong></p></li>
+<li><p>Storage of the last two logs for <strong>Fail</strong></p></li>
+</ul>
+</div></blockquote>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<p><span class="xref std std-ref">CI-Explorer Enhancements</span></p>
+<ul class="simple">
+<li><p>Visualization of relationships originating from the <strong>Location Tree</strong></p></li>
+<li><p>CI-Explorer can now be opened via the <strong>Toolbox</strong></p></li>
+</ul>
+<blockquote>
+<div><ul class="simple">
+<li><p>Free selection of the object to be displayed when starting</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Export functionality:</p></li>
+</ul>
+<blockquote>
+<div><ul class="simple">
+<li><p>CI-Explorer can be exported as a <strong>PNG file</strong></p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Dynamic root handling:</p></li>
+</ul>
+<blockquote>
+<div><ul class="simple">
+<li><p>When changing the root object inside a Configuration Item, the currently displayed CI is automatically updated</p></li>
+<li><p>Attributes of the newly selected root object are displayed immediately</p></li>
+</ul>
+</div></blockquote>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<blockquote>
+<div><p><span class="xref std std-ref">Relations Configuration</span></p>
+</div></blockquote>
+<ul class="simple">
+<li><p>New <strong>Preview Widget</strong></p></li>
+</ul>
+<blockquote>
+<div><ul class="simple">
+<li><p>Visual preview of how relation configurations will appear in the CI-Explorer</p></li>
+<li><p>Immediate feedback during configuration</p></li>
+</ul>
+</div></blockquote>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<hr class="docutils" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+<section id="improvements">
+<h3>Improvements<a class="headerlink" href="#improvements" title="Link to this heading"></a></h3>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<section id="location-tree">
+<h4>Location Tree<a class="headerlink" href="#location-tree" title="Link to this heading"></a></h4>
+<ul class="simple">
+<li><p>Improved visual representation of locations with long names</p></li>
+<li><p>Added <strong>search functionality</strong></p></li>
+<li><p>Added <strong>filter functionality</strong></p></li>
+<li><p>Improved usability for complex hierarchical structures</p></li>
+</ul>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+</section>
+<section id="technical-improvements">
+<h3>Technical Improvements<a class="headerlink" href="#technical-improvements" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Enhanced logging mechanisms for Automations</p></li>
+<li><p>Improved usability when switching root objects</p></li>
+<li><p>Optimized rendering performance in the CI-Explorer</p></li>
+</ul>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<hr class="docutils" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+<section id="changes">
+<h3>Changes<a class="headerlink" href="#changes" title="Link to this heading"></a></h3>
+<p><strong>Documentation</strong></p>
+<ul class="simple">
+<li><p>Added Automation Documentation</p></li>
+<li><p>Updated the documentation for the ci-explorer</p></li>
+</ul>
+<p><strong>Frontend</strong></p>
+<ul class="simple">
+<li><p>Upgrade Angular from v17 to v19</p></li>
+<li><p>Bootstrap 5 adoption and angular 19</p></li>
+<li><p>Missing copy Identifier added for controls and type configuration</p></li>
+<li><p>Types not displaying in the category edit</p></li>
+<li><p>Redesign Toast Message</p></li>
+<li><p>Improve Diagnostic Ui</p></li>
+<li><p>Implement Object selector for CI Explorer</p></li>
+<li><p>Show Type Description in Object Type List page</p></li>
+<li><p>Add a button to confirm adding report</p></li>
+<li><p>Render preview in table format (with pagination)</p></li>
+<li><p>Improve Clone Section template modal</p></li>
+</ul>
+<p><strong>Backend</strong></p>
+<ul class="simple">
+<li><p>SSL configuration for Webserver</p></li>
+<li><p>Upgrade python from 3.9 to 3.12</p></li>
+<li><p>Improve Object count API and public_id incrementation handling in the backend</p></li>
+<li><p>Error message improvements</p></li>
+</ul>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<hr class="docutils" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+<section id="bugfixes">
+<h3>Bugfixes<a class="headerlink" href="#bugfixes" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>[<strong>DAT-2338</strong>] Reference Resolve issue</p></li>
+<li><p>[<strong>DAT-2337</strong>] Fix the UI issue if credentials fail; then show the credentials again</p></li>
+<li><p>[<strong>DAT-2323</strong>] Improve the request (Connection Update + Scheduler Update)</p></li>
+<li><p>[<strong>DAT-2322</strong>] Fix connectionID issue in update request (connection)</p></li>
+<li><p>[<strong>DAT-2321</strong>] Update the route for connection update</p></li>
+<li><p>[<strong>DAT-2314</strong>] ProtectionGoal not deletable</p></li>
+<li><p>[<strong>DAT-2166</strong>] Change the order of the columns</p></li>
+<li><p>[<strong>DAT-2135</strong>] Editing a Webhook throws an error</p></li>
+<li><p>[<strong>DAT-2126</strong>] Objects missing in „Referenced By“ tab of object</p></li>
+<li><p>[<strong>DAT-2118</strong>] Improve GitHub workflows due to failing tests online</p></li>
+<li><p>[<strong>DAT-2050</strong>] Type creation: name uniqueness needs to be checked</p></li>
+<li><p>[<strong>DAT-2005</strong>] Preview modal is not responsive</p></li>
+<li><p>[<strong>DAT-1987</strong>] Wrong navigation after returning from Risk Assessment to Risk</p></li>
+<li><p>[<strong>DAT-1986</strong>] Object summary not displayed when adding new Risk Assessment from object</p></li>
+<li><p>[<strong>DAT-1984</strong>] Improve link and breadcrumbs of Persons component</p></li>
+<li><p>[<strong>DAT-1983</strong>] Unclean action when deleting sections fails</p></li>
+<li><p>[<strong>DAT-1981</strong>] Permission for Add Relation button</p></li>
+<li><p>[<strong>DAT-1980</strong>] External link issue while adding a link without fields</p></li>
+<li><p>[<strong>DAT-1979</strong>] External links issues</p></li>
+<li><p>[<strong>DAT-1977</strong>] Fix external links icon not visible</p></li>
+<li><p>[<strong>DAT-1976</strong>] Update type: Checkbox intermittently sent as unchecked to backend for Location control</p></li>
+<li><p>[<strong>DAT-1975</strong>] Optimise object limit logics for on-premises version</p></li>
+<li><p>[<strong>DAT-1972</strong>] Restrict Connect page from Cloud</p></li>
+<li><p>[<strong>DAT-1971</strong>] Webhook search not working</p></li>
+<li><p>[<strong>DAT-1970</strong>] Search is not working in the objects list</p></li>
+<li><p>[<strong>DAT-1967</strong>] File count in File Explorer always returns 0</p></li>
+<li><p>[<strong>DAT-1964</strong>] public_id notation issue</p></li>
+<li><p>[<strong>DAT-1957</strong>] Fix parent category dropdown integration and visibility</p></li>
+<li><p>[<strong>DAT-1956</strong>] Improve webhooks breadcrumbs</p></li>
+<li><p>[<strong>DAT-1955</strong>] Fix issues in Explorer display and functionality</p></li>
+<li><p>[<strong>DAT-1954</strong>] Change the documentation link</p></li>
+<li><p>[<strong>DAT-1952</strong>] Wrong error message for external API when reaching CI limit</p></li>
+<li><p>[<strong>DAT-1944</strong>] Improve object selection dropdown layout for long type names (while adding a relation)</p></li>
+<li><p>[<strong>DAT-1844</strong>] Upon clicking on Filter button in object type list getting error in console</p></li>
+<li><p>[<strong>DAT-1824</strong>] Password fields in MultiDataSections are shown in cleartext</p></li>
+<li><p>[<strong>DAT-1538</strong>] Invalid URL in MLHttpRequest with reverse proxy: (<a class="reference external" href="http://):4000/rest/" rel="noreferrer" target="_blank">http://):4000/rest/</a></p></li>
+<li><p>[<strong>DAT-1390</strong>] Error occurs while saving a type after editing</p></li>
+<li><p>[<strong>DAT-1236</strong>] Console error when opening a type with a number field in its section</p></li>
+<li><p>[<strong>DAT-1155</strong>] Fix field ordering issue when adding new object with MDS</p></li>
+</ul>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<hr class="docutils" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<hr class="docutils" />
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+</section>
+</section>
+<section id="version-3-0-0">
+<h2>Version 3.0.0<a class="headerlink" href="#version-3-0-0" title="Link to this heading"></a></h2>
+<div class="line-block">
+<div class="line"><br /></div>
+</div>
+<section id="id1">
+<h3>New Features<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
@@ -280,8 +492,8 @@ DataGerry</p></li>
 <div class="line"><br /></div>
 </div>
 </section>
-<section id="changes">
-<h3>Changes<a class="headerlink" href="#changes" title="Link to this heading"></a></h3>
+<section id="id2">
+<h3>Changes<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
 <p><strong>Documentation</strong></p>
 <ul class="simple">
 <li><p>New design and structure of the DataGerry documentation</p></li>
@@ -324,8 +536,8 @@ which strictly accepts numeric input values</p></li>
 <div class="line"><br /></div>
 </div>
 </section>
-<section id="bugfixes">
-<h3>Bugfixes<a class="headerlink" href="#bugfixes" title="Link to this heading"></a></h3>
+<section id="id3">
+<h3>Bugfixes<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
 <ul class="simple">
 <li><p>[<strong>DAT-568</strong>] Fixed a bug where the creation date of <a class="reference internal" href="../usage/cmdb_concepts.html#objects-anchor"><span class="std std-ref">Objects</span></a> overwritten by the edit date
 when editing an <a class="reference internal" href="../usage/cmdb_concepts.html#objects-anchor"><span class="std std-ref">Object</span></a></p></li>
@@ -403,8 +615,8 @@ editing an <a class="reference internal" href="../usage/cmdb_concepts.html#objec
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
-<section id="id1">
-<h3>New Features<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<section id="id4">
+<h3>New Features<a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
@@ -431,8 +643,8 @@ configuration</p></li>
 <div class="line"><br /></div>
 </div>
 </section>
-<section id="id2">
-<h3>Bugfixes<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
+<section id="id5">
+<h3>Bugfixes<a class="headerlink" href="#id5" title="Link to this heading"></a></h3>
 <ul class="simple">
 <li><p>Fixed a wrongfully thrown error when generating a PDF from DocAPI
 although the PDF was generated correctly</p></li>
@@ -476,8 +688,8 @@ redirection instead of showing the password</p></li>
 <div class="line"><br /></div>
 </div>
 </section>
-<section id="id3">
-<h3>Changes<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<section id="id6">
+<h3>Changes<a class="headerlink" href="#id6" title="Link to this heading"></a></h3>
 <p>RHEL 8</p>
 <ul class="simple">
 <li><p>DATAGERRY is no longer compatible with <strong>RHEL8</strong>. The build package
@@ -619,8 +831,8 @@ exceptions</p></li>
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
-<section id="id4">
-<h3>New Features<a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
+<section id="id7">
+<h3>New Features<a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
@@ -654,8 +866,8 @@ installations on debian systems</p></li>
 <div class="line"><br /></div>
 </div>
 </section>
-<section id="id5">
-<h3>Bugfixes<a class="headerlink" href="#id5" title="Link to this heading"></a></h3>
+<section id="id8">
+<h3>Bugfixes<a class="headerlink" href="#id8" title="Link to this heading"></a></h3>
 <ul class="simple">
 <li><p>Object Links are now deleted when one of the objects is deleted</p></li>
 <li><p>In type configurations the field “Reference type selections” for the
@@ -696,8 +908,8 @@ Logs) which should now work</p></li>
 <div class="line"><br /></div>
 </div>
 </section>
-<section id="id6">
-<h3>Changes<a class="headerlink" href="#id6" title="Link to this heading"></a></h3>
+<section id="id9">
+<h3>Changes<a class="headerlink" href="#id9" title="Link to this heading"></a></h3>
 <p>DATAGerry Assistant</p>
 <ul class="simple">
 <li><p>Created types are now placed in categories instead of being added
@@ -850,8 +1062,8 @@ the newest Version of DATAGERRY</p></li>
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
-<section id="id7">
-<h3>New Features<a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
+<section id="id10">
+<h3>New Features<a class="headerlink" href="#id10" title="Link to this heading"></a></h3>
 <div class="line-block">
 <div class="line"><br /></div>
 </div>
@@ -877,8 +1089,8 @@ Assistant</strong>) so that it is possible to start it manually</p></li>
 <div class="line"><br /></div>
 </div>
 </section>
-<section id="id8">
-<h3>Bugfixes<a class="headerlink" href="#id8" title="Link to this heading"></a></h3>
+<section id="id11">
+<h3>Bugfixes<a class="headerlink" href="#id11" title="Link to this heading"></a></h3>
 <ul class="simple">
 <li><p>Fixed a bug displaying popup boxes behind the gray overlay background</p></li>
 <li><p>Fixed an error where the progress bar of a toast was not
@@ -926,8 +1138,8 @@ and still showing the deleted type</p></li>
 <div class="line"><br /></div>
 </div>
 </section>
-<section id="id9">
-<h3>Changes<a class="headerlink" href="#id9" title="Link to this heading"></a></h3>
+<section id="id12">
+<h3>Changes<a class="headerlink" href="#id12" title="Link to this heading"></a></h3>
 <ul class="simple">
 <li><p>Rework of the Feedback-Form (<strong>Toolbox =&gt; Feedback</strong>)</p></li>
 <li><p>When creating or editing a type it is no longer possible to proceed
@@ -1039,14 +1251,14 @@ type</p></li>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../media/media.html" class="btn btn-neutral float-left" title="Website" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="packages.html" class="btn btn-neutral float-left" title="Download Packages" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="../rest_api/overview.html" class="btn btn-neutral float-right" title="API Docs" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2025, becon GmbH.</p>
+    <p>&#169; Copyright 2026, becon GmbH.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

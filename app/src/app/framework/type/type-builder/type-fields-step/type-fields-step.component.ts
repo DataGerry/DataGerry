@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,8 +17,8 @@
 */
 import { Component, DoCheck, Input, KeyValueDiffer, KeyValueDiffers, OnDestroy, OnInit } from '@angular/core';
 
-import { ReplaySubject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { ReplaySubject, Subscription } from 'rxjs';
+import { take, takeUntil } from 'rxjs/operators';
 
 import { SectionTemplateService } from 'src/app/framework/section_templates/services/section-template.service';
 
@@ -27,12 +27,16 @@ import { CmdbType } from '../../../models/cmdb-type';
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { SpecialTypeService } from '../../../services/special-type.service';
+import { SpecialType, SpecialTypeSchema } from '../../../models/special-type';
+import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  selector: 'cmdb-type-fields-step',
-  templateUrl: './type-fields-step.component.html',
-  styleUrls: ['./type-fields-step.component.scss']
+    selector: 'cmdb-type-fields-step',
+    templateUrl: './type-fields-step.component.html',
+    styleUrls: ['./type-fields-step.component.scss'],
+    standalone: false
 })
 export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements OnInit, DoCheck, OnDestroy {
 
@@ -42,6 +46,11 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
   public sectionTemplates: Array<CmdbSectionTemplate> = [];
   public globalSectionTemplates: Array<CmdbSectionTemplate> = [];
+  public lockedSectionNames: Array<string> = [];
+  public lockedFieldNames: Array<string> = [];
+  private activeSpecialTypeForLocks: SpecialType | null = null;
+  private failedSpecialTypeForLocks: SpecialType | null = null;
+  private specialTypeSchemaRequest: Subscription | null = null;
 
   public builderValid: boolean = true;
 
@@ -56,14 +65,16 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
     public constructor(private differs: KeyValueDiffers,
                        private sectionTemplateService: SectionTemplateService,
-                       private toastService: ToastService) {
+                       private toastService: ToastService,
+                       private specialTypeService: SpecialTypeService) {
         super();
     }
 
 
     public ngOnInit(): void {
         this.typeInstanceDiffer = this.differs.find(this.typeInstance).create();
-          this.getAllSectionTemplates();
+        this.getAllSectionTemplates();
+        this.syncSpecialTypeLockState();
 
     }
 
@@ -71,6 +82,7 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
     public ngDoCheck(): void {
         const changes = this.typeInstanceDiffer.diff(this.typeInstance);
         if (changes) {
+            this.syncSpecialTypeLockState();
             this.valid = this.status;
             this.validateChange.emit(this.valid);
         }
@@ -78,8 +90,11 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.specialTypeSchemaRequest?.unsubscribe();
+        this.subscriber?.next();
+        this.subscriber?.complete();
+        this.unsubscribe?.next();
+        this.unsubscribe?.complete();
     }
 
 /* ---------------------------------------------------- FUCNTIONS --------------------------------------------------- */
@@ -108,5 +123,108 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
         },
         error: (error) => this.toastService.error(error?.error?.message)
       });
+  }
+
+  private syncSpecialTypeLockState(): void {
+    const selectedSpecialType = this.normalizeSpecialTypeValue(this.typeInstance?.special_type);
+    if (
+      selectedSpecialType === this.activeSpecialTypeForLocks
+      && (this.lockedSectionNames.length > 0 || this.lockedFieldNames.length > 0)
+    ) {
+      return;
+    }
+
+    if (
+      selectedSpecialType === this.activeSpecialTypeForLocks
+      && this.specialTypeSchemaRequest
+    ) {
+      return;
+    }
+
+    if (!selectedSpecialType) {
+      this.resetSpecialTypeLocks();
+      return;
+    }
+
+    if (selectedSpecialType === this.failedSpecialTypeForLocks) {
+      return;
+    }
+
+    if (selectedSpecialType !== this.activeSpecialTypeForLocks) {
+      this.failedSpecialTypeForLocks = null;
+    }
+
+    this.activeSpecialTypeForLocks = selectedSpecialType;
+    const cachedSchema = this.specialTypeService.getCachedSchema(selectedSpecialType);
+    if (cachedSchema) {
+      this.applySpecialTypeLocks(cachedSchema);
+      return;
+    }
+
+    this.lockedSectionNames = [];
+    this.lockedFieldNames = [];
+    this.specialTypeSchemaRequest?.unsubscribe();
+    this.specialTypeSchemaRequest = this.specialTypeService.getSchema(selectedSpecialType).pipe(
+      take(1),
+      takeUntil(this.subscriber)
+    ).subscribe({
+      next: (schema: SpecialTypeSchema) => {
+        this.specialTypeSchemaRequest = null;
+        if (selectedSpecialType !== this.activeSpecialTypeForLocks) {
+          return;
+        }
+
+        this.applySpecialTypeLocks(schema);
+      },
+      error: (error) => {
+        this.specialTypeSchemaRequest = null;
+        if (selectedSpecialType !== this.activeSpecialTypeForLocks) {
+          return;
+        }
+
+        this.resetSpecialTypeLocks();
+        this.failedSpecialTypeForLocks = selectedSpecialType;
+        this.toastService.error(error?.error?.message);
+      }
+    });
+  }
+
+
+  private applySpecialTypeLocks(schema: SpecialTypeSchema): void {
+    const validationResult = SpecialTypeSchemaMapper.validateSchema(schema);
+    if (!validationResult.valid) {
+      this.lockedSectionNames = [];
+      this.lockedFieldNames = [];
+      this.failedSpecialTypeForLocks = this.activeSpecialTypeForLocks;
+      return;
+    }
+
+    this.failedSpecialTypeForLocks = null;
+    this.lockedSectionNames = schema.sections.map(section => section.name);
+    this.lockedFieldNames = schema.fields.map(field => field.name);
+  }
+
+
+  private resetSpecialTypeLocks(): void {
+    this.specialTypeSchemaRequest?.unsubscribe();
+    this.specialTypeSchemaRequest = null;
+    this.activeSpecialTypeForLocks = null;
+    this.failedSpecialTypeForLocks = null;
+
+    if (this.lockedSectionNames.length !== 0) {
+      this.lockedSectionNames = [];
+    }
+    if (this.lockedFieldNames.length !== 0) {
+      this.lockedFieldNames = [];
+    }
+  }
+
+  private normalizeSpecialTypeValue(value: string | SpecialType | null | undefined): SpecialType | null {
+    if (!value || typeof value !== 'string') {
+      return null;
+    }
+
+    const trimmedValue = value.trim();
+    return trimmedValue ? (trimmedValue as SpecialType) : null;
   }
 }

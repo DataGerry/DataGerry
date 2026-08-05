@@ -1,0 +1,25 @@
+<div class="log-menu-container" (click)="$event.stopPropagation()">
+  <button type="button" class="log-menu-trigger" title="Log list" (click)="toggleMenu($event)">
+    <i class="fa-solid fa-ellipsis-vertical"></i>
+  </button>
+
+  @if (isOpen) {
+  <div class="log-menu">
+    <div class="log-menu-header">Log list</div>
+    @if (isLoading) {
+    <div class="log-menu-loading">Loading...</div>
+    }
+    @for (entry of entries; track entry) {
+    <button type="button" class="log-menu-item" (click)="selectLogEntry(entry, $event)">
+      <span>#{{ entry.execution_id }}</span>
+      <span class="text-muted">{{ formatLogDate(entry.log_date) }}</span>
+    </button>
+    }
+    @if (!isLoading && (!entries || entries.length === 0)) {
+    <div class="log-menu-empty">
+      No logs found
+    </div>
+    }
+  </div>
+  }
+</div>

@@ -1,0 +1,8 @@
+FROM nginx:1.31.2-alpine3.23-slim
+RUN mkdir /opt/datagerry
+RUN mkdir /opt/datagerry/frontend
+ENV APP_SOURCE=files/frontend
+ENV APP_HOME=/opt/datagerry/frontend
+COPY $APP_SOURCE $APP_HOME
+COPY files/config/app-config.json /etc/datagerry/
+RUN ls -la $APP_HOME/*

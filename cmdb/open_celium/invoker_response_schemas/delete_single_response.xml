@@ -1,0 +1,28 @@
+        <operation name="Delete  by public_id" type="">
+            <request>
+                <method>DELETE</method>
+                <endpoint>{url}/rest//{public_id}</endpoint>
+                <header>
+                    <item name="Authorization" type="string">{token}</item>
+                    <item name="Content-Type" type="string">application/json</item>
+                    <item name="x-api-key" type="string">{x-api-key}</item>
+                </header>
+                <body/>
+            </request>
+            <response>
+                <success status="200">
+                    <header/>
+                    <body data="raw" format="json" type="object">
+                        <field name="raw" type="object">
+                            <!-- -->
+                        </field>
+                        <field name="response_type" type="string"/>
+                        <field name="time" type="string"/>
+                    </body>
+                </success>
+                <fail status="500">
+                    <header/>
+                    <body/>
+                </fail>
+            </response>
+        </operation>

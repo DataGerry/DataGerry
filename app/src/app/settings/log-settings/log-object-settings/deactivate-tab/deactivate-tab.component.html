@@ -7,7 +7,7 @@
               ngbTooltip="Delete selected logs" 
               (click)="cleanup()">
           <i class="far fa-trash-alt"></i> Cleanup
-          <span class="badge badge-secondary">{{selectedLogIDs.length}}</span>
+          <span class="badge bg-secondary">{{selectedLogIDs.length}}</span>
       </button>
       <hr/>
   </div>
@@ -53,10 +53,15 @@
           </cmdb-object-log-change-view>
       </ng-template>
       <ng-template #userTemplate let-item="item">
-          <cmdb-object-log-user 
-              [userID]="item.user_id" 
+          <cmdb-object-log-user
+              [user]="logUsers[item.user_id]"
               [userName]="item.user_name">
           </cmdb-object-log-user>
       </ng-template>
   </div>
 </div>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

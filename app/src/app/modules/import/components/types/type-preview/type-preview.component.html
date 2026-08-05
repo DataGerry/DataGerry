@@ -1,69 +1,52 @@
-
 <div class="card-body">
-    <h5 class="card-title"> Do you want to <mark>update</mark> the data or <mark>create</mark> new ones?</h5>
+    <h5 class="card-title p-3"> Do you want to <mark>update</mark> the data or <mark>create</mark> new ones?</h5>
 
     <div class="form-check form-check-inline">
-        <input
-            (change)="handleChange($event)"
-            class="form-check-input"
-            type="radio"
-            name="uploadTypeFile"
-            id="createType"
-            value="create"
-            checked
-        >
+        <input (change)="handleChange($event)" class="form-check-input" type="radio" name="uploadTypeFile"
+            id="createType" value="create" checked>
         <label class="form-check-label" for="createType">
             Create
         </label>
     </div>
     <div class="form-check form-check-inline">
-        <input
-            (change)="handleChange($event)"
-            class="form-check-input"
-            type="radio"
-            name="uploadTypeFile"
-            id="updateType"
-            value="update"
-        >
+        <input (change)="handleChange($event)" class="form-check-input" type="radio" name="uploadTypeFile"
+            id="updateType" value="update">
         <label class="form-check-label" for="updateType">
             Update
         </label>
     </div>
 </div>
 
-<div *ngIf="data.get('file').value != null">
+@if (data.get('file').value != null) {
+<div>
     <div class="card drag-items mt-3">
         <div class="card-header">
-            <input
-                class="form-control mr-sm-2"
-                type="search"
-                placeholder="Search Types"
-                aria-label="Search"
-                [(ngModel)]="filterTypes"
-            >
+            <input class="form-control me-sm-2" type="search" placeholder="Search Types" aria-label="Search"
+                [(ngModel)]="filterTypes">
         </div>
         <div class="card-body overflow-auto">
             <div class="list-group">
-                <div
-                    *ngFor="let type of data.get('file').value; let index = index"
-                    class="list-group-item list-group-item-action mt-2"
-                >
+                @for (type of data.get('file').value; track type; let index = $index) {
+                <div class="list-group-item list-group-item-action mt-2">
                     <span class="d-flex justify-content-between align-items-center">
-                        <ng-template
-                            [ngIf]="type.public_id === undefined"
-                            [ngIfElse]="publicID"
-                        >
-                            {{type.label}} # AUTO
-                        </ng-template>
-                        <ng-template #publicID>
-                            {{type.label}} # {{type.public_id}}
-                        </ng-template>
+                        @if (type.public_id === undefined) {
+
+                        {{type.label}} # AUTO
+
+                        } @else {
+
+                        {{type.label}} # {{type.public_id}}
+
+                        }
+
                         <fa-icon icon="trash-alt" (click)="removeFromFile(index)"></fa-icon>
                     </span>
                 </div>
+                }
             </div>
         </div>
     </div>
 </div>
+}
 
-<hr/>
+<hr />

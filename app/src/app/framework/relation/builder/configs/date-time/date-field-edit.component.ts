@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -32,12 +32,14 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 
 @Component({
     selector: 'cmdb-date-field-edit',
+    host: { 'data-config-edit': 'relation' },
     templateUrl: './date-field-edit.component.html',
     styleUrls: ['./date-field-edit.component.scss'],
     providers: [
         { provide: NgbDateAdapter, useClass: NgbStringAdapter },
         { provide: NgbDateParserFormatter, useClass: CustomDateParserFormatter }
-    ]
+    ],
+    standalone: false
 })
 export class DateFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
@@ -112,8 +114,8 @@ export class DateFieldEditComponent extends ConfigEditBaseComponent implements O
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

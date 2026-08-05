@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input } from "@angular/core";
+import { Component, inject, Input } from "@angular/core";
 import { ToastService } from "../../../../layout/toast/toast.service";
 import { RenderResult } from "../../../models/cmdb-render";
 import { CmdbMode } from "../../../modes.enum";
@@ -27,17 +27,16 @@ import { DateFormatterPipe } from "src/app/layout/pipes/date-formatter.pipe";
     selector: "cmdb-object-summary",
     templateUrl: "./object-summary.component.html",
     styleUrls: ["./object-summary.component.scss"],
+    standalone: false
 })
 export class ObjectSummaryComponent {
     @Input() summaries: any = [];
     @Input() renderResult: RenderResult;
     public mode: CmdbMode = CmdbMode.Simple;
 
-    public constructor(
-        private toast: ToastService,
-        private dateSettingsService: DateSettingsService,
-        private dateFormatterPipe: DateFormatterPipe
-    ) { }
+    private readonly toast = inject(ToastService);
+    private readonly dateSettingsService = inject(DateSettingsService);
+    private readonly dateFormatterPipe = inject(DateFormatterPipe);
 
     /**
      * Retrieves the label corresponding to a given value from the options array.
@@ -68,7 +67,7 @@ export class ObjectSummaryComponent {
             await navigator.clipboard.writeText(selBox.value);
             this.toast.info("Summary was copied to clipboard");
         } catch (err) {
-            console.error('Unable to copy to clipboard', err);
+            this.toast.error('Unable to copy to clipboard')
         } finally {
             document.body.removeChild(selBox);
         }

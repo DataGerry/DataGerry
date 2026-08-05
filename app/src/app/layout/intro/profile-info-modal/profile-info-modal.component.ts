@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,22 +16,36 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component } from '@angular/core';
+import { Component, DestroyRef, inject } from '@angular/core';
 import { FormGroup, FormControl, ValidatorFn } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
+
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+/** Profile that is only offered when the IPAM premium feature is licensed. */
+const IPAM_PROFILE = 'ipam-profile';
 
 @Component({
     selector: 'cmdb-profile-info-modal',
     templateUrl: './profile-info-modal.component.html',
-    styleUrls: ['./profile-info-modal.component.scss']
-  })
+    styleUrls: ['./profile-info-modal.component.scss'],
+    standalone: false
+})
   export class ProfileInfoModalComponent {
     public selectedBranches :any;
     public profileForm: FormGroup;
 
     public activeProfiles: Set<string>;
+
+    private readonly premiumFeatureService = inject(PremiumFeatureService);
+    private readonly destroyRef = inject(DestroyRef);
+
+    /** All profiles derived from the selected branches, before premium gating is applied. */
+    private allProfiles: Set<string> = new Set();
 
 
     constructor(public activeModal: NgbActiveModal){
@@ -69,7 +83,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
     /**
      * Creates distict Set of profiles for selected branches
-     * 
+     *
      * @param selectedBranches The selected branches
      */
     public setProfiles(selectedBranches){
@@ -86,19 +100,54 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
         }
       }
 
-      this.addControlsForProfiles(tmpActiveProfiles);
-      this.activeProfiles = tmpActiveProfiles;
+      this.allProfiles = tmpActiveProfiles;
+
+      // Only Show IPAM in the profile selection if the premium feature is unlocked
+      this.premiumFeatureService.isAvailable$(LicenseFeature.Ipam)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((ipamAvailable) => this.applyProfileGate(ipamAvailable));
     }
 
 
     /**
-     * Adds controls to formgroup for each profile
-     * 
-     * @param tmpActiveProfiles list of profiles 
+     * Rebuilds the visible profiles and their form controls, dropping the IPAM profile when the
+     * feature is not licensed so it is neither shown nor submitted to the profile creation call.
+     *
+     * @param ipamAvailable Whether the IPAM premium feature is currently unlocked
      */
-    private addControlsForProfiles(tmpActiveProfiles){
-      for(let profileName of tmpActiveProfiles){
-        this.profileForm.addControl(profileName, new FormControl(true));
+    private applyProfileGate(ipamAvailable: boolean){
+      const visibleProfiles: Set<string> = new Set();
+
+      for(const profile of this.allProfiles){
+        if(profile === IPAM_PROFILE && !ipamAvailable){
+          continue;
+        }
+
+        visibleProfiles.add(profile);
+      }
+
+      this.syncControls(visibleProfiles);
+      this.activeProfiles = visibleProfiles;
+    }
+
+
+    /**
+     * Reconciles the form controls with the visible profiles, preserving existing selections while
+     * adding controls for newly available profiles and removing those that are no longer offered.
+     *
+     * @param visibleProfiles Profiles that should have a control
+     */
+    private syncControls(visibleProfiles: Set<string>){
+      for(const controlName of Object.keys(this.profileForm.controls)){
+        if(!visibleProfiles.has(controlName)){
+          this.profileForm.removeControl(controlName);
+        }
+      }
+
+      for(const profileName of visibleProfiles){
+        if(!this.profileForm.contains(profileName)){
+          this.profileForm.addControl(profileName, new FormControl(true));
+        }
       }
     }
 
@@ -139,7 +188,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
       'user-management-profile': 'User management',
       'location-profile': 'Location',
       'client-management-profile': 'Client management',
-      'ipam-profile': 'IPAM',
+      'ipam-profile': 'IPAM (New Feature)',
       'server-management-profile': 'Server management',
       'network-infrastructure-profile': 'Network infrastructure'
     }

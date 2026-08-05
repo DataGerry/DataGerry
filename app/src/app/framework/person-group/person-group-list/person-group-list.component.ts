@@ -1,4 +1,4 @@
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs/operators';
@@ -14,9 +14,10 @@ import { CmdbPersonGroup } from 'src/app/toolbox/isms/models/person-group.model'
 import { PersonGroupService } from 'src/app/toolbox/isms/services/person-group.service';
 
 @Component({
-  selector: 'app-person-group-list',
-  templateUrl: './person-group-list.component.html',
-  styleUrls: ['./person-group-list.component.scss']
+    selector: 'app-person-group-list',
+    templateUrl: './person-group-list.component.html',
+    styleUrls: ['./person-group-list.component.scss'],
+    standalone: false
 })
 export class PersonGroupListComponent implements OnInit {
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;
@@ -33,14 +34,12 @@ export class PersonGroupListComponent implements OnInit {
   public columns: Column[] = [];
   public initialVisibleColumns: string[] = [];
 
-  constructor(
-    private router: Router,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private modalService: NgbModal,
-    private filterBuilderService: FilterBuilderService,
-    private personGroupService: PersonGroupService
-  ) { }
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly modalService = inject(NgbModal);
+  private readonly filterBuilderService = inject(FilterBuilderService);
+  private readonly personGroupService = inject(PersonGroupService);
 
   ngOnInit(): void {
     this.setupColumns();

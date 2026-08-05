@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,14 +17,15 @@
 Implementation of JsonObjectParser
 """
 import json
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.framework.importer.content_types import JSONContent
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               JsonObjectParser - CLASS                                               #
@@ -40,12 +41,13 @@ class JsonObjectParser(BaseObjectParser, JSONContent):
             - indent: The number of spaces to use for indentation in the output (default 2)
             - encoding: The file encoding used when reading the file (default 'UTF-8')
     """
-    DEFAULT_CONFIG = {
+    DEFAULT_CONFIG: dict[str, Any] = {
         'indent': 2,
         'encoding': 'UTF-8'
     }
 
-    def __init__(self, parser_config: dict = None):
+
+    def __init__(self, parser_config: dict = None) -> None:
         """
         Initializes the JsonObjectParser with a given configuration
 

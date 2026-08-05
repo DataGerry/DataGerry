@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the ObjectRelationsManager
 """
+from typing import Any
+
 from .object_relations_manager_errors import (
     ObjectRelationsManagerError,
     ObjectRelationsManagerInitError,
@@ -27,7 +29,7 @@ from .object_relations_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ObjectRelationsManagerError',
     'ObjectRelationsManagerInitError',
     'ObjectRelationsManagerInsertError',
@@ -35,4 +37,17 @@ __all__ = [
     'ObjectRelationsManagerUpdateError',
     'ObjectRelationsManagerDeleteError',
     'ObjectRelationsManagerIterationError',
+    'OBJECT_RELATIONS_MANAGER_ERRORS',
 ]
+
+
+# Per-operation exception map consumed by GenericManager: each operation key maps to the
+# ObjectRelationsManager error raised when that operation fails
+OBJECT_RELATIONS_MANAGER_ERRORS: dict[str, Any] = {
+    "init": ObjectRelationsManagerInitError,
+    "insert": ObjectRelationsManagerInsertError,
+    "get": ObjectRelationsManagerGetError,
+    "update": ObjectRelationsManagerUpdateError,
+    "delete": ObjectRelationsManagerDeleteError,
+    "iterate": ObjectRelationsManagerIterationError,
+}

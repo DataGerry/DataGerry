@@ -5,4 +5,3 @@ readthedocs-sphinx-search==0.1.1
 sphinxcontrib.httpdomain==1.8.1
 sphinx_new_tab_link==0.8.0
 sphinxcontrib-openapi>=0.9.0
-

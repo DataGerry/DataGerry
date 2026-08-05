@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,10 +17,12 @@
 Implementation of all API routes for Type Imports
 """
 import json
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 from bson import json_util
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -33,22 +35,18 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import NestedBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
-
-from cmdb.errors.manager.types_manager import (
-    TypesManagerInsertError,
-)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 importer_type_blueprint = NestedBlueprint(importer_blueprint, url_prefix='/type')
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @importer_type_blueprint.route('/create/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def add_type(request_user: CmdbUser):
+def add_type(request_user: CmdbUser) -> Response:
     """
     Adds new CmdbTypes based on uploaded JSON data. Generates new public IDs and creation timestamps for 
     each imported type, and inserts them into the database
@@ -63,8 +61,12 @@ def add_type(request_user: CmdbUser):
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        error_collection = {}
+        error_collection: dict[str, Any] = {}
         upload = request.form.get('uploadFile')
+
+        if not upload:
+            abort(400, "No upload file was provided!")
+
         new_type_list = json.loads(upload, object_hook=json_util.object_hook)
 
         for new_type_data in new_type_list:
@@ -78,9 +80,9 @@ def add_type(request_user: CmdbUser):
             try:
                 type_instance = CmdbType.from_data(new_type_data)
                 types_manager.insert_type(type_instance)
-            except (TypesManagerInsertError, Exception) as err:
+            except Exception as err:
                 LOGGER.error("[add_type] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-                error_collection.update({"public_id": new_type_data['public_id'], "message": err})
+                error_collection[str(new_type_data['public_id'])] = "Failed to import this Type."
 
         return DefaultResponse(error_collection).make_response()
     except HTTPException as http_err:
@@ -92,7 +94,8 @@ def add_type(request_user: CmdbUser):
 
 @importer_type_blueprint.route('/update/', methods=['POST'])
 @insert_request_user
-def update_type(request_user: CmdbUser):
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def update_type(request_user: CmdbUser) -> Response:
     """
     Updates existing CmdbTypes based on uploaded JSON data. Each type must already exist 
     otherwise, an error will be recorded. Updates are applied by public ID.
@@ -107,8 +110,12 @@ def update_type(request_user: CmdbUser):
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        error_collection = {}
+        error_collection: dict[str, Any] = {}
         upload = request.form.get('uploadFile')
+
+        if not upload:
+            abort(400, "No upload file was provided!")
+
         data_dump = json.loads(upload, object_hook=json_util.object_hook)
 
         for add_data_dump in data_dump:
@@ -122,7 +129,7 @@ def update_type(request_user: CmdbUser):
                 types_manager.update_type(update_type_instance.public_id, update_type_instance)
             except Exception as err:
                 LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-                error_collection.update({"public_id": add_data_dump['public_id'], "message": err})
+                error_collection[str(add_data_dump['public_id'])] = "Failed to update this Type."
 
         return DefaultResponse(error_collection).make_response()
     except HTTPException as http_err:

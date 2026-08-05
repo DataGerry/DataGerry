@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,9 +23,10 @@ import { FormGroup } from '@angular/forms';
 import { RaCmAssignmentInlineComponent } from './ control-measure-assignment-inline/ra-cm-assignment-inline.component';
 
 @Component({
-  selector   : 'app-risk-assessment-treatment',
-  templateUrl: './risk-assessment-treatment.component.html',
-  styleUrls  : ['./risk-assessment-treatment.component.scss']
+    selector: 'app-risk-assessment-treatment',
+    templateUrl: './risk-assessment-treatment.component.html',
+    styleUrls: ['./risk-assessment-treatment.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentTreatmentComponent implements OnInit, OnChanges {
 
@@ -117,7 +118,6 @@ public markInlineSnapshot(): void {
 
  setInlineToEditMode(): void {
     if (!this.cmInline) { return; }
-    //  this.cmInline.createMode = false;        // switch off “create” mode
      this.cmInline?.refreshSnapshot();         // take a pristine snapshot
    }
 

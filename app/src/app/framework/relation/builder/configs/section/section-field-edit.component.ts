@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,9 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 
 @Component({
     selector: 'cmdb-section-field-edit',
-    templateUrl: './section-field-edit.component.html'
+    host: { 'data-config-edit': 'relation' },
+    templateUrl: './section-field-edit.component.html',
+    standalone: false
 })
 export class SectionFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -89,8 +91,8 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
 
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
         if (this.activeIndexSubscription) {
             this.activeIndexSubscription.unsubscribe();
         }

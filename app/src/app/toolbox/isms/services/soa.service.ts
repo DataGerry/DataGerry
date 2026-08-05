@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,9 +23,8 @@ import { ControlMeasure } from '../models/control-measure.model';
 
 import * as Papa from 'papaparse';
 import { saveAs } from 'file-saver';
-import jsPDF from 'jspdf';
-// @ts-ignore
-import autoTable from 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
 
 @Injectable({ providedIn: 'root' })
 export class SoaService extends BaseApiService<ControlMeasure> {

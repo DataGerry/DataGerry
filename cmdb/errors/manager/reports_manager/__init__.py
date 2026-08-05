@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,8 @@
 """
 This module provides all errors for the ReportsManager
 """
+from typing import Any
+
 from .reports_manager_errors import (
     ReportsManagerError,
     ReportsManagerInitError,
@@ -27,7 +29,7 @@ from .reports_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ReportsManagerError',
     'ReportsManagerInitError',
     'ReportsManagerInsertError',
@@ -38,7 +40,7 @@ __all__ = [
 ]
 
 
-REPORTS_MANAGER_ERRORS = {
+REPORTS_MANAGER_ERRORS: dict[str, Any] = {
     "init": ReportsManagerInitError,
     "insert": ReportsManagerInsertError,
     "get": ReportsManagerGetError,

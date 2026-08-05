@@ -1,15 +1,14 @@
 <div class="container-fluid">
     <div id="connection-header" class="row">
         <div id="connection-logo" class="offset-3 col-6">
-            <img src="assets/img/datagerry_logo.svg" alt="DATAGERRY - Logo"/>
+            <img src="assets/img/datagerry_logo.svg" alt="DATAGERRY - Logo" />
         </div>
         <div class="col-12">
             <div class="alert alert-warning alert-dismissible fade show" role="alert">
                 If you see this message, the frontend cannot find a connection to DATAGERRY.
                 Probably there is a problem with your backend instance. You can try to connect manually.
                 Otherwise notify your administrator.
-                <button type="button" class="close" data-dismiss="alert">
-                    <span>X</span>
+                <button type="button" class="btn-close" data-bs-dismiss="alert">
                 </button>
             </div>
         </div>
@@ -21,72 +20,52 @@
                     Connection details
                 </div>
                 <div class="card-body">
-                    <form [formGroup]="connectionForm" (ngSubmit)="checkConnection()" class="needs-validation" novalidate>
-                        <div class="form-group">
+                    <form [formGroup]="connectionForm" (ngSubmit)="checkConnection()" class="needs-validation"
+                        novalidate>
+                        <div class="mb-3">
                             <div class="input-group">
                                 <div class="input-group-prepend">
                                     <div class="input-group-text">
                                         Host
                                     </div>
                                 </div>
-                                <input
-                                    formControlName="host"
-                                    id="host"
-                                    name="host"
-                                    placeholder="127.0.0.1"
-                                    type="text"
-                                    required="required"
-                                    class="form-control"
-                                >
+                                <input formControlName="host" id="host" name="host" placeholder="127.0.0.1" type="text"
+                                    required="required" class="form-control">
                             </div>
                             <span id="hostHelpBlock" class="form-text text-muted">
                                 Backend server address
                             </span>
                         </div>
-                        <div class="form-group">
+                        <div class="mb-3">
                             <div class="input-group">
                                 <div class="input-group-prepend">
                                     <div class="input-group-text">
                                         Port
                                     </div>
                                 </div>
-                                <input
-                                    formControlName="port"
-                                    id="port" name="port"
-                                    type="text"
-                                    required="required"
-                                    class="form-control"
-                                >
+                                <input formControlName="port" id="port" name="port" type="text" required="required"
+                                    class="form-control">
                             </div>
                             <span id="portHelpBlock" class="form-text text-muted">
                                 Port of the backend server
                             </span>
                         </div>
-                        <div class="form-group">
+                        <div class="mb-3">
                             <div class="input-group">
                                 <div class="input-group-prepend">
                                     <div class="input-group-text">
                                         Protocol
                                     </div>
                                 </div>
-                                <select
-                                    formControlName="protocol"
-                                    id="protocol"
-                                    name="protocol"
-                                    required="required"
-                                    class="form-control"
-                                >
+                                <select formControlName="protocol" id="protocol" name="protocol" required="required"
+                                    class="form-control">
                                     <option value="http" selected>HTTP</option>
                                     <option value="https" selected>HTTPS</option>
                                 </select>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <button
-                                name="connect"
-                                type="submit"
-                                class="btn btn-primary btn-block"
-                            >
+                        <div class="mb-3">
+                            <button name="connect" type="submit" class="btn btn-primary w-100">
                                 Try to connect
                             </button>
                         </div>
@@ -97,7 +76,7 @@
         <div class="col-6">
             <div class="card">
                 <div class="card-header">
-                Connection status
+                    Connection status
                 </div>
                 <div class="card-body">
                     <div class="row">
@@ -105,8 +84,9 @@
                             DATAGERRY connection status:
                         </div>
                         <div class="col-8">
-                            <div *ngIf="connectionTest; else disconnected">
-                                <span class="badge badge-success">
+                            @if (connectionTest) {
+                            <div>
+                                <span class="badge bg-success">
                                     CONNECTED
                                 </span>
                                 <dl class="row mt-2">
@@ -118,19 +98,18 @@
                                     <dd class="col-sm-9">{{connectionResponse.connected}}</dd>
                                 </dl>
                             </div>
-                            <ng-template #disconnected>
-                                <span class="badge badge-danger">DISCONNECTED</span>
-                            </ng-template>
+                            } @else {
+
+                            <span class="badge bg-danger">DISCONNECTED</span>
+
+                            }
+
                         </div>
                     </div>
                 </div>
                 <div class="card-footer">
-                    <button
-                        type="button"
-                        class="btn btn-sm btn-block btn-success"
-                        [disabled]="!connectionTest"
-                        (click)="useConnection()"
-                    >
+                    <button type="button" class="btn btn-sm w-100 btn-success" [disabled]="!connectionTest"
+                        (click)="useConnection()">
                         Use connection
                     </button>
                 </div>

@@ -1,13 +1,12 @@
 <div class="modal-header">
   <h4 class="modal-title">{{ mode === 'add' ? 'Add New Category' : mode === 'edit' ? 'Edit Category' : 'Delete Category' }}</h4>
-  <button type="button" class="close" aria-label="Close" (click)="modal.dismiss('Cross click')">
-      <span aria-hidden="true">&times;</span>
+  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="modal.dismiss('Cross click')">
   </button>
 </div>
 <div class="modal-body">
   <ng-container *ngIf="mode !== 'delete'; else deleteTemplate">
       <form [formGroup]="addCategoryForm">
-          <div class="form-group">
+          <div class="mb-3">
               <label for="categoryName">Category Name</label>
               <input id="categoryName" type="text" class="form-control" formControlName="name">
           </div>

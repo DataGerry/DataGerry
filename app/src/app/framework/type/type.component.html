@@ -1,14 +1,14 @@
 <div class="d-flex justify-content-between">
   <h1>Type List</h1>
 </div>
-<hr/>
+<hr />
 
 <cmdb-table [items]="types" [columns]="columns" [page]="page" [sort]="sort" [id]="id" [tableState]="tableState"
-            [stateEnabled]="true" [emptyMessage]="'No types were found!'" [customButtons]="[addTemplate, exportTemplate]"
-            [totalItems]="totalTypes" [selectEnabled]="selectEnabled" [loading]="loading" [pageSize]="limit"
-            (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
-            (sortChange)="onSortChange($event)" (selectedChange)="onSelectedChange($event)"
-            (searchChange)="onSearchChange($event)" (stateSelect)="onStateSelect($event)" (stateReset)="onStateReset()"></cmdb-table>
+  [stateEnabled]="true" [emptyMessage]="'No types were found!'" [customButtons]="[addTemplate, exportTemplate]"
+  [totalItems]="totalTypes" [selectEnabled]="selectEnabled" [loading]="loading" [pageSize]="limit"
+  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
+  (selectedChange)="onSelectedChange($event)" (searchChange)="onSearchChange($event)"
+  (stateSelect)="onStateSelect($event)" (stateReset)="onStateReset()"></cmdb-table>
 
 <!-- Table templates -->
 <ng-template #activeTemplate let-data="data">
@@ -17,14 +17,15 @@
   </div>
 </ng-template>
 
-<ng-template #userTemplate let-data="data">
-  <cmdb-user-compact *ngIf="data" [userID]="data"></cmdb-user-compact>
+<ng-template #userTemplate let-data="data" let-item="item" let-column="column">
+  @if (data) {
+  <cmdb-user-compact [userID]="data" [prefetchedUser]="resolveTypeListUser(item, column?.name)"></cmdb-user-compact>
+  }
 </ng-template>
 
 <ng-template #typeNameTemplate let-item="item">
   <cmdb-type-label [faIcon]="item.render_meta?.icon" [description]="item?.description"
-                   [title]="item.label ? item.label : item.name"
-  ></cmdb-type-label>
+    [title]="item.label ? item.label : item.name"></cmdb-type-label>
 </ng-template>
 
 <ng-template #actionsTemplate let-item="item">
@@ -34,22 +35,25 @@
 <ng-template #dateTemplate let-data="data">{{data | dateFormatter}}</ng-template>
 
 <ng-template #cleanTemplate let-item="item">
-  <cmdb-clean-button [type]="item"></cmdb-clean-button>
+  <cmdb-clean-button [type]="item" [cleanStatus]="item.clean_status"></cmdb-clean-button>
 </ng-template>
 
 <ng-template #exportTemplate>
-    <span class="mr-1 ml-1" *permissionLink="'base.export.type.*'">
+  <span class="me-1 ms-1" *permissionLink="'base.export.type.*'">
     <div class="btn-group">
-      <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle"
-              data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+      <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown"
+        aria-haspopup="true" aria-expanded="false">
         <fa-icon icon="file-export"></fa-icon> Export
       </button>
-      <ul class="dropdown-menu dropdown-menu-right dropdown-menu-lg-left" aria-labelledby="exportButton">
-        <li id="export-type" [className]="'dropdown-item'"
-            (click)="exportingFiles()">
+      <ul class="dropdown-menu dropdown-menu-end dropdown-menu-start" aria-labelledby="exportButton">
+        <li id="export-type" [className]="'dropdown-item'" (click)="exportingFiles()">
           <fa-icon icon="file-code"></fa-icon> JSON
-          <span *ngIf="selectedTypeIDs.length == 0">( all )</span>
-          <span *ngIf="selectedTypeIDs.length > 0"> ( {{selectedTypeIDs.length}} )</span>
+          @if (selectedTypeIDs.length == 0) {
+          <span>( all )</span>
+          }
+          @if (selectedTypeIDs.length > 0) {
+          <span> ( {{selectedTypeIDs.length}} )</span>
+          }
         </li>
       </ul>
     </div>
@@ -57,16 +61,11 @@
 </ng-template>
 
 <ng-template #addTemplate>
-  <button type="button"
-          *permissionLink="['base.framework.type.add']"
-          class="btn btn-success btn-sm mr-1 ml-1"
-          [routerLink]="['/framework/type/add']">
+  <button type="button" *permissionLink="['base.framework.type.add']" class="btn btn-success btn-sm me-1 ms-1"
+    [routerLink]="['/framework/type/add']">
     <i class="fas fa-plus"></i> Add
   </button>
 </ng-template>
 
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

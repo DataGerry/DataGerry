@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,10 @@
 """
 Represents a CmdbRelation in DataGerry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
-from cmdb.class_schema.cmdb_relation_schema import get_cmdb_relation_schema
+from cmdb.class_schema.relation_model.cmdb_relation_schema import get_cmdb_relation_schema
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model.type_field_section import TypeFieldSection
@@ -30,7 +31,7 @@ from cmdb.errors.models.cmdb_relation import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbRelation - CLASS                                                 #
@@ -44,23 +45,31 @@ class CmdbRelation(CmdbDAO):
     """
     COLLECTION = "framework.relations"
     MODEL = 'Relation'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('parent_type_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'parent_type_ids', 'unique': False},
+        {'keys': [('child_type_ids', CmdbDAO.DAO_ASCENDING)], 'name': 'child_type_ids', 'unique': False}
+    ]
+
     SCHEMA: dict = get_cmdb_relation_schema()
 
     #pylint: disable=R0913, R0917
-    def __init__(self,
-                 public_id: int,
-                 relation_name: str,
-                 parent_type_ids: list[int],
-                 child_type_ids: list[int],
-                 relation_name_parent: str,
-                 relation_name_child: str,
-                 description: str = None,
-                 relation_icon_parent: str  = None,
-                 relation_color_parent: str  = None,
-                 relation_icon_child: str  = None,
-                 relation_color_child: str  = None,
-                 sections: list[TypeFieldSection] = None,
-                 fields: list[dict] = None):
+    def __init__(
+            self,
+            public_id: int,
+            relation_name: str,
+            parent_type_ids: list[int],
+            child_type_ids: list[int],
+            relation_name_parent: str,
+            relation_name_child: str,
+            description: str = None,
+            relation_icon_parent: str  = None,
+            relation_color_parent: str  = None,
+            relation_icon_child: str  = None,
+            relation_color_child: str  = None,
+            sections: list[TypeFieldSection] = None,
+            fields: list[dict] = None
+        ) -> None:
         """
         Initialises a CmdbRelation
 

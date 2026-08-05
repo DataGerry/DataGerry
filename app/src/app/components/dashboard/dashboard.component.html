@@ -25,7 +25,12 @@
             <div class="dash-card primary">
                 <i class="fa fa-cube"></i>
                 <div class="count-section">
-                    <div id="count-numbers">{{objectCount}}/{{totalObjects}}</div>
+                    <div id="count-numbers">
+                        {{ objectCount }}
+                        @if (isCloudMode) {
+<span>/{{ totalObjects }}</span>
+}
+                    </div>
                     <div id="count-name">Objects</div>
                 </div>
             </div>
@@ -42,7 +47,8 @@
 
 <hr/>
 
-<ng-container *ngIf="newestObjects">
+@if (newestObjects) {
+
     <h2>Newest objects</h2>
     <cmdb-table
         [id]="'dashboard-newest-table'"
@@ -59,11 +65,13 @@
         [paginationEnabled]="true"
         (pageChange)="onNewestPageChange($event)"
     />
-</ng-container>
+
+}
 
 <hr/>
 
-<ng-container *ngIf="latestObjects">
+@if (latestObjects) {
+
     <h2>Last modified objects</h2>
     <cmdb-table
         [id]="'dashboard-latest-table'"
@@ -79,7 +87,8 @@
         [pageSizeEnabled]="false"
         (pageChange)="onLatestPageChange($event)"
     />
-</ng-container>
+
+}
 
 <ng-template #dateTemplate let-data="data">
     {{data | dateFormatter}}

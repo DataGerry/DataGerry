@@ -1,12 +1,16 @@
-<div class="d-flex justify-content-center" *ngIf="group">
+@if (group) {
+<div class="d-flex justify-content-center">
   <a *permissionLink="'base.user-management.group.edit'"
-     [routerLink]="['/','management','groups', 'edit', group.public_id]">
+    [routerLink]="['/','management','groups', 'edit', group.public_id]">
     <i class="far fa-edit spacing-right icon-edit"></i>
   </a>
-  <ng-container *ngIf="notDeleteAbleGroups.indexOf(group.public_id) == -1">
-    <a *permissionLink="'base.user-management.group.delete'"
-       [routerLink]="['/','management', 'groups', 'delete', group.public_id]">
-      <i class="far fa-trash-alt spacing-right icon-delete"></i>
-    </a>
-  </ng-container>
+  @if (notDeleteAbleGroups.indexOf(group.public_id) == -1) {
+
+  <a *permissionLink="'base.user-management.group.delete'"
+    [routerLink]="['/','management', 'groups', 'delete', group.public_id]">
+    <i class="far fa-trash-alt spacing-right icon-delete"></i>
+  </a>
+
+  }
 </div>
+}

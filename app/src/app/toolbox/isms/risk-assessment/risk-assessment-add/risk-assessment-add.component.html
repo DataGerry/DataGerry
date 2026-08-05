@@ -1,106 +1,103 @@
-<div *ngIf="!configurationIsValid" class="alert alert-warning">
+@if (!configurationIsValid) {
+<div class="alert alert-warning">
   ISMS configuration is incomplete. Please configure your settings first.
 </div>
+}
 
-<div *ngIf="configurationIsValid">
-<div class="risk-assessment-add container" *ngIf="!loading">
+@if (configurationIsValid) {
+<div>
+  @if (!loading) {
+  <div class="risk-assessment-add container">
 
-  <!-- Risk & Object Information Section -->
+    <!-- Risk & Object Information Section -->
 
-  <h2>Risk Assessment</h2>
+    <h2>Risk Assessment</h2>
 
-  <form [formGroup]="form" style="margin-top: 25px;">
-    <!--  Risk-assessment-form-top  -->
-    <app-risk-assessment-form-top [parentForm]="form" [fromRisk]="fromRisk || fromReport"
-      [fromObject]="fromObject || (fromReport && form.get('object_id_ref_type')?.value === 'OBJECT')"
-      [fromObjectGroup]="fromObjectGroup || (fromReport && form.get('object_id_ref_type')?.value === 'OBJECT_GROUP')"
-      [fromReport]="fromReport" [risks]="allRisks" [objects]="allObjects" [objectGroups]="allObjectGroups"
-      [riskSummaryLine]="riskName" [objectSummary]="objectSummary" [mode]="CurrentMode"></app-risk-assessment-form-top>
+    <form [formGroup]="form" style="margin-top: 25px;">
+      <!--  Risk-assessment-form-top  -->
+      <app-risk-assessment-form-top [parentForm]="form" [fromRisk]="fromRisk || fromReport"
+        [fromObject]="fromObject || (fromReport && form.get('object_id_ref_type')?.value === 'OBJECT')"
+        [fromObjectGroup]="fromObjectGroup || (fromReport && form.get('object_id_ref_type')?.value === 'OBJECT_GROUP')"
+        [fromReport]="fromReport" [risks]="allRisks" [objects]="allObjects" [objectGroups]="allObjectGroups"
+        [riskSummaryLine]="riskName" [objectSummary]="objectSummary"
+        [mode]="CurrentMode"></app-risk-assessment-form-top>
 
 
-    <div class="risk-assessment-sections">
-      <!-- Risk Assessment (Before Treatment) Section -->
-      <div class="section-container">
-        <div class="section-header" (click)="toggleSection('before')">
-          <h2 class="section-title">Risk Assessment (Before Treatment)</h2>
-          <span class="toggle-icon">{{ expandedSections.before ? '▼' : '▶' }}</span>
+      <div class="risk-assessment-sections">
+        <!-- Risk Assessment (Before Treatment) Section -->
+        <div class="section-container">
+          <div class="section-header" (click)="toggleSection('before')">
+            <h2 class="section-title">Risk Assessment (Before Treatment)</h2>
+            <span class="toggle-icon">{{ expandedSections.before ? '▼' : '▶' }}</span>
+          </div>
+          <div class="section-content" [ngClass]="{'expanded': expandedSections.before}">
+            <app-risk-assessment-before [parentForm]="form" [impacts]="impacts" [likelihoods]="likelihoods"
+              [allPersons]="allPersons" [allPersonGroups]="allPersonGroups" [impactCategories]="impactCategories"
+              [riskMatrix]="riskMatrix" [riskClasses]="riskClasses" [isView]="isView">
+            </app-risk-assessment-before>
+          </div>
         </div>
-        <div class="section-content" [ngClass]="{'expanded': expandedSections.before}">
-          <app-risk-assessment-before [parentForm]="form" [impacts]="impacts" [likelihoods]="likelihoods"
-            [allPersons]="allPersons" [allPersonGroups]="allPersonGroups" [impactCategories]="impactCategories"
-            [riskMatrix]="riskMatrix" [riskClasses]="riskClasses" [isView]="isView">
-          </app-risk-assessment-before>
+
+        <!-- Risk Treatment Section -->
+        <div class="section-container">
+          <div class="section-header" (click)="toggleSection('treatment')">
+            <h2 class="section-title">Risk Treatment</h2>
+            <span class="toggle-icon">{{ expandedSections.treatment ? '▼' : '▶' }}</span>
+          </div>
+          <div class="section-content" [ngClass]="{'expanded': expandedSections.treatment}">
+            <app-risk-assessment-treatment #treatmentBlock [parentForm]="form" [allPersons]="allPersons"
+              [allPersonGroups]="allPersonGroups" [implementationStates]="implementationStates" [createMode]="!isView"
+              [allControlMeasures]="allControlMeasures" [riskAssessmentId]="riskAssessmentId">
+            </app-risk-assessment-treatment>
+          </div>
+        </div>
+
+        <!-- Risk Assessment (After Treatment) Section -->
+        <div class="section-container">
+          <div class="section-header" (click)="toggleSection('after')">
+            <h2 class="section-title">Risk Assessment (After Treatment)</h2>
+            <span class="toggle-icon">{{ expandedSections.after ? '▼' : '▶' }}</span>
+          </div>
+          <div class="section-content" [ngClass]="{'expanded': expandedSections.after}">
+            <app-risk-assessment-after [parentForm]="form" [impacts]="impacts" [likelihoods]="likelihoods"
+              [impactCategories]="impactCategories" [riskMatrix]="riskMatrix" [riskClasses]="riskClasses"
+              [isView]="isView">
+            </app-risk-assessment-after>
+          </div>
+        </div>
+
+        <!-- Audit Information Section -->
+        <div class="section-container">
+          <div class="section-header" (click)="toggleSection('audit')">
+            <h2 class="section-title">Audit Information</h2>
+            <span class="toggle-icon">{{ expandedSections.audit ? '▼' : '▶' }}</span>
+          </div>
+          <div class="section-content" [ngClass]="{'expanded': expandedSections.audit}">
+            <app-risk-assessment-audit [parentForm]="form" [allPersons]="allPersons"
+              [allPersonGroups]="allPersonGroups">
+            </app-risk-assessment-audit>
+          </div>
         </div>
       </div>
 
-      <!-- Risk Treatment Section -->
-      <div class="section-container">
-        <div class="section-header" (click)="toggleSection('treatment')">
-          <h2 class="section-title">Risk Treatment</h2>
-          <span class="toggle-icon">{{ expandedSections.treatment ? '▼' : '▶' }}</span>
-        </div>
-        <div class="section-content" [ngClass]="{'expanded': expandedSections.treatment}">
-          <app-risk-assessment-treatment #treatmentBlock [parentForm]="form" [allPersons]="allPersons"
-            [allPersonGroups]="allPersonGroups" [implementationStates]="implementationStates" [createMode]="!isView"
-            [allControlMeasures]="allControlMeasures" [riskAssessmentId]="riskAssessmentId">
-          </app-risk-assessment-treatment>
-        </div>
+      <!-- Footer Buttons -->
+      @if (!isView) {
+      <div class="mt-4 d-flex justify-content-between">
+        <!-- Cancel Button -->
+        <app-button label="Cancel" type="button" [bootstrapClass]="'btn-secondary me-2'"
+          (clicked)="onCancel()"></app-button>
+
+        <!-- Submit Button -->
+        <app-button label="{{ isEditMode ? 'Update' : 'Create' }}" type="submit" [bootstrapClass]="'btn-success'"
+          (clicked)="onSave()"></app-button>
       </div>
+      }
+    </form>
 
-      <!-- Risk Assessment (After Treatment) Section -->
-      <div class="section-container">
-        <div class="section-header" (click)="toggleSection('after')">
-          <h2 class="section-title">Risk Assessment (After Treatment)</h2>
-          <span class="toggle-icon">{{ expandedSections.after ? '▼' : '▶' }}</span>
-        </div>
-        <div class="section-content" [ngClass]="{'expanded': expandedSections.after}">
-          <app-risk-assessment-after [parentForm]="form" [impacts]="impacts" [likelihoods]="likelihoods"
-            [impactCategories]="impactCategories" [riskMatrix]="riskMatrix" [riskClasses]="riskClasses" [isView]="isView">
-          </app-risk-assessment-after>
-        </div>
-      </div>
-
-      <!-- Audit Information Section -->
-      <div class="section-container">
-        <div class="section-header" (click)="toggleSection('audit')">
-          <h2 class="section-title">Audit Information</h2>
-          <span class="toggle-icon">{{ expandedSections.audit ? '▼' : '▶' }}</span>
-        </div>
-        <div class="section-content" [ngClass]="{'expanded': expandedSections.audit}">
-          <app-risk-assessment-audit [parentForm]="form" [allPersons]="allPersons" [allPersonGroups]="allPersonGroups">
-          </app-risk-assessment-audit>
-        </div>
-      </div>
-    </div>
-
-    <!-- Action Buttons -->
-    <!-- <div class="action-buttons">
-      <button class="btn btn-primary" type="button" (click)="onSave()">
-        {{ isEditMode ? 'Update' : 'Create' }}
-      </button>
-      <button class="btn btn-secondary" type="button" (click)="onCancel()">
-        Cancel
-      </button>
-    </div> -->
-
-
-    <!-- Footer Buttons -->
-    <div class="mt-4 d-flex justify-content-between" *ngIf="!isView">
-      <!-- Cancel Button -->
-      <app-button label="Cancel" type="button" [bootstrapClass]="'btn-secondary mr-2'"
-        (clicked)="onCancel()"></app-button>
-
-      <!-- Submit Button -->
-      <app-button label="{{ isEditMode ? 'Update' : 'Create' }}" type="submit" [bootstrapClass]="'btn-success'" (clicked)="onSave()"></app-button>
-    </div>
-
-    <!-- <cmdb-risk-assessment-footer [riskAssessmentName]="form.get('object_id')?.value" [currentID]="riskAssessmentId"
-      *ngIf="isView">
-    </cmdb-risk-assessment-footer> -->
-  </form>
-
+  </div>
+  }
 </div>
-</div>
+}
 
 
 <app-loading-popup [isVisible]="loading$ | async" message="Loading Dashboard..."></app-loading-popup>

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,12 +16,12 @@
 """
 Implementation of IsmsRiskAssessment in DataGerry - ISMS
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime
 from dateutil.parser import parse
 
-from cmdb.class_schema.isms_risk_assessment_schema import get_isms_risk_assessment_schema
-
+from cmdb.class_schema.isms_model.isms_risk_assessment_schema import get_isms_risk_assessment_schema
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.priority_enum import Priority
 from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
@@ -35,7 +35,7 @@ from cmdb.errors.models.isms_risk_assessment import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              IsmsRiskAssessment - CLASS                                              #
@@ -48,7 +48,26 @@ class IsmsRiskAssessment(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.riskAssessment"
-    MODEL = 'RiskAssessment'
+
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('risk_id', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_id', 'unique': False},
+        {'keys': [('object_id_ref_type', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id_ref_type', 'unique': False},
+        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': False},
+        {'keys': [('interviewed_persons', CmdbDAO.DAO_ASCENDING)], 'name': 'interviewed_persons', 'unique': False},
+        {
+            'keys': [('responsible_persons_id_ref_type', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_persons_id_ref_type',
+            'unique': False
+        },
+        {
+            'keys': [('responsible_persons_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_persons_id',
+            'unique': False
+        },
+        {'keys': [('implementation_status', CmdbDAO.DAO_ASCENDING)], 'name': 'implementation_status', 'unique': False},
+        {'keys': [('auditor_id_ref_type', CmdbDAO.DAO_ASCENDING)], 'name': 'auditor_id_ref_type', 'unique': False},
+        {'keys': [('auditor_id', CmdbDAO.DAO_ASCENDING)], 'name': 'auditor_id', 'unique': False},
+    ]
 
     SCHEMA: dict = get_isms_risk_assessment_schema()
 
@@ -59,11 +78,11 @@ class IsmsRiskAssessment(CmdbDAO):
             risk_id: int,
             object_id_ref_type: ObjectReferenceType,
             object_id: int,
-            risk_calculation_before: dict,
+            risk_calculation_before: dict[str, Any],
             risk_assessor_id: int,
             risk_owner_id_ref_type: PersonReferenceType,
             risk_owner_id: int,
-            interviewed_persons: list,
+            interviewed_persons: list[int],
             risk_assessment_date: datetime,
             additional_info: str,
             risk_treatment_option: TreatmentOption,
@@ -77,11 +96,12 @@ class IsmsRiskAssessment(CmdbDAO):
             costs_for_implementation: float,
             costs_for_implementation_currency: str,
             priority: Priority,
-            risk_calculation_after: dict,
+            risk_calculation_after: dict[str, Any],
             audit_done_date: datetime,
             auditor_id_ref_type: PersonReferenceType,
             auditor_id: int,
-            audit_result: str):
+            audit_result: str
+        ) -> None:
         """
         Initialises an IsmsRiskAssessment
 
@@ -152,7 +172,7 @@ class IsmsRiskAssessment(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "IsmsRiskAssessment":
+    def from_data(cls, data: dict[str, Any]) -> "IsmsRiskAssessment":
         """
         Initialises a IsmsRiskAssessment from a dict
 
@@ -217,7 +237,7 @@ class IsmsRiskAssessment(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "IsmsRiskAssessment") -> dict:
+    def to_json(cls, instance: "IsmsRiskAssessment") -> dict[str, Any]:
         """
         Converts a IsmsRiskAssessment into a json compatible dict
 

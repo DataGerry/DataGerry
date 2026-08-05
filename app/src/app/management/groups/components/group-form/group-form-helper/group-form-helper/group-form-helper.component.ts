@@ -3,9 +3,10 @@ import { Right } from '../../../../../models/right';
 import { UntypedFormGroup } from '@angular/forms';
 
 @Component({
-  selector: 'cmdb-group-form-helper',
-  templateUrl: './group-form-helper.component.html',
-  styleUrls: ['./group-form-helper.component.scss']
+    selector: 'cmdb-group-form-helper',
+    templateUrl: './group-form-helper.component.html',
+    styleUrls: ['./group-form-helper.component.scss'],
+    standalone: false
 })
 export class GroupFormHelperComponent implements OnInit {
 

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,12 @@
 """
 Implementation of RenderResult
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 RenderResult - CLASS                                                 #
@@ -30,9 +31,9 @@ class RenderResult:
     Represents the result of rendering a CmdbObject
 
     Attributes:
-        current_render_time (datetime): Timestamp of when the render operation occurred
-        object_information (dict): Information related to the rendered object
-        type_information (dict): Metadata about the object's type
+        current_render_time (datetime): Timestamp when the render operation occurred
+        object_information (dict[str, Any]): Information related to the rendered CmdbObject
+        type_information (dict[str, Any]): Metadata about the object's type
         fields (list): List of fields associated with the rendered object
         sections (list): List of sections present in the rendered result
         summaries (list): Summary details of the rendered object
@@ -41,13 +42,29 @@ class RenderResult:
         multi_data_sections (list): Sections containing multiple data entries
     """
 
-    def __init__(self):
-        self.current_render_time = datetime.now(timezone.utc)
-        self.object_information: dict = {}
-        self.type_information: dict = {}
+    def __init__(self) -> None:
+        self.current_render_time: datetime = datetime.now(timezone.utc)
+        self.object_information: dict[str, Any] = {}
+        self.type_information: dict[str, Any] = {}
         self.fields: list = []
         self.sections: list = []
         self.summaries: list = []
         self.summary_line: str = ''
         self.externals: list = []
         self.multi_data_sections: list = []
+
+
+    def __str__(self) -> str:
+        return (
+            f"{self.__class__.__name__}(\n"
+            f"  current_render_time={self.current_render_time.isoformat()},\n"
+            f"  object_information={self.object_information},\n"
+            f"  type_information={self.type_information},\n"
+            f"  fields={len(self.fields)} items,\n"
+            f"  sections={len(self.sections)} items,\n"
+            f"  summaries={len(self.summaries)} items,\n"
+            f"  summary_line='{self.summary_line}',\n"
+            f"  externals={len(self.externals)} items,\n"
+            f"  multi_data_sections={len(self.multi_data_sections)} items\n"
+            f")"
+        )

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,10 @@
 """
 Implementation of CmdbDAO
 """
-import logging
-from typing import Type, TypeVar
+from logging import Logger, getLogger
+from typing import Type, TypeVar, Any
 import pprint
+
 from pymongo import IndexModel
 
 from cmdb.models.cmdb_versioning import Versioning
@@ -26,7 +27,7 @@ from cmdb.models.cmdb_versioning import Versioning
 from cmdb.errors.cmdb_object import NoPublicIDError, NoVersionError, RequiredInitKeyNotFoundError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 T = TypeVar("T", bound="CmdbDAO")
 
@@ -42,7 +43,6 @@ class CmdbDAO:
         DAO_ASCENDING (int): models sort order ascending
         DAO_DESCENDING (int): models sort order descending
         COLLECTION (str): name of the database table - should always be overwritten
-        IGNORED_INIT_KEYS (list, optional): list of default init keys which an specific object won't need
         REQUIRED_INIT_KEYS (list, optional): list of default parameters which an object needs to work
         VERSIONING_MAJOR (int): addend for major version updates
         VERSIONING_MINOR (int): addend for minor version updates
@@ -55,26 +55,28 @@ class CmdbDAO:
     DAO_ASCENDING = 1
     DAO_DESCENDING = -1
     COLLECTION = 'framework.*'
-    MODEL: str = ''
-    SCHEMA: dict = {}
+    SCHEMA: dict[str, Any] = {}
 
-    __SUPER_INIT_KEYS = [
+    SUPER_INIT_KEYS: list[str] = [
         'public_id'
     ]
 
-    SUPER_INDEX_KEYS = [
-        {'keys': [('public_id', DAO_ASCENDING)], 'name': 'public_id', 'unique': True}
+    SUPER_INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [('public_id', DAO_ASCENDING)],
+            'name': 'public_id',
+            'unique': True
+        }
     ]
 
-    IGNORED_INIT_KEYS = []
-    REQUIRED_INIT_KEYS = []
-    INDEX_KEYS = []
+    REQUIRED_INIT_KEYS: list[str] = []
+    INDEX_KEYS: list[dict[str, Any]] = []
     VERSIONING_MAJOR = 2
     VERSIONING_MINOR = 1
     VERSIONING_PATCH = 0
 
 
-    def __init__(self, public_id, **kwargs):
+    def __init__(self, public_id : int, **kwargs: Any) -> None:
         """
         All parameters inside *kwargs will be auto convert to attributes
 
@@ -88,6 +90,30 @@ class CmdbDAO:
                 self.version = value
             else:
                 setattr(self, key, value)
+
+
+    def __new__(cls, *args: Any, **kwargs: Any):
+        """
+        auto call function by object initialization
+        checks if all required keys for cmdb usage are present
+        @deprecated_implementation
+        if not all(key in key_list for key in cls.REQUIRED_INIT_KEYS):
+
+        Returns:
+            Instance of the object
+
+        Raises:
+            RequiredInitKeyNotFoundError: if some given attributes are not inside the requirement lists
+        """
+        init_keys: list[str] = cls.SUPER_INIT_KEYS + cls.REQUIRED_INIT_KEYS
+
+        for req_key in init_keys:
+            if req_key in kwargs:
+                continue
+
+            raise RequiredInitKeyNotFoundError(f"A required InitKey is missing: {req_key}!")
+
+        return super().__new__(cls)
 
 
     def get_public_id(self) -> int:
@@ -105,41 +131,14 @@ class CmdbDAO:
         Returns:
             int: public id
         """
-        if self.public_id == 0 or self.public_id is None:
+        if self.public_id == 0:
             raise NoPublicIDError("No public_id assigned!")
 
         return self.public_id
 
 
-    def __new__(cls, *args, **kwargs):
-        """
-        auto call function by object initialization
-        checks if all required keys for cmdb usage are present
-        @deprecated_implementation
-        if not all(key in key_list for key in cls.REQUIRED_INIT_KEYS):
-
-        Returns:
-            Instance of the object
-
-        Raises:
-            RequiredInitKeyNotFoundError: if some given attributes are not inside the requirement lists
-        """
-        init_keys = cls.__SUPER_INIT_KEYS + cls.REQUIRED_INIT_KEYS
-
-        if len(cls.IGNORED_INIT_KEYS) > 0:
-            init_keys = [i for j, i in enumerate(init_keys) if j in cls.IGNORED_INIT_KEYS]
-
-        for req_key in init_keys:
-            if req_key in kwargs:
-                continue
-
-            raise RequiredInitKeyNotFoundError(f"A required InitKey is missing: {req_key}!")
-
-        return super().__new__(cls)
-
-
     @classmethod
-    def get_index_keys(cls):
+    def get_index_keys(cls) -> list[IndexModel]:
         """
         Retrieves a list of index models based on class-defined index keys
 
@@ -149,7 +148,7 @@ class CmdbDAO:
         return [IndexModel(**index) for index in cls.INDEX_KEYS + cls.SUPER_INDEX_KEYS]
 
 
-    def update_version(self, update) -> str:
+    def update_version(self, update: int) -> str:
         """
         Update the version number of the object
 
@@ -167,9 +166,6 @@ class CmdbDAO:
             raise NoVersionError(f"The object (ID: {self.get_public_id()}) has no version property")
 
         updater_version = Versioning(*map(int, self.version.split('.')))
-
-        if not isinstance(updater_version, Versioning):
-            raise TypeError('Version type must be a Versioning')
 
         if update == self.VERSIONING_MAJOR:
             updater_version.update_major()
@@ -196,21 +192,21 @@ class CmdbDAO:
         raise NoVersionError(f"The object (ID: {self.get_public_id()}) has no version property")
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'Class: {self.__class__.__name__} \nDict:\n{pprint.pformat(self.__dict__)}'
 
 
     @classmethod
-    def from_data(cls: Type[T], data: dict) -> T:
+    def from_data(cls: Type[T], data: dict[str, Any]) -> T:
         """
         Each subclass must implement this to initialize from a dictionary
         """
-        raise NotImplementedError(f"{cls.__name__} must implement from_data.")
+        raise NotImplementedError(f"{cls.__name__} must implement a 'from_data' method!")
 
 
     @classmethod
-    def to_json(cls, instance: T) -> dict:
+    def to_json(cls: Type[T], instance: "CmdbDAO") -> dict[str, Any]:
         """
         Each subclass must implement this to convert to a JSON-compatible dict
         """
-        raise NotImplementedError(f"{cls.__name__} must implement to_json.")
+        raise NotImplementedError(f"{cls.__name__} must implement a 'to_json' method!")

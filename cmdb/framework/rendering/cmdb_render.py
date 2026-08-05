@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,11 @@
 """
 Implementation of CmdbRender
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from dateutil.parser import parse
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.database import MongoDatabaseManager
 from cmdb.manager import (
     ObjectsManager,
     UsersManager,
@@ -28,6 +28,7 @@ from cmdb.manager import (
 )
 
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import (
@@ -51,7 +52,7 @@ from cmdb.errors.models.cmdb_type import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbRender - CLASS                                                  #
@@ -60,15 +61,14 @@ class CmdbRender:
     """
     Responsible for rendering CMDB object and type data into a specified format
     """
-
-    AUTHOR_ANONYMOUS_NAME = 'unknown'
-
     # pylint: disable=R0917
-    def __init__(self,
-                 object_instance: CmdbObject,
-                 type_instance: CmdbType,
-                 render_user: CmdbUser,
-                 ref_render=False):
+    def __init__(
+        self,
+        object_instance: CmdbObject,
+        type_instance: CmdbType,
+        render_user: CmdbUser,
+        ref_render: bool = False
+    ) -> None:
         """
         Initializes CmdbRender
 
@@ -77,18 +77,16 @@ class CmdbRender:
             type_instance (CmdbType): The CMDB type to render
             render_user (CmdbUser): The user who is requesting the render
             ref_render (bool, optional): Flag to enable reference rendering. Defaults to False
-            dbm (MongoDatabaseManager, optional): Database manager. Defaults to None
         """
-        self.database = render_user.database
-        self.object_instance = object_instance
-        self.type_instance = type_instance
-        self.render_user = render_user
+        self.object_instance: CmdbObject = object_instance
+        self.type_instance: CmdbType = type_instance
+        self.render_user: CmdbUser = render_user
 
         self.objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, self.render_user)
         self.types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, self.render_user)
         self.users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, self.render_user)
 
-        self.ref_render = ref_render
+        self.ref_render: bool = ref_render
 
 
     @property
@@ -100,7 +98,7 @@ class CmdbRender:
 
 
     @object_instance.setter
-    def object_instance(self, object_instance: CmdbObject):
+    def object_instance(self, object_instance: CmdbObject) -> None:
         """
         Set the object_instance property after validation
 
@@ -125,7 +123,7 @@ class CmdbRender:
 
 
     @type_instance.setter
-    def type_instance(self, type_instance: CmdbType):
+    def type_instance(self, type_instance: CmdbType) -> None:
         """
         Set the type_instance property after validation
 
@@ -138,7 +136,7 @@ class CmdbRender:
         if not isinstance(type_instance, CmdbType):
             raise TypeInstanceError("The passed type is not a CmdbType!")
 
-        self._type_instance = type_instance
+        self._type_instance: CmdbType = type_instance
 
 
     def result(self, level: int = 3) -> RenderResult:
@@ -195,7 +193,7 @@ class CmdbRender:
             RenderResult: The rendered result
         """
         try:
-            render_result = RenderResult()
+            render_result: RenderResult = RenderResult()
 
             render_result = self.__generate_object_information(render_result)
             render_result = self.__generate_type_information(render_result)
@@ -236,17 +234,17 @@ class CmdbRender:
             RenderResult: The updated render result with object-specific information
         """
         try:
-            author_name = None
-            author = self.users_manager.get_user(self.object_instance.author_id)
+            author_name: str | None = None
+            author: CmdbUser | None = self.users_manager.get_user(self.object_instance.author_id)
 
             if author:
-                author_name = author = author.get_display_name()
+                author_name = author.get_display_name()
             else:
-                author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
+                author_name = ANONYMOUS_NAME
         except Exception:
-            author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
+            author_name = ANONYMOUS_NAME
 
-        editor_name = None
+        editor_name: str | None = None
         if self.object_instance.editor_id:
             try:
                 editor = self.users_manager.get_user(self.object_instance.editor_id)
@@ -282,15 +280,15 @@ class CmdbRender:
             RenderResult: The updated render result with type-specific information
         """
         try:
-            author_name = None
-            author = self.users_manager.get_user(self.object_instance.author_id)
+            author_name: str | None = None
+            author: CmdbUser | None = self.users_manager.get_user(self.object_instance.author_id)
 
             if author:
                 author_name = author = author.get_display_name()
             else:
-                author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
+                author_name = ANONYMOUS_NAME
         except UsersManagerGetError:
-            author_name = CmdbRender.AUTHOR_ANONYMOUS_NAME
+            author_name = ANONYMOUS_NAME
 
         try:
             self.type_instance.render_meta.icon
@@ -510,7 +508,8 @@ class CmdbRender:
             ref_section_field: dict,
             ref_type: CmdbType,
             ref_section_fields: list,
-            level: int) -> list:
+            level: int
+    ) -> list:
         """
         Recursively merges fields from a referenced section into the current section fields list.
 
@@ -569,6 +568,9 @@ class CmdbRender:
                 ref_object = self.objects_manager.get_object(int(current_field['value']),
                                                              self.render_user,
                                                              AccessControlPermission.READ)
+                if not ref_object:
+                    return TypeReference.to_json(reference)
+
                 ref_object = CmdbObject.from_data(ref_object)
             except AccessDeniedError as err:
                 return err
@@ -677,28 +679,41 @@ class CmdbRender:
         Returns:
             RenderResult: Updated render result with populated external links
         """
-        # global external list
-        external_list = []
         # checks if type has externals defined
         if not self.type_instance.has_externals():
             render_result.externals = []
+            return render_result
+
+        # global external list
+        external_list: list[dict[str, Any]] = []
+
         # loop over all externals
         for ext_link in self.type_instance.get_externals():
             # append all values for required field in this list
-            field_list = []
+            field_list: list[Any] = []
             # if data are missing or empty append here
-            missing_list = []
+            missing_list: list[Any] = []
+
             try:
                 # get TypeExternalLink definitions from type
-                ext_link_instance = self.type_instance.get_external(ext_link.name)
+                ext_link_instance: TypeExternalLink | None = self.type_instance.get_external(ext_link.name)
+
+                if not ext_link_instance:
+                    LOGGER.debug("[__set_external] ExternalLink for %s not found!", ext_link.name)
+                    continue
+
                 # check if link requires data - regex check for {}
                 if ext_link_instance.link_requires_fields():
+
                     # check if has fields
                     if not ext_link_instance.has_fields():
-                        raise ValueError(field_list)
+                        raise ValueError(f"No fields assigned to the ExternalLink named: {ext_link.name}!")
+
                     # for every field get the value data from object_instance
                     for ext_link_field in ext_link_instance.fields:
                         try:
+                            field_value: int | str | None = None
+
                             if ext_link_field == 'object_id':
                                 field_value = self.object_instance.public_id
                             else:
@@ -706,22 +721,29 @@ class CmdbRender:
 
                             if field_value is None or field_value == '':
                                 # if value is empty or does not exists
-                                raise ValueError(ext_link_field)
+                                raise ValueError(f"Field '{ext_link_field}' for ExternalLink is empty!")
+
                             field_list.append(field_value)
                         except Exception:
+                            # LOGGER.debug("[__set_external] ExternalLink set Field Exception: %s!", err)
                             # if error append missing data
                             missing_list.append(ext_link_instance)
+
                 if len(missing_list) > 0:
-                    raise RuntimeError(missing_list)
+                    raise RuntimeError(f"ExternalLink issues with {len(missing_list)} fields!")
+
                 try:
                     # fill the href with field value data
                     ext_link_instance.fill_href(field_list)
                 except ValueError:
+                    # LOGGER.debug("[__set_external] ExternalLink ValueError: %s", err)
                     continue
+
             except Exception:
+                # LOGGER.debug("[__set_external] ExternalLink Exception: %s", err)
                 continue
 
             external_list.append(TypeExternalLink.to_json(ext_link_instance))
-            render_result.externals = external_list
 
+        render_result.externals = external_list
         return render_result

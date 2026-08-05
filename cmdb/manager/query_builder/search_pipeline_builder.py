@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,19 +16,25 @@
 """
 Implementation of SearchPipelineBuilder
 """
-import logging
+from logging import Logger, getLogger
+from typing import TYPE_CHECKING
 
-from cmdb.manager.query_builder import PipelineBuilder, SearchReferencesPipelineBuilder
-from cmdb.manager import CategoriesManager
-from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
+from cmdb.manager.query_builder.search_references_pipeline_builder import SearchReferencesPipelineBuilder
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.search.search_param import SearchParam
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import AccessControlQueryBuilder
+
+if TYPE_CHECKING:
+    # Imported for type checking only - importing at module level would create a circular import
+    # (cmdb.manager -> query_builder -> this module -> cmdb.manager), which is why this builder is
+    # exported from the query_builder package while resolving its managers lazily inside build()
+    from cmdb.manager import CategoriesManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             SearchPipelineBuilder - CLASS                                            #
@@ -44,13 +50,13 @@ class SearchPipelineBuilder(PipelineBuilder):
         PipelineBuilder: The base class for building aggregation query pipelines
     """
 
-    def __init__(self, pipeline: list[dict] = None):
+    def __init__(self, pipeline: list[dict] | None = None):
         """
         Initializes the SearchPipelineBuilder
 
         Args:
-            pipeline (list[dict], optional): A predefined aggregation pipeline to initialize with.
-                                             Defaults to an empty list if not provided
+            pipeline (list[dict] | None): A predefined aggregation pipeline to initialize with.
+                                          Defaults to an empty list if not provided
         """
         super().__init__(pipeline=pipeline)
 
@@ -89,15 +95,22 @@ class SearchPipelineBuilder(PipelineBuilder):
 
 
     def build(self, params: list[SearchParam],
-              user: CmdbUser = None,
-              permission: AccessControlPermission = None,
+              user: CmdbUser | None = None,
+              permission: AccessControlPermission | None = None,
               active_flag: bool = False) -> list[dict]:
+        # A search pipeline is inherently branchy (text / type / category / publicID / permission stages)
+        # pylint: disable=arguments-differ, too-many-locals
         """
         Build a pipeline query out of frontend params
         """
         # LOGGER.debug(f"[build] params: {params}")
         # clear pipeline
         self.clear()
+
+        # Imported lazily to avoid a circular import at module load (see the TYPE_CHECKING note above)
+        # pylint: disable=import-outside-toplevel
+        from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+
         categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES, user)
 
         # load reference fields in runtime.

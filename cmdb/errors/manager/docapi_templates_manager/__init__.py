@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,11 @@
 """
 This module provides all errors for the DocapiTemplatesManager
 """
+from typing import Any
+
 from .docapi_templates_manager_errors import (
     DocapiTemplatesManagerError,
+    DocapiTemplatesManagerInitError,
     DocapiTemplatesManagerInsertError,
     DocapiTemplatesManagerGetError,
     DocapiTemplatesManagerIterationError,
@@ -26,11 +29,23 @@ from .docapi_templates_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'DocapiTemplatesManagerError',
+    'DocapiTemplatesManagerInitError',
     'DocapiTemplatesManagerInsertError',
     'DocapiTemplatesManagerGetError',
     'DocapiTemplatesManagerIterationError',
     'DocapiTemplatesManagerUpdateError',
     'DocapiTemplatesManagerDeleteError',
+    'DOCAPI_TEMPLATES_MANAGER_ERRORS',
 ]
+
+
+DOCAPI_TEMPLATES_MANAGER_ERRORS: dict[str, Any] = {
+    "init": DocapiTemplatesManagerInitError,
+    "insert": DocapiTemplatesManagerInsertError,
+    "get": DocapiTemplatesManagerGetError,
+    "update": DocapiTemplatesManagerUpdateError,
+    "delete": DocapiTemplatesManagerDeleteError,
+    "iterate": DocapiTemplatesManagerIterationError,
+}

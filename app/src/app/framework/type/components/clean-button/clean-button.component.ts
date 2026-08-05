@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
 
@@ -30,13 +30,16 @@ import { CleanupModalComponent } from '../../modals/cleanup-modal/cleanup-modal.
 @Component({
     selector: 'cmdb-clean-button',
     templateUrl: './clean-button.component.html',
-    styleUrls: ['./clean-button.component.scss']
+    styleUrls: ['./clean-button.component.scss'],
+    standalone: false
 })
 export class CleanButtonComponent implements OnChanges, OnDestroy {
     // Component un-subscriber
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
     // Type of the cleanable objects
     @Input() public type: CmdbType;
+    // Prefetched clean status from type list endpoint
+    @Input() public cleanStatus: boolean;
     // Object clean status
     public clean: boolean = false;
     // Is the clean status loading
@@ -47,25 +50,32 @@ export class CleanButtonComponent implements OnChanges, OnDestroy {
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
-    constructor(
-        private objectService: ObjectService,
-        private modalService: NgbModal,
-        private toastService: ToastService
-    ) {
-
-    }
+    private readonly objectService = inject(ObjectService);
+    private readonly modalService = inject(NgbModal);
+    private readonly toastService = inject(ToastService);
 
 
     public ngOnChanges(changes: SimpleChanges): void {
+        if (changes.cleanStatus && typeof this.cleanStatus === 'boolean') {
+            this.clean = this.cleanStatus;
+            this.loading = false;
+            return;
+        }
+
         if (changes.type && changes.type.currentValue !== changes.type.previousValue) {
+            if (typeof this.cleanStatus === 'boolean') {
+                this.clean = this.cleanStatus;
+                this.loading = false;
+                return;
+            }
             this.loadObjectCleanStatus();
         }
     }
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
 
         if (this.modalRef) {
             this.modalRef.close();
@@ -98,11 +108,8 @@ export class CleanButtonComponent implements OnChanges, OnDestroy {
         this.modalRef.result.then((result) => {
             if (result === 'Clean') {
                 this.toastService.success(`Objects of ${ this.type.label } were cleaned up!`);
-                this.loadObjectCleanStatus();
-                //TODO : reload is done for now but should be replaced 
-                // apparantely a delay of 1500ms between this.objectService.cleanObjects and 
-                //  this.objectService.getObjectCleanStatus gets the updated data
-                window.location.reload();
+                this.clean = true;
+                this.loading = false;
             }
         });
     }

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import {Component} from '@angular/core';
+import {Component, inject} from '@angular/core';
 import {animate, state, style, transition, trigger} from '@angular/animations';
 
 import {ToastService} from '../toast.service';
@@ -27,20 +27,17 @@ import {ToastService} from '../toast.service';
     styleUrls: ['./toast-container.component.scss'],
     animations: [
         // the fade-in/fade-out animation.
-        trigger('simpleFadeAnimation',
-            [
-                state('in', style({opacity: 1})),
-                transition(':enter', [
-                    style({opacity: 0}),
-                    animate(500)
-                ])
-            ]
-        )
-    ]
+        trigger('simpleFadeAnimation', [
+            state('in', style({ opacity: 1 })),
+            transition(':enter', [
+                style({ opacity: 0 }),
+                animate(500)
+            ])
+        ])
+    ],
+    standalone: false
 })
 export class ToastContainerComponent {
 
-  constructor(public toastService: ToastService) {
-
-  }
+  public readonly toastService = inject(ToastService);
 }

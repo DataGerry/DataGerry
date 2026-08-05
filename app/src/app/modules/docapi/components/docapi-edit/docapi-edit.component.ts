@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,30 +17,53 @@
 */
 import { Component, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { finalize } from 'rxjs';
 
 import { DocapiService } from '../../services/docapi.service';
 
 import { DocTemplate } from '../../models/cmdb-doctemplate';
 import { CmdbMode } from '../../../../framework/modes.enum';
+import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-docapi-template-edit',
     templateUrl: './docapi-edit.component.html',
-    styleUrls: ['./docapi-edit.component.scss']
+    styleUrls: ['./docapi-edit.component.scss'],
+    standalone: false
 })
 export class DocapiEditComponent implements OnInit {
     public docId: number;
     public docInstance: DocTemplate;
     public mode: number = CmdbMode.Edit;
+    public templateLabel: string = '';
+    public isLoading$ = this.loaderService.isLoading$;
 
 
-    constructor(private docapiService: DocapiService, private route: ActivatedRoute) {
+    constructor(
+        private docapiService: DocapiService,
+        private route: ActivatedRoute,
+        private loaderService: LoaderService
+    ) {
         this.route?.params?.subscribe((id) => this.docId = id?.publicId);
     }
 
 
     public ngOnInit(): void {
-        this.docapiService?.getDocTemplate(this.docId).subscribe((docInstance: DocTemplate) => this.docInstance = docInstance);
+        this.loaderService.show();
+        this.docapiService?.getDocTemplate(this.docId).pipe(
+            finalize(() => this.loaderService.hide())
+        ).subscribe((docInstance: DocTemplate) => {
+            this.docInstance = docInstance;
+            this.templateLabel = docInstance?.label?.trim() ?? '';
+        });
+    }
+
+    public onLabelChanged(label: string): void {
+        this.templateLabel = label?.trim() ?? '';
+    }
+
+    public get title(): string {
+        return this.templateLabel ? `Edit ${this.templateLabel} Template` : 'Edit Template';
     }
 }

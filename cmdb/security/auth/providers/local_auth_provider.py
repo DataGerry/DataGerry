@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,8 @@
 """
 Implementation of LocalAuthenticationProvider
 """
-import logging
+from logging import Logger, getLogger
+
 from flask import current_app
 
 from cmdb.manager import (
@@ -32,7 +33,7 @@ from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.provider import AuthenticationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          LocalAuthenticationProvider - CLASS                                         #
@@ -92,7 +93,7 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
             if not user:
                 raise AuthenticationError("User not found!")
         except BaseManagerGetError as err:
-            raise AuthenticationError(err) from err
+            raise AuthenticationError(str(err)) from err
 
         login_pass = self.security_manager.generate_hmac(password)
 

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,9 +30,10 @@ interface CmdbType   { public_id: number; }
 interface CmdbObject { public_id: number; type_id: number; name: string; }
 
 @Component({
-  selector: 'app-risk-assessment-form-top',
-  templateUrl: './risk-assessment-form-top.component.html',
-  styleUrls: ['./risk-assessment-form-top.component.scss']
+    selector: 'app-risk-assessment-form-top',
+    templateUrl: './risk-assessment-form-top.component.html',
+    styleUrls: ['./risk-assessment-form-top.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentFormTopComponent implements OnInit {
 
@@ -45,7 +46,7 @@ export class RiskAssessmentFormTopComponent implements OnInit {
   @Input() fromReport = false;
 
   @Input() risks:        any[]        = [];
-  @Input() objects:      CmdbObject[] = [];
+  // @Input() objects:      CmdbObject[] = [];
   @Input() objectGroups: any[]        = [];
 
   @Input() objectSummary:   string | null = null;

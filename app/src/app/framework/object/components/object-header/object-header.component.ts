@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,16 +16,17 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, inject, EventEmitter, Input, Output } from '@angular/core';
 import { RenderResult } from '../../../models/cmdb-render';
 import { ObjectService } from '../../../services/object.service';
 import { ToastService } from '../../../../layout/toast/toast.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 @Component({
-  selector: 'cmdb-object-header',
-  templateUrl: './object-header.component.html',
-  styleUrls: ['./object-header.component.scss']
+    selector: 'cmdb-object-header',
+    templateUrl: './object-header.component.html',
+    styleUrls: ['./object-header.component.scss'],
+    standalone: false
 })
 export class ObjectHeaderComponent {
 
@@ -48,9 +49,9 @@ export class ObjectHeaderComponent {
     return this.result;
   }
 
-  public constructor(private objectService: ObjectService, private toastService: ToastService, private sidebarService : SidebarService) {
-
-  }
+  private readonly objectService = inject(ObjectService);
+  private readonly toastService = inject(ToastService);
+  private readonly sidebarService = inject(SidebarService);
 
   public toggleChange() {
     this.activeState = this.activeState !== true;

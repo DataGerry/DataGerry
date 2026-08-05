@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,8 +23,20 @@ import { CmdbMode } from '../../../../framework/modes.enum';
 @Component({
     selector: 'cmdb-docapi-template-add',
     templateUrl: './docapi-add.component.html',
-    styleUrls: ['./docapi-add.component.scss']
+    styleUrls: ['./docapi-add.component.scss'],
+    standalone: false
 })
 export class DocapiAddComponent {
   public mode: CmdbMode = CmdbMode.Create;
+  public templateLabel: string = '';
+
+
+  public onLabelChanged(label: string): void {
+    this.templateLabel = label?.trim() ?? '';
+  }
+  
+
+  public get title(): string {
+    return this.templateLabel ? `Add ${this.templateLabel} Template` : 'Add Template';
+  }
 }

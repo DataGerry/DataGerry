@@ -1,16 +1,27 @@
-<div class="modal-content">
+<div class="modal-content diagnostic-modal">
     <div class="modal-header">
-        <h4 class="modal-title">Diagnostic</h4>
-        <button type="button" class="close" aria-label="Close" (click)="activeModal.dismiss('Cross click')">
-            <span aria-hidden="true">&times;</span>
-        </button>
+        <h4 class="modal-title">
+            <i class="fas fa-stethoscope me-2"></i>
+            Diagnostic Information
+        </h4>
+        <button 
+            type="button" 
+            class="btn-close btn-close-white" 
+            aria-label="Close" 
+            (click)="activeModal.dismiss('Cross click')">
+        </button>      
     </div>
     <div class="modal-body">
-        <pre>
-            {{data | json}}
-        </pre>
+        <div class="diagnostic-content">
+            <pre class="diagnostic-json">
+{{data | json}}
+            </pre>
+        </div>
     </div>
     <div class="modal-footer">
-        <button type="button" class="btn btn-outline-primary" (click)="activeModal.close('Close click')">Close</button>
+        <button type="button" class="btn btn-outline-primary" (click)="activeModal.close('Close click')">
+            <i class="fas fa-times me-1"></i>
+            Close
+        </button>
     </div>
 </div>

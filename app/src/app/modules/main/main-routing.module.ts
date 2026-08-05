@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,8 +19,12 @@ import { NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
 
 import { AuthGuard } from '../auth/guards/auth.guard';
+import { PermissionGuard } from '../auth/guards/permission.guard';
+import { premiumFeatureGuard } from '../../settings/license-management/premium-feature/premium-feature.guard';
+import { LicenseFeature } from '../../settings/license-management/models/license.model';
 
 import { DashboardComponent } from '../../components/dashboard/dashboard.component';
+import { AutomationsWrapperComponent } from '../../toolbox/automations/components/automations-wrapper/automations-wrapper.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
@@ -81,11 +85,60 @@ const routes: Routes = [
     {
         path: 'isms',
         data: {
-            breadcrumb: 'ISMS'
+            breadcrumb: 'ISMS',
+            premiumFeature: LicenseFeature.Isms
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../../toolbox/isms/isms.module').then(m => m.ISMSModule)
+    },
+    {
+        path: 'automations',
+        component: AutomationsWrapperComponent,
+        data: {
+            breadcrumb: 'Automations',
+            premiumFeature: LicenseFeature.Automations
+        },
+        canActivate: [AuthGuard, premiumFeatureGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
+        children: [
+            {
+                path: '',
+                data: {
+                    right: 'base.openCelium.connection.view'
+                },
+                loadChildren: () => import('../../toolbox/automations/automations.module').then(m => m.AutomationsModule)
+            },
+            {
+                path: 'connectors',
+                data: {
+                    breadcrumb: 'Connectors',
+                    right: 'base.openCelium.connector.view'
+                },
+                canActivate: [AuthGuard, PermissionGuard],
+                canActivateChild: [AuthGuard, PermissionGuard],
+                loadChildren: () => import('../../toolbox/automations/connectors/connectors.module').then(m => m.ConnectorsModule)
+            },
+            {
+                path: 'licenses',
+                data: {
+                    breadcrumb: 'Licenses'
+                },
+                canActivate: [AuthGuard],
+                canActivateChild: [AuthGuard],
+                loadChildren: () => import('../../toolbox/automations/licenses/licenses.module').then(m => m.LicensesModule)
+            }
+        ]
+    },
+    {
+        path: 'ci-explorer',
+        canActivate: [AuthGuard],
+        canActivateChild: [AuthGuard],
+        data: {
+            breadcrumb: 'CI Explorer',
+            right: 'base.framework.ciExplorer.view'
+        },
+        loadChildren: () => import('../../toolbox/ci-explorer-launcher/ci-explorer-launch.module').then(m => m.CiExplorerLaunchModule)
     },
     {
         path: 'management',
@@ -99,9 +152,10 @@ const routes: Routes = [
     {
         path: 'docapi',
         data: {
-            breadcrumb: 'DocAPI'
+            breadcrumb: 'Document Generator',
+            premiumFeature: LicenseFeature.DocumentGenerator
         },
-        canActivate: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard],
         canActivateChild: [AuthGuard],
         loadChildren: () => import('../docapi/docapi.module').then(m => m.DocapiModule)
     },
@@ -139,7 +193,7 @@ const routes: Routes = [
         },
         canActivate: [AuthGuard],
         canActivateChild: [AuthGuard],
-        loadChildren: () => import('../../reporting/reporting.module').then(m => m.ReportingModule)
+        loadChildren: () => import('../../toolbox/reporting/reporting.module').then(m => m.ReportingModule)
     },
     {
         path: 'webhooks',
@@ -149,7 +203,7 @@ const routes: Routes = [
             right: 'base.framework.webhook.view'
         },
         loadChildren: () =>
-            import('../../webhook/webhook.module').then((m) => m.WebhookModule)
+            import('../../toolbox/webhook/webhook.module').then((m) => m.WebhookModule)
     }
 ];
 

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,8 @@
 """
 Implementation of UserSettingsManager
 """
-import logging
-from typing import Optional, Union
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 
@@ -37,7 +37,7 @@ from cmdb.errors.manager.user_settings_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                GenericManager - CLASS                                                #
@@ -48,12 +48,12 @@ class UserSettingsManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         super().__init__(dbm, CmdbUserSetting, USER_SETTINGS_MANAGER_ERRORS, database)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_user_setting(self, user_id: int, resource: str) -> Optional[dict]:
+    def get_user_setting(self, user_id: int, resource: str) -> dict[str, Any] | None:
         """
         Get a single CmdbUserSetting from a user by the identifier
 
@@ -65,16 +65,16 @@ class UserSettingsManager(GenericManager):
             UserSettingsManagerGetError: If an CmdbUserSetting could not be retrieved
 
         Returns:
-            Optional[dict]: A dictionary representation of the CmdbUserSetting if successful, otherwise None
+            dict | None: A dictionary representation of the CmdbUserSetting if successful, otherwise None
         """
         try:
             return self.get_one_by(criteria={'user_id': user_id, 'resource': resource})
         except Exception as err:
             LOGGER.error("[get_user_setting] Exception: %s. Type: %s", err, type(err))
-            raise UserSettingsManagerGetError(err) from err
+            raise UserSettingsManagerGetError(str(err)) from err
 
 
-    def get_user_settings(self, user_id: int, setting_type: UserSettingType = None) -> list[CmdbUserSetting]:
+    def get_user_settings(self, user_id: int, setting_type: UserSettingType | None = None) -> list[CmdbUserSetting]:
         """
         Get all CmdbUserSettings from a CmdbUser by the user_id
 
@@ -99,16 +99,16 @@ class UserSettingsManager(GenericManager):
             return [CmdbUserSetting.from_data(setting) for setting in user_settings]
         except Exception as err:
             LOGGER.error("[get_user_settings] Exception: %s. Type: %s", err, type(err))
-            raise UserSettingsManagerIterationError(err) from err
+            raise UserSettingsManagerIterationError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_user_setting(self, user_id: int, resource: str, setting: Union[dict, CmdbUserSetting]) -> None:
+    def update_user_setting(self, user_id: int, resource: str, setting: dict[str, Any] | CmdbUserSetting) -> None:
         """
         Updates an existing CmdbUserSetting in the database
 
         Args:
-            setting (Union[dict, CmdbUserSetting]): Settings data
+            setting (dict | CmdbUserSetting): Settings data
             user_id (int): User of this setting
             resource (str): Identifier of the setting
 
@@ -121,8 +121,8 @@ class UserSettingsManager(GenericManager):
 
             return self.update(criteria={'resource': resource, 'user_id': user_id}, data=setting)
         except Exception as err:
-            LOGGER.error("[update_setting] Exception: %s. Type: %s", err, type(err))
-            raise UserSettingsManagerUpdateError(err) from err
+            LOGGER.error("[update_user_setting] Exception: %s. Type: %s", err, type(err))
+            raise UserSettingsManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -143,4 +143,4 @@ class UserSettingsManager(GenericManager):
         try:
             return self.delete(criteria={'user_id': user_id, 'resource': resource})
         except BaseManagerDeleteError as err:
-            raise UserSettingsManagerDeleteError(err) from err
+            raise UserSettingsManagerDeleteError(str(err)) from err

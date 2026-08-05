@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,9 @@
 """
 This module contains the implementation of the ExtendableOptionsManager
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.database import MongoDatabaseManager
-
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.extendable_option_model import CmdbExtendableOption
@@ -27,7 +26,7 @@ from cmdb.models.extendable_option_model import CmdbExtendableOption
 from cmdb.errors.manager.extendable_options_manager import EXTENDABLE_OPTIONS_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           ExtendableOptionsManager - CLASS                                           #
@@ -38,5 +37,12 @@ class ExtendableOptionsManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Set the database connection for the ExtendableOptionsManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Name of the database the dbm should connect to. Only used in cloud mode
+        """
         super().__init__(dbm, CmdbExtendableOption, EXTENDABLE_OPTIONS_MANAGER_ERRORS, database)

@@ -1,299 +1,658 @@
+@use "sass:color";
 @import 'src/scss/variables';
-/**
- * Navbar
- */
-$navbar-brand-font-width: 300;
-$navbar-brand-font-width-bold: 600;
-$navbar-brand-small-font-width: 700;
-$navbar-brand-small-font-right: 2px;
-$navbar-brand-small-font-top: -1px;
-$navbar-brand-width: 210px;
-$navbar-bg-color: $white;
-$navbar-border-width: 2px;
-$navbar-border-style: solid;
-$navbar-icon-link: darken(white, 40%);
-$navbar-dropdown-font-size: 0.875rem !default;
-$navbar-dropdown-borders: (
-  all: (size: 1px, style: solid, color: $border-color)
-);
-$navbar-dropdown-top: 6px;
-$navbar-dropdown-menu-padding: 0;
-$navbar-dropdown-padding: 0.3rem 0.8rem;
-$navbar-dropdown-header-color: $white;
-$navbar-dropdown-header-background: theme-color('primary');
 
-#navbar-search-bar {
-  padding-right: 1rem;
+// --- Variables ---
+$brand-primary: #e94d18;
+;
+$brand-primary-light: rgba($brand-primary, 0.08);
+$brand-primary-hover: linear-gradient(135deg, rgba($brand-primary, 0.1) 0%, rgba($brand-primary, 0.05) 100%);
+$text-dark: #2c3e50;
+$text-muted: #5a6c7d;
+$text-light: #999999;
+$bg-glass: rgba(255, 255, 255, 0.98);
+$border-light: rgba(0, 0, 0, 0.06);
+$transition-smooth: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+$radius-md: 6px;
+$radius-lg: 10px;
+
+// --- Base Navbar &  Search Bar ---
+cmdb-search-bar {
+  display: block;
+  width: 100%;
+  position: relative;
+  z-index: 10;
+
+  ::ng-deep .input-group,
+  ::ng-deep .search-container,
+  ::ng-deep form {
+    background-color: #f4f5f7 !important;
+    border: 1px solid rgba(0, 0, 0, 0.04) !important;
+    border-radius: 6px !important;
+    height: 36px;
+    transition: $transition-smooth;
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 0 0.25rem;
+
+    &:focus-within {
+      background-color: $white !important;
+      border-color: rgba($brand-primary, 0.4) !important;
+      box-shadow: 0 0 0 3px rgba($brand-primary, 0.08) !important;
+    }
+  }
+
+  ::ng-deep input,
+  ::ng-deep input.form-control,
+  ::ng-deep input[type="text"],
+  ::ng-deep input[type="search"] {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0.25rem 0.75rem !important;
+    font-size: 0.85rem !important;
+    color: $text-dark !important;
+    width: 100%;
+    height: 100%;
+
+    &::placeholder {
+      color: #9aa5b1 !important;
+      font-weight: 400;
+    }
+
+    &:focus,
+    &:active {
+      box-shadow: none !important;
+      outline: none !important;
+      background-color: transparent !important;
+    }
+  }
+
+  ::ng-deep .input-group-text,
+  ::ng-deep .input-group-append,
+  ::ng-deep button {
+    background: transparent !important;
+    border: none !important;
+    color: #9aa5b1 !important;
+    box-shadow: none !important;
+    padding: 0 8px !important;
+
+    i,
+    svg,
+    fa-icon {
+      font-size: 14px !important;
+    }
+  }
 }
 
 #navbar-cmdb {
   height: $navbar-height;
-  background: $navbar-bg-color;
-  border-bottom: $navbar-border-width $navbar-border-style theme-color('primary');
+  background: $white;
+  border-bottom: 2px solid $brand-primary;
 
   .container-content {
     margin: 0.5rem 0;
-    padding: 0.5rem 1.5rem;
+    padding: 0.5rem 1.5rem 0.5rem 0 !important;
     background: $white;
+    position: relative;
 
     .scrollable-menu {
       height: auto;
       max-height: 250px;
       overflow-x: hidden;
     }
+
+    .row {
+      align-items: center;
+      margin-left: 0 !important;
+
+      >div:first-child {
+        padding-left: 0 !important;
+      }
+    }
+  }
+
+  // --- Logo  ---
+  .navbar-header {
+    position: relative;
+    z-index: 10;
+    width: 225px !important;
+    min-width: 225px !important;
+    max-width: 240px !important;
+    display: flex;
+    align-items: center;
+  }
+
+  .brand-lockup {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding-left: 24px;
   }
 
   .navbar-brand {
-    width: $navbar-brand-width;
-    font-weight: $navbar-brand-font-width;
+    width: auto;
+    font-weight: 300;
+    display: flex;
+    align-items: center;
 
     b {
-      font-weight: $navbar-brand-font-width-bold;
-      padding-right: $navbar-brand-small-font-right;
+      font-weight: 600;
+      padding-right: 2px;
     }
 
     small {
-      font-weight: $navbar-brand-small-font-width;
-      color: theme-color('primary');
+      font-weight: 700;
+      color: $brand-primary;
       position: relative;
-      top: $navbar-brand-small-font-top;
-      margin-right: $navbar-brand-small-font-right;
+      top: -1px;
+      margin-right: 2px;
     }
 
     .brand-logo {
-      vertical-align: sub;
+      height: 44px;
+      max-height: 44px;
+      object-fit: contain;
     }
   }
 
+  // --- Navigation Links & Dropdowns ---
   .navbar-nav {
-    li {
-      a {
-        color: $navbar-icon-link;
-      }
+    flex-direction: initial !important;
+
+    li a {
+      color: $text-muted;
     }
 
     .dropdown-menu {
-      padding: $navbar-dropdown-menu-padding;
-      margin-top: $navbar-dropdown-top;
-      @include borders($navbar-dropdown-borders);
+      padding: 6px;
+      margin-top: 8px;
+      border: 1px solid $border-light;
+      border-radius: $radius-lg;
       position: absolute;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      min-width: 200px;
+      background: $bg-glass;
+      backdrop-filter: blur(10px);
 
       .dropdown-header {
-        padding: $navbar-dropdown-padding;
-        color: $navbar-dropdown-header-color;
-        background: $navbar-dropdown-header-background;
+        padding: 8px 10px 4px 10px;
+        color: $brand-primary;
+        font-weight: 700;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border: none;
       }
 
       a.dropdown-item {
-        font-size: $navbar-dropdown-font-size;
-        padding: $navbar-dropdown-padding;
+        font-size: 0.8125rem;
+        padding: 6px 10px;
+        color: $text-dark;
+        border-radius: $radius-md;
+        margin: 0;
+        font-weight: 500;
+        transition: $transition-smooth;
+        text-decoration: none;
+
+        // Center the "Pro" pill on the right of the row (the global default sits in the top-right corner).
+        .dg-premium-badge {
+          top: 50%;
+          right: 8px;
+          transform: translateY(-50%);
+        }
+
+        &:hover {
+          background: $brand-primary-light;
+          color: $brand-primary;
+          transform: translateX(4px);
+        }
 
         &:active {
+          background: $brand-primary;
           color: $white;
         }
 
         i,
-        svg {
+        svg,
+        fa-icon {
           margin-right: 10px;
+          width: 16px;
+          display: inline-block;
+          text-align: center;
+          opacity: 0.85;
+          font-size: 13px;
         }
       }
     }
   }
 
+  // --- Nav Items ---
   .nav-1,
   .nav-2,
-  .nav-3 {
-    margin: 3px;
+  .nav-3,
+  .nav-notification {
+    margin: 0 3px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 
+    a.nav-link,
+    button.nav-link {
+      padding: 6px 12px;
+      margin: 0;
+      border-radius: $radius-md;
+      transition: $transition-smooth;
+      border: none !important;
+      outline: none !important;
+      box-shadow: none !important;
+      background: transparent;
 
-    & a.nav-link {
-      padding: 0;
-      margin: 0 5px;
+      i {
+        font-size: 22px;
+        color: $text-muted;
+        transition: $transition-smooth;
+      }
+
+      &:hover {
+        background: $brand-primary-light;
+        transform: translateY(-2px);
+
+        i {
+          color: $brand-primary;
+        }
+      }
     }
 
     & p {
-      font-size: 12px;
-      margin: 0;
-      color: #999999;
+      font-size: 11px !important;
+      margin: 2px 0 0 0;
+      color: $text-muted;
+      font-weight: 500;
+      text-transform: capitalize;
+      letter-spacing: 0.2px;
+      transition: $transition-smooth;
     }
 
-    &:hover .hover-trigger:hover,
     &:hover p {
-      color: #212529;
-    }
-
-    & p:hover {
-      color: #999999 !important;
+      color: $brand-primary;
     }
   }
 
+
+
+
+  .notification-nav-item {
+    .notification-toggle-btn {
+      position: relative;
+    }
+
+    .notification-badge {
+      position: absolute;
+      top: 0px;
+      right: 2px;
+      min-width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: #dc3545;
+      color: #ffffff;
+      font-size: 0.65rem;
+      font-weight: 700;
+      line-height: 14px;
+      text-align: center;
+      padding: 0 4px;
+      border: 2px solid $white;
+    }
+  }
+
+  // --- User Profile Card ---
   .nav-user {
-    padding: 0 20px 15px 57px !important;
+    padding: 8px 14px 8px 46px !important;
     text-align: left !important;
     position: relative;
-    min-height: 70px;
-    min-width: 180px;
+    min-height: auto;
+    min-width: 150px;
+    border-radius: $radius-md;
+    transition: $transition-smooth;
+    text-decoration: none !important;
+    background: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+
+    &:hover {
+      background: $brand-primary-light !important;
+      transform: translateY(-1px);
+    }
+
+    &.active,
+    &:focus,
+    &:active {
+      box-shadow: none !important;
+      outline: none !important;
+    }
 
     .account-user-avatar {
       position: absolute;
-      top: 4px;
-      left: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+      left: 10px;
+
+      img {
+        height: 28px;
+        width: 28px;
+        border-radius: 50%;
+        border: 2px solid $brand-primary;
+        box-shadow: 0 2px 6px rgba($brand-primary, 0.2);
+      }
     }
 
     .account-user-name {
       display: block;
       font-weight: 600;
+      font-size: 0.8125rem;
+      color: $text-dark;
+      line-height: 1.2;
     }
 
     .account-position {
       display: block;
-      font-size: 12px;
-      margin-top: -3px;
-    }
-
-    .account-user-avatar img {
-      height: 32px;
-      width: 32px;
+      font-size: 10px;
+      color: $text-muted;
+      line-height: 1.2;
+      font-weight: 500;
     }
   }
 
-  .navbar-right-menu li {
-    max-height: 70px;
+  // --- Current Edition Indicator ---
+  .brand-edition {
+    line-height: 0;
+    margin-right: 20px !important;
+    margin-bottom: 2px;
   }
 
+  .edition-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 18px;
+    padding: 0 9px;
+    border-radius: 999px;
+    border: 1px solid rgba($brand-primary, 0.28);
+    background: linear-gradient(180deg, rgba($brand-primary, 0.14) 0%, rgba($brand-primary, 0.07) 100%);
+    color: color.adjust($brand-primary, $lightness: -16%);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    user-select: none;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+
+    // Leading status dot echoes the tag color
+    &::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.85;
+      flex: none;
+    }
+
+    // Free: neutral and low-emphasis — the base edition stays quietest.
+    &--free {
+      border-color: rgba($text-dark, 0.14);
+      background: linear-gradient(180deg, #f8fafc 0%, #eef1f4 100%);
+      color: $text-muted;
+    }
+  }
+
+  // --- Right Menu & Toolbox Grid ---
   .navbar-right-menu {
+    li {
+      max-height: 70px;
+    }
+
     .nav-link {
-      min-width: 32px;
+      min-width: 40px;
       display: block;
       text-align: center;
-      margin: 15px 0 15px 0;
-      position: relative;
-    }
+      margin: 0;
+      padding: 14px 10px;
+      border-radius: $radius-md;
+      transition: $transition-smooth;
+      text-decoration: none !important;
+      outline: none !important;
 
-    .nav-link i {
-      font-size: 22px;
-      vertical-align: middle;
-    }
+      i {
+        font-size: 20px;
+        vertical-align: middle;
+      }
 
-    .dropdown-icon-item {
-      display: block;
-      line-height: 56px;
-      text-align: center;
-      padding: 15px 10px 9px;
-      border: 1px solid transparent;
-      color: #6c757d;
-    }
+      &:hover {
+        background: $brand-primary-light;
+        transform: translateY(-2px);
 
-    .dropdown-icon-item i,
-    .dropdown-icon-item fa-icon {
-      font-size: 22px;
-      line-height: 24px;
-    }
+        i {
+          color: $brand-primary;
+        }
 
-    .dropdown-icon-item span {
-      display: block;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 14px;
-      line-height: initial;
-    }
-
-    .dropdown-icon-item:hover {
-      cursor: pointer;
+        outline: none !important;
+        box-shadow: none !important;
+      }
     }
 
     .dropdown-lg {
       width: 320px;
-    }
-  }
+      padding: 8px;
+      border-radius: $radius-lg;
 
-  .navbar-nav {
-    flex-direction: initial !important;
-  }
-
-  .nav-item-toolbox .col:empty {
-    display: none;
-  }
-}
-
-
-@media(max-width: 991px) {
-  #navbar-cmdb {
-    .container-content {
-      border-bottom: 1px solid darken(white, 40%);
-    }
-
-    .dropdown-lg {
-      width: 220px !important;
-    }
-  }
-}
-
-@media(max-width: 1200px) {
-  #navbar-cmdb {
-    .nav-user {
-      padding: 0 !important;
-      text-align: left !important;
-
-      .account-user-name,
-      .account-position {
-        display: none !important;
+      .row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        margin: 0;
       }
 
-      .account-user-avatar {
-        top: 8px !important;
-        left: 3px !important;
+      .col {
+        padding: 0;
+        flex: unset;
+        max-width: unset;
+
+        &:empty {
+          display: none;
+        }
+      }
+    }
+
+    .dropdown-icon-item {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 10px 4px;
+      border-radius: $radius-md;
+      color: $text-dark;
+      transition: $transition-smooth;
+      height: 100%;
+      min-height: 70px;
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid $border-light;
+      text-decoration: none !important;
+      outline: none !important;
+
+      i,
+      fa-icon {
+        font-size: 20px;
+        display: block;
+        margin-bottom: 4px;
+        color: $text-muted;
+        transition: $transition-smooth;
       }
 
-      .account-user-avatar img {
-        height: 22px !important;
-        width: 22px !important;
+      .automation-icon {
+        width: 22px;
+        height: 22px;
+        object-fit: contain;
+        margin-bottom: 4px;
+        transition: $transition-smooth;
+      }
+
+      span:not(.dg-premium-badge) {
+        display: block;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: $text-dark;
+        line-height: 1.2;
+        text-decoration: none !important;
+      }
+
+      &:hover {
+
+        cursor: pointer;
+        background: $brand-primary-hover;
+        border-color: rgba($brand-primary, 0.2);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba($brand-primary, 0.12);
+        text-decoration: none !important;
+        outline: none !important;
+
+        i,
+        fa-icon {
+          color: $brand-primary;
+          transform: scale(1.1);
+        }
+
+        .automation-icon {
+          transform: scale(1.1);
+        }
+
+        span:not(.dg-premium-badge) {
+          color: $brand-primary;
+        }
       }
     }
   }
 }
 
 .hover-trigger:hover {
-  color: #212529;
+  color: $brand-primary;
 }
 
-
-// Styles for the progress bar
+// --- Progress Bar ---
 .progress-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   width: 100%;
+  min-width: 160px; // Ensures the entire block doesn't get crushed on zoom
+  padding: 0 4px;
 
   .progress-label {
-      font-size: 0.9rem;
-      white-space: nowrap;
-      margin-bottom: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 6px;
+    gap: 8px; // Keeps a safe minimum distance between text and percentage
+
+    .label-text {
+      // Fluidly scales down the font size if the container gets tight, 
+      // maxing out at 0.65rem and shrinking no smaller than 0.5rem.
+      font-size: clamp(0.5rem, 1.5vw, 0.65rem); 
+      color: $text-muted;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      
+      white-space: nowrap; // Forces the text to stay on exactly one line
+    }
+
+    .label-percent {
+      // Scales down slightly on tight screens to prevent overflow
+      font-size: clamp(0.65rem, 1.8vw, 0.8rem);
+      font-weight: 800;
+      color: $text-dark;
+      letter-spacing: 0px;
+      line-height: 1;
+      
+      white-space: nowrap; // Prevents the percentage from wrapping
+    }
   }
 
-  .progress {
-      position: relative;
-      height: 15px;
-      width: 100%;
-      border-radius: 0px;
-      background-color: #e0e0e0; // Light gray background for unused area
-      overflow: visible;
+  .progress.track-modern {
+    height: 12px;
+    width: 100%;
+    min-width: 100px; // Guarantees the gray/green bar itself always stays visible
+    background-color: rgba($text-dark, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+    border: none;
+    box-shadow: none;
+    padding: 0;
 
-      .progress-bar {
-          border-radius: 0px;
-      }
+    .progress-bar.fill-modern {
+      height: 100%;
+      border-radius: 999px;
+      min-width: 12px;
+      transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 
-      .progress-percentage {
-          position: absolute;
-          width: 100%;
-          text-align: center;
-          font-size: 0.6rem;
-          font-weight: bold;
-          color: #000;
-          top: 50%;
-          transform: translateY(-50%);
-          text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
+      &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 100%);
+        border-radius: 999px;
       }
+    }
+  }
+}
+
+
+// --- Responsive Adjustments ---
+@media(max-width: 991px) {
+  #navbar-cmdb {
+    .container-content {
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .navbar-right-menu .dropdown-lg {
+      width: 280px;
+
+      .row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  }
+}
+
+@media(max-width: 1200px) {
+  #navbar-cmdb .nav-user {
+    padding: 8px !important;
+    min-width: auto;
+
+    .account-user-name,
+    .account-position {
+      display: none !important;
+    }
+
+    .account-user-avatar {
+      position: static !important;
+      transform: none !important;
+
+      img {
+        height: 28px !important;
+        width: 28px !important;
+      }
+    }
   }
 }

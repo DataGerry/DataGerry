@@ -4,11 +4,11 @@
             <div class="accordion" id="controlsPanel">
                 <div class="card" *ngIf="globalSectionTemplates.length > 0">
                     <div class="card-header">
-                        <a href="#" class="btn btn-link" data-toggle="collapse" data-target="#globalSectionTemplates">
+                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#globalSectionTemplates">
                             Global Section Templates
                         </a>
                     </div>
-                    <div id="globalSectionTemplates" class="collapse show" data-parent="#controlsPanel">
+                    <div id="globalSectionTemplates" class="collapse show" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group section-template-item">
                                 <div 
@@ -30,11 +30,11 @@
                 </div>
                 <div class="card" *ngIf="sectionTemplates.length > 0">
                     <div class="card-header">
-                        <a href="#" class="btn btn-link" data-toggle="collapse" data-target="#sectionTemplates">
+                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#sectionTemplates">
                             Section Templates
                         </a>
                     </div>
-                    <div id="sectionTemplates" class="collapse" data-parent="#controlsPanel">
+                    <div id="sectionTemplates" class="collapse" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group section-template-item">
                                 <div 
@@ -55,11 +55,11 @@
                 </div>
                 <div class="card">
                     <div class="card-header">
-                        <a href="#" class="btn btn-link" data-toggle="collapse" data-target="#structureControls">
+                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#structureControls">
                             Structure Controls
                         </a>
                     </div>
-                    <div id="structureControls" class="collapse" data-parent="#controlsPanel">
+                    <div id="structureControls" class="collapse" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group section-template-item">
                                 <div 
@@ -81,11 +81,11 @@
                 </div>
                 <div class="card">
                     <div class="card-header">
-                        <a href="#" class="btn btn-link" data-toggle="collapse" data-target="#basicControls">
+                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#basicControls">
                             Basic Controls
                         </a>
                     </div>
-                    <div id="basicControls" class="collapse" data-parent="#controlsPanel">
+                    <div id="basicControls" class="collapse" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group section-template-item">
                                 <div 
@@ -107,11 +107,11 @@
                 </div>
                 <div class="card">
                     <div class="card-header">
-                        <a href="#" class="btn btn-link" data-toggle="collapse" data-target="#specialControls">
+                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#specialControls">
                             Special Controls
                         </a>
                     </div>
-                    <div id="specialControls" class="collapse" data-parent="#controlsPanel">
+                    <div id="specialControls" class="collapse" data-bs-parent="#controlsPanel">
                         <div class="card-body">
                             <div class="list-group section-template-item">
                                 <div 
@@ -152,7 +152,7 @@
             </div>
         </div>
     </div>
-    <div id="form-container" class="col-9">
+    <div id="form-container" class="col-9" >
         <div 
             id="form-content"
             data-content="Drop structure controls here"
@@ -160,32 +160,33 @@
             [dndDropzone]="['sections']"
             (dndDrop)="onSectionDrop($event)"
         >
-            <div style="border: 1px green solid; border-radius: 5px; padding: 15px;" dndPlaceholderRef>
+            <div style="border: 3px green solid; border-radius: 5px; padding: 15px;" dndPlaceholderRef>
                 Drop control here
             </div>
             <section 
                 *ngFor="let section of sections; let x = index"
-                dndEffectAllowed="copyMove"
+                dndEffectAllowed="move"
                 dndType="sections"
                 [dndDraggable]="section"
+                [dndDisableIf]="!canMoveSection(section)"
                 [dragData]="{ section, index: x }"
                 (dndStart)="onDragStart(x)"
-                (dndMoved)="onSectionDragged(section, sections, 'move', x)">
+                (dndMoved)="onSectionMoved(section, 'move')">
                 <div class="card" [ngStyle]="{'background-color': section.bg_color || '#ffffff'}">
                     <div class="card-header" [ngClass]="getSectionHeaderClass(section)">
                         <fa-icon [icon]="['far', 'object-group']"></fa-icon>
                             {{section?.label}}
-                        <span class="float-right">
+                        <span class="float-end">
                             <button 
-                                class="btn btn-link mr-1"
+                                class="btn btn-link me-1"
                                 type="button"
-                                data-toggle="collapse"
-                                [attr.data-target]="'#section-' + x + section?.name"
+                                data-bs-toggle="collapse"
+                                [attr.data-bs-target]="'#section-' + x + section?.name"
                             >
                                 <fa-icon [icon]="getSectionCollapseIcon(section)"></fa-icon>
                             </button>
 
-                            <!-- <button class="btn btn-link mr-1" type="button" (click)="toggleColorPicker(section)">
+                            <!-- <button class="btn btn-link me-1" type="button" (click)="toggleColorPicker(section)">
                                 <fa-icon [icon]="['fas', 'paint-brush']"></fa-icon>
                             </button> -->
                     
@@ -196,14 +197,14 @@
                                 </color-chrome>
                             </div> -->
                             
-                            <button class="btn btn-link mr-1" type="button" dndHandle 
-                            (dragstart)="preventDragForAllSections($event)"
-                            [class.disabled]="disableFields">
+                            <button class="btn btn-link me-1" type="button" dndHandle 
+                            (dragstart)="preventSectionDrag($event, section)"
+                            [class.disabled]="!canMoveSection(section)">
                                 <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                             </button>
                             <button class="btn btn-link" type="button"
                              (click)="removeSection(section, x)"
-                             [class.disabled]="disableFields">
+                             [class.disabled]="!canRemoveSection(section)">
                                 <fa-icon [icon]="['far', 'window-close']"></fa-icon>
                             </button>
                         </span>
@@ -224,13 +225,13 @@
                                 <p>Fields:</p>
                                 <div
                                     [dndDropzone]="getInputType(section?.type)"
-                                    [dndDisableDropIf]="isGlobalSection(section)"
+                                    [dndDisableDropIf]="!canDropFieldsIntoSection(section)"
                                     (dndDrop)="onFieldDrop($event, section)"
                                 >
                                     <div *ngIf="section?.fields?.length == 0" class="empty-section" data-content="Drop controls here">
                                     </div>
                                     <div 
-                                        *ngIf="!isGlobalSection(section)"
+                                        *ngIf="canDropFieldsIntoSection(section)"
                                         class="field-drop-placeholder"
                                         dndPlaceholderRef>
                                         Drop field here
@@ -240,30 +241,30 @@
                                             [dndEffectAllowed]="getDnDEffectAllowedForField(field, section)"
                                             dndType="inputs"
                                             [dndDraggable]="field"
-                                            (dndMoved)="onFieldDragged(field, section)"
+                                            (dndStart)="onFieldDragStart(field, section, y)"
                                         >
                                             <div class="fields card">
                                                 <div 
                                                     class="card-header d-flex justify-content-between align-items-center"
-                                                    [ngClass]="{'global-section-item': isGlobalField(field?.name)}"
-                                                    [ngClass]="{'highlight-field-header': isFieldHighlighted(field, section?.fields)}"
+                                                    [ngClass]="{'global-section-item': isLockedField(field)}"
+                                                    [ngClass]="{'highlight-field-header': isFieldHighlighted(field, section)}"
                                                 >
                                                     <span>
                                                         <fa-icon [icon]="['fas', matchedType(field.type)]"></fa-icon> {{field?.label}}
                                                     </span>
-                                                    <span *ngIf="!isGlobalField(field.name)">
+                                                    <span *ngIf="!isLockedField(field)">
                                                         <button
-                                                            class="btn btn-link mr-1"
+                                                            class="btn btn-link me-1"
                                                             type="button"
-                                                            data-toggle="collapse"
-                                                            [attr.data-target]="'#field-'+ x + y + field?.name"
+                                                            data-bs-toggle="collapse"
+                                                            [attr.data-bs-target]="'#field-'+ x + y + field?.name"
                                                             [class.disabled]="isLocked() || disableFields"
                                                             >
                                                             <fa-icon [icon]="['far', 'edit']"></fa-icon>
                                                         </button>
-                                                        <button class="btn btn-link mr-1" type="button" dndHandle
+                                                        <button class="btn btn-link me-1" type="button" dndHandle
                                                         (dragstart)="preventDragForAllFields($event, section)"
-                                                        [class.disabled]="isLocked() || disableFields"
+                                                        [class.disabled]="isLocked() || disableFields || !canMoveField(field)"
                                                          >    
                                                             <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
                                                         </button>
@@ -275,7 +276,7 @@
                                                             [ngbTooltip]="tipContent"
                                                             [disableTooltip]="!externalLink?.links?.length"
                                                             (click)="removeField(field, section)"
-                                                            [class.disabled]="disableFields"
+                                                            [class.disabled]="disableFields || !canRemoveField(field)"
                                                         >
                                                             <fa-icon [icon]="['far', 'window-close']"></fa-icon>
                                                             <ng-template #tipContent>
@@ -293,6 +294,7 @@
                                                             <button
                                                                 class="btn btn-link"
                                                                 type="button"
+                                                                [class.disabled]="disableFields || !canRemoveField(field)"
                                                                 (click)="removeField(field, section)"
                                                             >
                                                                 <fa-icon [icon]="['far', 'window-close']"></fa-icon>

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,13 +29,15 @@ import { LoginResponse } from '../models/responses';
 import { Group } from 'src/app/management/models/group';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { environment } from 'src/environments/environment';
 import { strictEmailValidator } from './strictEmailValidator';
 
 @Component({
     selector: 'cmdb-login',
     templateUrl: './login.component.html',
-    styleUrls: ['./login.component.scss']
+    styleUrls: ['./login.component.scss'],
+    standalone: false
 })
 export class LoginComponent implements OnInit, OnDestroy {
     public static defaultLogoUrl: string = '/assets/img/datagerry_logo.svg';
@@ -78,7 +80,8 @@ export class LoginComponent implements OnInit, OnDestroy {
         private permissionService: PermissionService,
         private render: Renderer2,
         private toastService: ToastService,
-        private loaderService: LoaderService
+        private loaderService: LoaderService,
+        private premiumFeatureService: PremiumFeatureService
     ) {
         const currentDate = new Date();
         const year = currentDate?.getFullYear();
@@ -147,6 +150,7 @@ export class LoginComponent implements OnInit, OnDestroy {
                         const loginResponse = response as LoginResponse;
 
                         this.userSettingsDB?.syncSettings();
+                        this.checkLicenseStatus();
                         this.permissionService?.storeUserRights(loginResponse?.user.group_id)
                             .pipe(first())
                             .subscribe((group: Group) => {
@@ -156,7 +160,10 @@ export class LoginComponent implements OnInit, OnDestroy {
                 },
                 error: (err) => {
                     const isNullPath = err.url?.includes('/null/rest');
-                    if (!environment.cloudMode && err?.status === 404 || err?.status === 0) {
+                    if (
+                        !environment.cloudMode &&
+                        (err?.status === 404 || err?.status === 0)
+                    ) {
                         this.router?.navigate(['/connect']);
                         this.isLoading = false;
                     } else if (environment.cloudMode && isNullPath) {
@@ -249,5 +256,17 @@ export class LoginComponent implements OnInit, OnDestroy {
      */
     public togglePasswordVisibility(): void {
         this.passwordVisible = !this.passwordVisible;
+    }
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /**
+     * Refreshes the on-premise license status right after a successful login so every gate in the
+     * app starts with an up-to-date entitlement.
+     */
+    private checkLicenseStatus(): void {
+        this.loginSubscription.add(
+            this.premiumFeatureService.refresh().pipe(first()).subscribe()
+        );
     }
 }

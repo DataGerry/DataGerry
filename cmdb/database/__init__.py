@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This mdule provides all Database classes
+This module provides all Database classes
 """
 from .connection_status import ConnectionStatus
 from .database_gridfs import DatabaseGridFS
@@ -23,7 +23,7 @@ from .mongo_database_manager import MongoDatabaseManager
 from .mongo_query_builder import MongoDBQueryBuilder
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ConnectionStatus',
     'DatabaseGridFS',
     'MongoConnector',

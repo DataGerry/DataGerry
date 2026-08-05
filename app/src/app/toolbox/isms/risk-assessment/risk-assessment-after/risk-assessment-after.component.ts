@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -22,9 +22,10 @@ import { RiskClass } from '../../models/risk-class.model';
 const FALLBACK_GREY = '#f5f5f5';
 
 @Component({
-  selector: 'app-risk-assessment-after',
-  templateUrl: './risk-assessment-after.component.html',
-  styleUrls: ['./risk-assessment-after.component.scss']
+    selector: 'app-risk-assessment-after',
+    templateUrl: './risk-assessment-after.component.html',
+    styleUrls: ['./risk-assessment-after.component.scss'],
+    standalone: false
 })
 export class RiskAssessmentAfterComponent implements OnInit {
   @Input() parentForm!: FormGroup;

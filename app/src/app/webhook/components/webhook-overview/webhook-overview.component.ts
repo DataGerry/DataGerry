@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,12 +23,14 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { DeleteConfirmationModalComponent } from '../modal/delete-confirmation-modal.component';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { finalize } from 'rxjs';
+import { debounceTime, finalize, Subject, Subscription } from 'rxjs';
+import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
 
 @Component({
     selector: 'app-webhook-overview',
     templateUrl: './webhook-overview.component.html',
     styleUrls: ['./webhook-overview.component.scss'],
+    standalone: false
 })
 export class WebhookOverviewComponent implements OnInit {
     public webhooks: Webhook[] = [];
@@ -36,6 +38,9 @@ export class WebhookOverviewComponent implements OnInit {
     public page: number = 1;
     public limit: number = 10;
     public loading = false;
+    public filter: string;
+    private searchSubject: Subject<string> = new Subject<string>();
+    private searchSubscription: Subscription;
 
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>; // Reference the actions template
     @ViewChild('statusTemplate', { static: true }) statusTemplate: TemplateRef<any>; // Reference the template
@@ -44,16 +49,29 @@ export class WebhookOverviewComponent implements OnInit {
     public columns: Array<any>;
     public isLoading$ = this.loaderService.isLoading$;
 
+
+    private searchableFields = [
+        { name: 'public_id' },
+        { name: 'url' },
+    ];
+
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
     constructor(private webhookService: WebhookService,
         private router: Router,
         private toast: ToastService,
         private modalService: NgbModal,
-         private loaderService: LoaderService
+        private loaderService: LoaderService,
+        private filterBuilderService: FilterBuilderService
     ) { }
 
     ngOnInit(): void {
+        this.searchSubscription = this.searchSubject.pipe(debounceTime(700)).subscribe(search => {
+            this.filter = search || undefined;
+            this.page = 1;
+            this.loadWebhooks();
+        })
+
         this.columns = [
             { display: 'ID', name: 'public_id_str', data: 'public_id', searchable: true, sortable: true, style: { width: '80px', 'text-align': 'center' } },
             { display: 'Name', name: 'name', data: 'name', sortable: true },
@@ -61,8 +79,12 @@ export class WebhookOverviewComponent implements OnInit {
             { display: 'Status', name: 'active', data: 'active', sortable: false, template: this.statusTemplate, style: { width: '140px', 'text-align': 'center' } },
             { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '80px', 'text-align': 'center' } },
         ];
-
         this.loadWebhooks();
+    }
+
+
+    ngOnDestroy(): void {
+        this.searchSubscription?.unsubscribe();
     }
 
     /* --------------------------------------------------- API METHODS -------------------------------------------------- */
@@ -75,8 +97,9 @@ export class WebhookOverviewComponent implements OnInit {
         this.loading = true;
         this.loaderService.show();
 
+        const filterQuery = this.filterBuilderService.buildFilter(this.filter, this.searchableFields);
         this.webhookService.getAllWebhooks({
-            filter: '',
+            filter: filterQuery,
             limit: this.limit,
             page: this.page,
             sort: 'name',
@@ -147,6 +170,15 @@ export class WebhookOverviewComponent implements OnInit {
     }
 
     /**
+     * Handles changes to the search input, updates the filter, resets to the first page, and reloads the webhooks.
+     * @param search - The search query string.
+     */
+    public onSearchChange(search: string): void {
+        this.searchSubject.next(search);
+    }
+
+
+    /**
      * Opens the Delete Report modal and deletes the report if confirmed.
      * @param report - The report to delete.
      */
@@ -157,6 +189,7 @@ export class WebhookOverviewComponent implements OnInit {
             `Do you want to delete the webhook "${webhook.name}"? This action cannot be undone.`
         );
     }
+
 
     /**
      * Opens a delete confirmation modal for the specified item.

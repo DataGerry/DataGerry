@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,9 +20,10 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../components.fields';
 
 @Component({
-  selector: 'cmdb-number',
-  templateUrl: './number.component.html',
-  styleUrls: ['./number.component.scss']
+    selector: 'cmdb-number',
+    templateUrl: './number.component.html',
+    styleUrls: ['./number.component.scss'],
+    standalone: false
 })
 export class NumberComponent extends RenderFieldComponent {
 

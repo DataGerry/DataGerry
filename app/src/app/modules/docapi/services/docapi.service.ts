@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -23,7 +23,7 @@ import { Observable, timer, switchMap, map, catchError } from 'rxjs';
 
 import { ApiCallService, ApiServicePrefix, httpFileOptions, httpObserveOptions } from '../../../services/api-call.service';
 
-import { DocTemplate } from '../models/cmdb-doctemplate';
+import { DocTemplate, DocTemplateUpdateResponse } from '../models/cmdb-doctemplate';
 import { CollectionParameters } from '../../../services/models/api-parameter';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -105,11 +105,13 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
     }
 
 
-    public getObjectDocTemplateList(typeId: number): Observable<T[]> {
-        const options = this.getBaseOptions();
+    public getObjectDocTemplateList(typeId: number, minimal: boolean = false): Observable<T[]> {
+        const options = {
+            ...httpObserveOptions,
+            params: new HttpParams().set('minimal', String(minimal))
+        };
 
         const searchfilter = {
-            template_type: 'OBJECT',
             template_parameters: { type: typeId }
         };
 
@@ -153,10 +155,10 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
 
 /* -------------------------------------------------- CRUD - UPDATE ------------------------------------------------- */
 
-    public putDocTemplate(docInstance: DocTemplate): Observable<any> {
+    public putDocTemplate(docInstance: DocTemplate): Observable<DocTemplateUpdateResponse> {
         const options = this.getBaseOptions();
 
-        return this.api?.callPut(this.servicePrefix + '/', docInstance, options);
+        return this.api?.callPut<DocTemplateUpdateResponse>(this.servicePrefix + '/', docInstance, options);
     }
 
 /* -------------------------------------------------- CRUD - DELETE ------------------------------------------------- */

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
@@ -31,11 +31,20 @@ import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
 
 @Component({
-  selector: 'app-threats-add',
-  templateUrl: './threats-add.component.html',
-  styleUrls: ['./threats-add.component.scss']
+    selector: 'app-threats-add',
+    templateUrl: './threats-add.component.html',
+    styleUrls: ['./threats-add.component.scss'],
+    standalone: false
 })
 export class ThreatsAddComponent implements OnInit {
+  private readonly fb = inject(FormBuilder);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly threatService = inject(ThreatService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly toast = inject(ToastService);
+  private readonly extendableOptionService = inject(ExtendableOptionService);
+
   public isEditMode = false;
   public isViewMode = false;
   public threatId?: number;
@@ -53,16 +62,6 @@ export class ThreatsAddComponent implements OnInit {
   };
 
   public showSourceManager = false;
-
-  constructor(
-    private fb: FormBuilder,
-    private route: ActivatedRoute,
-    private router: Router,
-    private threatService: ThreatService,
-    private loaderService: LoaderService,
-    private toast: ToastService,
-    private extendableOptionService: ExtendableOptionService
-  ) { }
 
   ngOnInit(): void {
     const threatFromState = (history.state as { threat?: Threat }).threat;

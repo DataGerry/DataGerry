@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,16 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable } from '@angular/core';
-import {
-    HttpClient,
-    HttpErrorResponse,
-    HttpEvent,
-    HttpHandler,
-    HttpHeaders,
-    HttpInterceptor,
-    HttpParams,
-    HttpRequest
-} from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpEvent, HttpHandler, HttpHeaders, HttpInterceptor, HttpParams, HttpRequest } from '@angular/common/http';
 
 import { Observable, throwError, catchError } from 'rxjs';
 

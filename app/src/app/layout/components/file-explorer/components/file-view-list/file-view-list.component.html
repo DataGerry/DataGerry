@@ -1,4 +1,5 @@
-<ng-template [ngIf]="listView" [ngIfElse]="tileView">
+@if (listView) {
+
   <table class="table framework-table table-hover table-striped table-bordered mb-0 ">
     <thead>
     <tr tableSortEvent (valueChanged)="loadFolderFiles($event)">
@@ -13,36 +14,45 @@
     </tr>
     </thead>
     <tbody>
-    <tr *ngFor="let item of fileElements">
+    @for (item of fileElements; track item) {
+<tr>
       <td>
         <input type="checkbox" class="selected-file" (click)="onSelect(item)">
       </td>
       <td>{{item.filename}}</td>
       <td>{{item.size | fileSize}}</td>
-      <td>{{item.upload_date.$date | dateFormatter}}</td>
+      <td>{{item.upload_date | dateFormatter}}</td>
       <td><p class="thumbnail">{{item.metadata?.mime_type}}</p></td>
       <td>
+
         <div class="text-center">
-          <i class="fas fa-download mr-1" title="dowload" (click)="downloadFile(item)"></i>
-          <i class="far fa-edit mr-1" title="rename" (click)="renameFile(item)"></i>
-          <i class="fas fa-expand-arrows-alt mr-1" title="move to" (click)="moveFile(item)"></i>
-          <i class="far fa-trash-alt" title="delete" (click)="deleteFile(item)"></i>
+          <i class="fas fa-download mr-1 icon-download" title="Download" (click)="downloadFile(item)"></i>
+          <i class="far fa-edit mr-1 icon-edit" title="Rename" (click)="renameFile(item)"></i>
+          <i class="fas fa-expand-arrows-alt mr-1 icon-move" title="Move to" (click)="moveFile(item)"></i>
+          <i class="far fa-trash-alt icon-delete" title="Delete" (click)="deleteFile(item)"></i>
         </div>
+        
       </td>
     </tr>
+}
     </tbody>
   </table>
-</ng-template>
 
-<ng-template #tileView>
+} @else {
+
   <div id="file-view-tile" class="container">
     <div class="row">
-      <div class="col-md-2 col-sm-3 col-xs-4 p-2" *ngFor="let item of fileElements" (click)="onSelect(item, $event)">
+      @for (item of fileElements; track item) {
+<div class="col-md-2 col-sm-3 col-xs-4 p-2" (click)="onSelect(item, $event)">
         <div style="pointer-events: none;">
           <div class="tile display-4 text-center"><i [className]="item.filename | fileExtension"></i></div>
           <div class="thumbnail text-center">{{item.filename}}</div>
         </div>
       </div>
+}
     </div>
   </div>
-</ng-template>
+
+}
+
+

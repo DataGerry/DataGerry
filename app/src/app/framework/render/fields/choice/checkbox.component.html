@@ -1,52 +1,71 @@
-<ng-container *ngIf="mode != MODES.Simple">
-  <div class="form-group mb-2 row" [formGroup]="parentFormGroup">
+@if (mode != MODES.Simple) {
+
+<div class="mb-3 mb-2 row" [formGroup]="parentFormGroup">
   <label class="col-sm-3 col-check-label">
-    {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
+    {{data.label}}: @if (data?.required) {
+    <span class="required">*</span>
+    }
   </label>
   <div class="col-sm-9">
     <div class="input-group input-group-sm">
-      <ng-container [ngSwitch]="true">
-        <ng-container *ngSwitchCase="mode == MODES.View">
-          <div class="custom-control custom-checkbox">
-            <input type="checkbox" name="{{namePrefix + data.name}}" class="custom-control-input"
-                   [formControlName]="data.name" id="{{namePrefix + data.name}}"/>
-            <label class="custom-control-label" for="{{namePrefix + data.name}}"></label>
-          </div>
-        </ng-container>
-        <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk">
-          <div class="d-flex justify-content-between align-items-center">
-            <div class="position-absolute sticky-top">
-              <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"
-                                              [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
-            </div>
-            <div>
-              <div class="custom-control custom-checkbox">
-                <input type="checkbox" name="{{namePrefix + data.name}}" class="custom-control-input"
-                       [formControlName]="data.name" [attr.id]="namePrefix + data.name"
-                       [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
-                     'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"/>
-                <label class="custom-control-label" for="{{namePrefix + data.name}}"></label>
-              </div>
-            </div>
-            <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup"></cmdb-input-appends>
-          </div>
-        </ng-container>
-        <div *ngSwitchDefault>
-          <cmdb-mode-error></cmdb-mode-error>
+
+      @switch (true) {
+      @case (mode == MODES.View) {
+
+      <div class="form-check">
+        <input type="checkbox" name="{{namePrefix + data.name}}" class="form-check-input" [formControlName]="data.name"
+          id="{{namePrefix + data.name}}" />
+        <label class="form-check-label" for="{{namePrefix + data.name}}"></label>
+      </div>
+
+      }
+      @case (mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk) {
+
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="position-absolute sticky-top">
+          @if (mode == MODES.Bulk) {
+          <cmdb-object-bulk-input-appends [data]="data" [controller]="controller"
+            [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
+          }
         </div>
-      </ng-container>
-      <div *ngIf="controller?.invalid && (controller?.dirty || controller?.touched)" class="invalid-feedback">
-        <div class="float-right" *ngIf="controller?.errors.required">
+        <div>
+          <div class="form-check">
+            <input type="checkbox" name="{{namePrefix + data.name}}" class="form-check-input"
+              [formControlName]="data.name" [attr.id]="namePrefix + data.name" [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
+                     'is-invalid': controller.invalid && (controller.dirty || controller.touched)}" />
+            <label class="form-check-label" for="{{namePrefix + data.name}}"></label>
+          </div>
+        </div>
+        <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup"></cmdb-input-appends>
+      </div>
+
+      }
+      @default {
+      <div>
+        <cmdb-mode-error></cmdb-mode-error>
+      </div>
+      }
+      }
+
+      @if (controller?.invalid && (controller?.dirty || controller?.touched)) {
+      <div class="invalid-feedback">
+        @if (controller?.errors.required) {
+        <div class="text-end">
           {{data.label}} is a required field.
         </div>
+        }
         <div class="clearfix"></div>
       </div>
+      }
     </div>
   </div>
 </div>
-</ng-container>
 
-<ng-container *ngIf="mode == MODES.Simple">
-  <i [ngClass]=" data.value == true ? 'fa fa-check-square-o':'fa fa-square-o'" aria-hidden="true"></i>
-  <span style="display: none">{{data.value}}</span>
-</ng-container>
+}
+
+@if (mode == MODES.Simple) {
+
+<i [ngClass]=" data.value == true ? 'fa fa-check-square-o':'fa fa-square-o'" aria-hidden="true"></i>
+<span style="display: none">{{data.value}}</span>
+
+}

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild} from '@angular/core';
+import { Component, Input, OnDestroy, OnInit, TemplateRef, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, Data, Router } from '@angular/router';
 
@@ -38,7 +38,8 @@ import { UserSetting } from '../../../../../management/user-settings/models/user
 @Component({
     selector: 'cmdb-object-references-by-type',
     templateUrl: './object-references-by-type.component.html',
-    styleUrls: ['./object-references-by-type.component.scss']
+    styleUrls: ['./object-references-by-type.component.scss'],
+    standalone: false
 })
 export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
     // Table Template: active column
@@ -112,7 +113,8 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
         private route: ActivatedRoute,
         private router: Router,
         private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
-        private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>
+        private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
+        private changesRef: ChangeDetectorRef
     ) {
         this.fileService.callFileFormatRoute().subscribe(data => {
             this.formatList = data;
@@ -218,8 +220,8 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
      * Unsubscribe all on component destroy.
      */
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
@@ -258,6 +260,7 @@ export class ObjectReferencesByTypeComponent implements OnInit, OnDestroy {
                 this.refererObjects = apiResponse.results as Array<RenderResult>;
                 this.totalReferer = apiResponse.total;
                 this.loading = false;
+                this.changesRef.markForCheck();
             });
     }
 

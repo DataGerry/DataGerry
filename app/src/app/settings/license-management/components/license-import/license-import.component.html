@@ -1,0 +1,21 @@
+<div class="license-import">
+  <div
+    appDragDrop
+    class="license-import__dropzone"
+    role="button"
+    tabindex="0"
+    aria-label="Drop a license file here or activate to browse"
+    (fileDropped)="onFilesDropped($event)"
+    (click)="onOpen(fileInput)"
+    (keydown.enter)="onKeydown($event, fileInput)"
+    (keydown.space)="onKeydown($event, fileInput)">
+    <i class="fas fa-cloud-arrow-up license-import__icon" aria-hidden="true"></i>
+    <p class="license-import__title mb-1">Drag &amp; drop your license file</p>
+    <p class="text-muted small mb-3">The file you received from the service portal</p>
+    <button type="button" class="btn btn-outline-primary btn-sm" (click)="onBrowse($event, fileInput)">
+      <i class="fas fa-folder-open me-1" aria-hidden="true"></i>Browse files
+    </button>
+  </div>
+
+  <input #fileInput hidden type="file" (change)="onInputChange($event)" />
+</div>

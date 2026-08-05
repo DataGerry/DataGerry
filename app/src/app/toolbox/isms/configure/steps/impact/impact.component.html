@@ -10,22 +10,23 @@
     <hr />
 
     <!--  Warning Alert -->
-    <app-warning-alert *ngIf="this.impacts.length < 3" iconClass="fas fa-info-circle warning-icon"
+    @if (this.impacts.length < 3) { <app-warning-alert iconClass="fas fa-info-circle warning-icon"
         title="Insufficient Impacts:" message="You need to define at least 3 Impacts to proceed.">
-    </app-warning-alert>
+        </app-warning-alert>
+        }
 
-    <!-- Table (cmdb-table) -->
-    <cmdb-table [items]="impacts" [columns]="columns" [totalItems]="totalImpacts" [pageSize]="limit" [page]="page"
-        [loading]="loading" [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false"
-        [searchEnabled]="false" [infoEnabled]="false" (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)">
-    </cmdb-table>
+        <!-- Table (cmdb-table) -->
+        <cmdb-table [items]="impacts" [columns]="columns" [totalItems]="totalImpacts" [pageSize]="limit" [page]="page"
+            [loading]="loading" [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false"
+            [searchEnabled]="false" [infoEnabled]="false" (pageChange)="onPageChange($event)"
+            (pageSizeChange)="onPageSizeChange($event)">
+        </cmdb-table>
 
 </div>
-    <!-- Actions Template -->
+<!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
     <span *permissionLink="'base.isms.impact.edit'">
-        <i class="far fa-edit icon-margin icon-edit spacing-right" (click)="editImpact(item)"
-            title="Edit Impact"></i>
+        <i class="far fa-edit icon-margin icon-edit spacing-right" (click)="editImpact(item)" title="Edit Impact"></i>
     </span>
     <span *permissionLink="'base.isms.impact.delete'">
         <i class="far fa-trash-alt icon-delete" (click)="deleteImpact(item)" title="Delete Impact"></i>

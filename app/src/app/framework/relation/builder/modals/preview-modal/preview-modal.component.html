@@ -2,51 +2,47 @@
     <div class="modal-header">
 
         @if(saveValues) {
-            <h4 class="modal-title">Add new entry</h4>
+        <h4 class="modal-title">Add new entry</h4>
         }
         @else if(editValues) {
-            <h4 class="modal-title">Edit entry</h4>
+        <h4 class="modal-title">Edit entry</h4>
         }
         @else {
-            <h4 class="modal-title">Preview</h4>
+        <h4 class="modal-title">Preview</h4>
         }
 
-        <button type="button" class="close" aria-label="Close" (click)="activeModal.close(false)">
-            <span aria-hidden="true">&times;</span>
-        </button>
+        <button type="button" class="btn-close" aria-label="Close" (click)="activeModal.close(false)"></button>
+
     </div>
     <div class="modal-body">
         <form class="renderForm">
-            <fieldset *ngFor="let section of sections">
+            @for (section of sections; track section) {
+            <fieldset>
                 <legend>{{section?.label}}</legend>
-                <div *ngFor="let field of section?.fields">
-                    <cmdb-render-element
-                        [mode]="getViewMode()"
-                        [parentFormGroup]="renderForm"
-                        [data]="field">
+                @for (field of section?.fields; track field) {
+                <div>
+                    <cmdb-render-element [mode]="getViewMode()" [parentFormGroup]="renderForm" [data]="field">
                     </cmdb-render-element>
                 </div>
+                }
             </fieldset>
+            }
         </form>
     </div>
     <div class="modal-footer">
         <button type="button" class="btn btn-outline-danger" (click)="activeModal.close(false)">Close</button>
-        <div *ngIf="saveValues">
-            <button
-                type="button"
-                class="btn btn-success"
-                (click)="activeModal.close(renderForm.value)"
-                [disabled]="!renderForm.valid"
-            >Add</button>
+        @if (saveValues) {
+        <div>
+            <button type="button" class="btn btn-success" (click)="activeModal.close(renderForm.value)"
+                [disabled]="!renderForm.valid">Add</button>
         </div>
-        <div *ngIf="editValues">
-            <button
-                type="button"
-                class="btn btn-success"
-                (click)="activeModal.close(renderForm.value)"
-                [disabled]="!renderForm.valid"
-            >OK</button>
+        }
+        @if (editValues) {
+        <div>
+            <button type="button" class="btn btn-success" (click)="activeModal.close(renderForm.value)"
+                [disabled]="!renderForm.valid">OK</button>
         </div>
-        
+        }
+
     </div>
 </div>

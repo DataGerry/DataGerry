@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,26 +16,12 @@
 """
 Implementation of ObjectGroupMode enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ObjectGroupMode(str, Enum):
+class ObjectGroupMode(BaseStrEnum):
     """
     Available ObjectGroupModes for CmdbObjectGroups
     """
     STATIC = 'STATIC'
     DYNAMIC = 'DYNAMIC'
-
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """
-        Checks if a given string is a valid ObjectGroupMode
-
-        Args:
-            value (str): The string to check
-
-        Returns:
-            bool: True if the string matches an existing ObjectGroupMode, False otherwise
-        """
-        return value in ObjectGroupMode.__members__

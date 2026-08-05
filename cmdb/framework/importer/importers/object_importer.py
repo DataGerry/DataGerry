@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,8 @@
 Implementation of ObjectImporter
 """
 from datetime import datetime, timezone
-import logging
+from logging import Logger, getLogger
+
 from flask import current_app
 
 from cmdb.manager import ObjectsManager
@@ -30,7 +31,9 @@ from cmdb.framework.importer.messages.import_failed_message import ImportFailedM
 from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
-from cmdb.interface.route_utils import sync_config_items
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+    handle_sync_config_item_count,
+)
 
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerDeleteError,
@@ -39,7 +42,7 @@ from cmdb.errors.manager.objects_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ObjectImporter - CLASS                                                #
@@ -50,10 +53,10 @@ class ObjectImporter(BaseImporter):
     def __init__(self,
                  file,
                  file_type,
-                 config: ObjectImporterConfig = None,
-                 parser: BaseObjectParser = None,
-                 objects_manager: ObjectsManager = None,
-                 request_user: CmdbUser = None):
+                 config: ObjectImporterConfig | None = None,
+                 parser: BaseObjectParser | None = None,
+                 objects_manager: ObjectsManager | None = None,
+                 request_user: CmdbUser | None = None) -> None:
         """
         Basic importer super class for object imports
         Normally should be started by start_import
@@ -64,9 +67,9 @@ class ObjectImporter(BaseImporter):
             parser: the parser instance based on content-type
             request_user: the instance of the started user
         """
-        self.parser = parser
-        self.objects_manager = objects_manager
-        self.request_user = request_user
+        self.parser: BaseObjectParser | None = parser
+        self.objects_manager: ObjectsManager | None = objects_manager
+        self.request_user: CmdbUser | None = request_user
 
         super().__init__(file=file, file_type=file_type, config=config)
 
@@ -97,6 +100,9 @@ class ObjectImporter(BaseImporter):
 
         success_imports: list[ImportSuccessMessage] = []
         failed_imports: list[ImportFailedMessage] = []
+        # Whether any object was inserted or deleted, so the ConfigItem count is synced once at the
+        # end (cloud mode) only when the batch actually changed the total
+        did_write: bool = False
 
         current_import_index = run_config.start_element
         importer_counter = 0
@@ -136,19 +142,7 @@ class ObjectImporter(BaseImporter):
                             raise ObjectsManagerInsertError("Config item limit reached!") from err
 
                     self.objects_manager.insert_object(current_import_object)
-
-                    try:
-                        if current_app.cloud_mode:
-                            objects_count = self.objects_manager.count_objects()
-
-                            success = sync_config_items(self.request_user.email,
-                                                        self.request_user.database,
-                                                        objects_count)
-
-                            if not success:
-                                raise Exception("Status code was not 200!") from err
-                    except Exception as error:
-                        LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
+                    did_write = True
                 except ObjectsManagerInsertError as error:
                     failed_imports.append(ImportFailedMessage(error_message=error, obj=current_import_object))
                     current_import_index += 1
@@ -157,6 +151,7 @@ class ObjectImporter(BaseImporter):
                     success_imports.append(ImportSuccessMessage(public_id=current_public_id, obj=current_import_object))
             else:
                 try:
+                    #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
                     self.objects_manager.delete_with_follow_up(current_public_id, self.request_user)
                 except ObjectsManagerDeleteError as err:
                     LOGGER.error("[_import] ObjectsManagerDeleteError: %s", err, exc_info=True)
@@ -164,25 +159,13 @@ class ObjectImporter(BaseImporter):
                     current_import_index += 1
                     continue
                 else:
+                    did_write = True
                     try:
                         if current_app.cloud_mode:
                             if self.check_config_item_limit_reached(self.request_user):
                                 raise ObjectsManagerInsertError("Config item limit reached")
 
                         self.objects_manager.insert_object(current_import_object)
-
-                        try:
-                            if current_app.cloud_mode:
-                                objects_count = self.objects_manager.count_objects()
-
-                                success = sync_config_items(self.request_user.email,
-                                                            self.request_user.database,
-                                                            objects_count)
-
-                                if not success:
-                                    raise Exception("Status code was not 200!")
-                        except Exception as error:
-                            LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
                     except ObjectsManagerInsertError as err:
                         LOGGER.error("[_import] ObjectsManagerInsertError: %s", err, exc_info=True)
                         failed_imports.append(ImportFailedMessage(error_message=err, obj=current_import_object))
@@ -197,6 +180,11 @@ class ObjectImporter(BaseImporter):
             if run_config.max_elements > 0 and (current_import_index >= run_config.max_elements):
                 break
 
+        # Sync the ConfigItem count to the Service Portal ONCE after the whole batch (cloud mode),
+        # not per object - the count is a full recount so a single report reflects every change
+        if current_app.cloud_mode and did_write:
+            self._sync_config_item_count()
+
         return ImporterObjectResponse(
             message=f'Import of {importer_counter} objects',
             success_imports=success_imports,
@@ -210,6 +198,20 @@ class ObjectImporter(BaseImporter):
         raise NotImplementedError
 
 
+    def _sync_config_item_count(self) -> None:
+        """
+        Reports the current CmdbObject count to the DataGerry Service Portal once (cloud mode)
+
+        Called a single time after the whole import batch (not per object): the reported count is a
+        full recount, so one report reflects every insert/delete in the run. Best-effort - a portal
+        or transport failure is logged and swallowed so it never fails the import
+        """
+        try:
+            handle_sync_config_item_count(self.request_user, self.objects_manager.count_documents())
+        except Exception as error:
+            LOGGER.error("Could not sync config items count to service portal. Error: %s", error)
+
+
     def check_config_item_limit_reached(self, request_user: CmdbUser) -> bool:
         """
         Checks if the ConfigItem Limit of the User has been reached
@@ -221,6 +223,6 @@ class ObjectImporter(BaseImporter):
         Returns:
             bool: True if the limit has been reached, else False
         """
-        objects_count = self.objects_manager.count_objects()
+        objects_count: int = self.objects_manager.count_documents()
 
         return objects_count >= request_user.config_items_limit

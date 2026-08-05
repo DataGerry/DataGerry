@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C)  becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 """
 Implementation of XlsxExportFormat
 """
-import logging
+from logging import Logger, getLogger
 import json
 import re
 import tempfile
@@ -27,7 +27,7 @@ from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterCon
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               XlsxExportFormat - CLASS                                               #
@@ -52,12 +52,12 @@ class XlsxExportFormat(BaseExporterFormat):
 
         Args:
             data (list[RenderResult]): A list of `RenderResult` objects to be exported
-            *args: Optional arguments, including 'metadata' and 'view', that can customize the export
+            *args: arguments including 'metadata' and 'view', that can customize the export
 
         Returns:
             bytes: The content of the XLSX file as a byte string.
         """
-        workbook = self.create_xls_object(data, args)
+        workbook: Workbook = self.create_xls_object(data, args)
 
         # Save the workbook to a temporary file and return its content as bytes
         with tempfile.NamedTemporaryFile() as tmp:

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,8 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for the ImpactManager
+This module provides all errors for the ImpactCategoryManager
 """
+from typing import Any
+
 from .impact_category_manager_errors import (
     ImpactCategoryManagerError,
     ImpactCategoryManagerInitError,
@@ -27,7 +29,7 @@ from .impact_category_manager_errors import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'ImpactCategoryManagerError',
     'ImpactCategoryManagerInitError',
     'ImpactCategoryManagerInsertError',
@@ -38,7 +40,7 @@ __all__ = [
 ]
 
 
-IMPACT_CATEGORY_MANAGER_ERRORS = {
+IMPACT_CATEGORY_MANAGER_ERRORS: dict[str, Any] = {
     "init": ImpactCategoryManagerInitError,
     "insert": ImpactCategoryManagerInsertError,
     "get": ImpactCategoryManagerGetError,

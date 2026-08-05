@@ -1,0 +1,358 @@
+.ipam-subnet {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1rem 0;
+}
+
+.ipam-subnet__cards {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.ipam-subnet-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: #f9fafb;
+    box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    min-width: 0;
+}
+
+button.ipam-subnet-card {
+    appearance: none;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+}
+
+.ipam-subnet-card:hover {
+    background-color: #ffffff;
+    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.06);
+    transform: translateY(-1px);
+}
+
+.ipam-subnet-card--clickable {
+    cursor: pointer !important;
+}
+
+.ipam-subnet-card--clickable:hover {
+    border-color: #93c5fd;
+}
+
+.ipam-subnet-card--clickable:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.ipam-subnet-card--clickable.ipam-subnet-card--active {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
+}
+
+.ipam-subnet-card--invalid .ipam-subnet-card__value {
+    color: #dc3545;
+}
+
+.ipam-subnet-card--invalid.ipam-subnet-card--clickable:hover {
+    border-color: #dc3545;
+}
+
+.ipam-subnet-card--invalid.ipam-subnet-card--clickable:focus-visible {
+    outline-color: #dc3545;
+}
+
+.ipam-subnet-card--invalid.ipam-subnet-card--active {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.15);
+}
+
+.ipam-subnet-card--clickable .ipam-subnet-card__vlan-list {
+    cursor: pointer !important;
+}
+
+.ipam-subnet-card__label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.ipam-subnet-card__value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+.ipam-subnet-card__value--mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.95rem;
+}
+
+.ipam-subnet-card__value--range {
+    font-size: 0.95rem;
+    line-height: 1.35;
+}
+
+.ipam-subnet-card__range-sep {
+    color: #9ca3af;
+    margin: 0 0.15rem;
+}
+
+.ipam-subnet-card__suffix {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    opacity: 0.75;
+    margin-left: 0.25rem;
+}
+
+.ipam-subnet-card--used .ipam-subnet-card__value {
+    color: #198754;
+}
+
+.ipam-subnet-card--free .ipam-subnet-card__value {
+    color: #0d6efd;
+}
+
+.ipam-subnet-card__placeholder {
+    color: #9ca3af;
+    font-weight: 600;
+}
+
+.ipam-subnet-card__value--vlans {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #1f2937;
+}
+
+.ipam-subnet-card__vlan-list {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    cursor: default !important;
+    max-width: 100%;
+}
+
+.ipam-subnet-card__vlan-chips {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.ipam-subnet-card__vlan-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background-color: #eef2ff;
+    color: #3730a3;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ipam-subnet-card__vlan-more {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background-color: #e5e7eb;
+    color: #374151;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+::ng-deep .tooltip.ipam-vlan-tooltip .tooltip-inner {
+    text-align: left;
+    max-width: 320px;
+}
+
+.ipam-subnet__main {
+    display: grid;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.ipam-subnet__sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.ipam-subnet__table-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: #ffffff;
+    min-width: 0;
+}
+
+.ipam-subnet__table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.ipam-subnet__table-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.ipam-subnet__search {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 14rem;
+    margin: 0;
+}
+
+.ipam-subnet__search-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+.ipam-subnet__search-icon {
+    position: absolute;
+    left: 0.75rem;
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+.ipam-subnet__search-input {
+    width: 100%;
+    padding: 0.375rem 0.75rem 0.375rem 2rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    color: #1f2937;
+    background-color: #ffffff;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+
+    &::placeholder {
+        color: #9ca3af;
+    }
+
+    &:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
+}
+
+.ipam-subnet__sector-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #bfdbfe;
+    border-radius: 0.5rem;
+    background-color: #eff6ff;
+    color: #1e3a8a;
+    font-size: 0.875rem;
+}
+
+.ipam-subnet__sector-banner--invalid {
+    border-color: #fecaca;
+    background-color: #fef2f2;
+    color: #991b1b;
+}
+
+.ipam-subnet__sector-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.ipam-subnet__sector-range {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-weight: 600;
+}
+
+.ipam-subnet__table-title {
+    font-size: 1.1rem;
+    font-weight: 900;
+    color: #1f2937;
+    margin: 0;
+}
+
+.ipam-subnet:fullscreen {
+    background-color: #ffffff;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.ipam-subnet__state {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+}
+
+.ipam-subnet__state--error {
+    color: #842029;
+    background-color: #f8d7da;
+    border: 1px solid #f5c2c7;
+}
+
+.ipam-subnet__state--empty {
+    color: #6b7280;
+    background-color: #f9fafb;
+    border: 1px dashed #d1d5db;
+}
+
+@media (max-width: 1280px) {
+    .ipam-subnet__cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1024px) {
+    .ipam-subnet__main {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .ipam-subnet__cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 480px) {
+    .ipam-subnet__cards {
+        grid-template-columns: 1fr;
+    }
+}

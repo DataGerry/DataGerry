@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,10 @@
 """
 Implementation of GetMultiResponse
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from math import ceil
+
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
@@ -29,7 +31,7 @@ from cmdb.interface.rest_api.responses.helpers.api_pager import APIPager
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               GetMultiResponse - CLASS                                               #
@@ -42,8 +44,8 @@ class GetMultiResponse(BaseAPIResponse):
                  results: list[dict],
                  total: int,
                  params: CollectionParameters,
-                 url: str = None,
-                 body: bool = None):
+                 url: str | None = None,
+                 body: bool = None) -> None:
         """
         Constructor of GetMultiResponse
 
@@ -54,7 +56,7 @@ class GetMultiResponse(BaseAPIResponse):
             url: Requested url
             body: If http response should not have a body
         """
-        self.parameters = params
+        self.parameters: CollectionParameters = params
 
         if self.parameters.projection:
             project = APIProjection(self.parameters.projection)
@@ -76,7 +78,7 @@ class GetMultiResponse(BaseAPIResponse):
         super().__init__(operation_type=OperationType.GET, url=url, body=body)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response.
 
@@ -97,7 +99,7 @@ class GetMultiResponse(BaseAPIResponse):
         return response
 
 
-    def export(self, pagination: bool = True) -> dict:
+    def export(self, pagination: bool = True) -> dict[str, Any]:
         """
         Get the response data as dict
 

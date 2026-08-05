@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,8 +27,10 @@ import { ValidationService } from 'src/app/framework/type/services/validation.se
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-textarea-edit',
+    host: { 'data-config-edit': 'relation' },
     templateUrl: './textarea-edit.component.html',
-    styleUrls: ['./textarea-edit.component.scss']
+    styleUrls: ['./textarea-edit.component.scss'],
+    standalone: false
 })
 export class TextareaEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
@@ -99,8 +101,8 @@ export class TextareaEditComponent extends ConfigEditBaseComponent implements On
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

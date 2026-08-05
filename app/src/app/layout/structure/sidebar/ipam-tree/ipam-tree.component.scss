@@ -1,0 +1,572 @@
+@import 'src/scss/variables';
+
+.ipam-tree-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    background: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+}
+
+/* ========================================================================== */
+/*                              SEARCH SECTION                                */
+/* ========================================================================== */
+
+.search-section {
+    padding: 12px;
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    flex-shrink: 0;
+}
+
+.search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 36px;
+    background: #f9fafb;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+
+    &:hover {
+        background: #f3f4f6;
+    }
+
+    &:focus-within {
+        background: #ffffff;
+        border-color: $dg-primary-color;
+        box-shadow: 0 0 0 3px rgba($dg-primary-color, 0.1);
+
+        .search-icon {
+            color: $dg-primary-color;
+        }
+    }
+}
+
+.search-icon {
+    position: absolute;
+    left: 10px;
+    color: #9ca3af;
+    font-size: 14px;
+    pointer-events: none;
+    transition: color 0.2s ease;
+}
+
+.search-input {
+    flex: 1;
+    height: 100%;
+    padding: 0 36px 0 36px;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    color: #111827;
+    outline: none;
+
+    &::placeholder {
+        color: #9ca3af;
+    }
+
+    &:focus-visible {
+        outline: none;
+    }
+}
+
+.clear-button {
+    position: absolute;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    color: #9ca3af;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+        background: #e5e7eb;
+        color: #6b7280;
+    }
+
+    &:active {
+        transform: scale(0.92);
+    }
+}
+
+/* ========================================================================== */
+/*                           SIDEBAR EXPAND BUTTON                            */
+/* ========================================================================== */
+
+.sidebar-expand-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 8px;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06),
+                0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    i {
+        font-size: 14px;
+        color: #6b7280;
+        transition: color 0.2s ease;
+    }
+
+    &:hover {
+        transform: scale(1.08);
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1),
+                    0 2px 4px rgba(0, 0, 0, 0.06);
+
+        i {
+            color: $dg-primary-color;
+        }
+    }
+
+    &:active {
+        transform: scale(0.95);
+    }
+
+    &:focus-visible {
+        outline: 2px solid $dg-primary-color;
+        outline-offset: 2px;
+    }
+}
+
+/* ========================================================================== */
+/*                            TREE SCROLL AREA                                */
+/* ========================================================================== */
+
+.tree-scroll-area {
+    position: relative;
+    padding-top: 8px;
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+
+    &::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.12);
+        border-radius: 3px;
+
+        &:hover {
+            background: rgba(0, 0, 0, 0.2);
+        }
+    }
+}
+
+/* ========================================================================== */
+/*                              SECTION LABELS                                */
+/* ========================================================================== */
+
+.ipam-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888b9e;
+    padding: 10px 12px 4px;
+    margin: 0;
+}
+
+/* ========================================================================== */
+/*                              TREE STRUCTURE                                */
+/* ========================================================================== */
+
+.ipam-tree {
+    padding: 4px 5px 8px 5px;
+    background: transparent;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+
+    mat-tree-node,
+    mat-nested-tree-node {
+        padding: 0 !important;
+        min-height: 0 !important;
+    }
+}
+
+/* ========================================================================== */
+/*                                TREE NODES                                  */
+/* ========================================================================== */
+
+.tree-node {
+    position: relative;
+    margin-bottom: 0px;
+    width: 100%;
+
+    .node-wrapper {
+        display: flex;
+        align-items: center;
+        min-height: 38px;
+        border-radius: 6px;
+        transition: all 0.15s ease;
+        position: relative;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    &:hover:not(.is-selected) {
+        .node-wrapper {
+            background: #f3f4f6;
+        }
+
+        .node-cidr {
+            color: #111827;
+        }
+    }
+
+    &.is-selected {
+        .node-wrapper {
+            background: rgba($dg-primary-color, 0.08);
+
+            &::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                top: 4px;
+                bottom: 4px;
+                width: 2px;
+                background: $dg-primary-color;
+                border-radius: 0 2px 2px 0;
+            }
+        }
+
+        .node-icon,
+        .node-cidr {
+            color: $dg-primary-color;
+        }
+
+        .node-cidr {
+            font-weight: 500;
+        }
+    }
+
+    &.parent-node.is-expanded {
+        .expand-toggle {
+            .chevron-icon {
+                transform: rotate(90deg);
+            }
+        }
+    }
+}
+
+/* ========================================================================== */
+/*                              NODE STRUCTURE                                */
+/* ========================================================================== */
+
+.node-wrapper {
+    display: flex;
+    align-items: center;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.node-indent {
+    width: 10px;
+    flex-shrink: 0;
+}
+
+.expand-toggle {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+
+    .chevron-icon {
+        width: 14px;
+        height: 14px;
+        color: #9ca3af;
+        transition: all 0.2s ease;
+    }
+
+    .fa-spinner {
+        font-size: 11px;
+        color: $dg-primary-color;
+    }
+
+    &:hover {
+        background: rgba(0, 0, 0, 0.04);
+
+        .chevron-icon {
+            color: #6b7280;
+        }
+    }
+
+    &:active {
+        transform: scale(0.92);
+    }
+
+    &:focus-visible {
+        outline: 2px solid $dg-primary-color;
+        outline-offset: 1px;
+    }
+}
+
+.node-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    min-height: 32px;
+    min-width: 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.icon-wrapper {
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.node-icon {
+    font-size: 14px;
+    color: #6b7280;
+    transition: all 0.2s ease;
+}
+
+/* Two-line label: CIDR is the primary identifier, name is secondary */
+.node-text-block {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.node-primary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.node-cidr {
+    flex: 1;
+    min-width: 0;
+    font-family: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+    font-style: bold;
+    font-size: 11px;
+    font-weight: 400;
+    color: #374151;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.15s ease;
+}
+
+.node-name {
+    font-size: 11px;
+    font-weight: 400;
+    color: #9ca3af;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.type-badge {
+    flex-shrink: 0;
+    padding: 1px 5px;
+    border-radius: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #ffffff;
+    background: #475569;
+
+    &.is-v6 {
+        background: #6d28d9;
+    }
+}
+
+/* ========================================================================== */
+/*                            CHILDREN CONTAINER                              */
+/* ========================================================================== */
+
+.children-wrapper {
+    margin-left: 12px;
+    padding-left: 3px;
+    position: relative;
+    overflow: hidden;
+
+    &::before {
+        content: '';
+        position: absolute;
+        left: 12px;
+        top: 0;
+        bottom: 6px;
+        width: 1px;
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    &.is-collapsed {
+        display: none;
+    }
+}
+
+/* ========================================================================== */
+/*                           MATERIAL OVERRIDES                               */
+/* ========================================================================== */
+
+.mat-tree-node {
+    min-height: auto !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.mat-nested-tree-node {
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/* ========================================================================== */
+/*                            EXPANDED MODE STYLES                            */
+/* ========================================================================== */
+
+.tree-scroll-area.expanded-mode {
+    overflow-x: auto;
+    overflow-y: auto;
+
+    .ipam-tree {
+        min-width: 100%;
+        width: max-content;
+        padding-right: 16px;
+    }
+
+    .node-cidr,
+    .node-name {
+        white-space: nowrap;
+        overflow: visible;
+        text-overflow: clip;
+    }
+
+    .node-wrapper {
+        min-width: max-content;
+    }
+
+    .parent-node {
+        .node-wrapper {
+            width: max-content;
+        }
+    }
+
+    &::-webkit-scrollbar {
+        height: 8px;
+        width: 8px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 4px;
+
+        &:hover {
+            background: #a8a8a8;
+        }
+    }
+
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+/* ========================================================================== */
+/*                         LOADING & EMPTY STATES                             */
+/* ========================================================================== */
+
+.loading-message,
+.empty-state-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+    color: #6b7280;
+
+    i {
+        font-size: 24px;
+        margin-bottom: 12px;
+        color: #9ca3af;
+    }
+
+    span {
+        font-size: 14px;
+        line-height: 1.4;
+    }
+}
+
+.loading-message i {
+    color: $dg-primary-color;
+}
+
+/* ========================================================================== */
+/*                           RESPONSIVE DESIGN                                */
+/* ========================================================================== */
+
+@media (max-width: 768px) {
+    .tree-node .node-wrapper {
+        min-height: 36px;
+    }
+
+    .expand-toggle {
+        width: 28px;
+        height: 28px;
+    }
+
+    .search-box {
+        height: 40px;
+    }
+}

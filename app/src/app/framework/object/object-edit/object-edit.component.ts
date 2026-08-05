@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -39,7 +39,8 @@ import { finalize } from 'rxjs';
 @Component({
     selector: 'cmdb-object-edit',
     templateUrl: './object-edit.component.html',
-    styleUrls: ['./object-edit.component.scss']
+    styleUrls: ['./object-edit.component.scss'],
+    standalone: false
 })
 export class ObjectEditComponent implements OnInit {
     public mode: CmdbMode = CmdbMode.Edit;
@@ -171,6 +172,8 @@ export class ObjectEditComponent implements OnInit {
                         val.section_id = matchedSectionId;
                     }
                     this.handleMultiDataSection(val);
+                    // The mds control is UI-only; its data ships in multi_data_sections, not in fields.
+                    return;
                 }
                 else if (key == 'locationTreeName') {
                     this.locationTreeName = val;
@@ -252,7 +255,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 
@@ -266,7 +269,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 
@@ -280,7 +283,7 @@ export class ObjectEditComponent implements OnInit {
 
                 },
                 error: error => {
-                    this.toastService.error(error);
+                    this.toastService.error(error?.error?.message);
                 }
             });
 

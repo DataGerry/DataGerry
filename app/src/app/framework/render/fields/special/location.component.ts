@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -35,8 +35,9 @@ import { APIGetMultiResponse } from '../../../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  templateUrl: './location.component.html',
-  styleUrls: ['./location.component.scss']
+    templateUrl: './location.component.html',
+    styleUrls: ['./location.component.scss'],
+    standalone: false
 })
 export class LocationComponent extends RenderFieldComponent implements OnInit, OnDestroy {
   // fallback objectID for modal preview
@@ -56,6 +57,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
   public locationForObjectExists = new FormControl('', Validators.required);
   
   @ViewChild('locationSelect') locationSelect: NgSelectComponent;
+  public clearable = true;
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -70,9 +72,12 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
             this.registerForEventChanges();
             this.setTreeName('');
             this.setLocationExists('false');
-            this.currentObjectID = this.route.snapshot.params.publicID;
+            // Only read the route publicID as object ID in view/edit flows.
+            if (this.mode === this.MODES.View || this.mode === this.MODES.Edit) {
+                this.currentObjectID = Number(this.route.snapshot.params.publicID);
+            }
 
-            if(!this.currentObjectID){
+            if (!this.currentObjectID) {
                 this.currentObjectID = this.objectID;
             }
 
@@ -88,8 +93,8 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
             this.modalRef.close();
         }
 
-        this.unsubscribe.next();
-        this.unsubscribe.complete();
+        this.unsubscribe?.next();
+        this.unsubscribe?.complete();
 
         this.locationService.locationTreeName = "";
     }
@@ -121,7 +126,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
                 this.setValidLocations(ownChildren,locations);
 
                 if(this.mode == this.MODES.Edit && this.hasChildren){
-                    this.locationSelect.clearable = false;
+                    this.clearable = false;
                 }
         });
     }
@@ -138,7 +143,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
             },
             error: (error) => {
                 if (error.status != 404) {
-                    console.error("Error:", error);
+                    // console.error("Error:", error);
                 }
             }
             
@@ -162,7 +167,7 @@ export class LocationComponent extends RenderFieldComponent implements OnInit, O
                     },
                     error: (error) => {
                         if (error.status != 404) {
-                            console.error("Error:", error);
+                            // console.error("Error:", error);
                         }
                     }
                 }

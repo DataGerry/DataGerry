@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 """
 Implementation of BaseUpdate
 """
-import logging
+from logging import Logger, getLogger
 from abc import abstractmethod
 
 import cmdb
@@ -32,7 +32,7 @@ from cmdb.manager import (
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              BaseDatabaseUpdate - CLASS                                              #
@@ -41,52 +41,65 @@ class BaseDatabaseUpdate:
     """
     Base class for database updates
     """
-    def __init__(self, dbm:MongoDatabaseManager, db_name: str):
-        scr = SystemConfigReader()
-        mode = 'cloud' if cmdb.__CLOUD_MODE__ and not cmdb.__LOCAL_MODE__ else 'local'
-        self.dbm = dbm if dbm else MongoDatabaseManager(**scr.get_all_values_from_section('Database'), mode=mode)
-        self.db_name = db_name if db_name else self.dbm.db_name
-        self.categories_manager = CategoriesManager(self.dbm, self.db_name)
-        self.objects_manager = ObjectsManager(self.dbm, self.db_name)
-        self.types_manager = TypesManager(self.dbm, self.db_name)
-        self.settings_manager = SettingsManager(self.dbm, self.db_name)
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
+        """
+        Initialises the update with a database manager, target database and the domain managers
+
+        Args:
+            dbm (MongoDatabaseManager): Database manager to use; when falsy, a new one is built from
+                                        the '[Database]' config section (mode derived from the global
+                                        cloud/local flags)
+            db_name (str): Target database name; falls back to the manager's default when falsy
+        """
+        scr: SystemConfigReader = SystemConfigReader()
+        mode: str = 'cloud' if cmdb.__CLOUD_MODE__ and not cmdb.__LOCAL_MODE__ else 'local'
+        self.dbm: MongoDatabaseManager = dbm if dbm else MongoDatabaseManager(
+                                                            **scr.get_all_values_from_section('Database'),
+                                                            mode=mode
+                                                         )
+        self.db_name: str = db_name if db_name else self.dbm.db_name
+
+        self.categories_manager: CategoriesManager = CategoriesManager(self.dbm, self.db_name)
+        self.objects_manager: ObjectsManager = ObjectsManager(self.dbm, self.db_name)
+        self.types_manager: TypesManager = TypesManager(self.dbm, self.db_name)
+        self.settings_manager: SettingsManager = SettingsManager(self.dbm, self.db_name)
 
 
     @abstractmethod
     def creation_date(self) -> int:
         """
         Returns the creation date of the update
-        
+
         Returns:
-            int: The update creation date as a single interger in format {year}{month}{day}
+            int: The update creation date as a single integer in format {year}{month}{day}
         """
-        return NotImplementedError
+        raise NotImplementedError
 
 
     @abstractmethod
     def description(self) -> str:
         """
         Provides a brief description of the update
-        
+
         Returns:
             str: A description of the update
         """
-        return NotImplementedError
+        raise NotImplementedError
 
 
     @abstractmethod
     def start_update(self) -> None:
         """
-        Starts the update process. This method should be implemented in subclasses to define specific update logic
+        Starts the update process. Subclasses implement this to define their specific update logic
         """
-        return NotImplementedError
+        raise NotImplementedError
 
 
-    def increase_updater_version(self, value: int):
+    def increase_updater_version(self, value: int) -> None:
         """
-        Increments the updater version number in the database
-        
+        Persists the updater version number in the database
+
         Args:
-            value (int): The new version number to be set
+            value (int): The new version number to set (typically an update's creation_date)
         """
         self.settings_manager.write(_id='updater', data={'_id':'updater', 'version': value})

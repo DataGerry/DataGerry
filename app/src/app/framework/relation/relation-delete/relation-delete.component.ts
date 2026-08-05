@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -38,8 +38,12 @@ import { ObjectRelationService } from '../../services/object-relation.service';
     template: `
     <div class="modal-header">
         <h4 class="modal-title" id="modal-title">Relation deletion</h4>
-            <button type="button" class="close" aria-describedby="modal-title" (click)="modal.dismiss('Cross click')">
-                <span aria-hidden="true">&times;</span>
+        <button
+            type="button"
+            class="btn-close btn-close-white"
+            aria-label="Close"
+            aria-describedby="modal-title"
+            (click)="modal.dismiss('Cross click')">
             </button>
     </div>
     <div class="modal-body">
@@ -59,14 +63,20 @@ import { ObjectRelationService } from '../../services/object-relation.service';
                 <small id="typeNameInputHelp" class="form-text text-muted">
                     Type in the name of the relation to confirm the deletion.
                 </small>
-                <div *ngIf="name.invalid && (name.dirty || name.touched)" class="invalid-feedback">
-                    <div class="float-right" *ngIf="name.errors.required">
+                @if (name.invalid && (name.dirty || name.touched)) {
+                        <div class="invalid-feedback">
+                    @if (name.errors.required) {
+                        <div class="text-end">
                         Name is required
                     </div>
-                    <div class="float-right" *ngIf="name.errors.notequal">
+}
+                    @if (name.errors.notequal) {
+                        <div class="text-end">
                         Your answer is not equal!
                     </div>
+                }
                 </div>
+            }
                 <div class="clearfix"></div>
             </div>
         </form>
@@ -80,7 +90,8 @@ import { ObjectRelationService } from '../../services/object-relation.service';
             (click)="modal.close('delete')"
         >Delete</button>
     </div>
-    `
+    `,
+    standalone: false
 })
 export class RelationDeleteConfirmModalComponent {
     @Input() typeID: number = 0;
@@ -115,7 +126,8 @@ export class RelationDeleteConfirmModalComponent {
 @Component({
     selector: 'cmdb-relation-delete',
     templateUrl: './relation-delete.component.html',
-    styleUrls: ['./relation-delete.component.scss']
+    styleUrls: ['./relation-delete.component.scss'],
+    standalone: false
 })
 export class RelationDeleteComponent implements OnInit {
     public relationID: number;
@@ -169,7 +181,7 @@ export class RelationDeleteComponent implements OnInit {
                 this.relationObjectsCounter = Number(response?.count);
             },
             error: (error) => {
-               this.toast.error(error?.error?.message)
+                this.toast.error(error?.error?.message)
             }
         })
     }
@@ -203,7 +215,6 @@ export class RelationDeleteComponent implements OnInit {
                     }
                 },
                 (reason) => {
-                    console.warn('Delete modal dismissed:', reason);
                 }
             );
         } catch (error) {

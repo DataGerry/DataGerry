@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,91 +14,90 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the implementation of the CategoriesManager
+This module contains the implementation of the DocapiTemplatesManager
 """
-import logging
-from typing import Union
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.errors.manager.manager_errors import BaseManagerDeleteError, BaseManagerGetError
-from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import BaseManagerIterationError
-
 from cmdb.errors.manager.docapi_templates_manager import (
-    DocapiTemplatesManagerInsertError,
+    DOCAPI_TEMPLATES_MANAGER_ERRORS,
     DocapiTemplatesManagerGetError,
-    DocapiTemplatesManagerIterationError,
-    DocapiTemplatesManagerUpdateError,
-    DocapiTemplatesManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
+
+# MongoDB projection for the minimal template representation - only public_id and label are read
+# (``_id`` excluded), for lightweight listings that do not need the full template document
+MINIMAL_TEMPLATE_PROJECTION: dict[str, int] = {'public_id': 1, 'label': 1, '_id': 0}
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                 DocapiManager - CLASS                                                #
+#                                            DocapiTemplatesManager - CLASS                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
-class DocapiTemplatesManager(BaseManager):
+class DocapiTemplatesManager(GenericManager):
     """
-    The DocapiTemplatesManager handles the interaction between the DocapiTemplates-API and the database
-    `Extends`: BaseManager
+    Manages DocapiTemplate documents on top of GenericManager
+
+    Keeps the named public API (``insert_template`` / ``get_template`` / ``get_templates`` /
+    ``update_template`` / ``delete_template``) used by the existing route call sites, delegating the
+    CRUD + per-operation error wrapping to GenericManager. Adds the docapi-specific read helpers
+    ``get_templates_by`` and ``get_template_by_name``
+
+    Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database:str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Set the database connection for the DocapiTemplatesManager
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
+            database (str | None): Name of the database the 'dbm' should connect to. Only used in CLOUD_MODE
+
+        Raises:
+            DocapiTemplatesManagerInitError: If the DocapiTemplatesManager could not be initialised
         """
-        super().__init__(DocapiTemplate.COLLECTION, dbm, database)
+        super().__init__(dbm, DocapiTemplate, DOCAPI_TEMPLATES_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_template(self, data: Union[DocapiTemplate, dict]) -> int:
+    def insert_template(self, data: DocapiTemplate | dict[str, Any]) -> int:
         """
         Insert a new DocapiTemplate into the database
 
         Args:
-            `data` (DocapiTemplate, dict): The data of the new DocapiTemplate
+            data (DocapiTemplate | dict[str, Any]): The data of the new DocapiTemplate
 
         Raises:
-            `DocapiTemplatesManagerInsertError`: When the creation of DocapiTemplate failed
+            DocapiTemplatesManagerInsertError: When the creation of the DocapiTemplate failed
 
         Returns:
-            `int`: public_id of the created DocapiTemplate
+            int: public_id of the created DocapiTemplate
         """
-        try:
-            if isinstance(data, dict):
-                new_object = DocapiTemplate(**data)
-            else:
-                new_object = data
+        if isinstance(data, dict):
+            data = DocapiTemplate(**data)
 
-            ack = self.insert(new_object.to_database())
-        except Exception as err:
-            #TODO: ERROR-FIX (handle instance check)
-            raise DocapiTemplatesManagerInsertError(err) from err
-
-        return ack
+        return self.insert_item(data)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
     def get_new_docapi_public_id(self) -> int:
         """
-        Gets the next couter for the public_id from database and increases it
+        Gets the next public_id counter value from the database and increases it
 
         Returns:
-            int: The next public_id for DocapiTemplate
+            int: The next public_id for a DocapiTemplate
         """
-        return self.get_next_public_id()
+        return self.get_next_public_id(inc_id=True)
 
 
-    def get_template(self, public_id: int) -> DocapiTemplate:
+    def get_template(self, public_id: int) -> DocapiTemplate | None:
         """
         Retrieve a single DocapiTemplate from the database
 
@@ -106,21 +105,12 @@ class DocapiTemplatesManager(BaseManager):
             public_id (int): public_id of the requested DocapiTemplate
 
         Raises:
-            DocapiTemplatesManagerGetError: When the DocApiTemplate could not be retrieved
-            DocapiTemplatesManagerGetError: When the initialisation of the DocApiTemplate failed
+            DocapiTemplatesManagerGetError: When the DocapiTemplate could not be retrieved
 
         Returns:
-            DocapiTemplate: The requested DocapiTemplate
+            DocapiTemplate | None: The requested DocapiTemplate, or None if no template has that id
         """
-        try:
-            result = self.get_one(public_id)
-
-            return DocapiTemplate(**result)
-        except BaseManagerGetError as err:
-            raise DocapiTemplatesManagerGetError(err) from err
-        except Exception as err:
-            #TODO: ERROR-FIX (raise and catch docapitemplate init error)
-            raise DocapiTemplatesManagerGetError(err) from err
+        return self.get_item(public_id, as_dict=False)
 
 
     def get_templates(self, builder_params: BuilderParameters) -> IterationResult[DocapiTemplate]:
@@ -128,108 +118,102 @@ class DocapiTemplatesManager(BaseManager):
         Retrieve multiple DocapiTemplates matching the builder params
 
         Args:
-            `builder_params` (BuilderParameters): Filter for DocapiTemplates
+            builder_params (BuilderParameters): Filter, sort and pagination parameters
 
         Raises:
-            `DocapiTemplatesManagerIterationError`: When iteration failed
-            `DocapiTemplatesManagerIterationError`: When an unexpected error occured
+            DocapiTemplatesManagerIterationError: When the iteration failed
 
         Returns:
-            `IterationResult[DocapiTemplate]`: _description_
+            IterationResult[DocapiTemplate]: All DocapiTemplates matching the filter
         """
-        try:
-            aggregation_result, total = self.iterate_query(builder_params)
-
-            iteration_result: IterationResult[DocapiTemplate] = IterationResult(aggregation_result, total,
-                                                                                DocapiTemplate)
-
-            return iteration_result
-        except BaseManagerIterationError as err:
-            raise DocapiTemplatesManagerIterationError(err) from err
-        except Exception as err:
-            raise DocapiTemplatesManagerIterationError(err) from err
+        return self.iterate_items(builder_params)
 
 
-    def get_templates_by(self, **requirements) -> list[DocapiTemplate]:
+    def get_templates_by(self, **requirements: Any) -> list[DocapiTemplate]:
         """
         Get multiple DocapiTemplates from the database based on the requirements filter
 
+        Args:
+            **requirements (Any): Field/value pairs the returned DocapiTemplates must match
+
         Raises:
-            `DocapiTemplatesManagerGetError`: When an exception occurs while retrieving the DocapiTemplates
+            DocapiTemplatesManagerGetError: When an exception occurs while retrieving the DocapiTemplates
 
         Returns:
-            `list[DocapiTemplate]`: List of DocapiTemplates
+            list[DocapiTemplate]: List of matching DocapiTemplates
         """
         try:
-            ack = []
             templates = self.get_many(**requirements)
 
-            for template in templates:
-                ack.append(DocapiTemplate(**template))
-
-            return ack
-        #TODO: ERROR-FIX (catch proper errors)
+            return [DocapiTemplate.from_data(template) for template in templates]
         except Exception as err:
-            raise DocapiTemplatesManagerGetError(err) from err
+            raise DocapiTemplatesManagerGetError(str(err)) from err
 
 
-    def get_template_by_name(self, **requirements) -> DocapiTemplate:
+    def get_minimal_templates_by(self, **requirements: Any) -> list[dict[str, Any]]:
         """
-        Retrieve a DocapiTemplate by requirements
+        Retrieve a minimal representation of DocapiTemplates matching the requirements filter
+
+        Only the public_id and label are read from the database (server-side projection), for
+        lightweight listings that do not need the full template document
+
+        Args:
+            **requirements (Any): Field/value pairs the returned DocapiTemplates must match
 
         Raises:
-            `DocapiTemplatesManagerGetError`: When more than one DocapiTemplate matches the filter
-            `DocapiTemplatesManagerGetError`: When the DocapiTemplates could not be retrieved
-            `DocapiTemplatesManagerGetError`: When no DocapiTemplate matches the filter
+            DocapiTemplatesManagerGetError: When an exception occurs while retrieving the DocapiTemplates
 
         Returns:
-            `DocapiTemplate`: The requested DocapiTemplate
+            list[dict[str, Any]]: Matching templates as {'public_id': ..., 'label': ...} dicts
         """
         try:
-            templates = self.get_many(collection=DocapiTemplate.COLLECTION, limit=1, **requirements)
-
-            if len(templates) > 0:
-                return DocapiTemplate(**templates[0])
-
-            if not len(templates) == 0:
-                raise DocapiTemplatesManagerGetError('More than 1 type matches this requirement')
-
-            raise DocapiTemplatesManagerGetError('No document matches the filter!')
+            return self.find(criteria=requirements, projection=MINIMAL_TEMPLATE_PROJECTION)
         except Exception as err:
-            #TODO: ERROR-FIX
-            raise DocapiTemplatesManagerGetError(err) from err
+            raise DocapiTemplatesManagerGetError(str(err)) from err
+
+
+    def get_template_by_name(self, **requirements: Any) -> DocapiTemplate | None:
+        """
+        Retrieve a single DocapiTemplate matching the requirements filter
+
+        Args:
+            **requirements (Any): Field/value pairs the returned DocapiTemplate must match
+
+        Raises:
+            DocapiTemplatesManagerGetError: When the DocapiTemplate could not be retrieved
+
+        Returns:
+            DocapiTemplate | None: The first matching DocapiTemplate, or None if none matches
+        """
+        try:
+            templates = self.get_many(limit=1, **requirements)
+
+            if templates:
+                return DocapiTemplate.from_data(templates[0])
+
+            return None
+        except Exception as err:
+            raise DocapiTemplatesManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_template(self, data: Union[DocapiTemplate, dict]) -> bool:
+    def update_template(self, data: DocapiTemplate | dict[str, Any]) -> None:
         """
         Update a DocapiTemplate in the database
 
+        The DocapiTemplate is identified by the ``public_id`` carried in ``data``. Updating an id
+        that does not exist is a no-op (the underlying update does not upsert)
+
         Args:
-            `data` (DocapiTemplate/ dict): new data for the DocapiTemplate
+            data (DocapiTemplate | dict[str, Any]): New data for the DocapiTemplate
 
         Raises:
-            `DocapiTemplatesManagerUpdateError`: When the DocapiTemplate could not be updated
-
-        Returns:
-            `bool`: If the true then the update was successful
+            DocapiTemplatesManagerUpdateError: When the DocapiTemplate could not be updated
         """
-        try:
-            if isinstance(data, dict):
-                update_object = DocapiTemplate(**data)
-            elif isinstance(data, DocapiTemplate):
-                update_object = data
-            else:
-                raise DocapiTemplatesManagerUpdateError("Could not initialise DocapiTemplate with given data!")
+        if isinstance(data, dict):
+            data = DocapiTemplate(**data)
 
-            ack = self.update(
-                    criteria={'public_id':update_object.get_public_id()},
-                    data=update_object.to_database()
-                  )
-
-            return ack.acknowledged
-        except Exception as err:
-            raise DocapiTemplatesManagerUpdateError(err) from err
+        self.update_item(data.get_public_id(), data)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -238,15 +222,12 @@ class DocapiTemplatesManager(BaseManager):
         Deletes a single DocapiTemplate with the given public_id
 
         Args:
-            `public_id` (int): public_id of the DocapiTemplate which should be deleted
+            public_id (int): public_id of the DocapiTemplate which should be deleted
 
         Raises:
-            `DocapiTemplatesManagerDeleteError`: When deletion fails
+            DocapiTemplatesManagerDeleteError: When deletion fails
 
         Returns:
-            `bool`: True if deletion was succesful
+            bool: True if a document was actually removed, False otherwise
         """
-        try:
-            return self.delete({'public_id': public_id})
-        except BaseManagerDeleteError as err:
-            raise DocapiTemplatesManagerDeleteError(err) from err
+        return self.delete_item(public_id)

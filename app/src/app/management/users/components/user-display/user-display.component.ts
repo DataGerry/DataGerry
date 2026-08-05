@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,19 +20,24 @@ import { Component, Input } from '@angular/core';
 import { User } from '../../../models/user';
 
 @Component({
-  selector: 'cmdb-user-display',
-  templateUrl: './user-display.component.html',
-  styleUrls: ['./user-display.component.scss']
+    selector: 'cmdb-user-display',
+    templateUrl: './user-display.component.html',
+    styleUrls: ['./user-display.component.scss'],
+    standalone: false
 })
 export class UserDisplayComponent {
 
-  @Input() user: User;
+  @Input() user: Partial<User> | null = null;
   @Input() maxWidth: string = '40';
 
-  public get name() {
-    if ((this.user.first_name !== null) && (this.user.last_name !== null)) {
-      return `${ this.user.first_name } ${ this.user.last_name }`;
+  public get name(): string {
+    const firstName = this.user?.first_name?.trim();
+    const lastName = this.user?.last_name?.trim();
+
+    if (firstName && lastName) {
+      return `${ firstName } ${ lastName }`;
     }
-    return this.user.user_name;
+
+    return this.user?.user_name ?? '';
   }
 }

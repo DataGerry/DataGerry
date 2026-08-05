@@ -1,113 +1,532 @@
 @import 'src/scss/variables';
 
-.location-tree-invisible {
-    display: none;
+.location-tree-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    background: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
 }
 
-// /*
-//  * This padding sets alignment of the nested nodes.
-//  */
-.location-tree .mat-nested-tree-node div[role=group] {
-    padding-left: 20px;
+/* ========================================================================== */
+/*                              SEARCH SECTION                                */
+/* ========================================================================== */
+
+.search-section {
+    padding: 12px;
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    flex-shrink: 0;
 }
 
-/*
- * Padding for leaf nodes.
- * Leaf nodes need to have padding so as to align with other non-leaf nodes
- * under the same parent.
- */
-.location-tree div[role=group]>.mat-tree-node {
-    padding-left: 20px;
-}
-
-.location-tree div[role=group]>.mat-tree-node.no-children {
-    padding-left: 30px;
-}
-
-.location_icon {
-    padding-right: 4px;
-    margin-left: -6px;
-}
-
-.location_element:hover {
-    background-color: $dg-hover-background-color;
-}
-
-.location_name:hover {
-    cursor: pointer;
-    color: $dg-primary-color;
-}
-
-.location-selected {
-    background-color: $dg-selected-background-color;
-}
-
-mat-tree-node {
-    padding-left: 5px;
-}
-
-.mat-tree-node {
-    min-height: 30px;
-}
-
-.mat-mdc-icon-button .mat-mdc-button-persistent-ripple {
-    border-radius: 20% !important;
-}
-
-.mat-mdc-icon-button.mat-mdc-button-base {
-    width: 30px;
-    height: 30px;
-    padding: 0px;
-}
-
-.material-icons {
-    font-family: 'Material Icons';
-    font-weight: normal;
-    font-style: normal;
-    font-size: 22px;
-    line-height: 1;
-    letter-spacing: normal;
-    text-transform: none;
-    display: inline-block;
-    white-space: nowrap;
-    word-wrap: normal;
-    margin-left: -10px;
-}
-
-#location-tree>mat-tree-node.mat-tree-node.no-children {
-    padding-left: 30px;
-}
-
-.mat-mdc-button {
-    --mat-mdc-button-persistent-ripple-color: none !important;
-    --mat-mdc-button-ripple-color: none !important;
-}
-
-#location-tree {
-    width: auto;
-}
-
-// .mat-tree {
-//   background-color: inherit;
-// }
-
-.input-wrapper-search {
+.search-box {
     position: relative;
+    display: flex;
+    align-items: center;
+    height: 36px;
+    background: #f9fafb;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    transition: all 0.2s ease;
 
-    i.fa-times.input-icon-clear {
-        &:hover {
-            cursor: pointer;
+    &:hover {
+        background: #f3f4f6;
+    }
+
+    &:focus-within {
+        background: #ffffff;
+        border-color: $dg-primary-color;
+        box-shadow: 0 0 0 3px rgba($dg-primary-color, 0.1);
+        
+        .search-icon {
+            color: $dg-primary-color;
         }
-
-        position: absolute;
-        color: black;
-        opacity: 0.8;
-        top: calc(50% - 0.5em);
-        right: 10%;
     }
 }
 
-#category-filter {
-    margin-right: 10px;
-    min-width: 90%;
+.search-icon {
+    position: absolute;
+    left: 10px;
+    color: #9ca3af;
+    font-size: 14px;
+    pointer-events: none;
+    transition: color 0.2s ease;
+}
+
+.search-input {
+    flex: 1;
+    height: 100%;
+    padding: 0 36px 0 36px;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    color: #111827;
+    outline: none;
+
+    &::placeholder {
+        color: #9ca3af;
+    }
+}
+
+.clear-button {
+    position: absolute;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    color: #9ca3af;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+        background: #e5e7eb;
+        color: #6b7280;
+    }
+
+    &:active {
+        transform: scale(0.92);
+    }
+}
+
+/* ========================================================================== */
+/*                           SIDEBAR EXPAND BUTTON                            */
+/* ========================================================================== */
+
+.sidebar-expand-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 8px;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06),
+                0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    i {
+        font-size: 14px;
+        color: #6b7280;
+        transition: color 0.2s ease;
+    }
+    
+    &:hover {
+        transform: scale(1.08);
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1),
+                    0 2px 4px rgba(0, 0, 0, 0.06);
+        
+        i {
+            color: $dg-primary-color;
+        }
+    }
+    
+    &:active {
+        transform: scale(0.95);
+    }
+    
+    &:focus-visible {
+        outline: 2px solid $dg-primary-color;
+        outline-offset: 2px;
+    }
+}
+
+/* ========================================================================== */
+/*                            TREE SCROLL AREA                                */
+/* ========================================================================== */
+
+.tree-scroll-area {
+    position: relative;
+    padding-top: 8px;
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+
+    &::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.12);
+        border-radius: 3px;
+        
+        &:hover {
+            background: rgba(0, 0, 0, 0.2);
+        }
+    }
+}
+
+/* ========================================================================== */
+/*                              TREE STRUCTURE                                */
+/* ========================================================================== */
+
+.location-tree {
+    padding: 16px 5px 8px 5px; 
+    background: transparent;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    
+    mat-tree-node,
+    mat-nested-tree-node {
+        padding: 0 !important;
+        min-height: 0 !important;
+    }
+}
+
+/* ========================================================================== */
+/*                                TREE NODES                                  */
+/* ========================================================================== */
+
+.tree-node {
+    position: relative;
+    margin-bottom: 0px;
+    width: 100%;
+    
+    .node-wrapper {
+        display: flex;
+        align-items: center;
+        min-height: 28px;
+        border-radius: 6px;
+        transition: all 0.15s ease;
+        position: relative;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    // Default hover
+    &:hover:not(.is-selected) {
+        .node-wrapper {
+            background: #f3f4f6;
+        }
+        
+        .node-text {
+            color: #111827;
+        }
+    }
+
+    // Selected state - clean and subtle
+    &.is-selected {
+        .node-wrapper {
+            background: rgba($dg-primary-color, 0.08);
+            
+            // Left accent line
+            &::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                top: 4px;
+                bottom: 4px;
+                width: 2px;
+                background: $dg-primary-color;
+                border-radius: 0 2px 2px 0;
+            }
+        }
+
+        .node-icon {
+            color: $dg-primary-color;
+        }
+
+        .node-text {
+            color: $dg-primary-color;
+            font-weight: 500;
+        }
+    }
+
+    // Expanded parent
+    &.parent-node.is-expanded {
+        .expand-toggle {
+            .chevron-icon {
+                transform: rotate(90deg);
+            }
+        }
+    }
+}
+
+/* ========================================================================== */
+/*                              NODE STRUCTURE                                */
+/* ========================================================================== */
+
+.node-wrapper {
+    display: flex;
+    align-items: center;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.node-indent {
+    width: 10px;
+    flex-shrink: 0;
+}
+
+.expand-toggle {
+    width: 16px !important;
+    height: 16px !important;
+    padding: 0 !important;
+    margin: 0 0px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    
+    --mat-mdc-button-persistent-ripple-color: transparent !important;
+    --mat-mdc-button-ripple-color: transparent !important;
+
+    .chevron-icon {
+        width: 14px;
+        height: 14px;
+        color: #9ca3af;
+        transition: all 0.2s ease;
+    }
+
+    &:hover {
+        background: rgba(0, 0, 0, 0.04);
+        
+        .chevron-icon {
+            color: #6b7280;
+        }
+    }
+
+    &:active {
+        transform: scale(0.92);
+    }
+}
+
+.node-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px;
+    min-height: 25px;
+    min-width: 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.icon-wrapper {
+    width: 15px;
+    height: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.node-icon {
+    font-size: 14px;
+    color: #6b7280;
+    transition: all 0.2s ease;
+}
+
+.node-text {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 400;
+    color: #374151;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: all 0.15s ease;
+}
+
+/* ========================================================================== */
+/*                            CHILDREN CONTAINER                              */
+/* ========================================================================== */
+
+.children-wrapper {
+    margin-left: 12px;
+    padding-left: 3px;
+    position: relative;
+    overflow: hidden;
+    
+    // Subtle connection line
+    &::before {
+        content: '';
+        position: absolute;
+        left: 12px;
+        top: 0;
+        bottom: 6px;
+        width: 1px;
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    &.is-collapsed {
+        display: none;
+    }
+}
+
+/* ========================================================================== */
+/*                           MATERIAL OVERRIDES                               */
+/* ========================================================================== */
+
+.mat-tree-node {
+    min-height: auto !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.mat-nested-tree-node {
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.mat-mdc-icon-button {
+    .mat-mdc-button-persistent-ripple,
+    .mat-ripple {
+        display: none !important;
+    }
+}
+
+/* ========================================================================== */
+/*                              ACCESSIBILITY                                 */
+/* ========================================================================== */
+
+.expand-toggle:focus-visible {
+    outline: 2px solid $dg-primary-color;
+    outline-offset: 1px;
+}
+
+.search-input:focus-visible {
+    outline: none;
+}
+
+/* ========================================================================== */
+/*                           RESPONSIVE DESIGN                                */
+/* ========================================================================== */
+
+@media (max-width: 768px) {
+    .tree-node .node-wrapper {
+        min-height: 36px;
+    }
+    
+    .expand-toggle {
+        width: 28px !important;
+        height: 28px !important;
+    }
+    
+    .search-box {
+        height: 40px;
+    }
+}
+
+/* ========================================================================== */
+/*                            EXPANDED MODE STYLES                            */
+/* ========================================================================== */
+
+.tree-scroll-area.expanded-mode {
+    // In expanded mode, allow horizontal scroll if content overflows
+    overflow-x: auto;
+    overflow-y: auto;
+    
+    // Ensure tree container adapts to content width
+    .location-tree {
+        min-width: 100%;
+        width: max-content;
+        padding-right: 16px;
+    }
+    
+
+    .node-text {
+        white-space: nowrap;
+        overflow: visible;
+        text-overflow: clip;
+    }
+    
+    // Adjust node wrapper to not restrict width
+    .node-wrapper {
+        min-width: max-content;
+    }
+    
+    // Ensure parent nodes can expand fully
+    .parent-node {
+        .node-wrapper {
+            width: max-content;
+        }
+    }
+}
+
+/* ========================================================================== */
+/*                    HORIZONTAL SCROLLBAR STYLING                           */
+/* ========================================================================== */
+
+.tree-scroll-area.expanded-mode::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+}
+
+.tree-scroll-area.expanded-mode::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.tree-scroll-area.expanded-mode::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+    
+    &:hover {
+        background: #a8a8a8;
+    }
+}
+
+.tree-scroll-area.expanded-mode {
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+/* ========================================================================== */
+/*                            EMPTY STATE MESSAGES                            */
+/* ========================================================================== */
+
+.empty-state-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+    color: #6b7280;
+    
+    i {
+        font-size: 24px;
+        margin-bottom: 12px;
+        color: #9ca3af;
+    }
+    
+    span {
+        font-size: 14px;
+        line-height: 1.4;
+    }
 }

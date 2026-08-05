@@ -5,7 +5,7 @@
       <div class="card">
         <div class="card-header">Summary</div>
         <div class="card-body">
-          <div class="form-group">
+          <div class="mb-3">
             <label>Fields</label>
             <ng-select [items]="summaries" [multiple]="true" bindLabel="label" bindValue="name"
               placeholder="Select fields" formControlName="fields" (change)="onSummaryChange($event)">
@@ -23,7 +23,7 @@
       <div class="card mt-3">
         <div class="card-header">Select label for CI Explorer</div>
         <div class="card-body">
-          <div class="form-group">
+          <div class="mb-3">
             <label>Field</label>
             <ng-select [items]="filteredFields" bindLabel="label" bindValue="name" placeholder="Select a field"
               formControlName="ci_explorer_label" (change)="onCiExplorerChange($event)">
@@ -46,50 +46,62 @@
       <div id="external-link-add" class="card-body">
         <form [formGroup]="externalsForm" (ngSubmit)="addExternal()" class="needs-validation" novalidate
           autocomplete="off">
-          <div class="form-group">
+          <div class="mb-3">
             <label>Name</label>
             <input type="text" formControlName="name" class="form-control" [ngClass]="{ 'is-valid': external_name.valid && (external_name.dirty || external_name.touched),
                  'is-invalid': external_name.invalid && (external_name.dirty || external_name.touched)}" lowercase
               required>
-            <div *ngIf="external_name.invalid && (external_name.dirty || external_name.touched)"
+            @if (external_name.invalid && (external_name.dirty || external_name.touched)) {
+<div
               class="invalid-feedback">
-              <div class="float-right" *ngIf="external_name.errors.required">
+              @if (external_name.errors.required) {
+<div class="text-end">
                 Name is required.
               </div>
-              <div class="float-right" *ngIf="external_name.errors.nameAlreadyTaken">
+}
+              @if (external_name.errors.nameAlreadyTaken) {
+<div class="text-end">
                 A external with this name already exists.
               </div>
+}
             </div>
+}
           </div>
-          <div class="form-group">
+          <div class="mb-3">
             <label>Label</label>
             <input type="text" formControlName="label" class="form-control" [ngClass]="{ 'is-valid': external_label.valid && (external_label.dirty || external_label.touched),
                  'is-invalid': external_label.invalid && (external_label.dirty || external_label.touched)}" required>
-            <div *ngIf="external_label.invalid && (external_label.dirty || external_label.touched)"
+            @if (external_label.invalid && (external_label.dirty || external_label.touched)) {
+<div
               class="invalid-feedback">
-              <div class="float-right" *ngIf="external_label.errors.required">
+              @if (external_label.errors.required) {
+<div class="text-end">
                 Label is required.
               </div>
+}
             </div>
+}
           </div>
           <!-- BEGIN: Icon picker -->
           <cmdb-icon-picker [iconFormGroup]="externalsForm" [fallbackIcon]="'fas fa-external-link-alt'"
             [inputDescription]="'Symbol for the external link label'"></cmdb-icon-picker>
           <!-- END: Icon picker -->
-          <div class="form-group">
+          <div class="mb-3">
             <label>Link</label>
             <input type="text" formControlName="href" class="form-control">
             <small class="form-text text-muted">enter curved brackets for field interpolation <br />
               example: <b>http://example.org/{{"{}"}}/example/</b>
             </small>
           </div>
-          <div class="form-group">
-            <div class="form-group" *ngIf="hasInter">
+          <div class="mb-3">
+            @if (hasInter) {
+<div class="mb-3">
               <label>Field of interpolation</label>
               <ng-select [items]="fields" [multiple]="true" [closeOnSelect]="false" bindLabel="label" bindValue="name"
                 placeholder="Select fields" formControlName="fields">
               </ng-select>
             </div>
+}
           </div>
 
           <button [disabled]="!externalsForm.valid" type="submit" class="btn btn-primary">Add</button>
@@ -97,17 +109,19 @@
       </div>
     </div>
     <div id="external-link-accordion" class="list-group">
-      <button *ngFor="let external of typeInstance.render_meta.externals" type="button"
+      @for (external of typeInstance.render_meta.externals; track external) {
+<button type="button"
         class="list-group-item list-group-item-action">
         <div class="d-flex w-100 justify-content-between">
           <h5 class="mb-1">{{external.label}}</h5>
           <small class="summary-buttons">
-            <span class="badge badge-primary badge-pill" (click)="editExternal(external)">EDIT</span>
-            <span class="badge badge-primary badge-pill" (click)="deleteExternal(external)">DELETE</span>
+            <span class="badge rounded-pill bg-primary" (click)="editExternal(external)">EDIT</span>
+            <span class="badge rounded-pill bg-primary" (click)="deleteExternal(external)">DELETE</span>
           </small>
         </div>
         <small class="mb-1">Link structure: {{external.href}}</small>
       </button>
+}
     </div>
   </div>
 </div>

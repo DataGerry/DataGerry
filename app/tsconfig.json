@@ -1,24 +1,24 @@
 {
     "compileOnSave": false,
     "compilerOptions": {
-        "baseUrl": "./",
-        "downlevelIteration": true,
-        "outDir": "./dist/out-tsc",
-        "sourceMap": true,
-        "declaration": false,
-        "module": "esnext",
-        "moduleResolution": "node",
-        "experimentalDecorators": true,
-        "importHelpers": true,
-        "target": "ES2022",
-        "typeRoots": [
-            "node_modules/@types"
-        ],
-        "lib": [
-            "ESNext",
-            "dom"
-        ],
-        "useDefineForClassFields": false
+      "baseUrl": "./",
+      "outDir": "./dist/out-tsc",
+      "esModuleInterop": true,
+      "sourceMap": true,
+      "declaration": false,
+      "module": "esnext",
+      "moduleResolution": "bundler",
+      "experimentalDecorators": true,
+      "importHelpers": true,
+      "target": "ES2022",
+      "typeRoots": [
+        "node_modules/@types"
+      ],
+      "lib": [
+        "ESNext",
+        "dom"
+      ],
+      "useDefineForClassFields": false
     },
     // "angularCompilerOptions": {
     //     "strictTemplates": true,

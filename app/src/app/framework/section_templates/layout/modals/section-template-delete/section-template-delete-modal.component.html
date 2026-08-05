@@ -1,28 +1,33 @@
 <div class="modal-header bg-primary text-white">
     <h4 class="modal-title">Section Template ID: {{sectionTemplate.public_id}}</h4>
-    <button type="button" class="close" (click)="activeModal.close(0)"><span>&times;</span></button>
-</div>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.close(0)">
+    </button>
+  </div>
 
 <div class="modal-body">
     <div id="delete-message">
         Do you want to <b>delete</b> the section template <b>"{{sectionTemplate.label}}"</b>?
         <br>
         <br>
-        <ng-container *ngIf="sectionTemplate.is_global">
+        @if (sectionTemplate.is_global) {
+
             This action affects <b>{{templateCounts.types}} types</b> and <b>{{templateCounts.objects}} objects</b>!
-        </ng-container>
+        
+}
     </div>
-    <ng-container *ngIf="sectionTemplate.is_global">
+    @if (sectionTemplate.is_global) {
+
         <br>
         <div class="warning-text">
             This will delete this section and its fields from all types and corresponding objects.
             <br>
             This action can't be undone!
         </div>
-    </ng-container>
+    
+}
 </div>
 
 <div class="modal-footer">
-    <button type="button" class="btn btn-outline-dark" (click)="activeModal.close(0)">Close</button>
+    <button type="button" class="btn btn-warning" (click)="activeModal.close(0)">Close</button>
     <button type="submit" class="btn btn-danger" (click)="activeModal.close(sectionTemplate.public_id)">Delete</button>
 </div>

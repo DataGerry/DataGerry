@@ -9,29 +9,26 @@
 
   <hr />
   <!--  Warning Alert -->
-  <app-warning-alert *ngIf="this.riskClasses.length < 3" iconClass="fas fa-info-circle warning-icon"
+  @if (this.riskClasses.length < 3) { <app-warning-alert iconClass="fas fa-info-circle warning-icon"
     title="Insufficient Risk Classes:" message="You need to define at least 3 risk classes to proceed.">
-  </app-warning-alert>
+    </app-warning-alert>
+    }
 
-  <app-warning-alert *ngIf="this.riskClasses.length >= 3" iconClass="fas fa-sort-amount-down warning-icon"
-    title="Structural Advisory:" message="Please ensure your risk classes are sorted from high to low risk height.">
-  </app-warning-alert>
+    @if (this.riskClasses.length >= 3) {
+    <app-warning-alert iconClass="fas fa-sort-amount-down warning-icon" title="Structural Advisory:"
+      message="Please ensure your risk classes are sorted from high to low risk height.">
+    </app-warning-alert>
+    }
 
-  <!-- (cmdb-table) -->
-  <cmdb-table [items]="riskClasses" [columns]="columns" [totalItems]="totalRiskClasses" [pageSize]="limit" [page]="page"
-    [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false" [searchEnabled]="false"
-    [draggableEnabled]="true" [pageSizeEnabled]="false" [infoEnabled]="false"  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
-    (orderChange)="onOrderChange($event)">
-  </cmdb-table>
+    <!-- (cmdb-table) -->
+    <cmdb-table [items]="riskClasses" [columns]="columns" [totalItems]="totalRiskClasses" [pageSize]="limit"
+      [page]="page" [loading]="loading" [paginationEnabled]="false" [pageSizeEnabled]="false" [searchEnabled]="false"
+      [draggableEnabled]="true" [pageSizeEnabled]="false" [infoEnabled]="false" (pageChange)="onPageChange($event)"
+      (pageSizeChange)="onPageSizeChange($event)" (orderChange)="onOrderChange($event)">
+    </cmdb-table>
 </div>
 
 <!-- Color Template -->
-<!-- <ng-template #colorTemplate let-item="item">
-  <div class="color-cell" [style.backgroundColor]="item.color">
-    {{ item.color }}
-  </div>
-</ng-template> -->
-
 <ng-template #colorTemplate let-item="item">
   <div class="color-cell" [style.backgroundColor]="item.color" [style.color]="item.textColor">
     {{ item.color }}
@@ -46,10 +43,9 @@
       title="Edit Risk Class"></i>
   </span>
   <span *permissionLink="'base.isms.riskClass.delete'">
-    <i class="far fa-trash-alt icon-delete"  (click)="onDeleteRiskClass(item)" title="Delete Risk Class"></i>
+    <i class="far fa-trash-alt icon-delete" (click)="onDeleteRiskClass(item)" title="Delete Risk Class"></i>
   </span>
 </ng-template>
-
 
 
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,9 +20,10 @@ import { Component, Input } from '@angular/core';
 import { CmdbCategoryNode } from '../../../framework/models/cmdb-category';
 
 @Component({
-  selector: 'cmdb-sidebar-category',
-  templateUrl: './sidebar-category.component.html',
-  styleUrls: ['./sidebar-category.component.scss'],
+    selector: 'cmdb-sidebar-category',
+    templateUrl: './sidebar-category.component.html',
+    styleUrls: ['./sidebar-category.component.scss'],
+    standalone: false
 })
 export class SidebarCategoryComponent {
 

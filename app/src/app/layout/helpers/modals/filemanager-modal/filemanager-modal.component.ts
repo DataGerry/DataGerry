@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { FileMetadata } from '../../../components/file-explorer/model/metadata';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { APIGetMultiResponse } from '../../../../services/models/api-response';
@@ -25,9 +25,10 @@ import { FileService } from '../../../components/file-explorer/service/file.serv
 import { ToastService } from '../../../toast/toast.service';
 
 @Component({
-  selector: 'cmdb-filemanager-modal',
-  templateUrl: './filemanager-modal.component.html',
-  styleUrls: ['./filemanager-modal.component.scss']
+    selector: 'cmdb-filemanager-modal',
+    templateUrl: './filemanager-modal.component.html',
+    styleUrls: ['./filemanager-modal.component.scss'],
+    standalone: false
 })
 export class FilemanagerModalComponent implements OnInit {
 
@@ -35,7 +36,9 @@ export class FilemanagerModalComponent implements OnInit {
   public selectedFileElements: SelectedFileArray = {files: [], totalSize: 0};
   public recordsTotal: number = 0;
 
-  constructor(public activeModal: NgbActiveModal, private fileService: FileService, private toast: ToastService) {}
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly fileService = inject(FileService);
+  private readonly toast = inject(ToastService);
 
   public ngOnInit(): void {
     this.fileService.getAllFilesList(this.localMetadata).subscribe((data: APIGetMultiResponse<FileElement>) => {

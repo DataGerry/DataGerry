@@ -1,0 +1,9 @@
+<field name="public_id" type="integer"/>
+<field name="name" type="string"/>
+<field name="label" type="string"/>
+<field name="parent" type="integer"/>
+<field name="types" type="array"/>
+<field name="meta" type="object">
+    <field name="icon" type="string"/>
+    <field name="order" type="string"/>
+</field>

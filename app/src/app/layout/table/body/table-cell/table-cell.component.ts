@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,11 +17,13 @@
 */
 import {
     Component,
-    ComponentFactoryResolver, HostBinding,
+    inject,
+    ComponentFactoryResolver,
+    HostBinding,
     Input,
     OnInit,
     ViewChild,
-    ViewContainerRef
+    ViewContainerRef,
 } from '@angular/core';
 import { Column } from '../../table.types';
 import { Router } from '@angular/router';
@@ -29,11 +31,12 @@ import { Router } from '@angular/router';
 @Component({
     selector: 'td[table-cell]',
     templateUrl: './table-cell.component.html',
-    styleUrls: ['./table-cell.component.scss']
+    styleUrls: ['./table-cell.component.scss'],
+    standalone: false
 })
 export class TableCellComponent<T> {
 
-    constructor(private router: Router) { }
+    private readonly router = inject(Router);
 
     // noinspection JSMismatchedCollectionQueryUpdate
     @HostBinding('class') private cssClasses: Array<string>;

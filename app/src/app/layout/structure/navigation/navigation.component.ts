@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,11 +26,13 @@ import { GroupService } from '../../../management/services/group.service';
 import { User } from '../../../management/models/user';
 import { Group } from '../../../management/models/group';
 import { ObjectService } from 'src/app/framework/services/object.service';
-import { Subscription, switchMap } from 'rxjs';
+import { map, Observable, of, Subscription, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { ToastService } from '../../toast/toast.service';
-import { AiPromptModalComponent } from 'src/app/ai-assistant/components/ai-prompt-modal/ai-prompt-modal.component';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+
+import { Router } from '@angular/router';
+import { NotificationQuery } from 'src/app/core/state/notification/notification.query';
+import { LICENSE_TIER_LABELS, LicenseFeature, LicenseTier } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare global {
@@ -42,7 +44,8 @@ window.ATL_JQ_PAGE_PROPS = window.ATL_JQ_PAGE_PROPS || {};
 @Component({
     selector: 'cmdb-navigation',
     templateUrl: './navigation.component.html',
-    styleUrls: ['./navigation.component.scss']
+    styleUrls: ['./navigation.component.scss'],
+    standalone: false
 })
 export class NavigationComponent implements OnInit {
 
@@ -53,8 +56,14 @@ export class NavigationComponent implements OnInit {
     public totalObjects: number = 0;
     public isCloudMode = environment.cloudMode;
     public featurePreviewMode = environment.featurePreviewMode;
+    public isNotificationDrawerOpen = false;
+    public readonly notificationCount$: Observable<number>;
+    public readonly edition$: Observable<{ label: string; cssClass: string } | null>;
+    public readonly LicenseFeature = LicenseFeature;
     configItemsLimit: number;
     private subscription: Subscription;
+    private premiumSubscription?: Subscription;
+    private lockedFeatures = new Set<LicenseFeature>();
 
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
@@ -64,9 +73,17 @@ export class NavigationComponent implements OnInit {
         private userService: UserService,
         private groupService: GroupService,
         private objectService: ObjectService,
-        private modalService: NgbModal
+        private router: Router,
+        private notificationQuery: NotificationQuery,
+        private premiumFeatureService: PremiumFeatureService
     ) {
         this.user = this.userService.getCurrentUser();
+        this.notificationCount$ = this.notificationQuery.selectCount();
+        this.edition$ = this.isCloudMode
+            ? of(null)
+            : this.premiumFeatureService.currentEdition$().pipe(
+                map((tier) => this.toEditionBadge(tier))
+            );
     }
 
 
@@ -91,6 +108,7 @@ export class NavigationComponent implements OnInit {
 
         }
 
+        this.resolveLockedPremiumFeatures();
         this.dropdownSubmenu();
     }
 
@@ -99,6 +117,8 @@ export class NavigationComponent implements OnInit {
         if (this.subscription) {
             this.subscription.unsubscribe();
         }
+
+        this.premiumSubscription?.unsubscribe();
     }
 
     /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
@@ -108,6 +128,46 @@ export class NavigationComponent implements OnInit {
      */
     public logout(): void {
         this.authService.logout();
+    }
+
+
+    /**
+     * Whether a premium toolbox feature is locked for the active edition. Drives the "Pro" badge;
+     * always false for Cloud and licensed Self-Hosted installs, so no badge is shown there.
+     */
+    public isLocked(feature: LicenseFeature): boolean {
+        return this.lockedFeatures.has(feature);
+    }
+
+
+    /**
+     * Tracks which premium toolbox features are locked for the active edition so the matching cards
+     * can surface a "Pro" badge. The watcher re-emits on license import/removal, keeping the badges
+     * in sync without a reload. Cloud installs short-circuit to "all unlocked" inside the service.
+     */
+    private resolveLockedPremiumFeatures(): void {
+        this.premiumSubscription = this.premiumFeatureService
+            .watchLockedFeatures([
+                LicenseFeature.DocumentGenerator,
+                LicenseFeature.Automations,
+                LicenseFeature.Isms
+            ])
+            .subscribe((locked) => {
+                this.lockedFeatures = locked;
+            });
+    }
+
+
+    /**
+     * Maps the effective license tier to the navbar edition pill: a human-readable label plus a
+     * tier-scoped style class. An unknown but licensed tier falls back to a neutral "Licensed" badge.
+     */
+    private toEditionBadge(tier: string): { label: string; cssClass: string } {
+        const isKnown = (Object.values(LicenseTier) as string[]).includes(tier);
+        const label = LICENSE_TIER_LABELS[tier as LicenseTier] ?? 'Licensed';
+        const key = isKnown ? tier : 'default';
+
+        return { label, cssClass: `edition-badge edition-badge--${key}` };
     }
 
 
@@ -191,15 +251,27 @@ export class NavigationComponent implements OnInit {
         return this.percentage > 85 ? '#fff' : '#000'; // Use white text on high usage (red background)
     }
 
-    public openAiPromptModal(): void {
-        const modalRef = this.modalService.open(AiPromptModalComponent, { size: 'lg', backdrop: 'static' });
-        modalRef.result.then(
-          (result) => {
-            console.log('AI Assistant modal result:', result);
-          },
-          (reason) => {
-            console.warn('AI Assistant modal dismissed:', reason);
-          }
-        );
-      }
+
+    public goToAiPromptPage(): void {
+        this.router.navigate(['/ai-assistant']);
+    }
+
+
+    public toggleNotificationDrawer(): void {
+        this.isNotificationDrawerOpen = !this.isNotificationDrawerOpen;
+    }
+
+    
+    public closeNotificationDrawer(): void {
+        this.isNotificationDrawerOpen = false;
+    }
+
+
+    public formatNotificationCount(count: number | null): string {
+        if (!count || count <= 0) {
+            return '';
+        }
+
+        return count > 9 ? '9+' : `${count}`;
+    }
 }

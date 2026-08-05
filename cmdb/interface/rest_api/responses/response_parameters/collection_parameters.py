@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,14 @@
 """
 Implementation of CollectionParameters
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from json import loads
-from typing import Union
 
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             CollectionParameters - CLASS                                             #
@@ -33,8 +33,16 @@ class CollectionParameters(APIParameters):
     Rest API class for parameters passed by a http request on a collection route
     """
     #TODO: REFACTOR-FIX (replace filter with criteria)
-    def __init__(self, query_string: str = None, limit: int = None, sort: str = None,
-                 order: int = None, page: int = None, filter: Union[list[dict], dict] = None, **kwargs):
+    def __init__(
+        self,
+        query_string: str = None,
+        limit: int = None,
+        sort: str = "public_id",
+        order: int = 1,
+        page: int = None,
+        filter: list[dict] | dict = None,
+        **kwargs: Any
+    ) -> None:
         """
         Constructor of the CollectionParameters.
 
@@ -48,7 +56,7 @@ class CollectionParameters(APIParameters):
             **kwargs:
         """
         self.limit: int = int(limit or 10)
-        self.sort: str = sort or 'public_id'
+        self.sort: str = sort or "public_id"
         self.order: int = int(order or 1)
         self.page: int = int((page or 1) or page < 1)
 
@@ -57,13 +65,13 @@ class CollectionParameters(APIParameters):
         else:
             self.skip: int = (self.page - 1) * self.limit
 
-        self.filter: Union[list[dict], dict] = filter or {}
+        self.filter: list[dict] | dict = filter or {}
 
         super().__init__(query_string=query_string, **kwargs)
 
 
     @classmethod
-    def from_data(cls, query_string: str, **optional) -> "CollectionParameters":
+    def from_data(cls, query_string: str, **optional: Any) -> "CollectionParameters":
         """
         Create a collection parameter instance from a http query string
 
@@ -83,11 +91,11 @@ class CollectionParameters(APIParameters):
 
 
     @classmethod
-    def to_dict(cls, parameters: "CollectionParameters") -> dict:
+    def to_dict(cls, parameters: "CollectionParameters") -> dict[str, Any]:
         """
         Get the object as a dict
         """
-        params: dict = {
+        params: dict[str, Any] = {
             'limit': parameters.limit,
             'sort': parameters.sort,
             'order': parameters.order,
@@ -95,13 +103,15 @@ class CollectionParameters(APIParameters):
             'filter': parameters.filter,
             'optional': parameters.optional,
         }
+
         if parameters.projection:
             params.update({'projection': parameters.projection})
+
         return params
 
 
     @classmethod
-    def get_builder_params(cls, params: "CollectionParameters") -> dict:
+    def get_builder_params(cls, params: "CollectionParameters") -> dict[str, Any]:
         """Extracts the attributes required for BuilderParameters"""
         return {
             'criteria': params.filter,
@@ -111,7 +121,7 @@ class CollectionParameters(APIParameters):
             'skip': params.skip,
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"""
                 Parameters: Query({self.query_string}),
                 Filter({self.filter}),

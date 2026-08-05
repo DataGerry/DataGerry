@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,9 +17,10 @@
 */
 import {
     Component,
+    inject,
     OnInit,
     TemplateRef,
-    ViewChild
+    ViewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -42,7 +43,8 @@ import { state } from '@angular/animations';
 @Component({
     selector: 'app-control-measures-list',
     templateUrl: './control-measures-list.component.html',
-    styleUrls: ['./control-measures-list.component.scss']
+    styleUrls: ['./control-measures-list.component.scss'],
+    standalone: false
 })
 export class ControlmeasuresListComponent implements OnInit {
     @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;
@@ -65,16 +67,13 @@ export class ControlmeasuresListComponent implements OnInit {
     public sourceOptions: ExtendableOption[] = [];
     public implementationStateOptions: ExtendableOption[] = [];
 
-    constructor(
-        private router: Router,
-        private toast: ToastService,
-        private loaderService: LoaderService,
-        private modalService: NgbModal,
-        private filterBuilderService: FilterBuilderService,
-        private controlmeasureservice: ControlMeasureService,
-        private extendableOptionService: ExtendableOptionService
-
-    ) { }
+    private readonly router = inject(Router);
+    private readonly toast = inject(ToastService);
+    private readonly loaderService = inject(LoaderService);
+    private readonly modalService = inject(NgbModal);
+    private readonly filterBuilderService = inject(FilterBuilderService);
+    private readonly controlmeasureservice = inject(ControlMeasureService);
+    private readonly extendableOptionService = inject(ExtendableOptionService);
 
     ngOnInit(): void {
         this.setupColumns();

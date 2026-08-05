@@ -1,0 +1,46 @@
+<div class="premium-modal">
+  <button type="button" class="premium-modal__close" aria-label="Close upgrade dialog" (click)="onDismiss()">
+    <i class="fas fa-times" aria-hidden="true"></i>
+  </button>
+
+  <div class="premium-modal__hero">
+    <span class="premium-modal__badge">
+      <i class="fas fa-crown" aria-hidden="true"></i>
+      {{ editionLabel }}
+    </span>
+
+    <span class="premium-modal__icon">
+      <i [class]="icon" aria-hidden="true"></i>
+    </span>
+  </div>
+
+  <div class="premium-modal__body">
+    <h2 id="premium-feature-title" class="premium-modal__title">{{ title }}</h2>
+    <p class="premium-modal__subtitle">{{ subtitle }}</p>
+    <p id="premium-feature-description" class="premium-modal__description">{{ description }}</p>
+
+    @if (benefits.length) {
+    <ul class="premium-modal__benefits">
+      @for (benefit of benefits; track benefit) {
+      <li class="premium-modal__benefit">
+        <span class="premium-modal__benefit-icon">
+          <i class="fas fa-check" aria-hidden="true"></i>
+        </span>
+        <span class="premium-modal__benefit-label">{{ benefit }}</span>
+      </li>
+      }
+    </ul>
+    }
+  </div>
+
+  <div class="premium-modal__footer">
+    <button type="button" class="btn premium-modal__action premium-modal__action--ghost" (click)="onDismiss()">
+      {{ secondaryActionLabel }}
+    </button>
+
+    <button type="button" class="btn premium-modal__action premium-modal__action--primary" (click)="onUpgrade()">
+      <span>{{ primaryActionLabel }}</span>
+      <i class="fas fa-arrow-right" aria-hidden="true"></i>
+    </button>
+  </div>
+</div>

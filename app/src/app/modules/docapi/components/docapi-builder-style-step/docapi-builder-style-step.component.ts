@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,12 +19,17 @@ import { Component, Input } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
 import { CmdbMode } from '../../../../framework/modes.enum';
+import {
+    DOCAPI_SUPPORTED_CSS_PROPERTIES,
+    DOCAPI_UNSUPPORTED_CSS_PROPERTIES
+} from '../../constants/docapi-css-support.constants';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-docapi-builder-style-step',
     templateUrl: './docapi-builder-style-step.component.html',
-    styleUrls: ['./docapi-builder-style-step.component.scss']
+    styleUrls: ['./docapi-builder-style-step.component.scss'],
+    standalone: false
 })
 export class DocapiBuilderStyleStepComponent {
     @Input()
@@ -37,11 +42,18 @@ export class DocapiBuilderStyleStepComponent {
     @Input() public mode: CmdbMode;
     public modes = CmdbMode;
     public styleForm: UntypedFormGroup;
+    public showCssSupportDetails = false;
+    public readonly supportedCssProperties = DOCAPI_SUPPORTED_CSS_PROPERTIES;
+    public readonly unsupportedCssProperties = DOCAPI_UNSUPPORTED_CSS_PROPERTIES;
 
 
     constructor() {
         this.styleForm = new UntypedFormGroup({
             template_style: new UntypedFormControl('')
         });
+    }
+
+    public toggleCssSupportDetails(): void {
+        this.showCssSupportDetails = !this.showCssSupportDetails;
     }
 }

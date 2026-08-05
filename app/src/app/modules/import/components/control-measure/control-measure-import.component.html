@@ -11,10 +11,11 @@
         <button class="btn btn-link" (click)="showInstructions = !showInstructions">
             {{ showInstructions ? 'Hide Instructions' : 'Show Import Instructions' }}
         </button>
-        <ng-container *ngIf="showInstructions">
-            <app-import-instructions [title]="'Importing Controls via CSV'"
-                [description]="'You can import multiple Controls using a CSV file. Please follow the structure and guidelines below to ensure successful import.'"
-                [headers]="[
+        @if (showInstructions) {
+
+        <app-import-instructions [title]="'Importing Controls via CSV'"
+            [description]="'You can import multiple Controls using a CSV file. Please follow the structure and guidelines below to ensure successful import.'"
+            [headers]="[
                 { header: 'title', type: 'string', required: 'Yes (*)', description: 'The title or name of the Control' },
                 { header: 'control_measure_type', type: 'string', required: 'Yes (*)', description: 'The type of The Control (Allowed values: CONTROL, REQUIREMENT, MEASURE)' },
                 { header: 'source', type: 'string', required: 'No', description: 'The source of the Control' },
@@ -25,14 +26,15 @@
                 { header: 'is_applicable', type: 'boolean', required: 'No', description: 'Indicates if the Control is applicable (Allowed truthy values: True, true, Yes, yes and 1; Allowed falsy values: False, false, No, no, 0; Unknown values will be mapped to false)' },
                 { header: 'reason', type: 'string', required: 'No', description: 'Justification if the Control is marked as not applicable' }
               ]"
-                [mappings]="'The source and implementation_state values are matched against existing ones by name. Case sensitive: &quot;Source&quot; is not equal to &quot;source&quot;. If a matching does not exist, it will be automatically created in the database.'"
-                [duplicates]="'The system checks for existing Controls using case-sensitive comparison across all fields. A Control is only created if there is no exact match already in the database. Re-importing the same CSV file will not result in duplicates.'"
-                [exampleCsv]="'title,control_measure_type,source,implementation_state,identifier,chapter,description,is_applicable,reason\nMC1,CONTROL,MC_SOURCE,In Progress,Identifier1,Chapter1Text,Description1,true,Reason1Text\nMC2,REQUIREMENT,MC_SOURCE2,In Progress,Identifier2,Chapter2Text,Description2,no,Reason2Text'"></app-import-instructions>
-        </ng-container>
+            [mappings]="'The source and implementation_state values are matched against existing ones by name. Case sensitive: &quot;Source&quot; is not equal to &quot;source&quot;. If a matching does not exist, it will be automatically created in the database.'"
+            [duplicates]="'The system checks for existing Controls using case-sensitive comparison across all fields. A Control is only created if there is no exact match already in the database. Re-importing the same CSV file will not result in duplicates.'"
+            [exampleCsv]="'title,control_measure_type,source,implementation_state,identifier,chapter,description,is_applicable,reason\nMC1,CONTROL,MC_SOURCE,In Progress,Identifier1,Chapter1Text,Description1,true,Reason1Text\nMC2,REQUIREMENT,MC_SOURCE2,In Progress,Identifier2,Chapter2Text,Description2,no,Reason2Text'"></app-import-instructions>
+
+        }
 
 
         <form [formGroup]="fileForm">
-            <div class="form-group">
+            <div class="mb-3">
                 <label for="file">Select CSV File:</label>
                 <div class="custom-file">
                     <input type="file" class="custom-file-input" id="file" (change)="selectFile($event.target.files)"

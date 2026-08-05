@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,18 +16,20 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy } from '@angular/core';
 import { CmdbType } from '../../models/cmdb-type';
 import { ActivatedRoute } from '@angular/router';
 import { CmdbMode } from '../../modes.enum';
 import { TypeService } from '../../services/type.service';
+import { LocationFieldDeletionService } from '../services/location-field-deletion.service';
 
 @Component({
-  selector: 'cmdb-type-edit',
-  templateUrl: './type-edit.component.html',
-  styleUrls: ['./type-edit.component.scss']
+    selector: 'cmdb-type-edit',
+    templateUrl: './type-edit.component.html',
+    styleUrls: ['./type-edit.component.scss'],
+    standalone: false
 })
-export class TypeEditComponent {
+export class TypeEditComponent implements OnDestroy {
 
   /**
    * Type instance.
@@ -44,11 +46,20 @@ export class TypeEditComponent {
    */
   public stepIndex: number = 1;
 
-  constructor(private typeService: TypeService, private route: ActivatedRoute) {
+  constructor(
+    private typeService: TypeService,
+    private route: ActivatedRoute,
+    private locationFieldDeletion: LocationFieldDeletionService,
+  ) {
     this.route.queryParams.subscribe(params => {
       this.stepIndex = params.stepIndex || 0;
     });
     this.typeInstance = this.route.snapshot.data.type as CmdbType;
+    this.locationFieldDeletion.prime(this.typeInstance);
+  }
+
+  ngOnDestroy(): void {
+    this.locationFieldDeletion.clear();
   }
 
 }

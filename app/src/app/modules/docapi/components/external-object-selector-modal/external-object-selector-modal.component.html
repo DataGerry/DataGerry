@@ -1,0 +1,156 @@
+<div class="external-modal-dialog">
+  <div class="external-modal-content">
+    <div class="modal-header">
+      <h4 class="modal-title">Insert External Object Data</h4>
+      <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Loading indicator -->
+      @if (loading) {
+      <div class="loading-state">
+        <div class="spinner-border text-primary" role="status"></div>
+        <span class="loading-text">Loading available types...</span>
+      </div>
+      }
+
+      <!-- Main content -->
+      @if (!loading) {
+      <div class="modal-layout">
+        <aside class="modal-sidebar" #modalSidebar>
+          <section class="config-section">
+            <h5 class="config-heading">
+              <i class="fas fa-cube"></i>Object Selection
+            </h5>
+            <div class="config-content">
+              <div class="mb-3">
+                <label class="form-label">Select Object</label>
+                <app-object-selector [typeIds]="typeIds" [multiple]="false" [includeFields]="true"
+                  [closeOnSelect]="true" (fullSelectionChange)="onObjectSelectionChange($event)">
+                </app-object-selector>
+              </div>
+
+              @if (selectedObject) {
+              <div class="mb-3">
+                <label class="form-label">Select Field</label>
+                <div class="field-menu">
+                  <button type="button" class="field-menu-toggle" (click)="toggleFieldMenu()">
+                    <span class="field-menu-label">
+                      {{ selectedField?.label || 'Select a field...' }}
+                    </span>
+                    <i class="fas" [ngClass]="fieldMenuOpen ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  </button>
+                  @if (fieldMenuOpen) {
+                  <div class="field-menu-dropdown">
+                    <div class="field-menu-columns">
+                      <div class="field-menu-column">
+                        <div class="field-menu-scroll">
+                          <ul class="field-menu-list">
+                            <ng-container
+                              *ngTemplateOutlet="menuItemsTemplate; context: { $implicit: fieldMenuItems, path: [] }"></ng-container>
+                          </ul>
+                        </div>
+                      </div>
+                      @if (activeItems?.length) {
+                      <div class="field-menu-column field-menu-detail">
+                        <div class="field-menu-breadcrumb">
+                          <button type="button" class="breadcrumb-item" (click)="jumpToPathIndex(-1)">
+                            Fields
+                          </button>
+                          @for (item of activePath; track item; let i = $index) {
+                          <span class="breadcrumb-sep">
+                            /
+                            <button type="button" class="breadcrumb-item" (click)="jumpToPathIndex(i)">{{ item.label
+                              }}</button>
+                          </span>
+                          }
+                        </div>
+                        <div class="field-menu-scroll">
+                          <ul class="field-menu-list">
+                            <ng-container
+                              *ngTemplateOutlet="menuItemsTemplate; context: { $implicit: activeItems, path: activePath }"></ng-container>
+                          </ul>
+                        </div>
+                      </div>
+                      }
+                    </div>
+                  </div>
+                  }
+                </div>
+                @if (selectedField?.type) {
+                <small class="field-type-hint">
+                  <i class="fas fa-info-circle"></i>
+                  Field type: {{ selectedField.type }}
+                </small>
+                }
+              </div>
+              }
+            </div>
+          </section>
+        </aside>
+
+        <main class="modal-content-main">
+          <!-- Preview section -->
+          @if (selectedObject && selectedField) {
+          <div class="preview-section">
+            <fieldset class="preview-fieldset">
+              <legend class="preview-legend">
+                <i class="fas fa-eye"></i>Template Preview
+              </legend>
+              <div class="preview-content">
+                <div class="preview-card">
+                  <label class="preview-label">Generated Template</label>
+                  <div class="preview-code">
+                    <code>{{ selectedField.template }}</code>
+                  </div>
+                  <div class="preview-details">
+                    <div class="detail-item">
+                      <span class="detail-label">Object ID:</span>
+                      <span class="detail-value">{{ selectedObject.object_information.object_id }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </fieldset>
+          </div>
+          } @else {
+
+          <div class="empty-attributes-state">
+            <div class="empty-icon"><i class="fas fa-hand-pointer"></i></div>
+            <h4>Select an Object and Field</h4>
+            <p class="text-muted">Choose an object from the sidebar and select a field to generate a template for
+              inserting external data.</p>
+          </div>
+
+          }
+
+
+        </main>
+      </div>
+      }
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" (click)="cancel()">Cancel</button>
+      <button class="btn btn-success" [disabled]="!selectedObject || !selectedField" (click)="insert()">
+        Insert Template
+      </button>
+    </div>
+  </div>
+</div>
+
+<ng-template #menuItemsTemplate let-items let-path="path">
+  @for (item of items; track item) {
+  <li class="field-menu-item" [class.has-children]="item.subdata?.length">
+    <button type="button" class="field-menu-item-btn" [class.has-children]="item.subdata?.length"
+      [class.is-selected]="isSelectedField(item)" (click)="onMenuItemClick(item, path, $event)">
+      <span class="field-menu-item-label">{{ item.label }}</span>
+      @if (item.subdata?.length) {
+      <span class="field-menu-item-arrow">
+        <i class="fas fa-chevron-right"></i>
+      </span>
+      }
+    </button>
+  </li>
+  }
+</ng-template>

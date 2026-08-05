@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,14 +17,15 @@
 */
 
 import {
-  ChangeDetectionStrategy,
   Component,
+  inject,
+  ChangeDetectionStrategy,
   EventEmitter,
   Input,
   OnDestroy,
   OnInit,
   Output,
-  ViewEncapsulation
+  ViewEncapsulation,
 } from '@angular/core';
 import { Column } from '../../table.types';
 import { UntypedFormArray, UntypedFormBuilder, UntypedFormGroup } from '@angular/forms';
@@ -32,11 +33,12 @@ import { ReplaySubject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'thead[table-column-search]',
-  templateUrl: './table-column-search.component.html',
-  styleUrls: ['./table-column-search.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  encapsulation: ViewEncapsulation.Emulated
+    selector: 'thead[table-column-search]',
+    templateUrl: './table-column-search.component.html',
+    styleUrls: ['./table-column-search.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    encapsulation: ViewEncapsulation.Emulated,
+    standalone: false
 })
 export class TableColumnSearchComponent<T> implements OnInit, OnDestroy {
 
@@ -75,8 +77,7 @@ export class TableColumnSearchComponent<T> implements OnInit, OnDestroy {
    */
   @Output() public columnSearchChange: EventEmitter<any[]> = new EventEmitter<any[]>();
 
-  public constructor(private fb: UntypedFormBuilder) {
-  }
+  private readonly fb = inject(UntypedFormBuilder);
 
   /**
    * Parse input field values
@@ -195,7 +196,7 @@ export class TableColumnSearchComponent<T> implements OnInit, OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

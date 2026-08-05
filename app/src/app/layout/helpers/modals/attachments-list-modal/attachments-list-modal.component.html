@@ -7,23 +7,21 @@
         <br>Total {{attachments.length}}
       </span>
     </span>
-    <button type="button" class="close" data-dismiss="modal" aria-label="Close"
-            [disabled]='inProcess'
-            (click)="activeModal.close({total: recordsTotal})">
-      <span aria-hidden="true">&times;</span>
+    <button type="button" class="btn-close btn-close-white" aria-label="Close" [disabled]="inProcess"
+      (click)="activeModal.close({ total: recordsTotal })">
     </button>
   </div>
   <div class="modal-body">
     <div id="uploadFileForm">
       <div class="container-fluid mb-2">
-        <button *permissionLink="'base.framework.object.edit'"
-                type="button" class="btn btn-primary btn-lg btn-block" (click)="addAttachments()">
+        <button *permissionLink="'base.framework.object.edit'" type="button"
+          class="btn btn-primary text-white btn-lg w-100" (click)="addAttachments()">
           <i class="fas fa-plus"></i> Add new Attachments
         </button>
       </div>
       <div class="pre-scrollable-x-hidden" (scroll)="onScrollHost($event)">
-        <div class="container-fluid border mb-2 w-auto"
-             *ngFor="let attachment of attachments">
+        @for (attachment of attachments; track attachment) {
+        <div class="container-fluid border mb-2 w-auto">
           <div class="row align-items-center flex-nowrap">
             <div class="col-2">
               <i [className]="attachment.filename | fileExtension"></i>
@@ -32,8 +30,7 @@
               <a (click)="downloadFile(attachment.filename)" class="text-break">{{attachment.filename}}</a>
               <p class="mb-0 text-muted">{{attachment.size | fileSize}}</p>
             </div>
-            <div class="col-2 px-0" [hidden]="attachment.inProcess"
-                 *permissionLink="['base.framework.object.edit']">
+            <div class="col-2 px-0" [hidden]="attachment.inProcess" *permissionLink="['base.framework.object.edit']">
               <!-- Button -->
               <a (click)="deleteFile(attachment)" class="btn btn-link btn-sm align-items-end">
                 <i class="far fa-trash-alt"></i>
@@ -41,25 +38,22 @@
             </div>
           </div>
           <div class="progress" [hidden]="!attachment.inProcess">
-            <div class="progress-bar progress-bar-striped progress-bar-animated"
-                 role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" style="width:100%">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75"
+              aria-valuemin="0" aria-valuemax="100" style="width:100%">
             </div>
           </div>
         </div>
+        }
       </div>
     </div>
   </div>
   <div class="modal-footer">
-    <button type="button" class="btn btn-danger" (click)="activeModal.dismiss('Close click')" >Close</button>
+    <button type="button" class="btn btn-danger" (click)="activeModal.dismiss('Close click')">Close</button>
 
-    <button type="button" class="btn btn-secondary mr-1"
-            [disabled]='inProcess'
-            (click)="activeModal.close({total: recordsTotal})">Done</button>
+    <button type="button" class="btn btn-secondary me-1" [disabled]='inProcess'
+      (click)="activeModal.close({total: recordsTotal})">Done</button>
   </div>
 </div>
 
 
-<app-loading-popup 
-[isVisible]="isLoading$ | async"
-message="We're Processing the Data..."
-></app-loading-popup>
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

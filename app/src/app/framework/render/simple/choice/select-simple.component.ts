@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -20,8 +20,9 @@ import { Component } from '@angular/core';
 import { RenderFieldComponent } from '../../fields/components.fields';
 
 @Component({
-  templateUrl: './select-simple.component.html',
-  styleUrls: ['./select-simple.component.scss']
+    templateUrl: './select-simple.component.html',
+    styleUrls: ['./select-simple.component.scss'],
+    standalone: false
 })
 export class SelectSimpleComponent extends RenderFieldComponent {
 

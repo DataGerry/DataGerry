@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,15 @@
 """
 Implementation of DeleteSingleResponse
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             DeleteSingleResponse - CLASS                                             #
@@ -33,18 +34,18 @@ class DeleteSingleResponse(BaseAPIResponse):
     API Response for delete call of a single resource.
     """
 
-    def __init__(self, raw: dict = None):
+    def __init__(self, raw: dict[str, Any] | None = None) -> None:
         """
         Constructor of DeleteSingleResponse
 
         Args:
             raw: Content of deleted resource
         """
-        self.raw = raw
+        self.raw: dict[str, Any] | None = raw
         super().__init__(operation_type=OperationType.DELETE)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
         Make a valid http response
 

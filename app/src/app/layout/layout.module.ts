@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,7 +30,7 @@ import { fab } from '@fortawesome/free-brands-svg-icons';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { IconPickerModule } from 'ngx-icon-picker';
 import { NgbActiveModal, NgbModule } from '@ng-bootstrap/ng-bootstrap';
-import { QRCodeModule } from 'angularx-qrcode';
+import { QRCodeComponent } from 'angularx-qrcode';
 import { NgxPaginationModule } from 'ngx-pagination';
 
 import { SearchBarModule } from '../modules/search-bar/search-bar.module';
@@ -56,6 +56,7 @@ import { CategoryTreeFilterPipe } from './pipes/categoryTreeFilter.pipe';
 import { TypeFilterPipe } from './pipes/typeFilter.pipe';
 
 import { NavigationComponent } from './structure/navigation/navigation.component';
+import { NotificationDrawerComponent } from './structure/navigation/notification-drawer/notification-drawer.component';
 import { BreadcrumbComponent } from './structure/breadcrumb/breadcrumb.component';
 import { IconPickerComponent } from './helpers/icon-picker/icon-picker.component';
 import { ChartsComponent } from './components/charts/charts.component';
@@ -67,6 +68,7 @@ import { TypeLabelComponent } from './helpers/type-label/type-label.component';
 import { FooterComponent } from './structure/footer/footer.component';
 import { SidebarComponent } from './structure/sidebar/sidebar.component';
 import { LocationTreeComponent } from './structure/sidebar/location-tree/location-tree.component';
+import { IpamTreeComponent } from './structure/sidebar/ipam-tree/ipam-tree.component';
 import { SidebarCategoryComponent } from './structure/sidebar/sidebar-category.component';
 import { ContentHeaderComponent } from './components/content-header/content-header.component';
 import { ActiveBadgeComponent } from './helpers/active-badge/active-badge.component';
@@ -89,17 +91,17 @@ import { AttachmentsListModalComponent } from './helpers/modals/attachments-list
 import { QrCodeComponent } from './helpers/qrcode/qr-code.component';
 import { BlockComponent } from './components/block/block.component';
 import { TypeSelectComponent } from './components/type-select/type-select.component';
-import { LoadingPopupComponent } from '../core/components/loading-popup/loading-popup.component';
 import { CoreModule } from '../core/core.module';
-import { AiPromptModalModule } from '../ai-assistant/ai-assistant.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({
     declarations: [
         BreadcrumbComponent,
         NavigationComponent,
+        NotificationDrawerComponent,
         SidebarComponent,
         LocationTreeComponent,
+        IpamTreeComponent,
         SidebarCategoryComponent,
         ContentHeaderComponent,
         ActiveBadgeComponent,
@@ -183,14 +185,12 @@ import { AiPromptModalModule } from '../ai-assistant/ai-assistant.module';
         AuthModule,
         RenderModule,
         FileexplorerModule,
-        QRCodeModule,
+        QRCodeComponent,
         NgxPaginationModule,
         MatTreeModule,
         MatButtonModule,
         MatIconModule,
         CoreModule,
-        AiPromptModalModule
-
         ],
     providers: [
         BreadcrumbService,

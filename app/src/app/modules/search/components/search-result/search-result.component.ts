@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnDestroy } from '@angular/core';
+import { Component, inject, Input, OnDestroy } from '@angular/core';
 
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
@@ -26,7 +26,8 @@ import { SearchResult } from '../../models/search-result';
 @Component({
     selector: 'cmdb-search-result',
     templateUrl: './search-result.component.html',
-    styleUrls: ['./search-result.component.scss']
+    styleUrls: ['./search-result.component.scss'],
+    standalone: false
 })
 export class SearchResultComponent implements OnDestroy {
 
@@ -37,9 +38,7 @@ export class SearchResultComponent implements OnDestroy {
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    public constructor(private modalService: NgbModal) {
-
-    }
+    private readonly modalService = inject(NgbModal);
 
 
     public ngOnDestroy(): void {

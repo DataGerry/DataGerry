@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -24,12 +24,12 @@ class BaseExporterFormat:
     Base class for exporter formats
 
     Attributes:
-        FILE_EXTENSION (Optional[str]): The file extension for the export format
-        LABEL (Optional[str]): Label for the exporter format
+        FILE_EXTENSION (str): The file extension for the export format
+        LABEL (str): Label for the exporter format
         MULTITYPE_SUPPORT (bool): Indicates if multiple types are supported
-        ICON (Optional[str]): Icon representation of the format
-        DESCRIPTION (Optional[str]): Description of the exporter format
-        ACTIVE (Optional[bool]): Status indicating if the format is active
+        ICON (str): Icon representation of the format
+        DESCRIPTION (str): Description of the exporter format
+        ACTIVE (bool): Status indicating if the format is active
     """
     FILE_EXTENSION = None
     LABEL = None

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -34,7 +34,6 @@ class ManagerType(Enum):
     TYPES = 'TypesManager'
     LOCATIONS = 'LocationsManager'
     SECTION_TEMPLATES = 'SectionTemplatesManager'
-    OBJECT_LINKS = 'ObjectLinksManager'
     SETTINGS = 'SettingsManager'
     SECURITY = 'SecurityManager'
     REPORT_CATEGORIES = 'ReportCategoriesManager'
@@ -63,3 +62,11 @@ class ManagerType(Enum):
     CONTROL_MEASURE = 'ControlMeasureManager'
     RISK_ASSESSMENT = 'RiskAssessmentManager'
     CONTROL_MEASURE_ASSIGNMENT = 'ControlMeasureAssignmentManager'
+
+    # System Managers
+    CACHED_USER = 'CachedUserManager'
+
+    # License Managers
+    LICENSE_ACTIVATION_REQUESTS = 'LicenseActivationRequestsManager'
+    ACTIVE_LICENSE = 'ActiveLicenseManager'
+    LICENSE_SERVICE = 'LicenseService'

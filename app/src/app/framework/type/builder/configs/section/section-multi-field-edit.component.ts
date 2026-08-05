@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,10 +17,12 @@
 */
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject, Subscription } from 'rxjs';
 
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { SectionIdentifierService } from '../../../services/SectionIdentifierService.service';
@@ -28,13 +30,14 @@ import { SectionIdentifierService } from '../../../services/SectionIdentifierSer
 
 @Component({
     selector: 'cmdb-section-multi-field-edit',
-    templateUrl: './section-multi-field-edit.component.html'
+    templateUrl: './section-multi-field-edit.component.html',
+    standalone: false
 })
 export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
 
     private initialValue: string;
@@ -49,7 +52,7 @@ export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent impl
     /*                                                     LIFE CYCLE                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
 
-    public constructor(private validationService: ValidationService, private sectionIdentifier: SectionIdentifierService) {
+    public constructor(private validationService: ValidationService, private sectionIdentifier: SectionIdentifierService, private copyService: CopyService) {
         super();
     }
 
@@ -92,8 +95,8 @@ export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent impl
         if (this.identifierInitialValue != this.nameControl.value) {
             this.validationService.updateFieldValidityOnDeletion(this.identifierInitialValue);
         }
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
 
         if (this.activeIndexSubscription) {
             this.activeIndexSubscription.unsubscribe();
@@ -110,6 +113,18 @@ export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent impl
      * @param type - The type of the input field being changed.
      */
     onInputChange(event: any, type: string) {
+        if (type === 'name') {
+            if (this.isDuplicateSectionIdentifier(event)) {
+                this.setDuplicateIdentifierState(true);
+                this.validationService.setSectionHighlightState(true);
+                this.fieldChanges$.next({ isDuplicate: true, elementType: 'multi-data-section' });
+                return;
+            }
+
+            this.setDuplicateIdentifierState(false);
+            this.fieldChanges$.next({ isDuplicate: false, elementType: 'multi-data-section' });
+        }
+
         this.fieldChanges$.next({
             "newValue": event,
             "inputName": type,
@@ -127,6 +142,29 @@ export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent impl
             this.isValid$ = true;
         });
         this.updateSectionValue(this.nameControl.value)
+    }
+
+
+    private isDuplicateSectionIdentifier(newValue: string): boolean {
+        if (!newValue || newValue === this.currentValue) {
+            return false;
+        }
+
+        return (this.sections ?? []).some(section => section !== this.data && section?.name === newValue);
+    }
+
+
+    private setDuplicateIdentifierState(isDuplicate: boolean): void {
+        this.isIdentifierValid = !isDuplicate;
+        const errors = { ...(this.nameControl.errors ?? {}) };
+
+        if (isDuplicate) {
+            this.nameControl.setErrors({ ...errors, duplicateIdentifier: true });
+            return;
+        }
+
+        delete errors.duplicateIdentifier;
+        this.nameControl.setErrors(Object.keys(errors).length ? errors : null);
     }
 
 
@@ -158,5 +196,12 @@ export class SectionMultiFieldEditComponent extends ConfigEditBaseComponent impl
                 this.isIdentifierValid = true;
             }
         }, 200);
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'multi-data section identifier');
     }
 }

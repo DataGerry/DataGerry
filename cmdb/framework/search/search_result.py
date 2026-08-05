@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,14 +16,14 @@
 """
 Implementation of SearchResult
 """
-import logging
-from typing import TypeVar, Generic, Optional, Any
+from logging import Logger, getLogger
+from typing import TypeVar, Generic, Any
 from bson import Regex
 
 from cmdb.framework.search.search_result_map import SearchResultMap
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 R = TypeVar('R')
 
@@ -56,7 +56,7 @@ class SearchResult(Generic[R]):
             alive (bool): Flag indicating if there are more results available beyond the current limit
             limit (int): Maximum number of results to return (page size)
             skip (int): Number of results to skip (offset)
-            matches_regex (Optional[list[str]]): List of regex patterns to check matches within results
+            matches_regex (list[str] | None): List of regex patterns to check matches within results
         """
         self.limit: int = limit
         self.skip: int = skip
@@ -79,17 +79,17 @@ class SearchResult(Generic[R]):
 
 
     @staticmethod
-    def find_match_fields(result: R, possible_regex_list: Optional[list[str]] = None) -> Optional[list[Any]]:
+    def find_match_fields(result: R, possible_regex_list: list[str] = None) -> list[Any] | None:
 
         """
         Find fields inside a result object that match any given regex patterns
 
         Args:
             result (R): A single search result object
-            possible_regex_list (Optional[list[str]]): List of regex patterns to match fields against
+            possible_regex_list (list[str] | None): List of regex patterns to match fields against
 
         Returns:
-            Optional[list[Any]]: List of fields where a regex matched, or None if no matches
+            list[Any] | None: List of fields where a regex matched, or None if no matches
         """
         matched_fields = []
         fields = result.fields
@@ -98,16 +98,16 @@ class SearchResult(Generic[R]):
             return None
 
 
-        def inner_match_fields(_fields: list[dict[str, Any]], 
-                               _matched_fields: list[Any], 
-                               _reference: Optional[dict[str, Any]] = None) -> None:
+        def inner_match_fields(_fields: list[dict[str, Any]],
+                               _matched_fields: list[Any],
+                               _reference: dict[str, Any] = None) -> None:
             """
             Recursively search fields and nested fields for regex matches
 
             Args:
                 _fields (List[Dict[str, Any]]): List of field dictionaries to check
                 _matched_fields (List[Any]): List to store fields that matched
-                _reference (Optional[Dict[str, Any]]): Optional reference object for nested fields
+                _reference (dict[str, Any] | None): Optional reference object for nested fields
             """
             for regex_ in possible_regex_list:
                 try:

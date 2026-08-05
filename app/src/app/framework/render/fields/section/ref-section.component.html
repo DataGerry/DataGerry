@@ -1,80 +1,113 @@
-<div *ngIf="data" class="form-group row" [formGroup]="parentFormGroup">
-  <ng-container [ngSwitch]="true">
-    <ng-container *ngSwitchCase="mode == MODES.View">
-      <ng-container
-        *ngIf="data && data.references && data?.references?.fields && data.references?.fields?.length > 0; else noRef;">
-        <div class="col-sm-12">
-          <ng-container *ngFor="let field of data?.references?.fields">
-            <cmdb-render-element [mode]="mode" [parentFormGroup]="parentFormGroup"
-                                 [data]="field" [value]="field?.value"></cmdb-render-element>
-          </ng-container>
-        </div>
-      </ng-container>
-      <ng-template #noRef>
-        <label class="col-sm-3 col-form-label">
-          {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
-        </label>
-        <div class="col-sm-9">
-          <input type="text" name="{{data.name}}" class="form-control form-control-sm" value="No reference set" readonly/>
-        </div>
-      </ng-template>
-    </ng-container>
+@if (data) {
+<div class="mb-3 row" [formGroup]="parentFormGroup">
 
-    <ng-container *ngSwitchCase="mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk">
-      <label class="col-sm-3 col-form-label">
-        {{data.label}}: <span class="required" *ngIf="data?.required">*</span>
-      </label>
-      <div class="col-sm-9">
-        <cmdb-object-bulk-input-appends *ngIf="mode == MODES.Bulk" [data]="data" [controller]="controller"
-                                        [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
-        <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
-          <ng-select #selection class="form-group ng-select-valid custom-select ref-section-select"
-                     [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
-                       'is-invalid': controller.invalid && (controller.dirty || controller.touched)}" [loading]="loading"
-                     [items]="objects"
-                     [searchFn]="searchRef"
-                     (search)="onCustomSearch($event.term, $event.items)"
-                     (change)="loadDisplayObject($event?.object_information?.object_id)"
-                     [virtualScroll]="true" (scrollToEnd)="onScrollToEnd()" bindLabel="object_information.object_id"
-                     [formControlName]="data.name" bindValue="object_information.object_id">
-            <ng-template ng-header-tmp>
-              <small class="form-text text-muted">Loaded {{objects.length}} of {{totalObjects}}</small>
-            </ng-template>
-            <ng-template ng-label-tmp>
-              <ng-container *ngIf="selected?.value as item">
-                <span>
-                  <i class="{{item?.type_information?.icon}}"></i>
-                  {{item?.type_information?.type_label}} #</span>{{item?.object_information?.object_id}}
-                <span *ngFor="let sum of item?.summaries; let last = last; let first = first">
-                    <ng-template [ngIf]="sum.type != 'date'" [ngIfElse]="templateDate">
-                      <span *ngIf="first"> - </span>{{sum.value ? sum.value : 'None'}}
-                    </ng-template>
-                    <ng-template #templateDate>
-                      <span *ngIf="first"> - </span>{{sum.value ? (sum.value | dateFormatter) : 'None'}}
-                    </ng-template>
-                    <span *ngIf="!last"> | </span>
-                  </span>
-              </ng-container>
-            </ng-template>
-            <ng-template ng-option-tmp let-item="item">
-              <div>
-                <span><i class="{{item?.type_information?.icon}}"></i>
-                  {{item?.type_information?.type_label}} #</span>{{item?.object_information?.object_id}}</div>
-              <small>
-                <b>Summary:</b>
-                <span *ngFor="let sum of item?.summaries; let last = last;">
-                    {{sum.value ? (sum.value | dateFormatter) : 'None'}}
-                  <span *ngIf="!last"> | </span>
-                  </span>
-              </small>
-            </ng-template>
-          </ng-select>
-        </cmdb-input-appends>
-      </div>
-    </ng-container>
+  @switch (true) {
+  @case (mode == MODES.View) {
 
-  </ng-container>
+  @if (data && data.references && data?.references?.fields && data.references?.fields?.length > 0) {
+
+  <div class="col-sm-12">
+    @for (field of data?.references?.fields; track field) {
+
+    <cmdb-render-element [mode]="mode" [parentFormGroup]="parentFormGroup" [data]="field"
+      [value]="field?.value"></cmdb-render-element>
+
+    }
+  </div>
+
+  } @else {
+
+  <label class="col-sm-3 col-form-label">
+    {{data.label}}: @if (data?.required) {
+    <span class="required">*</span>
+    }
+  </label>
+  <div class="col-sm-9">
+    <input type="text" name="{{data.name}}" class="form-control form-control-sm" value="No reference set" readonly />
+  </div>
+
+  }
+
+
+  }
+
+  @case (mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk) {
+
+  <label class="col-sm-3 col-form-label">
+    {{data.label}}: @if (data?.required) {
+    <span class="required">*</span>
+    }
+  </label>
+  <div class="col-sm-9">
+    @if (mode == MODES.Bulk) {
+    <cmdb-object-bulk-input-appends [data]="data" [controller]="controller"
+      [changeForm]="changeForm"></cmdb-object-bulk-input-appends>
+    }
+    <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
+      <ng-select #selection class="mb-3 ng-select-valid form-select ref-section-select" [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
+                       'is-invalid': controller.invalid && (controller.dirty || controller.touched)}"
+        [loading]="loading" [items]="objects" [searchFn]="searchRef"
+        (search)="onCustomSearch($event.term, $event.items)"
+        (change)="loadDisplayObject($event?.object_information?.object_id)" [virtualScroll]="true"
+        (scrollToEnd)="onScrollToEnd()" bindLabel="object_information.object_id" [formControlName]="data.name"
+        bindValue="object_information.object_id">
+        <ng-template ng-header-tmp>
+          <small class="form-text text-muted">Loaded {{objects.length}} of {{totalObjects}}</small>
+        </ng-template>
+        <ng-template ng-label-tmp>
+          @if (selected?.value; as item) {
+
+          <span>
+            <i class="{{item?.type_information?.icon}}"></i>
+            {{item?.type_information?.type_label}} #</span>{{item?.object_information?.object_id}}
+          @for (sum of item?.summaries; track sum; let last = $last; let first = $first) {
+          <span>
+            @if (sum.type != 'date') {
+
+            @if (first) {
+            <span> - </span>
+            }{{sum.value ? sum.value : 'None'}}
+
+            } @else {
+
+            @if (first) {
+            <span> - </span>
+            }{{sum.value ? (sum.value | dateFormatter) : 'None'}}
+
+            }
+
+            @if (!last) {
+            <span> | </span>
+            }
+          </span>
+          }
+
+          }
+        </ng-template>
+        <ng-template ng-option-tmp let-item="item">
+          <div>
+            <span><i class="{{item?.type_information?.icon}}"></i>
+              {{item?.type_information?.type_label}} #</span>{{item?.object_information?.object_id}}
+          </div>
+          <small>
+            <b>Summary:</b>
+            @for (sum of item?.summaries; track sum; let last = $last) {
+            <span>
+              {{sum.value ? (sum.value | dateFormatter) : 'None'}}
+              @if (!last) {
+              <span> | </span>
+              }
+            </span>
+            }
+          </small>
+        </ng-template>
+      </ng-select>
+    </cmdb-input-appends>
+  </div>
+
+  }
+
+  }
+
 </div>
-
-
-
+}

@@ -1,32 +1,33 @@
-<!-- src/app/shared/components/loading-popup/loading-popup.component.html -->
 <div class="neo-overlay" [class.visible]="isVisible">
-    <div class="neo-container">
-      <div class="connection-animation">
-        <div class="server-node"></div>
-        <div class="data-line"></div>
-        <div class="cloud-node">
-          <div class="pulse"></div>
-        </div>
-      </div>
-      
-      <div class="neo-content">
-        <div class="holographic-spinner">
-          <div class="core"></div>
-          <div class="orbit"></div>
-          <div class="particles"></div>
-        </div>
-        
-        <div class="status-container">
-          <h3 class="status-message">{{ message }}</h3>
-          <!-- <div class="progress-trail">
-            <div class="progress-fill" [style.width.%]="progress"></div>
-          </div> -->
-          <div class="stage-indicator">
-            <span class="stage" *ngFor="let stage of stages" [class.active]="stage.active">
-              {{ stage.label }}
-            </span>
-          </div>
-        </div>
+  <div class="neo-container">
+
+    <div class="connection-animation">
+      <div class="data-line"></div>
+      <div class="cloud-node">
+        <div class="pulse"></div>
       </div>
     </div>
+
+    <div class="neo-content">
+      <div class="holographic-spinner">
+        <div class="squirrel-core">
+          <img src="assets/img/squirrel-tail.svg" class="sq-tail" alt="Squirrel Tail">
+          <img src="assets/img/squirrel-body.svg" class="sq-body" alt="Squirrel Body">
+        </div>
+        <div class="orbit"></div>
+      </div>
+
+      <div class="status-container">
+        <h3 class="status-message">{{ message }}</h3>
+        <div class="stage-indicator">
+          @for (stage of stages; track stage) {
+<span class="stage" [class.active]="stage.active">
+            {{ stage.label }}
+          </span>
+}
+        </div>
+      </div>
+
+    </div>
   </div>
+</div>

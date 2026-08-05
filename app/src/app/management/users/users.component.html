@@ -1,29 +1,29 @@
 <h1>{{title}} <small class="text-muted">{{description}}</small></h1>
-<hr/>
+<hr />
 
-<cmdb-table [id]="id" [columns]="columns" [items]="users" [loading]="loading"
-            [customButtons]="[buttonTemplate]" [sort]="sort" [pageSize]="params.limit" [page]="params.page"
-            [totalItems]="totalUsers" [stateEnabled]="true"
-            (stateChange)="onStateChange($event)" (stateSelect)="onStateSelect($event)" (stateReset)="onStateReset()"
-            (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
-            (sortChange)="onSortChange($event)" (searchChange)="onSearchChange($event)">
+<cmdb-table [id]="id" [columns]="columns" [items]="users" [loading]="loading" [customButtons]="[buttonTemplate]"
+  [sort]="sort" [pageSize]="params.limit" [page]="params.page" [totalItems]="totalUsers" [stateEnabled]="true"
+  (stateChange)="onStateChange($event)" (stateSelect)="onStateSelect($event)" (stateReset)="onStateReset()"
+  (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
+  (searchChange)="onSearchChange($event)">
 </cmdb-table>
 
 <!-- Custom table buttons -->
 <ng-template #addButtonTemplate>
-  <ng-container *ngIf="!isCloudMode">
-    <button *permissionLink="'base.user-management.user.add'" 
-            [routerLink]="['/', 'management','users', 'add']" 
-            type="button" class="btn btn-sm btn-success mr-1 ml-1">
-      <i class="fas fa-plus"></i> Add
-    </button>
-  </ng-container>
+  @if (!isCloudMode) {
+
+  <button *permissionLink="'base.user-management.user.add'" [routerLink]="['/', 'management','users', 'add']"
+    type="button" class="btn btn-sm btn-success me-1 ms-1">
+    <i class="fas fa-plus"></i> Add
+  </button>
+
+  }
 </ng-template>
 
 <!-- Table templates -->
 <ng-template #groupTemplate let-data="data">
   <cmdb-user-table-group-cell [groups]="groups" [groupID]="data" [group]="getGroupByID(data)"
-                              [groupLoadingStack]="groupLoadingStack"></cmdb-user-table-group-cell>
+    [groupLoadingStack]="groupLoadingStack"></cmdb-user-table-group-cell>
 </ng-template>
 
 <ng-template #dateTemplate let-data="data">

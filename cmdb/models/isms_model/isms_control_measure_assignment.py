@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,13 +16,18 @@
 """
 Implementation of IsmsControlMeasureAssignment in DataGerry - ISMS
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime
 from dateutil.parser import parse
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.priority_enum import Priority
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+
+from cmdb.class_schema.isms_model.isms_control_measure_assignment_schema import (
+    get_isms_control_measure_assignment_schema,
+)
 
 from cmdb.errors.models.isms_control_measure_assignment import (
     IsmsControlMeasureAssignmentInitError,
@@ -31,7 +36,7 @@ from cmdb.errors.models.isms_control_measure_assignment import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         IsmsControlMeasureAssignment - CLASS                                         #
@@ -43,55 +48,23 @@ class IsmsControlMeasureAssignment(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "isms.controlMeasureAssignment"
-    MODEL = 'ControlMeasureAssignment'
 
-    SCHEMA: dict = {
-        'public_id': { # public_id of the IsmsControlMeasureAssignment
-            'type': 'integer',
-            'min': 1,
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('control_measure_id', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_id', 'unique': False},
+        {'keys': [('risk_assessment_id', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_assessment_id', 'unique': False},
+        {
+            'keys': [('responsible_for_implementation_id_ref_type', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_for_implementation_id_ref_type',
+            'unique': False
         },
-        'control_measure_id': { # public_id of IsmsControlMeasure
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
-        'risk_assessment_id': { # public_id of IsmsRiskAssessment
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
-        'planned_implementation_date': { # Date of planned implementation
-            'type': 'dict',
-            'required': True,
-            'nullable': True,
-        },
-        'implementation_status': { # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
-            'type': 'integer',
-            'required': True,
-            'empty': False,
-        },
-        'finished_implementation_date': { # Date of finished implementation
-            'type': 'dict',
-            'required': True,
-            'nullable': True,
-        },
-        'priority': { # Priority enum (1 = Low, 2 = Medium, 3 = High, 4 = Very high)
-            'type': 'integer',
-            'required': True,
-            'nullable': True,
-        },
-        'responsible_for_implementation_id_ref_type': { # PersonReferenceType Enum
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-        },
-        'responsible_for_implementation_id': { # public_id of CmdbPerson or CmdbPersonGroup
-            'type': 'integer',
-            'min': 1,
-            'required': True,
-            'nullable': True,
-        },
-    }
+        {
+            'keys': [('responsible_for_implementation_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'responsible_for_implementation_id',
+            'unique': False
+        }
+    ]
+
+    SCHEMA: dict[str, Any] = get_isms_control_measure_assignment_schema()
 
 
     #pylint: disable=R0913, R0917
@@ -99,7 +72,7 @@ class IsmsControlMeasureAssignment(CmdbDAO):
             self,
             public_id: int,
             control_measure_id: int,
-            risk_assessment_id:int,
+            risk_assessment_id: int,
             planned_implementation_date: datetime,
             implementation_status: int,
             finished_implementation_date: datetime,
@@ -140,7 +113,7 @@ class IsmsControlMeasureAssignment(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "IsmsControlMeasureAssignment":
+    def from_data(cls, data: dict[str, Any]) -> "IsmsControlMeasureAssignment":
         """
         Initialises a IsmsControlMeasureAssignment from a dict
 
@@ -179,7 +152,7 @@ class IsmsControlMeasureAssignment(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "IsmsControlMeasureAssignment") -> dict:
+    def to_json(cls, instance: "IsmsControlMeasureAssignment") -> dict[str, Any]:
         """
         Converts a IsmsControlMeasureAssignment into a json compatible dict
 

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,12 +16,12 @@
 """
 Implementation of SearchReferencesPipelineBuilder
 """
-import logging
+from logging import Logger, getLogger
 
 from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        SearchReferencesPipelineBuilder - CLASS                                       #
@@ -37,21 +37,28 @@ class SearchReferencesPipelineBuilder(PipelineBuilder):
     Extends: PipelineBuilder
     """
 
-    def __init__(self, pipeline: list[dict] = None):
+    def __init__(self, pipeline: list[dict] | None = None):
         """
         Initializes the SearchReferencesPipelineBuilder
 
-        This pipeline ensures that reference fields are loaded dynamically 
+        This pipeline ensures that reference fields are loaded dynamically
         so they can be treated as normal fields during searches
 
         Args:
-            pipeline (list[dict], optional): A predefined aggregation pipeline to initialize with.
-                                             Defaults to an empty list if not provided
+            pipeline (list[dict] | None): A predefined aggregation pipeline to initialize with.
+                                          Defaults to an empty list if not provided
         """
         super().__init__(pipeline=pipeline)
 
 
     def build(self, *args, **kwargs) -> list[dict]:
+        """
+        Builds the aggregation pipeline that resolves reference fields into searchable fields
+
+        Returns:
+            list[dict]: The aggregation pipeline that loads referenced objects' fields alongside
+                        the object's own fields
+        """
         # Load reference fields in runtime
         self.add_pipe(self.lookup_('framework.objects', 'fields.value', 'public_id', 'data'))
         self.add_pipe(
@@ -75,7 +82,7 @@ class SearchReferencesPipelineBuilder(PipelineBuilder):
                 'author_id': {'$first': '$author_id'},
                 'creation_time': {'$first': '$creation_time'},
                 'last_edit_time': {'$first': '$last_edit_time'},
-                'version': {'$first': 'version'},
+                'version': {'$first': '$version'},
                 'fields': {'$first': '$fields'},
                 'simple': {'$first': '$simple'},
                 'relatesTo': {'$first': '$relatesTo'}

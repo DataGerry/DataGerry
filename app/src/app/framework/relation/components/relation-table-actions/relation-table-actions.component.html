@@ -1,4 +1,5 @@
-<div class="d-flex justify-content-center" *ngIf="publicID">
+@if (publicID) {
+<div class="d-flex justify-content-center">
   <a *permissionLink="['base.framework.relation.view', 'base.framework.relation.edit']"
      [routerLink]="['/', 'framework', 'relation', 'edit', publicID]"
      title="Edit Relation">
@@ -7,6 +8,7 @@
   <a *permissionLink="'base.framework.relation.delete'"
      [routerLink]="['/', 'framework', 'relation', 'delete', publicID]"
      title="Delete Relation">
-    <i class="far fa-trash-alt"></i>
+    <i class="far fa-trash-alt icon-delete"></i>
   </a>
 </div>
+}

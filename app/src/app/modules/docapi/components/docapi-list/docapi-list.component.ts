@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,12 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, OnDestroy, ViewChild, TemplateRef } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, ViewChild, TemplateRef } from '@angular/core';
 
 import { finalize, ReplaySubject, takeUntil } from 'rxjs';
 
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { NgbModalRef } from '@ng-bootstrap/ng-bootstrap/modal/modal-ref';
+import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { DocapiService } from '../../services/docapi.service';
 
@@ -30,21 +29,26 @@ import { Column, Sort, SortDirection } from '../../../../layout/table/table.type
 import { CollectionParameters } from '../../../../services/models/api-parameter';
 import { GeneralModalComponent } from '../../../../layout/helpers/modals/general-modal/general-modal.component';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-docapi-template-list',
     templateUrl: './docapi-list.component.html',
-    styleUrls: ['./docapi-list.component.scss']
+    styleUrls: ['./docapi-list.component.scss'],
+    standalone: false
 })
 export class DocapiListComponent implements OnInit, OnDestroy {
+    private readonly docapiService = inject(DocapiService);
+    private readonly modalService = inject(NgbModal);
+    private readonly loaderService = inject(LoaderService);
+    private readonly toast = inject(ToastService);
 
     public subscriber: ReplaySubject<void> = new ReplaySubject<void>();
-    public messageBlock: string = 'DocAPI is an interface for generating PDF documents out of CMDB data. A user can design a\n' +
+    public messageBlock: string = 'Document Generator is an interface for generating PDF documents out of CMDB data. A user can design a\n' +
         'Document Template in the frontend. Each Document Template consists of a Template Type, Template\n' +
-        'Content and Template Styling. The Template Type defines the kind of the template. For example the Object Template type\n' +
-        'generates documents for single CMDB objects. Each Template Type may have its own configuration settings. For Object\n' +
-        'Templates, an object type needs to be configured. In the Template Content section, the document itself can be designed\n' +
+        'Content and Template Styling. The Template Type defines the kind of the template.\n' +
+        'In the Template Content section, the document itself can be designed\n' +
         ' with an WYSIWYG editor. Depending on the chosen Template Type, template variables can be used at all places of the\n' +
         ' document. These variables will then be replaced when rendering the document for a specific object.'
 
@@ -85,13 +89,6 @@ export class DocapiListComponent implements OnInit, OnDestroy {
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
-    constructor(
-        private docapiService: DocapiService, 
-        private modalService: NgbModal,
-        private loaderService: LoaderService) {
-
-    }
-
 
     public ngOnInit(): void {
         this.columns = [
@@ -209,8 +206,8 @@ export class DocapiListComponent implements OnInit, OnDestroy {
             if (result) {
                 this.loaderService?.show();
                 this.docapiService?.deleteDocTemplate(publicId)?.pipe(finalize(() => this.loaderService?.hide())).subscribe({
-                    next: resp => console.log(resp),
-                    error: error => console.log(error),
+                    next: resp => {},
+                    error: error => this.toast.error('An error occurred while deleting the Document Template'),
                     complete: () => this.loadTemplatesFromAPI()
                 });
             }

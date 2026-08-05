@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,10 @@
 """
 Implementation of all API routes for the IsmsRisks
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RiskManager
@@ -30,6 +32,7 @@ from cmdb.models.isms_model import IsmsRisk, RiskType
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -49,7 +52,7 @@ from cmdb.errors.manager.risk_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 risk_blueprint = APIBlueprint('risk', __name__)
 
@@ -60,7 +63,7 @@ risk_blueprint = APIBlueprint('risk', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.add')
 @risk_blueprint.validate(IsmsRisk.SCHEMA)
-def insert_isms_risk(data: dict, request_user: CmdbUser):
+def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRisk into the database
 
@@ -85,10 +88,10 @@ def insert_isms_risk(data: dict, request_user: CmdbUser):
 
         created_risk: dict = risk_manager.get_item(result_id, as_dict=True)
 
-        if created_risk:
-            return InsertSingleResponse(created_risk, result_id).make_response()
+        if not created_risk:
+            abort(404, "Could not retrieve the created Risk from the database!")
 
-        abort(404, "Could not retrieve the created Risk from the database!")
+        return InsertSingleResponse(created_risk, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except RiskManagerInsertError as err:
@@ -108,7 +111,7 @@ def insert_isms_risk(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.view')
 @risk_blueprint.parse_collection_parameters()
-def get_isms_risks(params: CollectionParameters, request_user: CmdbUser):
+def get_isms_risks(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsRisks
 
@@ -148,7 +151,7 @@ def get_isms_risks(params: CollectionParameters, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.view')
-def get_isms_risk(public_id: int, request_user: CmdbUser):
+def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRisk
 
@@ -162,12 +165,10 @@ def get_isms_risk(public_id: int, request_user: CmdbUser):
     try:
         risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        requested_risk = risk_manager.get_item(public_id, as_dict=True)
+        requested_risk = get_item_or_404(risk_manager, public_id,
+                                         f"The Risk with ID:{public_id} was not found!")
 
-        if requested_risk:
-            return GetSingleResponse(requested_risk, body = request.method == 'HEAD').make_response()
-
-        abort(404, f"The Risk with ID:{public_id} was not found!")
+        return GetSingleResponse(requested_risk, body = request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except RiskManagerGetError as err:
@@ -184,7 +185,7 @@ def get_isms_risk(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.edit')
 @risk_blueprint.validate(IsmsRisk.SCHEMA)
-def update_isms_risk(public_id: int, data: dict, request_user: CmdbUser):
+def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRisk
 
@@ -199,10 +200,8 @@ def update_isms_risk(public_id: int, data: dict, request_user: CmdbUser):
     try:
         risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        to_update_risk = risk_manager.get_item(public_id)
-
-        if not to_update_risk:
-            abort(404, f"The Risk with ID:{public_id} was not found!")
+        get_item_or_404(risk_manager, public_id,
+                        f"The Risk with ID:{public_id} was not found!", as_dict=False)
 
         # Validate the RiskType
         if not RiskType.is_valid(data.get('risk_type')):
@@ -232,7 +231,7 @@ def update_isms_risk(public_id: int, data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.delete')
-def delete_isms_risk(public_id: int, request_user: CmdbUser):
+def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRisk
 
@@ -246,10 +245,8 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser):
     try:
         risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        to_delete_risk = risk_manager.get_item(public_id, as_dict=True)
-
-        if not to_delete_risk:
-            abort(404, f"The Risk with ID:{public_id} was not found!")
+        to_delete_risk = get_item_or_404(risk_manager, public_id,
+                                         f"The Risk with ID:{public_id} was not found!")
 
         risk_manager.delete_with_follow_up(public_id)
 
@@ -268,17 +265,17 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser):
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-def is_risk_data_valid(data: dict) -> bool:
+def is_risk_data_valid(data: dict[str, Any]) -> bool:
     """
     Validates the risk data dictionary based on the specified risk type
 
     Depending on the risk_type, additional fields are required:
       - For THREAT_X_VULNERABILITY: 'threats' and 'vulnerabilities' must be provided
-      - For THREAT: 'threats' and 'description' must be provided
+      - For THREAT: 'threats' must be provided
       - For EVENT: 'consequences' and 'description' must be provided
 
     Args:
-        data (dict): The risk data to validate
+        data (dict[str, Any]): The risk data to validate
 
     Returns:
         bool: True if the risk data is valid, False otherwise

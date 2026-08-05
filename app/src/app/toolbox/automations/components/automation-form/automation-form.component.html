@@ -1,0 +1,88 @@
+<div class="container-fluid p-0 automation-form-container">
+  @if (mode === 'create') {
+  <h3>{{ 'Add Automation' }}</h3>
+  }
+
+  @if (mode !== 'edit') {
+  <div class="form-section">
+    <form [formGroup]="form" novalidate>
+      <!-- Name Field -->
+      <div class="form-group mt-4">
+        <label for="name">Name: <span class="required">*</span></label>
+        <app-form-input id="name" label="" placeholder="Enter automation name" formControlName="name"
+          [required]="true"></app-form-input>
+      </div>
+
+      <!-- Description Field -->
+      <div class="form-group">
+        <app-form-textarea formControlName="description" label="Description:" [rows]="3">
+        </app-form-textarea>
+      </div>
+
+      <!-- Direction Field -->
+      <div class="form-group">
+        <label for="direction">Direction of data flow: <span class="required">*</span></label>
+        <app-form-select id="direction" label="" placeholder="Select direction" formControlName="direction"
+          [required]="true" [items]="[
+            { label: 'Incoming Data', value: 'incoming' },
+            { label: 'Outgoing Data', value: 'outgoing' }
+          ]" bindLabel="label" bindValue="value"></app-form-select>
+      </div>
+
+      <!-- Connector Field (Conditional) -->
+      @if (showConnectorField) {
+      <div class="form-group">
+        <label for="connector">{{ connectorLabel }}: <span class="required">*</span></label>
+        <app-form-select id="connector" label="" [placeholder]="'Select ' + connectorLabel.toLowerCase()"
+          formControlName="connector" [required]="true" [items]="externalConnectors" bindLabel="title"
+          bindValue="connectorId"></app-form-select>
+      </div>
+      }
+
+      <!-- Business Template Field -->
+      <div class="form-group">
+        <label for="business_template">Use a predefined interface template: </label>
+        <app-form-select id="business_template" label="" placeholder="Select business template"
+          formControlName="business_template" [items]="templates" bindLabel="name"
+          bindValue="templateId"></app-form-select>
+      </div>
+    </form>
+  </div>
+  }
+
+  <div class="editor-section" [class.disabled]="mode === 'create' && !areRequiredFieldsFilled()">
+    <div class="editor-container">
+      <opencelium-editor [token]="getUserToken()" [sourceConnectorId]="currentSourceConnectorId"
+        [targetConnectorId]="currentTargetConnectorId" [templates]="templates" [template]="selectedTemplate"
+        [connectors]="connectors" [invokers]="invokers" [initConnection]="initConnection"
+        (connectionChange)="onConnectionChange($event)" (saveConnection)="onSaveConnection($event)"
+        (editorLoad)="onEditorLoad()"></opencelium-editor>
+      @if (mode === 'create' && !areRequiredFieldsFilled()) {
+      <div class="editor-overlay">
+        <div class="overlay-message">
+          Please fill the required fields first
+        </div>
+      </div>
+      }
+    </div>
+  </div>
+  <!-- Buttons -->
+  @if (mode !== 'edit') {
+  <div class="d-flex justify-content-between align-items-center form-actions-margin">
+    <div class="btn-group">
+      <button class="btn btn-secondary btn-sm btn-back" type="button" (click)="cancel()">
+        <i class="fas fa-arrow-left icon-spacing"></i> Go Back
+      </button>
+    </div>
+
+    <div class="btn-group">
+      <button type="button" class="btn btn-success btn-sm submit-report d-flex align-items-center" (click)="save()"
+        [disabled]="form.invalid">
+        <i class="fas fa-plus me-2 icon-spacing"></i> Save
+      </button>
+    </div>
+  </div>
+  }
+</div>
+
+<app-loading-popup [isVisible]="combinedLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

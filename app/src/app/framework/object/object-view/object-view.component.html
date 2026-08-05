@@ -1,8 +1,6 @@
 <div class="container-fluid">
   <div class="row">
     <div class="col-md-12">
-
-      <!-- <app-graph-editor [rootNodeId]="currentObjectID"></app-graph-editor> -->
       <!-- Navbar -->
       <div class="object-view-navbar">
         <div class="row align-items-center">
@@ -10,36 +8,31 @@
             <cmdb-object-actions [acl]="renderResult.type_information.acl" [renderResult]="renderResult">
             </cmdb-object-actions>
           </div>
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-externals [renderResult]="renderResult"></cmdb-object-externals>
           </div>
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-attachments></cmdb-object-attachments>
           </div>
-          <div class="docsWidget col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="docsWidget col-xl-2 col-md-6 col-6 border-start pt-1">
             <cmdb-object-docs *permissionLink="['base.docapi.template.view']" [renderResult]="renderResult">
             </cmdb-object-docs>
           </div>
-          <!-- <div class="col-xl-2 col-md-6 col-6 border-left pt-1 last-widget">
-            <div class="d-flex justify-content-center">
-              <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
-              </cmdb-object-type-label>
-            </div>
-          </div> -->
-          <div class="col-xl-2 col-md-6 col-6 border-left pt-1">
+          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
             <div class="d-flex justify-content-center">
               <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
               </cmdb-object-type-label>
             </div>
           </div>
-          <div class="col-xl-1 col-md-6 col-6 border-left pt-1 last-widget">
+          <div class="col-xl-1 col-md-6 col-6 border-start pt-1 last-widget">
             <div class="d-flex justify-content-center" style="width: 87px !important;">
               <div class="btn-group" role="group">
                 <button type="button" class="btn btn-sm" [class.btn-primary]="!isGraphView"
                   [class.btn-outline-primary]="isGraphView" (click)="toggleView(false)" title="Table View">
                   <i class="fas fa-table"></i>
                 </button>
-                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']" type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
+                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']"
+                  type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
                   [class.btn-outline-primary]="!isGraphView" (click)="toggleView(true)" title="Graph View">
                   <i class="fas fa-project-diagram"></i>
                 </button>
@@ -50,7 +43,7 @@
       </div>
 
       <!-- Header -->
-      <div style="margin-top: 30px;">
+      <div class="mt-4">
         <cmdb-object-header [renderResult]="renderResult"></cmdb-object-header>
       </div>
       <hr>
@@ -59,81 +52,52 @@
       <div *ngIf="isGraphView" id="graph-view" class="col-md-12">
         <div class="card">
           <div class="card-body p-0">
-            <app-graph-editor [rootNodeId]="currentObjectID"></app-graph-editor>
+            <!-- graph header selector -->
+            <div class="premium-header-container d-flex align-items-center justify-content-between py-3 px-4">
+              <div class="d-flex align-items-center gap-3 flex-grow-1">
+                <span class="premium-label fw-semibold text-dark" *ngIf="!isHeaderSelectorLoading">Select Object: </span>
+                <div class="flex-grow-1" style="min-width: 200px; margin-left: 5px;">
+                  <app-object-selector
+                    *ngIf="typesLoaded"
+                    [typeIds]="allTypeIds"
+                    [multiple]="false"
+                    [useInlineLoader]="true"
+                    [closeOnSelect]="true"
+                    [selectedIds]="selectedObjectIdForSelector ? [selectedObjectIdForSelector] : []"
+                    (selectionChange)="onGraphHeaderObjectChange($event)"
+                    (loadingChange)="isHeaderSelectorLoading = $event">
+                  </app-object-selector>
+                </div>
+              </div>
+
+              <button
+                class="btn btn-primary d-flex align-items-center gap-2"
+                (click)="openSelectedObject()"
+                [disabled]="!pendingSelectedId || isHeaderSelectorLoading"
+                *ngIf="!isHeaderSelectorLoading">
+                <i class="fas fa-external-link-alt"></i>
+                Open
+              </button>
+            </div>
+            <app-graph-editor [rootNodeId]="currentObjectID" (rootNodeSelected)="onRootNodeSelected($event)"></app-graph-editor>
           </div>
         </div>
       </div>
-      <!-- Main Content -->
+
+      <!-- Main Content: attributes + relation tabs -->
       <div *ngIf="!isGraphView" id="object-view" class="col-md-12">
-        <div class="card">
-          <!-- Single-Level Tab Navigation -->
-          <div class="card-header" style="overflow-x: auto; white-space: nowrap;">
-            <ul class="nav nav-tabs card-header-tabs">
-              <!-- Attributes tab at index 0 -->
-              <li class="nav-item d-inline-block">
-                <a class="nav-link" [class.active]="activeRelationTabIndex === 0" (click)="setActiveTab(0)"
-                  style="cursor: pointer;">
-                  Attributes
-                </a>
-              </li>
+        <cmdb-object-relations [objectId]="currentObjectID" [typeId]="renderResult?.type_information?.type_id">
+          <!-- Projected into the "Attributes" tab -->
+          <cmdb-object-view-render [mode]="mode" [renderResult]="renderResult"></cmdb-object-view-render>
 
-              <!-- Each relation group tab => index i+1 -->
-              <li class="nav-item d-inline-block"
-                *ngFor="let group of relationGroups; let i = index; trackBy: trackByRelationId">
-                <a style="align-items: center; cursor: pointer;" class="nav-link"
-                  [class.active]="activeRelationTabIndex === (i + 1)" (click)="setActiveTab(i + 1)">
-                  <i [class]="group.tabIcon" class="mr-1"></i>
-                  {{ group.tabLabel }} ({{ group.total }})
-                </a>
-              </li>
-
-              <!-- "Add Relation" tab => index relationGroups.length + 1 -->
-              <li class="nav-item d-inline-block" style="margin-left: 5px;">
-                <button type="button" class="btn btn-sm btn-success ml-2"
-                  style="display: inline-flex; align-items: center;" (click)="onClickAddRelationTab()">
-                  <i class="fas fa-plus mr-1"></i> Add Relation
-                </button>
-              </li>
-
-
-            </ul>
-          </div>
-
-          <!-- Tab Content -->
-          <div class="card-body">
-            <!-- Attributes content => activeRelationTabIndex === 0 -->
-            <div *ngIf="activeRelationTabIndex === 0">
-              <cmdb-object-view-render [mode]="mode" [renderResult]="renderResult">
-              </cmdb-object-view-render>
-            </div>
-
-            <!-- Relation group content => activeRelationTabIndex === (i+1) -->
-            <ng-container *ngFor="let group of relationGroups; let i = index">
-              <div *ngIf="activeRelationTabIndex === (i + 1)">
-                <div class="d-flex justify-content-between align-items-center">
-                  <h1>{{ group.tabLabel }}</h1>
-                  <button type="button" class="btn btn-sm btn-success" (click)="createNewRelationForGroup(group)">
-                    <i class="fas fa-plus"></i> Add {{ group.tabLabel }}
-                  </button>
-                </div>
-                <hr />
-
-                <cmdb-table [items]="group.instances" [columns]="getColumns(group)" [loading]="loadingRelations"
-                  [totalItems]="group.total" [pageSize]="group.pageSize" [page]="group.page"
-                  (pageChange)="loadGroupInstances(group.relationId, group.isParent, $event, group.pageSize)"
-                  (pageSizeChange)="loadGroupInstances(group.relationId, group.isParent, 1, $event)"
-                  [searchEnabled]="false">
-                </cmdb-table>
-              </div>
-            </ng-container>
-
-            <!-- "Add Relation" tab content => index relationGroups.length + 1 -->
-            <!-- <div *ngIf="activeRelationTabIndex === (relationGroups.length + 1)">
-            </div> -->
-          </div>
-        </div>
-
-
+          @if (isSupernet) {
+            <hr class="ipam-section-divider" />
+            <cmdb-ipam-supernet-overview [publicId]="currentObjectID"></cmdb-ipam-supernet-overview>
+          } @else if (isSubnet) {
+            <hr class="ipam-section-divider" />
+            <cmdb-ipam-subnet-overview [publicId]="currentObjectID"></cmdb-ipam-subnet-overview>
+          }
+        </cmdb-object-relations>
       </div>
 
       <!-- Footer -->
@@ -143,148 +107,3 @@
     </div>
   </div>
 </div>
-
-<!-- Relation Selection Modal -->
-<div class="relation-modal">
-  <div class="modal-backdrop" [class.show]="showRelationModal" [style.display]="showRelationModal ? 'block' : 'none'">
-  </div>
-  <div class="modal" [class.show]="showRelationModal" [style.display]="showRelationModal ? 'block' : 'none'">
-    <div class="modal-dialog modal-dialog-scrollable">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Select Relationship</h5>
-          <button type="button" class="close" (click)="closeRelationModal()">
-            <span>×</span>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div *ngIf="loadingRelations" class="loading-state text-center">
-            <div class="spinner-border text-primary" role="status"></div>
-            <span class="ml-2">Loading relationships...</span>
-          </div>
-
-          <div *ngIf="!loadingRelations && extendedRelations?.length" class="table-container"
-            style="overflow-x: auto; max-width: 100%;">
-            <table class="table table-hover">
-              <thead>
-                <tr>
-                  <th>Relation ID</th>
-                  <th>Relation Name</th>
-                  <th>Label</th>
-                </tr>
-              </thead>
-              <tbody>
-                <ng-container *ngFor="let relation of extendedRelations">
-                  <!-- Parent role row -->
-                  <tr *ngIf="relation.canBeParent"
-                    [class.table-active]="relation === chosenRelation && chosenRole === 'parent'"
-                    (click)="onSelectRelation(relation, 'parent')" style="cursor: pointer;">
-                    <td>{{ relation.public_id }}</td>
-                    <td>{{ relation.relation_name }}</td>
-                    <td>{{ relation.relation_name_parent }}</td>
-                  </tr>
-                  <!-- Child role row -->
-                  <tr *ngIf="relation.canBeChild"
-                    [class.table-active]="relation === chosenRelation && chosenRole === 'child'"
-                    (click)="onSelectRelation(relation, 'child')" style="cursor: pointer;">
-                    <td>{{ relation.public_id }}</td>
-                    <td>{{ relation.relation_name }}</td>
-                    <td>{{ relation.relation_name_child }}</td>
-                  </tr>
-                </ng-container>
-              </tbody>
-            </table>
-          </div>
-
-          <div *ngIf="!loadingRelations && extendedRelations?.length === 0" class="empty-state text-center">
-            <div class="empty-state-icon display-4">!</div>
-            <h4>No Relations Found</h4>
-            <button class="btn btn-primary" routerLink="/framework/relation">
-              Create a new relation
-            </button>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" (click)="closeRelationModal()">
-            Cancel
-          </button>
-          <button *ngIf="!loadingRelations && extendedRelations?.length" class="btn btn-primary"
-            [disabled]="!chosenRelation" (click)="onConfirmRelationSelection()">
-            Confirm
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Relation Role Dialog (unchanged) -->
-<relation-role-dialog *ngIf="showRelationRoleDialog" [chosenRole]="chosenRole"
-  [currentObjectTypeID]="renderResult.type_information.type_id" [parentTypeIDs]="roleParentTypeIDs"
-  [childTypeIDs]="roleChildTypeIDs" [currentObjectID]="currentObjectID" [relation]="chosenRelation" [mode]="dialogMode"
-  [relationInstance]="selectedRelationInstance" (onConfirm)="onRelationRoleDialogConfirm($event)"
-  (onCancel)="onRelationRoleDialogCancel()">
-</relation-role-dialog>
-
-<!-- Table Actions Template -->
-<ng-template #actionsTemplate let-item="item">
-  <span *permissionLink="['base.framework.objectRelations.view']">
-    <i class="far fa-eye spacing-right icon-view" (click)="viewRelationInstance(item)" title="View Relation">
-    </i>
-  </span>
-  <span *permissionLink="['base.framework.objectRelations.edit']">
-    <i class="far fa-edit btn-edit spacing-right icon-edit" (click)="editRelationInstance(item)" title="Edit Relation">
-    </i>
-  </span>
-  <span>
-    <i class="far fa-clone spacing-right icon-copy" (click)="copyRelationInstance(item)" title="Copy Relation">
-    </i>
-  </span>
-  <span>
-    <i class="far fa-trash-alt btn-delete icon-delete" (click)="deleteRelationInstance(item)" title="Delete Relation">
-    </i>
-  </span>
-</ng-template>
-
-<!-- Counterpart ID Template -->
-<ng-template #counterpartIdTemplate let-item="item">
-  <ng-container *ngIf="relatedObjectsMap[item.counterpart_id] as data">
-    <!-- If data is a RenderResult, show object_information -->
-    <ng-container *ngIf="isRenderResult(data); else cmdbBlock">
-      <i [class]="data.type_information?.icon"></i>
-      <a [routerLink]="['/framework/object/view/', data.object_information?.object_id]">
-        #{{ data.object_information?.object_id }}
-        {{ data.type_information?.type_label }}
-      </a>
-      <span *ngIf="data.summaries?.length > 0">
-        - {{ data.summary_line }}
-      </span>
-    </ng-container>
-
-    <!-- Otherwise, it's CmdbObject -->
-    <ng-template #cmdbBlock>
-      <a [routerLink]="['/framework/object/view/', data.public_id]">
-        #{{ data.public_id }}
-      </a>
-    </ng-template>
-  </ng-container>
-</ng-template>
-
-<!-- Type Column Template -->
-<ng-template #counterpartTypeTemplate let-item="item">
-  <ng-container *ngIf="relatedObjectsMap[item.counterpart_id] as data">
-    <!-- If data is a RenderResult (i.e., has object_information), show type_information -->
-    <ng-container *ngIf="isRenderResult(data); else cmdbObjectBlock">
-      {{ data.type_information?.type_label }}
-    </ng-container>
-
-    <!-- Otherwise, assume it's a CmdbObject with type_label -->
-    <ng-template #cmdbObjectBlock>
-      {{ data.type_label }}
-    </ng-template>
-  </ng-container>
-</ng-template>
-
-
-
-<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

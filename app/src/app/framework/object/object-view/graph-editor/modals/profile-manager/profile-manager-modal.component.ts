@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -26,11 +26,13 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { FilterProfile } from '../../interfaces/graph.interfaces';
 import { GraphProfileService } from '../../services/graph-profile.service';
 import { ProfileDeleteModalComponent } from '../profile-delete/profile-delete-modal.component';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 
 @Component({
-  selector: 'app-profile-manager-modal',
-  templateUrl: './profile-manager-modal.component.html',
-  styleUrls: ['./profile-manager-modal.component.scss']
+    selector: 'app-profile-manager-modal',
+    templateUrl: './profile-manager-modal.component.html',
+    styleUrls: ['./profile-manager-modal.component.scss'],
+    standalone: false
 })
 export class ProfileManagerModalComponent implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();
@@ -49,7 +51,8 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
     private profileService: GraphProfileService,
     private loaderService: LoaderService,
     private toast: ToastService,
-    private modalService: NgbModal
+    private modalService: NgbModal,
+    private fullscreenModalService: FullscreenModalService
   ) {
     this.profileForm = this.fb.group({
       name: ['', [Validators.required]],
@@ -63,8 +66,8 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
+    this.destroy$?.next();
+    this.destroy$?.complete();
   }
 
 
@@ -93,7 +96,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
         next: profiles => {
           this.profiles = profiles; // Now profiles is FilterProfile[]
         },
-        error: () => this.toast.error('Failed to load profiles')
+        error: (error) => this.toast.error(error?.error?.message)
       });
   }
 
@@ -157,7 +160,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
           this.loadProfiles();
           this.cancelEdit();
         },
-        error: () => this.toast.error('Failed to save profile')
+        error: (error) => this.toast.error(error?.error?.message)
       });
   }
 
@@ -167,7 +170,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
    * @param profile 
    */
   deleteProfile(profile: FilterProfile): void {
-    const modalRef: NgbModalRef = this.modalService.open(ProfileDeleteModalComponent, {
+    const modalRef: NgbModalRef = this.fullscreenModalService.open(this.modalService, ProfileDeleteModalComponent, {
       size: 'md',
       centered: false,
     });
@@ -196,7 +199,7 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
 
             this.loadProfiles();
           },
-          error: () => this.toast.error('Failed to delete profile')
+          error: (error) => this.toast.error(error?.error?.message)
         });
     }).catch(() => { });
   }

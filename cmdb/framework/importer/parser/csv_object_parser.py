@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,7 @@
 Implementation of CsvObjectParser
 """
 import csv
-import logging
+from logging import Logger, getLogger
 
 from cmdb.utils.cast import auto_cast
 from cmdb.framework.importer.content_types import CSVContent
@@ -27,7 +27,7 @@ from cmdb.framework.importer.responses.csv_object_parser_response import CsvObje
 from cmdb.errors.importer import ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                CsvObjectParser - CLASS                                               #
@@ -58,7 +58,7 @@ class CsvObjectParser(BaseObjectParser, CSVContent):
         Initializes the CsvObjectParser with an optional parser configuration
 
         Args:
-            parser_config (Optional[dict]): Configuration dictionary for the parser
+            parser_config (dict | None): Configuration dictionary for the parser
         """
         super().__init__(parser_config)
 

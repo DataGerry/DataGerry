@@ -1,6 +1,7 @@
 <h2>Changed objects: {{results?.length}}</h2>
-<hr/>
-<div class="bulk-changed-result" *ngFor="let item of results | paginate: { itemsPerPage: 10, currentPage: p}; let itemIdx = index ">
+<hr />
+@for (item of results | paginate: { itemsPerPage: 10, currentPage: p}; track item; let itemIdx = $index) {
+<div class="bulk-changed-result">
   <div class="row">
     <div class="col-sm-4">
       <cmdb-active-badge [activeStatus]="activeState"></cmdb-active-badge>
@@ -10,40 +11,47 @@
     </div>
     <div class="col-sm-8">
       <div class="container">
-        <div class="row pb-1" *ngIf="activeState !== undefined">
+        @if (activeState !== undefined) {
+        <div class="row pb-1">
           <div class="col-sm-5 text-nowrap">
             <strong>Active</strong>:
-            <span [ngClass]="item?.object_information?.active ? 'badge badge-success':'badge badge-danger' ">
-             {{item?.object_information?.active ? 'A' : 'D'}}
+            <span [ngClass]="item?.object_information?.active ? 'badge bg-success':'badge bg-danger' ">
+              {{item?.object_information?.active ? 'A' : 'D'}}
             </span>
           </div>
           <div class="col-sm-1"><i class="far fa-arrow-alt-circle-right"></i></div>
           <div class="col-sm-5">
             <strong>Active</strong>:
-            <span [ngClass]="activeState ? 'badge badge-success':'badge badge-danger' ">
-             {{activeState ? 'A' : 'D'}}
+            <span [ngClass]="activeState ? 'badge bg-success':'badge bg-danger' ">
+              {{activeState ? 'A' : 'D'}}
             </span>
           </div>
         </div>
-        <div class="row pb-1" *ngFor="let changedControl of changeForm.controls | keyvalue ; trackBy track">
-          <ng-container *ngIf="getField(changedControl.key) as field">
-            <div class="col-sm-5">
-              <strong>{{field.label}}</strong>:
-              <cmdb-render-element [mode]="mode" [data]="getOriginal(itemIdx, changedControl.key)"></cmdb-render-element>
-            </div>
-            <div class="col-sm-1">
-              <i class="far fa-arrow-alt-circle-right"></i>
-            </div>
-            <div class="col-sm-5">
-              <strong>{{field.label}}</strong>:
-              <cmdb-render-element [mode]="mode" [data]="field"
-                                   [value]="getChangedValue(field.name)"></cmdb-render-element>
-            </div>
-          </ng-container>
+        }
+        @for (changedControl of changeForm.controls | keyvalue ; track changedControl) {
+        <div class="row pb-1">
+          @if (getField(changedControl.key); as field) {
+
+          <div class="col-sm-5">
+            <strong>{{field.label}}</strong>:
+            <cmdb-render-element [mode]="mode" [data]="getOriginal(itemIdx, changedControl.key)"></cmdb-render-element>
+          </div>
+          <div class="col-sm-1">
+            <i class="far fa-arrow-alt-circle-right"></i>
+          </div>
+          <div class="col-sm-5">
+            <strong>{{field.label}}</strong>:
+            <cmdb-render-element [mode]="mode" [data]="field"
+              [value]="getChangedValue(field.name)"></cmdb-render-element>
+          </div>
+
+          }
         </div>
+        }
       </div>
     </div>
   </div>
-  <hr/>
+  <hr />
 </div>
+}
 <pagination-controls class="pagination" (pageChange)="p = $event"></pagination-controls>

@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,9 +16,11 @@
 """
 This module contains the implementation of CmdbLocation, which is representing a location in Datagarry
 """
-import logging
-
+from logging import Logger, getLogger
+from typing import Any
 from cmdb.models.cmdb_dao import CmdbDAO
+
+from cmdb.class_schema.location_model.cmdb_location_schema import get_cmdb_location_schema
 
 from cmdb.errors.models.cmdb_location import (
     CmdbLocationInitError,
@@ -27,7 +29,7 @@ from cmdb.errors.models.cmdb_location import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbLocation - CLASS                                                 #
@@ -41,38 +43,15 @@ class CmdbLocation(CmdbDAO):
     COLLECTION = 'framework.locations'
     MODEL = 'Location'
     DEFAULT_VERSION: str = '1.0.0'
-    REQUIRED_INIT_KEYS = ['name', 'parent', 'object_id', 'type_id', 'type_label']
+    REQUIRED_INIT_KEYS: list[str] = ['name', 'parent', 'object_id', 'type_id', 'type_label']
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'name': {
-            'type': 'string'
-        },
-        'parent': {
-            'type': 'integer',
-            'nullable': True
-        },
-        'object_id': {
-            'type': 'integer',
-            'nullable': True
-        },
-        'type_id': {
-            'type': 'integer',
-        },
-        'type_label': {
-            'type': 'string',
-        },
-        'type_icon': {
-            'type': 'string',
-            'default': 'fas fa-cube'
-        },
-        'type_selectable': {
-            'type': 'boolean',
-            'default': True
-        },
-    }
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': False},
+        {'keys': [('parent', CmdbDAO.DAO_ASCENDING)], 'name': 'parent', 'unique': False},
+        {'keys': [('type_id', CmdbDAO.DAO_ASCENDING)], 'name': 'type_id', 'unique': False}
+    ]
+
+    SCHEMA: dict = get_cmdb_location_schema()
 
 
     #pylint: disable=R0913, R0917

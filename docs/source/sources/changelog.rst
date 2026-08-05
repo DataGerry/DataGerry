@@ -2,6 +2,190 @@
 Changelogs
 **********
 
+
+Version 3.2.0
+=============
+
+| 
+
+New Features
+------------
+
+|
+
+:ref:`Document Generator Redesign <document-generator-anchor>`
+
+- Complete redesign of the **Document Generator**
+- New modern template editor
+- Improved placeholder system with support for:
+
+  - Objects
+  - Relations
+  - Relation fields
+  - Relation directions
+  - Object Types
+  - External Objects
+  - Reports
+
+- Support for recursive relation placeholders
+- Multiple reference paths within templates
+- Reference sections for reusable template content
+- Integrated report previews
+- Render reports directly inside generated PDF documents
+- Improved handling of multi data sections
+- Enhanced report table rendering and scaling
+- Improved template validation and workflow handling
+
+|
+
+:ref:`IP Address Management (IPAM) <ipam-anchor>`
+
+- New integrated **IP Address Management**
+- Management of networks and subnets
+- IP address allocation
+- Improved visualization of network structures
+- Optimized navigation and administration of IP resources
+
+|
+
+:ref:`License Management <license-management-anchor>`
+
+- New integrated **License Management**
+- Centralized management of software licenses
+- License assignment tracking
+- License usage overview
+- Improved compliance and software asset management
+
+|
+
+:ref:`OpenCelium Integration <automations-anchor>`
+
+- Improved OpenCelium Connection Editor
+- Enhanced diagnostics
+- Integrated execution logs
+- Progress indicator during automation execution
+- Improved credential handling
+- Resizable log viewer
+- Better overall performance and usability
+
+|
+
+=======================================================================================================================
+
+|
+
+Improvements
+------------
+
+|
+
+Document Generator
+~~~~~~~~~~~~~~~~~~
+
+- Improved placeholder parser
+- Faster document generation
+- Enhanced report integration
+- Improved relation handling
+- Optimized PDF rendering
+- Better template validation
+- Improved workflow integration
+
+|
+
+IP Address Management
+~~~~~~~~~~~~~~~~~~~~~
+
+- Improved subnet visualization
+- Optimized IP allocation performance
+- Better navigation through network structures
+
+|
+
+Relations
+~~~~~~~~~
+
+- Improved relation visualization
+- Resizable relation editor
+- Better object relation navigation
+- Optimized relation loading
+
+|
+
+User Interface
+~~~~~~~~~~~~~~
+
+- Bootstrap 5 migration
+- Angular 19 upgrade
+- Improved object selector with pagination
+- Enhanced breadcrumb navigation
+- Improved search functionality
+- Better loading indicators
+- Copy Identifier functionality
+- Improved diagnostics interface
+- General usability improvements throughout the application
+
+|
+
+Performance
+~~~~~~~~~~~
+
+- Improved database indexes
+- Optimized object deletion
+- Faster rendering performance
+- Improved CI Explorer performance
+- Optimized backend queries
+- Faster object loading
+
+|
+
+Technical Improvements
+----------------------
+
+- Refactored Document Generator parser architecture
+- Improved backend APIs
+- Enhanced logging mechanisms
+- Internal API key support for Cloud installations
+- Optimized report rendering pipeline
+- Multiple backend performance and stability improvements
+
+|
+
+=======================================================================================================================
+
+|
+
+Bugfixes
+--------
+
+-   [**DAT-2338**] Fixed reference resolution issue
+-   [**DAT-2337**] Fixed UI issue where credentials disappeared after validation failure
+-   [**DAT-2323**] Improved update requests for Connections and Schedulers
+-   [**DAT-2322**] Fixed missing ``connectionId`` in connection update requests
+-   [**DAT-2321**] Updated routing for connection updates
+-   [**DAT-2314**] Fixed issue preventing Protection Goals from being deleted
+-   [**DAT-2166**] Corrected column order
+-   [**DAT-2135**] Fixed error when editing Webhooks
+-   [**DAT-2126**] Fixed missing objects in the **Referenced By** tab
+-   [**DAT-2118**] Improved GitHub workflows to resolve failing online tests
+-   [**DAT-2050**] Added uniqueness validation for Object Type names
+-   [**DAT-2005**] Fixed responsiveness of the preview modal
+-   [**DAT-1987**] Fixed incorrect navigation when returning from Risk Assessment to Risk
+-   [**DAT-1986**] Fixed missing object summary when creating a Risk Assessment from an object
+-   [**DAT-1984**] Improved links and breadcrumb navigation in the Persons component
+-   [**DAT-1983**] Fixed cleanup process when deleting sections
+-   [**DAT-1981**] Fixed permission handling for the **Add Relation** button
+-   [**DAT-1980**] Fixed external link creation without mapped fields
+-   [**DAT-1979**] Fixed multiple issues related to external links
+|
+
+=======================================================================================================================
+
+|
+
+=======================================================================================================================
+
+|
+
 Version 3.1.0
 =============
 

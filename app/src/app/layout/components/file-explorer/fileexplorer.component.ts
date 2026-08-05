@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -36,9 +36,10 @@ import { MetadataInfoComponent } from './modal/metadata-info/metadata-info.compo
 import { LoaderService } from '../../../core/services/loader.service';
 
 @Component({
-  selector: 'cmdb-fileexplorer',
-  templateUrl: './fileexplorer.component.html',
-  styleUrls: ['./fileexplorer.component.scss']
+    selector: 'cmdb-fileexplorer',
+    templateUrl: './fileexplorer.component.html',
+    styleUrls: ['./fileexplorer.component.scss'],
+    standalone: false
 })
 export class FileExplorerComponent implements OnInit, OnDestroy {
 

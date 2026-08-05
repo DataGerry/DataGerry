@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -18,8 +18,10 @@ Implementation of DataGerry general system information API routes
 """
 import sys
 import time
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from flask import abort
+from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SettingsManager
@@ -34,7 +36,7 @@ from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.models.user_model import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 system_blueprint = NestedBlueprint(settings_blueprint, url_prefix='/system')
 
@@ -43,7 +45,7 @@ system_blueprint = NestedBlueprint(settings_blueprint, url_prefix='/system')
 @system_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_datagerry_information(request_user: CmdbUser):
+def get_datagerry_information(request_user: CmdbUser) -> Response:
     """
     Gathers and returns basic information about the DataGerry system, including version,
     database version, runtime, and startup parameters
@@ -63,7 +65,7 @@ def get_datagerry_information(request_user: CmdbUser):
             LOGGER.error("[get_datagerry_information] Exception: %s. Type: %s", err, type(err), exc_info=True)
             db_version = 0
 
-        datagerry_infos = {
+        datagerry_infos: dict[str, Any] = {
             'title': __title__,
             'version': __version__,
             'db_version': db_version,
@@ -80,8 +82,9 @@ def get_datagerry_information(request_user: CmdbUser):
 @system_blueprint.route('/config/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+# request_user is injected for auth/permission checks; the body reads SystemConfigReader directly
 @right_required('base.system.view')
-def get_config_information(request_user: CmdbUser):
+def get_config_information(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
     Retrieves and returns the configuration information, including path and properties,
     of the system configuration file
@@ -95,8 +98,9 @@ def get_config_information(request_user: CmdbUser):
     try:
         ssc = SystemConfigReader()
 
-        config_dict = {
-            'path': ssc.config_file,
+        # 'config_file' is only set when a config file is loaded; in config-less mode it is absent
+        config_dict: dict[str, Any] = {
+            'path': getattr(ssc, 'config_file', None),
             'properties': []
         }
 
@@ -108,12 +112,7 @@ def get_config_information(request_user: CmdbUser):
 
             config_dict['properties'].append([section, section_values])
 
-        api_response = DefaultResponse(config_dict)
-
-        if len(config_dict) < 1:
-            return api_response.make_response(204)
-
-        return api_response.make_response()
+        return DefaultResponse(config_dict).make_response()
     except Exception as err:
         LOGGER.error("[get_config_information] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while gathering DataGerry config information!")

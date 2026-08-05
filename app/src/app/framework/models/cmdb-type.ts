@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,6 +17,7 @@
 */
 import { CmdbDao } from './cmdb-dao';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
+import { SpecialType } from './special-type';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export interface CmdbTypeSection {
@@ -87,6 +88,7 @@ export class CmdbType implements CmdbDao {
     public fields: Array<any> = [];
     public ci_explorer_label?: string = null; 
     public ci_explorer_color?: string = null;
+    public special_type?: SpecialType;
     public acl?: AccessControlList;
 
 

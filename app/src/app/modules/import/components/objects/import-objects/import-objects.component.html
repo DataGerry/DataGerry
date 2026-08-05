@@ -5,59 +5,47 @@
                 <ng-template awWizardStepSymbol>
                     <i class="fas fa-file-code"></i>
                 </ng-template>
-                <cmdb-select-file (formatChange)="formatChange($event)" (fileChange)="fileChange($event)"/>
+                <cmdb-select-file (formatChange)="formatChange($event)" (fileChange)="fileChange($event)" />
             </aw-wizard-step>
 
             <aw-wizard-step stepId="2" stepTitle="File config" (stepExit)="onParseData()">
                 <ng-template awWizardStepSymbol>
                     <i class="fas fa-clipboard-check"></i>
                 </ng-template>
-                <cmdb-file-config
-                    (configChange)="parserConfigChange($event)"
-                    [fileFormat]="importerFile.fileFormat"
-                />
+                <cmdb-file-config (configChange)="parserConfigChange($event)" [fileFormat]="importerFile.fileFormat" />
             </aw-wizard-step>
 
             <aw-wizard-step stepId="3" stepTitle="Type mapping">
                 <ng-template awWizardStepSymbol>
                     <i class="fas fa-clipboard-check"></i>
                 </ng-template>
-                <cmdb-type-mapping
-                    (typeChange)="typeChange($event)"
-                    [manuallyMapping]="defaultImporterConfig?.manually_mapping"
-                    [parsedData]="parsedData"
-                    [parserConfig]="parserConfig"
-                    (mappingChange)="mappingChange($event)"
-                    [fileFormat]="importerFile.fileFormat"
-                />
+                <cmdb-type-mapping (typeChange)="typeChange($event)"
+                    [manuallyMapping]="defaultImporterConfig?.manually_mapping" [parsedData]="parsedData"
+                    [parserConfig]="parserConfig" (mappingChange)="mappingChange($event)"
+                    [fileFormat]="importerFile.fileFormat" />
             </aw-wizard-step>
 
             <aw-wizard-step stepId="4" stepTitle="Import config">
                 <ng-template awWizardStepSymbol>
                     <i class="fas fa-clipboard-check"></i>
                 </ng-template>
-                <cmdb-import-config (configChange)="importConfigChange($event)"/>
+                <cmdb-import-config (configChange)="importConfigChange($event)" />
             </aw-wizard-step>
 
             <aw-wizard-completion-step stepId="5" stepTitle="Complete">
                 <ng-template awWizardStepSymbol>
                     <i class="fas fa-save"></i>
                 </ng-template>
-                <cmdb-import-complete
-                    (startImportEmitter)="startImport()"
-                    [importResponse]="importResponse"
-                    [importFile]="importerFile"
-                    [importerConfig]="importerConfig"
-                    [parserConfig]="parserConfig"
-                    [parsedData]="parsedData"
-                />
+                <cmdb-import-complete (startImportEmitter)="startImport()" [importResponse]="importResponse"
+                    [importFile]="importerFile" [importerConfig]="importerConfig" [parserConfig]="parserConfig"
+                    [parsedData]="parsedData" [isImporting]="isImporting" />
             </aw-wizard-completion-step>
         </aw-wizard>
     </div>
 
     <div class="col-md-3">
         <h2>Import objects</h2>
-        <hr/>
+        <hr />
         <div class="card mb-3">
             <div class="card-header">
                 File:
@@ -72,12 +60,16 @@
                 Parser config:
             </div>
             <ul class="list-group list-group-flush">
-                <li *ngIf="!parserConfig" class="list-group-item list-group-item-warning">
+                @if (!parserConfig) {
+                <li class="list-group-item list-group-item-warning">
                     Parser not selected yet!
                 </li>
-                <li *ngFor="let parserPro of parserConfig | keyvalue" class="list-group-item">
+                }
+                @for (parserPro of parserConfig | keyvalue; track parserPro) {
+                <li class="list-group-item">
                     {{parserPro?.key | titlecase}}: {{parserPro?.value}}
                 </li>
+                }
             </ul>
         </div>
         <div class="card mb-3">
@@ -91,15 +83,24 @@
                 <li class="list-group-item">Overwrite exists: {{importerConfig?.overwrite_public}}</li>
             </ul>
         </div>
-        <div *ngIf="defaultImporterConfig?.manually_mapping" class="card mb-3">
+        @if (defaultImporterConfig?.manually_mapping) {
+        <div class="card mb-3">
             <div class="card-header">
                 Mapping:
             </div>
             <ul class="list-group list-group-flush">
-                <li *ngFor="let mapEntry of mapping" class="list-group-item">
+                @for (mapEntry of mapping; track mapEntry) {
+                <li class="list-group-item">
                     {{mapEntry?.name}} | {{mapEntry?.value}}
                 </li>
+                }
             </ul>
         </div>
+        }
     </div>
 </div>
+
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+></app-loading-popup>

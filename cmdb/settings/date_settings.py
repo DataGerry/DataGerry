@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,10 @@
 """
 Implementation of DateSettingsDAO
 """
-import logging
+from logging import Logger, getLogger
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                DateSettingsDAO - CLASS                                               #
@@ -29,13 +29,13 @@ class DateSettingsDAO:
     Handles regional date settings, including date format and timezone preferences
     """
 
-    __DEFAULT_SETTINGS__: dict = {
+    __DEFAULT_SETTINGS__: dict[str, str] = {
             'date_format': 'YYYY-MM-DDThh:mm:ssZ',
             'timezone': 'UTC',
         }
 
 
-    def __init__(self, date_format: str, timezone: str):
+    def __init__(self, date_format: str, timezone: str) -> None:
         """
         Initializes DateSettingsDAO
 
@@ -44,5 +44,5 @@ class DateSettingsDAO:
             timezone (str): The timezone setting
         """
         self._id: str = 'date'
-        self.date_format = date_format
-        self.timezone = timezone
+        self.date_format: str = date_format
+        self.timezone: str = timezone

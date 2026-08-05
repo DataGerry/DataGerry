@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Component, Input, OnDestroy, TemplateRef, ViewChild} from '@angular/core';
+import {Component, Input, OnDestroy, TemplateRef, ViewChild, ChangeDetectorRef} from '@angular/core';
 import {BehaviorSubject, ReplaySubject} from 'rxjs';
 import { ObjectService } from '../../../../services/object.service';
 import { RenderResult } from '../../../../models/cmdb-render';
@@ -37,9 +37,10 @@ import {
 import {UserSettingsDBService} from '../../../../../management/user-settings/services/user-settings-db.service';
 
 @Component({
-  selector: 'cmdb-object-references-table',
-  templateUrl: './object-references-table.component.html',
-  styleUrls: ['./object-references-table.component.scss']
+    selector: 'cmdb-object-references-table',
+    templateUrl: './object-references-table.component.html',
+    styleUrls: ['./object-references-table.component.scss'],
+    standalone: false
 })
 export class ObjectReferencesTableComponent implements OnDestroy {
 
@@ -157,7 +158,8 @@ export class ObjectReferencesTableComponent implements OnDestroy {
               private fileSaverService: FileSaverService, private fileService: FileService,
               private route: ActivatedRoute, private router: Router,
               private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
-              private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>) {
+              private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
+              private changesRef: ChangeDetectorRef) {
     this.route.data.pipe(takeUntil(this.subscriber)).subscribe((data: Data) => {
       if (data.userSetting) {
         const userSettingPayloads = (data.userSetting as UserSetting<TableStatePayload>).payloads
@@ -270,6 +272,7 @@ export class ObjectReferencesTableComponent implements OnDestroy {
         this.refererObjects = apiResponse.results as Array<RenderResult>;
         this.totalReferer = apiResponse.total;
         this.loading = false;
+        this.changesRef.markForCheck();
       });
   }
 
@@ -527,7 +530,7 @@ export class ObjectReferencesTableComponent implements OnDestroy {
    * Unsubscribe all on component destroy.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 }

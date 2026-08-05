@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,22 +14,50 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Collection of different helper classes and functions
+Small, dependency-light utilities reused across DataGerry's runtime layers
+
+Provides:
+    * `load_class` — dynamic class loader used by the process manager (service classes),
+      the database updater (per-version `updater_<date>` modules) and the exporter
+      framework (per-format classes under `cmdb.framework.exporter.format.*`)
+    * `str_to_bool` — lenient string/bool coercer used to normalise REST query params
+    * `process_bar` — stdout progress bar driven by the database updater
 """
 import re
 import sys
 import importlib
-import inspect
-import logging
+from logging import Logger, getLogger
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def load_class(classname):
-    """ load and return the class with the given classname """
-    # extract class from module
+def load_class(classname: str) -> type:
+    """
+    Loads a class by fully-qualified dotted name
+
+    Splits `classname` at the *last* dot — everything before it is treated as the import
+    path, everything after as the class attribute on the imported module — then performs
+    a regular `importlib.import_module` + `getattr`. This is how the codebase wires
+    config-driven class references: `ProcessManager` resolves registered service classes
+    this way, the database updater loads `cmdb.database.updater.versions.updater_<date>`
+    modules, and the exporter framework loads per-format classes
+    (`cmdb.framework.exporter.format.<ClassName>`)
+
+    Args:
+        classname (str): Fully-qualified `pkg.module.ClassName` path; must contain at
+            least one dot
+
+    Returns:
+        type: The resolved class object
+
+    Raises:
+        Exception: When `classname` does not contain a dot (the split fails)
+        ModuleNotFoundError: When the module portion cannot be imported
+        AttributeError: When the module is imported but the named attribute is missing
+    """
     pattern = re.compile(r"(.*)\.(.*)")
     match = pattern.fullmatch(classname)
 
@@ -44,34 +72,25 @@ def load_class(classname):
     return loaded_class
 
 
-def get_module_classes(module_name):
-    """Get all class of an module and return list of classes"""
-    class_list = []
-    loaded_module = importlib.import_module(module_name)
-
-    for key, data in inspect.getmembers(loaded_module, inspect.isclass):
-        if module_name in str(data):
-            class_list.append(key)
-
-    return class_list
-
-
-def str_to_bool(s) -> bool:
+def str_to_bool(s: Any) -> bool:
     """
-    Converts a string or boolean value to a corresponding boolean
+    Coerces a permissive string / bool value into a strict `bool`
+
+    Accepts the literal strings `"true"` / `"false"` (case-insensitive, surrounding
+    whitespace stripped) and passes through native `bool` values unchanged. Any other
+    input — including ints, `None`, or unrecognised strings like `"yes"` / `"0"` — is
+    rejected. Used by the REST layer to normalise query-string params that arrive as
+    strings but represent boolean flags (e.g. `?active=true`)
 
     Args:
-        s (str or bool): The input value to be converted. This can be:
-            - A string, which is either 'True', 'true', 'False', 'false' (case-insensitive)
-            - A boolean value (`True` or `False`)
+        s (Any): Input value; expected to be `str` or `bool`
 
     Returns:
-        bool: `True` or `False` depending on the input value
+        bool: `True` for `"true"` / `True`, `False` for `"false"` / `False`
 
     Raises:
-        ValueError: If the input is not a valid boolean string or boolean value
+        ValueError: When `s` is neither a recognised boolean string nor a `bool`
     """
-    # Check if input is a string and convert based on known truthy or falsy values
     if isinstance(s, str):
         s = s.strip().lower()
         if s == 'true':
@@ -79,46 +98,44 @@ def str_to_bool(s) -> bool:
         if s == 'false':
             return False
 
-    # Check if input is already a boolean
     if isinstance(s, bool):
         return s
 
-    # If input is not a valid string or boolean, raise an error
     raise ValueError("Invalid value for conversion to boolean")
 
 
-def process_bar(name, total, progress):
+def process_bar(name: str, total: int, progress: int) -> None:
     """
-    Displays or updates a console progress bar to visualize the progress of a task.
+    Writes (or rewrites) a single-line stdout progress bar
+
+    Uses a carriage return so successive calls overwrite the same terminal line; emits a
+    newline once `progress >= total` so the next stdout write starts cleanly. The bar is
+    a fixed 50 chars wide, filled in proportion to `progress / total`. The `[x/y]`
+    segment shows the raw step counts (`progress` and `total`) while the bar fill and
+    percentage are clamped to a maximum of 100%. Calls with `total <= 0` return without
+    writing anything
 
     Args:
-        name (str): The name of the process being tracked.
-        total (int): The total number of steps or tasks to complete.
-        progress (int): The current progress (steps or tasks completed).
+        name (str): Label printed before the bar
+        total (int): Total number of steps; non-positive values are treated as a no-op
+        progress (int): Steps completed so far
 
     Example:
         >>> process_bar('Task', 100, 45)
-        Task:[####################--------------------] 45%   [45/100]
+        Task: [######################----------------------------] 45% [45/100]
     """
-    # Ensure progress is a float for accurate calculation and prevent division by zero
-    progress = float(progress) / float(total)
+    if total <= 0:
+        return
 
-    # Set progress to 1 when it's equal to or greater than the total
-    if progress >= 1.0:
-        progress = 1.0
-        status = "\r\n"  # New line after completion
-    else:
-        status = ""  # Keep same line for progress
+    fraction = min(float(progress) / float(total), 1.0)
+    status = "\r\n" if fraction >= 1.0 else ""
 
-    # Define the bar's length and calculate the number of blocks
     bar_length = 50
-    block = int(round(bar_length * progress))
+    block = int(round(bar_length * fraction))
 
-    # Construct the progress bar text
-    progress_percentage = f"{progress * 100:.0f}%"
+    progress_percentage = f"{fraction * 100:.0f}%"
     through_of = f"[{progress}/{total}]"
     progress_bar = f'[{ "#" * block + "-" * (bar_length - block)}] {progress_percentage} {through_of}'
 
-    # Print or update the progress bar on the same line
     sys.stdout.write(f'\r{name}: {progress_bar}{status}')
     sys.stdout.flush()

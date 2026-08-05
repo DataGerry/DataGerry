@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -31,6 +31,7 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     selector: 'app-webhook-log-viewer',
     templateUrl: './webhook-log-viewer.component.html',
     styleUrls: ['./webhook-log-viewer.component.scss'],
+    standalone: false
 })
 export class WebhookLogViewerComponent implements OnInit {
     public logs: any[] = [];

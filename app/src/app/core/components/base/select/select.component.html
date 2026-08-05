@@ -1,31 +1,38 @@
-<!-- form-select.component.html -->
-<div class="form-group" (keydown)="$event.stopPropagation()">
-  <label *ngIf="label" class="form-label">
+<div class="mb-3" (keydown)="$event.stopPropagation()">
+  @if (label) {
+<label class="form-label">
     {{ label }}
-    <span *ngIf="required" class="required">*</span>
+    @if (required) {
+<span class="text-danger">*</span>
+}
   </label>
+}
 
   <ng-select [items]="items" [bindLabel]="bindLabel" [bindValue]="bindValue" [multiple]="multiple"
     [placeholder]="placeholder" [disabled]="disabled" [clearable]="true" [(ngModel)]="value"
     [dropdownPosition]="dropdownDirection" (change)="onValueChange($event)" (blur)="onTouched()" [groupBy]="groupBy">
+    @if (showSelectAllToggle) {
+
+      <ng-template ng-header-tmp>
+        <div class="select-all-header">
+          <button type="button"
+                  class="btn btn-link btn-sm select-all-btn"
+                  (click)="selectAll()"
+                  [disabled]="allSelectableSelected">
+            <i class="far fa-check-square" aria-hidden="true"></i>
+            Select All
+          </button>
+          <span class="select-all-divider" aria-hidden="true"></span>
+          <button type="button"
+                  class="btn btn-link btn-sm select-all-btn deselect-all-btn"
+                  (click)="deselectAll()"
+                  [disabled]="!hasSelection">
+            <i class="far fa-square" aria-hidden="true"></i>
+            Deselect All
+          </button>
+        </div>
+      </ng-template>
+    
+}
   </ng-select>
 </div>
-
-
-<!-- <div class="form-group">
-
-  
-    <ng-select
-    [items]="items"
-    [groupBy]="groupBy"
-    [bindLabel]="bindLabel" 
-    [multiple]="multiple"
-    [placeholder]="placeholder"
-    [disabled]="disabled"
-    [clearable]="clearable"
-    [(ngModel)]="selection"    
-    [dropdownPosition]="dropdownDirection"
-    (ngModelChange)="onSelectionChange($event)" 
-    (blur)="onTouched()">
-  </ng-select>
-  </div> -->

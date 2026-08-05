@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,17 +16,21 @@
 """
 Implementation of connection check routes
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from flask import current_app, abort
+from werkzeug import Response
 
 from cmdb.database import MongoDatabaseManager
 
 from cmdb import __title__, __version__
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.blueprints import RootBlueprint
+from cmdb.interface.rest_api.routes.connection_helper import load_frontend_config
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 connection_routes = RootBlueprint('connection_routes', __name__)
 
@@ -36,7 +40,7 @@ with current_app.app_context():
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @connection_routes.route('/', methods=['GET', 'HEAD'])
-def connection_test_frontend():
+def connection_test_frontend() -> Response:
     """
     Connection check for frontend ({{url}}/rest/)
 
@@ -44,7 +48,7 @@ def connection_test_frontend():
         DefaultResponse: Dict with infos about Datagerry(title, version and connection status of db)
     """
     try:
-        infos = {
+        infos: dict[str, Any] = {
             'title': __title__,
             'version': __version__,
             'connected': dbm.status()
@@ -54,3 +58,22 @@ def connection_test_frontend():
     except Exception as err:
         LOGGER.debug("[connection_test_frontend] Exception: %s", err)
         abort(500, "Could not connect to REST API!")
+
+
+@connection_routes.route('/frontend_init', methods=['GET', 'HEAD'])
+def frontend_init() -> Response:
+    """
+    Provides the frontend runtime config ({{url}}/rest/frontend_init)
+
+    Returns the raw key-value pairs of the frontend config. Any error results in an empty dict.
+
+    Returns:
+        DefaultResponse: The frontend config as a flat dict (empty on any failure)
+    """
+    try:
+        config: dict[str, Any] = load_frontend_config()
+    except Exception as err:
+        LOGGER.debug("[frontend_init] Exception: %s", err)
+        config = {}
+
+    return DefaultResponse(config).make_response()

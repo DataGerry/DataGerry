@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,16 +16,17 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy } from '@angular/core';
+import { Component, inject, Input, OnDestroy } from '@angular/core';
 import { Group } from '../../../models/group';
 import { GroupService } from '../../../services/group.service';
 import { ReplaySubject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
 @Component({
-  selector: 'cmdb-user-table-group-cell',
-  templateUrl: './user-table-group-cell.component.html',
-  styleUrls: ['./user-table-group-cell.component.scss']
+    selector: 'cmdb-user-table-group-cell',
+    templateUrl: './user-table-group-cell.component.html',
+    styleUrls: ['./user-table-group-cell.component.scss'],
+    standalone: false
 })
 export class UserTableGroupCellComponent implements OnDestroy {
 
@@ -68,13 +69,12 @@ export class UserTableGroupCellComponent implements OnDestroy {
     }
   }
 
-  constructor(private groupService: GroupService) {
-  }
+  private readonly groupService = inject(GroupService);
 
 
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

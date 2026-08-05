@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,6 +16,7 @@
 """
 The schema of a CmdbUser
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DEFAULT_AUTHENTICATOR: str = 'LocalAuthenticationProvider'
@@ -25,7 +26,7 @@ DEFAULT_CONFIG_ITEMS_LIMIT = 1000
 
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
-def get_cmdb_user_schema() -> dict:
+def get_cmdb_user_schema() -> dict[str, Any]:
     """
     Returns the CmdbUserSchema
 

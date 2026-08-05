@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, Input, OnDestroy, OnInit } from '@angular/core';
 import { Column, Sort, SortDirection } from '../../../../layout/table/table.types';
 import { User } from '../../../models/user';
 import { ReplaySubject } from 'rxjs';
@@ -26,9 +26,10 @@ import { APIGetMultiResponse } from '../../../../services/models/api-response';
 import { UserService } from '../../../services/user.service';
 
 @Component({
-  selector: 'cmdb-user-table-list',
-  templateUrl: './user-table-list.component.html',
-  styleUrls: ['./user-table-list.component.scss']
+    selector: 'cmdb-user-table-list',
+    templateUrl: './user-table-list.component.html',
+    styleUrls: ['./user-table-list.component.scss'],
+    standalone: false
 })
 export class UserTableListComponent implements OnInit, OnDestroy {
 
@@ -65,8 +66,7 @@ export class UserTableListComponent implements OnInit, OnDestroy {
    */
   public users: Array<User> = [];
 
-  constructor(private userService: UserService) {
-  }
+  private readonly userService = inject(UserService);
 
   public ngOnInit(): void {
     this.columns = [
@@ -151,8 +151,8 @@ export class UserTableListComponent implements OnInit, OnDestroy {
    * auto unsubscribe the api subscriptions.
    */
   public ngOnDestroy(): void {
-    this.subscriber.next();
-    this.subscriber.complete();
+    this.subscriber?.next();
+    this.subscriber?.complete();
   }
 
 }

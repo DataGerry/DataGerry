@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,8 @@ Except for the managers, this module can be used completely modular.
 The respective DAO is used to apply the attributes and to convert
 the elements for the database.
 """
+from typing import Any
+
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.reports_model.cmdb_report import CmdbReport
@@ -28,7 +30,6 @@ from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.type_model import CmdbType
 from cmdb.models.category_model import CmdbCategory
-from cmdb.models.object_link_model import CmdbObjectLink
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from cmdb.models.log_model.cmdb_log import CmdbLog
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
@@ -59,13 +60,12 @@ from cmdb.models.isms_model import (
 CmdbLog.register_log_type(CmdbObjectLog.__name__, CmdbObjectLog)
 
 # List of init collections
-__COLLECTIONS__ = [
+__COLLECTIONS__: list[Any] = [
     CmdbObject,
     CmdbType,
     CmdbCategory,
     CmdbCiExplorerProfile,
     CmdbMetaLog,
-    CmdbObjectLink,
     CmdbLocation,
     CmdbSectionTemplate,
     CmdbReportCategory,

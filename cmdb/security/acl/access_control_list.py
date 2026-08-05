@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,14 @@
 """
 Implementation of AccessControlList
 """
-from typing import TypeVar
+from logging import Logger, getLogger
+from typing import TypeVar, Any
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.group_acl import GroupACL
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -34,7 +37,7 @@ class AccessControlList:
     The `AccessControlList` class is responsible for controlling access to resources based
     on a set of rules, and it includes the ability to manage groups and whether the ACL is activated
     """
-    def __init__(self, activated: bool, groups: GroupACL = None):
+    def __init__(self, activated: bool, groups: GroupACL | None = None) -> None:
         """
         Initializes an AccessControlList
 
@@ -43,12 +46,12 @@ class AccessControlList:
             groups (GroupACL, optional): A GroupACL instance representing the groups
                                          and their associated permissions. Defaults to None
         """
-        self.activated = activated
-        self.groups = groups
+        self.activated: bool = activated
+        self.groups: GroupACL | None = groups
 
 
     @classmethod
-    def from_data(cls, data: dict) -> "AccessControlList":
+    def from_data(cls, data: dict[str, Any]) -> "AccessControlList":
         """
         Initialises an AccessControlList from a dict
 
@@ -65,7 +68,7 @@ class AccessControlList:
 
 
     @classmethod
-    def to_json(cls, acl: "AccessControlList") -> dict:
+    def to_json(cls, acl: "AccessControlList") -> dict[str, Any]:
         """
         Converts an AccessControlList into a json compatible dict
 
@@ -81,7 +84,7 @@ class AccessControlList:
         }
 
 
-    def grant_access(self, key: T, permission: AccessControlPermission, section: str = None) -> None:
+    def grant_access(self, key: T, permission: AccessControlPermission, section: str | None = None) -> None:
         """
         Grants the specified permission to the given key in the specified section of the ACL
 
@@ -91,7 +94,7 @@ class AccessControlList:
         Args:
             key (T): The key (e.g., user, group, role) to which the permission is being granted
             permission (AccessControlPermission): The permission to be granted
-            section (Optional[str]): The section of the ACL in which to grant the permission. Defaults to None
+            section (str | None): The section of the ACL in which to grant the permission. Defaults to None
 
         Raises:
             ValueError: If the section is not recognized or if the ACL section does not support the action
@@ -112,7 +115,7 @@ class AccessControlList:
         Args:
             key (T): The key (e.g., user, group, role) from which the permission is being revoked
             permission (AccessControlPermission): The permission to be revoked
-            section (Optional[str]): The section of the ACL in which to revoke the permission. Defaults to None
+            section (str | None): The section of the ACL in which to revoke the permission. Defaults to None
 
         Raises:
             ValueError: If the section is not recognized or if the ACL section does not support the action

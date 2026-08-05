@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,11 @@
 """
 This module prove all APIBluerpints for the Framework section of DataGerry
 """
-from .extendable_option_routes import extendable_option_blueprint
+from .cmdb_extendable_options import extendable_option_blueprint
 from .object_groups_routes import object_group_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = [
+__all__: list[str] = [
     'extendable_option_blueprint',
     'object_group_blueprint',
 ]

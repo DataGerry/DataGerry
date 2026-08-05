@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -19,15 +19,16 @@
 import {Component, Input } from '@angular/core';
 
 @Component({
-  selector: 'cmdb-info-box',
-  templateUrl: './info-box.component.html',
-  styleUrls: ['./info-box.component.scss']
+    selector: 'cmdb-info-box',
+    templateUrl: './info-box.component.html',
+    styleUrls: ['./info-box.component.scss'],
+    standalone: false
 })
 export class InfoBoxComponent {
 
   @Input() message: string;
   @Input() icon: string = 'far fa-file';
-  @Input() doc: string = 'https://docs.datagerry.com';
+  @Input() doc: string = 'https://docs.datagerry.com/en/latest/usage/document_generator.html';
 
   public hideAlert(): void {
     $('#infobox').hide();

@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { FileMetadata } from '../../model/metadata';
@@ -24,9 +24,10 @@ import { checkFolderExistsValidator, FileService } from '../../service/file.serv
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
 @Component({
-  selector: 'cmdb-rename-dialog',
-  templateUrl: './rename-dialog.component.html',
-  styleUrls: ['./rename-dialog.component.scss']
+    selector: 'cmdb-rename-dialog',
+    templateUrl: './rename-dialog.component.html',
+    styleUrls: ['./rename-dialog.component.scss'],
+    standalone: false
 })
 export class RenameDialogComponent implements OnInit {
 
@@ -51,7 +52,8 @@ export class RenameDialogComponent implements OnInit {
     );
   }
 
-  constructor(private fileService: FileService, public activeModal: NgbActiveModal) {}
+  private readonly fileService = inject(FileService);
+  public readonly activeModal = inject(NgbActiveModal);
 
   public ngOnInit(): void {
     const placeholder: string = this.selectedFileElement.getValue() ? this.selectedFileElement.getValue().filename : '';

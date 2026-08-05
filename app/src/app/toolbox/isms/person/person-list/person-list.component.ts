@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize } from 'rxjs/operators';
@@ -31,9 +31,10 @@ import { PersonService } from '../../services/person.service';
 import { CmdbPerson } from '../../models/person.model';
 
 @Component({
-  selector: 'app-person-list',
-  templateUrl: './person-list.component.html',
-  styleUrls: ['./person-list.component.scss']
+    selector: 'app-person-list',
+    templateUrl: './person-list.component.html',
+    styleUrls: ['./person-list.component.scss'],
+    standalone: false
 })
 export class PersonListComponent implements OnInit {
   @ViewChild('actionTemplate', { static: true }) actionTemplate: TemplateRef<any>;
@@ -50,14 +51,12 @@ export class PersonListComponent implements OnInit {
   public columns: Column[] = [];
   public initialVisibleColumns: string[] = [];
 
-  constructor(
-    private router: Router,
-    private toast: ToastService,
-    private loaderService: LoaderService,
-    private modalService: NgbModal,
-    private filterBuilderService: FilterBuilderService,
-    private personService: PersonService
-  ) { }
+  private readonly router = inject(Router);
+  private readonly toast = inject(ToastService);
+  private readonly loaderService = inject(LoaderService);
+  private readonly modalService = inject(NgbModal);
+  private readonly filterBuilderService = inject(FilterBuilderService);
+  private readonly personService = inject(PersonService);
 
   
   ngOnInit(): void {
@@ -184,7 +183,7 @@ export class PersonListComponent implements OnInit {
    * @returns void
    */
   public onView(item: CmdbPerson): void {
-    this.router.navigate(['/framework/persons/edit'], {
+    this.router.navigate(['/framework/persons/view'], {
       state: { person: item, mode: 'view' }
     });
   }

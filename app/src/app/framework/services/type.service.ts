@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -27,6 +27,7 @@ import { UserService } from '../../management/services/user.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 import { CmdbType } from '../models/cmdb-type';
+import { LocationFieldUsageResponse } from '../models/location-field-usage';
 import {
   APIDeleteSingleResponse,
   APIGetMultiResponse,
@@ -165,6 +166,59 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
                     return apiResponse.body;
                 })
             );
+    }
+
+
+    /**
+     * Iterate over the type collection and include object clean status.
+     * @param params Instance of CollectionParameters
+     * @param active Filter types by activation status. Default: Inactive types are not fetched
+     */
+    public getTypesWithCleanStatus(
+        params: CollectionParameters = { filter: undefined, limit: 10, sort: 'public_id', order: 1, page: 1 },
+        active: boolean = false
+    ): Observable<APIGetMultiResponse<{ type_data: T; clean_status: boolean }>> {
+        const options = this.options;
+        let httpParams: HttpParams = new HttpParams();
+
+        if (params.filter !== undefined) {
+            const filter = JSON.stringify(params.filter);
+            httpParams = httpParams.set('filter', filter);
+        }
+
+        if (params.projection !== undefined) {
+            const projection = JSON.stringify(params.projection);
+            httpParams = httpParams.set('projection', projection);
+        }
+
+        httpParams = httpParams.set('limit', params.limit.toString());
+        httpParams = httpParams.set('sort', params.sort);
+        httpParams = httpParams.set('order', params.order.toString());
+        httpParams = httpParams.set('page', params.page.toString());
+        httpParams = httpParams.set('active', JSON.stringify(active));
+        options.params = httpParams;
+
+        return this.api.callGet<Array<{ type_data: T; clean_status: boolean }>>(`${this.servicePrefix}/with_clean_status`, options).pipe(
+            map((apiResponse: HttpResponse<APIGetMultiResponse<{ type_data: T; clean_status: boolean }>>) => {
+                return apiResponse.body;
+            })
+        );
+    }
+
+
+    /**
+     * Checks whether the location field of a given type is currently in use by any objects.
+     *
+     * @param publicID PublicID of the type
+     * @returns Observable resolving to { in_use, count, object_public_ids }
+     */
+    public getLocationFieldUsage(publicID: number): Observable<LocationFieldUsageResponse> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<LocationFieldUsageResponse>(`${this.servicePrefix}/location_field_usage/${publicID}`, options).pipe(
+            map((apiResponse: HttpResponse<LocationFieldUsageResponse>) => apiResponse.body)
+        );
     }
 
 
@@ -351,21 +405,25 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
     public getTypeListByCategory(categoryID: number, aclRequirements?: AccessControlPermission | AccessControlPermission[]):
         Observable<Array<T>> {
 
+            // Previous problematic pipeline (commented out for reference):
             // const pipeline = [
             //     {
             //         $lookup: {
             //             from: 'framework.categories',
-            //             let: { type_id: { $toInt: '$public_id' } },
             //             pipeline: [
             //                 { $match: { public_id: categoryID } },
-            //                 { $match: { $expr: { $in: ['$$type_id', '$types'] } } }
+            //                 { 
+            //                     $addFields: { type_id: { $toInt: '$$ROOT.public_id' } } 
+            //                 },
+            //                 { $match: { $expr: { $in: ['$type_id', '$types'] } } }
             //             ],
             //             as: 'category'
             //         }
             //     },
             //     {
             //         $match: {
-            //             $and: [{ category: { $gt: { $size: 0 } } },
+            //             $and: [
+            //                 { 'category.0': { $exists: true } },
             //                 this.getAclFilter(aclRequirements)
             //             ]
             //         }
@@ -374,17 +432,20 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
             //         $project: { category: 0 }
             //     }
             // ];
+            //
+            // Issue: The pipeline incorrectly used $$ROOT.public_id which referred to the category's public_id
+            // instead of the type's public_id. This caused the lookup to fail when matching types against
+            // the category's types array.
 
+            // Corrected pipeline (active):
             const pipeline = [
                 {
                     $lookup: {
                         from: 'framework.categories',
+                        let: { type_public_id: '$public_id' },
                         pipeline: [
                             { $match: { public_id: categoryID } },
-                            { 
-                                $addFields: { type_id: { $toInt: '$$ROOT.public_id' } } 
-                            },
-                            { $match: { $expr: { $in: ['$type_id', '$types'] } } }
+                            { $match: { $expr: { $in: ['$$type_public_id', '$types'] } } }
                         ],
                         as: 'category'
                     }

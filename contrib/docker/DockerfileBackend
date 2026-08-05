@@ -1,0 +1,15 @@
+FROM ubuntu:22.04
+ 
+RUN apt-get update && apt-get install -y locales freetype2-demos fontconfig
+
+# Set locale
+#ARG build_locale=en_US
+
+#RUN locale-gen $build_locale
+ENV LANG=en_US
+
+# Copy datagerry binary
+COPY files/backend/datagerry /usr/bin/
+COPY files/conf/cmdb.conf /etc/datagerry/
+
+CMD ["/usr/bin/datagerry", "-c", "/etc/datagerry/cmdb.conf", "-s"]

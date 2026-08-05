@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,19 +16,20 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { RenderResult } from '../../../models/cmdb-render';
 import { DomSanitizer } from '@angular/platform-browser';
 
 @Component({
-  selector: 'cmdb-object-externals',
-  templateUrl: './object-externals.component.html',
-  styleUrls: ['./object-externals.component.scss']
+    selector: 'cmdb-object-externals',
+    templateUrl: './object-externals.component.html',
+    styleUrls: ['./object-externals.component.scss'],
+    standalone: false
 })
 export class ObjectExternalsComponent {
 
   @Input() renderResult: RenderResult = undefined;
-  constructor(private sanitizer: DomSanitizer) {}
+  private readonly sanitizer = inject(DomSanitizer);
 
   getSantizeUrl(url: string) {
     return this.sanitizer.bypassSecurityTrustUrl(url);

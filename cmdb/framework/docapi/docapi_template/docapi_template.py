@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,7 @@
 """
 Implementation of DocapiTemplate
 """
-from typing import Optional
-
+from typing import Any
 from cmdb.framework.docapi.docapi_template.docapi_template_base import TemplateManagementBase
 from cmdb.models.docapi_model import DocapiTemplateType
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -32,23 +31,30 @@ class DocapiTemplate(TemplateManagementBase):
     COLLECTION = 'docapi.templates'
     MODEL = 'DocapiTemplate'
 
-    INDEX_KEYS = [
+    INDEX_KEYS: list[Any] = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]
 
     #pylint: disable=too-many-arguments
     #pylint: disable=too-many-positional-arguments
-    def __init__(self,
-                 name: str,
-                 label: str = None,
-                 description: str = None,
-                 active: bool = None,
-                 author_id: int = None,
-                 template_data = None,
-                 template_style = None,
-                 template_type = None,
-                 template_parameters = None,
-                 **kwargs):
+    def __init__(
+        self,
+        name: str,
+        label: str = None,
+        description: str = None,
+        active: bool = True,
+        author_id: int = None,
+        template_data: str = None,
+        template_style: str = None,
+        template_type: DocapiTemplateType = None,
+        template_parameters = None,
+        header: dict[str, Any] = None,
+        footer: dict[str, Any] = None,
+        table_of_contents: dict[str, Any] = None,
+        cover_page: dict[str, Any] = None,
+        page_config: dict[str, Any] = None,
+        **kwargs
+    ) -> None:
         """
         Args:
             name: name of this template
@@ -61,15 +67,21 @@ class DocapiTemplate(TemplateManagementBase):
             template_parameters: parameter of this template depending on the type
             **kwargs: optional params
         """
-        self.name = name
-        self.label = label
-        self.description = description
-        self.active = active
-        self.author_id = author_id
-        self.template_data = template_data
-        self.template_style = template_style
-        self.template_type = template_type or DocapiTemplateType.OBJECT
+        self.name: str = name
+        self.label: str = label
+        self.description: str = description
+        self.active: bool = active
+        self.author_id: int = author_id
+        self.template_data: str = template_data
+        self.template_style: str = template_style
+        self.template_type: DocapiTemplateType = template_type or DocapiTemplateType.OBJECT
         self.template_parameters = template_parameters
+        self.header: dict[str, Any] = header or {}
+        self.footer: dict[str, Any] = footer or {}
+        self.table_of_contents: dict[str, Any] = table_of_contents or {}
+        self.cover_page: dict[str, Any] = cover_page or {}
+        self.page_config: dict[str, Any] = page_config or {}
+
         super().__init__(**kwargs)
 
 
@@ -85,8 +97,8 @@ class DocapiTemplate(TemplateManagementBase):
             DocapiTemplate: DocapiTemplate with the given data
         """
         return cls(
-            public_id = data.get('public_id'),
-            name = data.get('name'),
+            public_id = data['public_id'],
+            name = data['name'],
             label = data.get('label', None),
             description = data.get('description', None),
             active = data.get('active', None),
@@ -95,6 +107,11 @@ class DocapiTemplate(TemplateManagementBase):
             template_style = data.get('template_style', None),
             template_type = data.get('template_type', None),
             template_parameters = data.get('template_parameters', None),
+            header = data.get('header', {}),
+            footer = data.get('footer', {}),
+            table_of_contents = data.get('table_of_contents', {}),
+            cover_page = data.get('cover_page', {}),
+            page_config = data.get('page_config', {}),
         )
 
 
@@ -119,7 +136,12 @@ class DocapiTemplate(TemplateManagementBase):
             'template_data': instance.template_data,
             'template_style': instance.template_style,
             'template_type': instance.template_type,
-            'template_parameters': instance.template_parameters
+            'template_parameters': instance.template_parameters,
+            'header': instance.header,
+            'footer': instance.footer,
+            'table_of_contents': instance.table_of_contents,
+            'cover_page': instance.cover_page,
+            'page_config': instance.page_config,
         }
 
 
@@ -182,27 +204,27 @@ class DocapiTemplate(TemplateManagementBase):
         return self.active is True
 
 
-    def get_author_id(self) -> Optional[int]:
+    def get_author_id(self) -> int | None:
         """
         Get the author ID of the template
         
         Returns:
-            Optional[int]: Author ID or None if not set
+            int | None: Author ID or None if not set
         """
         return self.author_id
 
 
-    def get_template_data(self):
+    def get_template_data(self) -> str:
         """
         Get the template data
         
         Returns:
-            Template data or None if not set
+            str: Template data or None if not set
         """
         return self.template_data
 
 
-    def get_template_style(self):
+    def get_template_style(self) -> str:
         """
         Get the style of this template
         
@@ -210,3 +232,53 @@ class DocapiTemplate(TemplateManagementBase):
             Template style if set else None
         """
         return self.template_style
+
+
+    def get_footer(self) -> dict[str, Any]:
+        """
+        Get the footer of the template
+        
+        Returns:
+            dict[str, Any]: The footer data of the template
+        """
+        return self.footer
+
+
+    def get_header(self) -> dict[str, Any]:
+        """
+        Get the header of the template
+        
+        Returns:
+            dict[str, Any]: The header data of the template
+        """
+        return self.header
+
+
+    def get_table_of_contents(self) -> dict[str, Any]:
+        """
+        Get the toc of the template
+        
+        Returns:
+            dict[str, Any]: The toc data of the template
+        """
+        return self.table_of_contents
+
+
+    def get_cover_page(self) -> dict[str, Any]:
+        """
+        Get the cover page data of the template
+        
+        Returns:
+            dict[str, Any]: The cover page data of the template
+        """
+        return self.cover_page
+
+
+    def get_page_config(self) -> dict[str, Any]:
+        """
+        Get the page config data of the template
+        
+        Returns:
+            dict[str, Any]: The page config data of the template
+        """
+        return self.page_config

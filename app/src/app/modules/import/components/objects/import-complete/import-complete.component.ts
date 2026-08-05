@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -24,7 +24,8 @@ import { ImporterConfig, ImporterFile, ImportResponse } from '../../../models/im
 @Component({
     selector: 'cmdb-import-complete',
     templateUrl: './import-complete.component.html',
-    styleUrls: ['./import-complete.component.scss']
+    styleUrls: ['./import-complete.component.scss'],
+    standalone: false
 })
 export class ImportCompleteComponent implements OnInit {
     @Input() public importFile: ImporterFile = {} as ImporterFile;
@@ -34,6 +35,7 @@ export class ImportCompleteComponent implements OnInit {
     @Input() public parsedData: any = undefined;
 
     @Input() public importResponse: ImportResponse;
+    @Input() public isImporting = false;
 
     @Output() startImportEmitter: EventEmitter<any>;
 

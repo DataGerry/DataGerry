@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,12 +16,12 @@
 """
 Represents a Cmdbuser in DataGerry
 """
-import logging
-
+from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 from dateutil.parser import parse
 
-from cmdb.class_schema.cmdb_user_schema import get_cmdb_user_schema
+from cmdb.class_schema.user_model.cmdb_user_schema import get_cmdb_user_schema
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.models.cmdb_user import (
@@ -31,7 +31,9 @@ from cmdb.errors.models.cmdb_user import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
+
+DEFAULT_CONFIG_ITEMS_LIMIT: int = 1000
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CmdbUser - CLASS                                                   #
@@ -44,7 +46,7 @@ class CmdbUser(CmdbDAO):
     """
     COLLECTION = 'management.users'
     MODEL = 'User'
-    INDEX_KEYS = [
+    INDEX_KEYS: list[dict[str, Any]] = [
         {
             'keys': [('user_name', CmdbDAO.DAO_ASCENDING)],
             'name': 'user_name',
@@ -55,26 +57,29 @@ class CmdbUser(CmdbDAO):
     DEFAULT_AUTHENTICATOR: str = 'LocalAuthenticationProvider'
     DEFAULT_GROUP: int = 2
     DEFAULT_API_LEVEL = 0
-    DEFAULT_CONFIG_ITEMS_LIMIT = 1000
+    # public_id of the bootstrap admin user seeded by conftest / installer; protected from deletion.
+    ADMIN_PUBLIC_ID: int = 1
 
-    SCHEMA: dict = get_cmdb_user_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_user_schema()
 
-    #pylint: disable=too-many-arguments
-    def __init__(self,
-                 public_id: int,
-                 user_name: str,
-                 active: bool,
-                 group_id: int = None,
-                 registration_time: datetime = None,
-                 password: str = None,
-                 database: str = 'test',
-                 api_level: int = 0,
-                 config_items_limit: int = 1000,
-                 image: str = None,
-                 first_name: str = None,
-                 last_name: str = None,
-                 email: str = None,
-                 authenticator: str = None):
+    #pylint: disable=R0913, R0914, R0917
+    def __init__(
+        self,
+        public_id: int,
+        user_name: str,
+        active: bool,
+        group_id: int | None = None,
+        registration_time: datetime | None = None,
+        password: str | None = None,
+        database: str = 'test',
+        api_level: int = 0,
+        config_items_limit: int = DEFAULT_CONFIG_ITEMS_LIMIT,
+        image: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        email: str | None = None,
+        authenticator: str | None = None
+    ) -> None:
         """
         Initializes a CmdbUser
 
@@ -98,23 +103,23 @@ class CmdbUser(CmdbDAO):
             CmdbUserInitError: WHen the initialisation of CmdbUser fails
         """
         try:
-            self.user_name = user_name
-            self.active = active
-            self.group_id = group_id or CmdbUser.DEFAULT_GROUP
-            self.authenticator = authenticator or CmdbUser.DEFAULT_AUTHENTICATOR
-            self.registration_time = registration_time or datetime.now(timezone.utc)
-            self.database = database
-            self.api_level = api_level
-            self.config_items_limit = config_items_limit
-            self.email = email
-            self.password = password
-            self.image = image
-            self.first_name = first_name or None
-            self.last_name = last_name or None
+            self.user_name: str = user_name
+            self.active: bool = active
+            self.group_id: int = group_id or CmdbUser.DEFAULT_GROUP
+            self.authenticator: str = authenticator or CmdbUser.DEFAULT_AUTHENTICATOR
+            self.registration_time: datetime = registration_time or datetime.now(timezone.utc)
+            self.database: str = database
+            self.api_level: int = api_level
+            self.config_items_limit: int = config_items_limit
+            self.email: str | None = email
+            self.password: str | None = password
+            self.image: str | None = image
+            self.first_name: str | None = first_name or None
+            self.last_name: str | None = last_name or None
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbUserInitError(err) from err
+            raise CmdbUserInitError(str(err)) from err
 
 
     def __str__(self) -> str:
@@ -141,7 +146,7 @@ class CmdbUser(CmdbDAO):
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbUser":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbUser":
         """
         Initialises a CmdbUser from a dict
 
@@ -161,12 +166,12 @@ class CmdbUser(CmdbDAO):
                 reg_date = parse(reg_date, fuzzy=True)
 
             return cls(
-                public_id = data.get('public_id'),
-                user_name = data.get('user_name'),
-                active = data.get('active'),
-                database = data.get('database'),
+                public_id = data['public_id'],
+                user_name = data['user_name'],
+                active = data['active'],
+                database = data.get('database', 'test'),
                 api_level = data.get('api_level', 0),
-                config_items_limit = data.get('config_items_limit', 1000),
+                config_items_limit = data.get('config_items_limit', DEFAULT_CONFIG_ITEMS_LIMIT),
                 group_id = data.get('group_id'),
                 registration_time = reg_date,
                 authenticator = data.get('authenticator'),
@@ -177,11 +182,11 @@ class CmdbUser(CmdbDAO):
                 last_name = data.get('last_name')
             )
         except Exception as err:
-            raise CmdbUserInitFromDataError(err) from err
+            raise CmdbUserInitFromDataError(str(err)) from err
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbUser") -> dict:
+    def to_json(cls, instance: "CmdbDAO") -> dict[str, Any]:
         """
         Converts a CmdbUser into a json compatible dict
 
@@ -195,6 +200,9 @@ class CmdbUser(CmdbDAO):
             dict: Json compatible dict of the CmdbUser values
         """
         try:
+            if not isinstance(instance, CmdbUser):
+                raise TypeError(f"Expected CmdbUser in 'to_json' got: {type(instance).__name__}!")
+
             return {
                 'public_id': instance.public_id,
                 'user_name': instance.user_name,
@@ -212,7 +220,7 @@ class CmdbUser(CmdbDAO):
                 'last_name': instance.last_name
             }
         except Exception as err:
-            raise CmdbUserToJsonError(err) from err
+            raise CmdbUserToJsonError(str(err)) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -237,3 +245,18 @@ class CmdbUser(CmdbDAO):
             return f'{self.first_name} {self.last_name}'
 
         return self.user_name
+
+
+    def is_config_item_limit_reached(self, objects_count: int) -> bool:
+        """
+        Checks if the configuration item limit for the user has been reached
+
+        Args:
+            objects_count (int): Amount of current CmdbObjects
+        Returns:
+            bool: True if the user has reached or exceeded their config item limit, False otherwise
+        """
+        if not self.config_items_limit:
+            self.config_items_limit = DEFAULT_CONFIG_ITEMS_LIMIT
+
+        return objects_count >= self.config_items_limit

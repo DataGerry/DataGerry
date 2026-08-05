@@ -1,4 +1,4 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { FileElement } from '../../model/file-element';
 import { BehaviorSubject } from 'rxjs';
@@ -7,9 +7,10 @@ import { TypeService } from '../../../../../framework/services/type.service';
 import { UserService } from '../../../../../management/services/user.service';
 
 @Component({
-  selector: 'cmdb-metadata-info',
-  templateUrl: './metadata-info.component.html',
-  styleUrls: ['./metadata-info.component.scss']
+    selector: 'cmdb-metadata-info',
+    templateUrl: './metadata-info.component.html',
+    styleUrls: ['./metadata-info.component.scss'],
+    standalone: false
 })
 export class MetadataInfoComponent implements OnInit {
 
@@ -23,8 +24,10 @@ export class MetadataInfoComponent implements OnInit {
   public username: string;
   public refId: number[];
 
-  constructor(public activeModal: NgbActiveModal, private objectService: ObjectService,
-              private typeService: TypeService, private userService: UserService) {}
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly objectService = inject(ObjectService);
+  private readonly typeService = inject(TypeService);
+  private readonly userService = inject(UserService);
 
   ngOnInit(): void {
     const tempFile: any = Object.assign({}, this.fileElement);

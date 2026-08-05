@@ -1,5 +1,5 @@
 # DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,8 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Logging module
+Logging configuration for the DataGerry process tree
+
+Centralises log-level resolution (driven by `cmdb.__MODE__` with a per-call minimum floor) and
+produces the `logging.config.dictConfig` payload consumed at process startup. The payload wires
+three rotating-file targets — one per-process daemon log named after the active
+`multiprocessing` process so each `ProcessController` child writes its own file, plus separate
+gunicorn access / error logs — and routes the `__main__` and `cmdb` loggers to both the console
+and the daemon log
 """
+from typing import Any
 import os
 import multiprocessing
 import pathlib
@@ -23,9 +31,9 @@ import pathlib
 import cmdb
 # -------------------------------------------------------------------------------------------------------------------- #
 
-DEFAULT_LOG_DIR = os.path.join(os.path.dirname(__file__), '../../logs/')
+DEFAULT_LOG_DIR: str = os.path.join(os.path.dirname(__file__), '../../logs/')
 
-LOGLEVELS = {
+LOGLEVELS: dict[str, int] = {
     "NOTSET": 0,
     "DEBUG": 10,
     "INFO": 20,
@@ -35,42 +43,59 @@ LOGLEVELS = {
 }
 
 
-def get_log_level(minlevel=None):
+def get_log_level(minlevel: str | None = None) -> str:
     """
-    loads logger configuration from config file
-    will be overwrite cmdb.__MODE__
+    Resolves the effective log-level name to assign to a logger
+
+    Starts from WARNING and lets `cmdb.__MODE__` override it when its value is one of the known
+    level names (NOTSET / DEBUG / INFO / WARNING / ERROR / CRITICAL) — this is how the `--debug`
+    CLI flag reaches the logging layer. `minlevel` is then applied as a verbosity floor: when
+    set and more verbose than the resolved level it wins, so callers that need at least INFO
+    output (see the `__main__` logger in `get_logging_conf`) cannot be silenced by a
+    higher-level mode
+
+    Args:
+        minlevel (str | None): Optional verbosity floor expressed as a level name; values
+            outside `LOGLEVELS` are ignored
+
     Returns:
-        config level
+        str: Level name suitable for the `level` field of a `dictConfig` logger entry
     """
-    # set default loglevel to WARNING
     loglevel = "WARNING"
 
-    # get loglevel from CMDB mode, if a correct value is set
     if cmdb.__MODE__ in LOGLEVELS:
         loglevel = cmdb.__MODE__
 
-    # ensure a minimum loglevel
     if minlevel and minlevel in LOGLEVELS:
         if LOGLEVELS.get(minlevel) < LOGLEVELS.get(loglevel):
             loglevel = minlevel
 
-    # return loglevel
     return loglevel
 
 
-def get_logging_conf():
+def get_logging_conf() -> dict[str, Any]:
     """
-    returns the logging configuration
+    Builds the `logging.config.dictConfig` payload for the current process
+
+    Ensures `DEFAULT_LOG_DIR` exists and embeds the active `multiprocessing` process name into
+    the daemon log filename so each spawned `CmdbProcess` writes to its own rotating file
+    (`<proc_name>.log`, 10 MB × 4 backups). The `__main__` and `cmdb` loggers fan out to both
+    the console and the daemon log; `gunicorn.access` and `gunicorn.error` go to dedicated
+    rotating files. Effective levels for the `__main__` and `cmdb` loggers come from
+    `get_log_level`, with `__main__` floored at INFO so startup messages are never suppressed
+
+    Note: `disable_existing_loggers` is True, so any logger created before this config is
+    applied is disabled. Callers must apply it before module-level `getLogger(__name__)` calls
+    take effect, or those loggers will go silent
 
     Returns:
-        instance of logging.Logger
+        dict[str, Any]: Configuration dict in `logging.config.dictConfig` schema
     """
     pathlib.Path(DEFAULT_LOG_DIR).mkdir(parents=True, exist_ok=True)
 
-    # get current process name
     proc_name = multiprocessing.current_process().name
 
-    logging_conf = {
+    logging_conf: dict[str, Any] = {
         'version':1,
         'disable_existing_loggers':True,
         'handlers':{

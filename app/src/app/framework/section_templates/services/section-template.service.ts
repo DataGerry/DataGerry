@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -30,6 +30,10 @@ import { RenderResult } from '../../models/cmdb-render';
 /* ------------------------------------------------------------------------------------------------------------------ */
 export const COOCKIENAME = 'onlyActiveObjCookie';
 
+type SectionTemplateRequestParams = Record<string, unknown> & {
+    type?: string;
+};
+
 @Injectable({
     providedIn: 'root'
 })
@@ -56,17 +60,18 @@ export class SectionTemplateService<T = CmdbSectionTemplate | RenderResult> impl
      * @param objectInstance (CmdbSectionTemplate): Section Template which should be crated
      * @returns Observable<any>
      */
-    public postSectionTemplate(params: any): Observable<any> {
+    public postSectionTemplate(params: SectionTemplateRequestParams): Observable<any> {
+        const sectionTemplateParams = this.withSectionTemplateType(params);
         let httpParams = new HttpParams();
     
-        for (let key in params){
-            let val:string = String(params[key]);
+        for (let key in sectionTemplateParams){
+            let val:string = String(sectionTemplateParams[key]);
             httpParams = httpParams?.set(key, val);
         }
 
         this.options.params = httpParams;
     
-        return this.api.callPost<CmdbSectionTemplate>(this.servicePrefix + '/', params , this.options).pipe(
+        return this.api.callPost<CmdbSectionTemplate>(this.servicePrefix + '/', sectionTemplateParams, this.options).pipe(
             map((apiResponse) => {
                 return apiResponse?.body;
             }),
@@ -157,19 +162,20 @@ export class SectionTemplateService<T = CmdbSectionTemplate | RenderResult> impl
      * @param httpOptions httpObserveOptions
      * @returns Observable<any>
      */
-    public updateSectionTemplate(params: any): Observable<any> {
+    public updateSectionTemplate(params: SectionTemplateRequestParams): Observable<any> {
 
         const putOptions = this.options;
+        const sectionTemplateParams = this.withSectionTemplateType(params);
         let httpParams = new HttpParams();
 
-        for (let key in params){
-          let val:string = String(params[key]);
+        for (let key in sectionTemplateParams){
+          let val:string = String(sectionTemplateParams[key]);
           httpParams = httpParams.set(key, val);
         }
 
         putOptions.params = httpParams;
 
-        return this.api.callPut<T>(`${ this.servicePrefix }/`, params, putOptions).pipe(
+        return this.api.callPut<T>(`${ this.servicePrefix }/`, sectionTemplateParams, putOptions).pipe(
             map((apiResponse: HttpResponse<APIUpdateSingleResponse<T>>) => {
                 return apiResponse.body;
             })
@@ -192,5 +198,14 @@ export class SectionTemplateService<T = CmdbSectionTemplate | RenderResult> impl
                 return apiResponse.body;
             }),
         );
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private withSectionTemplateType(params: SectionTemplateRequestParams): SectionTemplateRequestParams {
+        return {
+            ...params,
+            type: params.type ?? 'section'
+        };
     }
 }

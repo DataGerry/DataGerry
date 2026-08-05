@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -17,6 +17,7 @@
 */
 import { Component, OnDestroy, OnInit, ChangeDetectorRef } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
+import { reservedIdentifierPrefixValidator } from '../../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject } from 'rxjs';
 import { takeUntil, tap } from 'rxjs/operators';
@@ -25,6 +26,7 @@ import { TypeService } from '../../../../services/type.service';
 import { ObjectService } from '../../../../services/object.service';
 import { ToastService } from '../../../../../layout/toast/toast.service';
 import { ValidationService } from '../../../services/validation.service';
+import { CopyService } from '../../../../../core/services/copy.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { RenderResult } from '../../../../models/cmdb-render';
@@ -39,12 +41,13 @@ import { nameConvention } from '../../../../../layout/directives/name.directive'
     selector: 'cmdb-ref-field-edit',
     templateUrl: './ref-field-edit.component.html',
     styleUrls: ['./ref-field-edit.component.scss'],
+    standalone: false
 })
 export class RefFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
 
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
-    public nameControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
+    public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);
     public labelControl: UntypedFormControl = new UntypedFormControl('', Validators.required);
     public typeControl: UntypedFormControl = new UntypedFormControl(undefined, Validators.required);
     public summaryControl: UntypedFormControl = new UntypedFormControl(undefined);
@@ -95,7 +98,8 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
         private objectService: ObjectService,
         private toast: ToastService,
         private cd: ChangeDetectorRef,
-        private validationService: ValidationService
+        private validationService: ValidationService,
+        private copyService: CopyService
     ) {
         super();
     }
@@ -115,6 +119,17 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
         this.initialValue = this.nameControl.value;
         this.identifierInitialValue = this.nameControl.value
 
+        // Reactive replacement for the removed (ngModelChange) bindings on the name and label inputs
+        this.nameControl.valueChanges
+            .pipe(takeUntil(this.subscriber))
+            .subscribe(value => this.onNameChange(value));
+        this.labelControl.valueChanges
+            .pipe(takeUntil(this.subscriber))
+            .subscribe(value => {
+                this.onInputChange();
+                this.onRefInputChange(value, 'label');
+            });
+
         if (this.form.get('ref_types').invalid) {
             this.isValid$ = false
         }
@@ -126,8 +141,8 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
 
 
     public ngOnDestroy(): void {
-        this.subscriber.next();
-        this.subscriber.complete();
+        this.subscriber?.next();
+        this.subscriber?.complete();
     }
 
     /* ----------------------------------------------- ON_CHANGES SECTION ----------------------------------------------- */
@@ -267,7 +282,7 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
                     this.prepareSummaries();
                     this.cd.markForCheck();
                 },
-                error: (err) => this.toast.error(err),
+                error: (error) => this.toast.error(error?.error?.message),
                 complete: () => {
                     if (this.data.ref_types) {
                         this.objectService.getObjectsByType(this.data.ref_types).subscribe((res: RenderResult[]) => {
@@ -349,7 +364,6 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
             nestedSummary.label = type.label;
             nestedSummary.icon = type.render_meta.icon;
         } else {
-            console.warn('No matching summary found for type_id:', type.public_id);
         }
     }
 
@@ -361,5 +375,12 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
             let valid = this.form.controls[control].valid;
             this.isValid$ = this.isValid$ && valid;
         }
+    }
+
+    /**
+     * Copies the current field identifier to clipboard
+     */
+    public async copyIdentifier(): Promise<void> {
+        await this.copyService.copyWithFeedback(this.nameControl.value, 'reference field identifier');
     }
 }

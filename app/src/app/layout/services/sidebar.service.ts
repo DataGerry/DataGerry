@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,10 +16,10 @@
 */
 import { Injectable } from '@angular/core';
 
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Subscription, catchError, firstValueFrom, of } from 'rxjs';
 
 import { UserService } from 'src/app/management/services/user.service';
-import { ObjectService} from '../../framework/services/object.service';
+import { ObjectService } from '../../framework/services/object.service';
 
 import { User } from 'src/app/management/models/user';
 import { CmdbCategoryTree } from '../../framework/models/cmdb-category';
@@ -66,9 +66,9 @@ export class SidebarService {
     ) {
         this.user = this.userService.getCurrentUser();
 
-        if(this.user){
-            this.loadCategoryTree();
-        }
+        // if(this.user){
+        //     this.loadCategoryTree();
+        // }
     }
 
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
@@ -88,12 +88,10 @@ export class SidebarService {
      *
      * @param typeID: the type id of the type of which the objects are counted
      */
-    private async getObjectCount(typeID): Promise<number> {
-        return new Promise((resolve) => {
-            this.objectService.countObjectsByType(typeID).subscribe((data: number) => {
-                resolve(data);
-            });
-        });
+    private getObjectCount(typeID: number) {
+        return this.objectService.countObjectsByType(typeID).pipe(
+            catchError(() => of(0))
+        );
     }
 
 
@@ -102,12 +100,17 @@ export class SidebarService {
      *
      * @param typeID the type id with to the sidebar-typ component will be filtered
      */
-    public async updateTypeCounter(typeID) {
-        const sidebarType = this.sideBarType.filter(type => type.type.public_id === typeID).pop();
+    public async updateTypeCounter(typeID: number): Promise<void> {
+        const sidebarTypes = this.sideBarType.filter(type => type.type.public_id === typeID);
 
-        if(sidebarType){
-            await this.getObjectCount(sidebarType.type.public_id).then( count => {
-                sidebarType.objectCounter = count;
+        if (sidebarTypes.length) {
+            sidebarTypes.forEach(sidebarType => sidebarType.objectCounter = null);
+
+            const count = await firstValueFrom(this.getObjectCount(typeID));
+            sidebarTypes.forEach(sidebarType => {
+                if (this.sideBarType.includes(sidebarType)) {
+                    sidebarType.objectCounter = count;
+                }
             });
         } 
     }
@@ -118,10 +121,18 @@ export class SidebarService {
      *
      * @param sidebarType the sidebar-type component which will be inserted
      */
-    public initializeCounter(sidebarType: SidebarTypeComponent) {
-        this.reloadData.subscribe( () => { 
-            this.sideBarType.push(sidebarType);
-            this.updateTypeCounter(sidebarType.type.public_id);
+    public initializeCounter(sidebarType: SidebarTypeComponent): Subscription {
+        return this.reloadData.subscribe(() => {
+            if (!this.sideBarType.includes(sidebarType)) {
+                this.sideBarType.push(sidebarType);
+            }
+
+            sidebarType.objectCounter = null;
+            this.getObjectCount(sidebarType.type.public_id).subscribe((count: number) => {
+                if (this.sideBarType.includes(sidebarType)) {
+                    sidebarType.objectCounter = count;
+                }
+            });
         });
     }
 

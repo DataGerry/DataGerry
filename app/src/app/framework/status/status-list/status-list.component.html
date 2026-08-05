@@ -11,7 +11,8 @@
   </tr>
   </thead>
   <tbody>
-  <tr *ngFor="let status of statusList">
+  @for (status of statusList; track status) {
+<tr>
     <th scope="row">{{status.public_id}}</th>
     <td>{{status.name}}</td>
     <td>{{status.label}}</td>
@@ -21,5 +22,6 @@
       <a routerLink="/framework/status/delete/{{status.public_id}}">Delete</a>
     </td>
   </tr>
+}
   </tbody>
 </table>

@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,15 +16,16 @@
 """
 Implementation of DefaultResponse
 """
-import logging
+from logging import Logger, getLogger
 from typing import Any
+
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                DefaultResponse - CLASS                                               #
@@ -35,7 +36,7 @@ class DefaultResponse(BaseAPIResponse):
 
     Extends: BaseAPIResponse
     """
-    def __init__(self, value: Any):
+    def __init__(self, value: Any) -> None:
         """
         Initializes the DefaultResponse instance with the provided value
 

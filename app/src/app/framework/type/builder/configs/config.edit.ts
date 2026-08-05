@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,9 @@ import { nameConvention } from '../../../../layout/directives/name.directive';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
-  template: ``
+    template: ``,
+    standalone: false,
+    host: { 'data-config-edit-base': 'type' }
 })
 export abstract class ConfigEditBaseComponent {
 

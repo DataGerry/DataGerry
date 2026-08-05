@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,9 @@
 """
 This class provides the different managers for the API routes
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
+
 from flask import current_app
 
 from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
@@ -32,7 +34,6 @@ from cmdb.manager import (
     LocationsManager,
     SectionTemplatesManager,
     ObjectsManager,
-    ObjectLinksManager,
     ObjectRelationsManager,
     ObjectRelationLogsManager,
     RelationsManager,
@@ -59,12 +60,18 @@ from cmdb.manager import (
     PersonGroupsManager,
     RiskAssessmentManager,
     ControlMeasureAssignmentManager,
+    CachedUserManager,
+    LicenseActivationRequestsManager,
+    ActiveLicenseManager,
+    LicenseService,
 )
 
 from cmdb.models.user_model import CmdbUser
+
+from cmdb.errors.manager import BaseManagerInitError
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ManagerProvider - CLASS                                               #
@@ -75,21 +82,21 @@ class ManagerProvider:
     """
 
     @classmethod
-    def get_manager(cls, manager_type: ManagerType, request_user: CmdbUser):
+    def get_manager(cls, manager_type: ManagerType, request_user: CmdbUser) -> Any:
         """Retrieves a manager based on the provided ManagerType and 'cloud_mode' app flag
 
         Args:
-            manager_type (ManagerType): Enum of possible Managers
-            request_user (CmdbUser): The user which is making the API call
+            manager_type (ManagerType): Enum of available Managers
+            request_user (CmdbUser): The user which is requesting the manager
 
         Returns:
-            Manager: Returns the manager of the provided ManagerType
+            Any: Returns the manager of the provided ManagerType
         """
-        manager_class = cls.__get_manager_class(manager_type)
+        manager_class: Any | None = cls.__get_manager_class(manager_type)
 
         if not manager_class:
-            LOGGER.error("No manager found for type: %s", manager_type)
-            return None
+            LOGGER.error("[get_manager] No manager found for ManagerType: %s", manager_type)
+            raise BaseManagerInitError(f"Invalid ManagerType {manager_type}")
 
         manager_args = cls.__get_manager_args(request_user)
 
@@ -97,17 +104,17 @@ class ManagerProvider:
 
 
     @staticmethod
-    def __get_manager_class(manager_type: ManagerType):
+    def __get_manager_class(manager_type: ManagerType) -> Any | None:
         """
-        Returns the appropriate manager class based on the provided ManagerType
+        Returns the manager class based on the provided ManagerType
 
         Args:
-            manager_type (ManagerType): Enum of possible Managers
+            manager_type (ManagerType): Enum of available managers
 
         Returns:
-            type: The manager class corresponding to the given ManagerType
+            Any | None: The manager class corresponding to the given ManagerType
         """
-        manager_classes = {
+        manager_classes: dict[ManagerType, Any] = {
             ManagerType.CATEGORIES: CategoriesManager,
             ManagerType.CI_EXPLORER_PROFILE: CiExplorerProfileManager,
             ManagerType.OBJECTS: ObjectsManager,
@@ -120,7 +127,6 @@ class ManagerProvider:
             ManagerType.TYPES: TypesManager,
             ManagerType.LOCATIONS: LocationsManager,
             ManagerType.SECTION_TEMPLATES: SectionTemplatesManager,
-            ManagerType.OBJECT_LINKS: ObjectLinksManager,
             ManagerType.SETTINGS: SettingsManager,
             ManagerType.SECURITY: SecurityManager,
             ManagerType.REPORT_CATEGORIES: ReportCategoriesManager,
@@ -146,6 +152,10 @@ class ManagerProvider:
             ManagerType.PERSON_GROUP: PersonGroupsManager,
             ManagerType.RISK_ASSESSMENT: RiskAssessmentManager,
             ManagerType.CONTROL_MEASURE_ASSIGNMENT: ControlMeasureAssignmentManager,
+            ManagerType.CACHED_USER: CachedUserManager,
+            ManagerType.LICENSE_ACTIVATION_REQUESTS: LicenseActivationRequestsManager,
+            ManagerType.ACTIVE_LICENSE: ActiveLicenseManager,
+            ManagerType.LICENSE_SERVICE: LicenseService,
         }
 
         return manager_classes.get(manager_type)

@@ -1,0 +1,33 @@
+// Shared premium-gating styles: the toolbox "Pro" badge and the dg-premium-* directives.
+$dg-premium-badge-bg: #c83f0e;
+
+// Anchor for the absolutely-positioned badge; the gate directive adds this to its host.
+.dg-premium-locked {
+  position: relative;
+}
+
+.dg-premium-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 1px 5px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-transform: uppercase;
+  background: $dg-premium-badge-bg;
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+// Inline variant for list rows / dropdown options: the badge flows with the
+// row instead of being pinned to a corner; spacing is handled by the row layout.
+.dg-premium-badge--inline {
+  position: static;
+  top: auto;
+  right: auto;
+  display: inline-block;
+  vertical-align: middle;
+}

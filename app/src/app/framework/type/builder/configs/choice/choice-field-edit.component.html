@@ -1,28 +1,29 @@
-<div [formGroup]="form" class="form-row">
+<div [formGroup]="form" class="row">
 
-    <div *ngIf="this.fieldSectionType === 'multi-data-section'">
-        <div class="form-group col-md-12">
+    @if (this.fieldSectionType === 'multi-data-section') {
+<div>
+        <div class="col-md-12">
             <div class="input-group-prepend">
-                <span class="input-group-text pr-1">
+                <span class="input-group-text pe-1">
                     <input
                         type="checkbox"
                         [formControl]="hideFieldControl"
                         name="hideFieldControl-choice"
-                        (ngModelChange)="onInputChange($event, 'hideField')"
                     />
-                    <label class="hide-info">
+                    <label class="hide-info mb-1 mt-3">
                         Hide this field as column in object view/edit mode
                     </label>
                 </span>
             </div>
         </div>
     </div>
+}
 
-    <div class="form-group col-md-12">
-        <label>Required/Identifier<span class="required">*</span>:</label>
+    <div class="col-md-12">
+        <label class="mb-1">Required/Identifier<span class="required">*</span>:</label>
         <div class="input-group">
             <div class="input-group-prepend">
-                <span class="input-group-text pr-1">
+                <span class="input-group-text pe-1">
                     <div class="custom-control custom-checkbox">
                         <input
                             type="checkbox"
@@ -41,55 +42,67 @@
                 name-guideline placeholder="Field name"
                 [ngClass]="{ 'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched),
                  'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}"
-                (ngModelChange)="onInputChange($event, 'name')"
             />
-            <div *ngIf="isDuplicate$" class="invalid-feedback">
-                <div class="float-right">
+            <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
+                        [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
+                    <fa-icon [icon]="['far', 'copy']"></fa-icon>
+                </button>
+            </div>
+            @if (isDuplicate$) {
+<div class="invalid-feedback">
+                <div class="text-end">
                     Field name must be unique
                 </div>
             </div>
+}
         </div>
-        <small class="form-text text-muted float-left">Use a unique field identifier</small>
-        <div *ngIf="nameControl.invalid && (nameControl.dirty || nameControl.touched)" class="invalid-feedback">
-            <div class="float-right" *ngIf="nameControl.errors?.required">
+        <cmdb-identifier-hint [control]="nameControl"></cmdb-identifier-hint>
+        @if (nameControl.invalid && (nameControl.dirty || nameControl.touched)) {
+<div class="invalid-feedback">
+            @if (nameControl.errors?.required) {
+<div class="text-end">
                 Identifier is a required field
             </div>
+}
         </div>
+}
         <div class="clearfix"></div>
     </div>
-    <div class="form-group col-md-12">
-        <label>Label<span class="required">*</span>:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Label<span class="required">*</span>:</label>
         <input
-            [(ngModel)]="data.label"
             [formControl]="labelControl"
             type="text" class="form-control"
             placeholder="Field label"
             [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
                  'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'label')"
         />
-        <small class="form-text text-muted float-left">A static display name</small>
-        <div *ngIf="labelControl.invalid && (labelControl.dirty || labelControl.touched)" class="invalid-feedback">
-            <div class="float-right" *ngIf="labelControl.errors?.required">
+        <small class="form-text text-muted text-start">A static display name</small>
+        @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
+<div class="invalid-feedback">
+            @if (labelControl.errors?.required) {
+<div class="text-end">
                 Label is a required field
             </div>
+}
         </div>
+}
         <div class="clearfix"></div>
     </div>
-    <div class="form-group  col-md-12">
-        <label>Description:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Description:</label>
         <textarea
             [formControl]="descriptionControl"
             class="form-control"
             placeholder="This field contains..."
             [ngClass]="{ 'is-valid': descriptionControl.valid && (descriptionControl.dirty || descriptionControl.touched),
                  'is-invalid': descriptionControl.invalid && (descriptionControl.dirty || descriptionControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'description')"
         ></textarea>
         <small class="form-text text-muted">Short field description or helper text</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Helper text:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Helper text:</label>
         <input
             [formControl]="helperTextControl"
             type="text"
@@ -97,12 +110,11 @@
             placeholder="If you don't know what to enter..."
             [ngClass]="{ 'is-valid': helperTextControl.valid && (helperTextControl.dirty || helperTextControl.touched),
                  'is-invalid': helperTextControl.invalid && (helperTextControl.dirty || helperTextControl.touched)}"
-            (ngModelChange)="onInputChange($event, 'helperText')"
         />
         <small class="form-text text-muted">Small helper popup.</small>
     </div>
-    <div class="form-group col-md-12">
-        <label>Options:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Options:</label>
         <table class="table table-bordered" >
             <thead>
                 <tr>
@@ -112,7 +124,8 @@
                 </tr>
             </thead>
             <tbody>
-                <tr *ngFor="let option of options; let i = index">
+                @for (option of options; track option; let i = $index) {
+<tr>
                     <th scope="row">{{i + 1}}</th>
                     <td>
                         <input
@@ -146,6 +159,7 @@
                         </button>
                     </td>
                 </tr>
+}
                 <tr>
                     <td colspan="4">
                         <button type="button" class="btn btn-outline-secondary" (click)="addOption()"
@@ -158,17 +172,18 @@
             </tbody>
         </table>
     </div>
-    <div class="form-group col-md-12">
-        <label>Default value:</label>
+    <div class="col-md-12">
+        <label class="mt-3 mb-1">Default value:</label>
         <select 
             [formControl]="valueControl"
-            class="custom-select"
-            (ngModelChange)="onInputChange($event, 'value')"
+            class="form-select"
             >
             <option></option>
-            <option *ngFor="let opt of options; let i = index" [value]="opt.name">
+            @for (opt of options; track opt; let i = $index) {
+<option [value]="opt.name">
                 Label: {{opt.label}} Name: {{opt.name}}
             </option>
+}
         </select>
     </div>
 </div>

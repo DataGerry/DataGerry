@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -14,23 +14,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This package provides all predefined data for CmdbLocations
+This module provides the predefined root document for CmdbLocations
 """
+from typing import Any
+
+from cmdb.database.predefined_data.predefined_data_constants import LocationKey, RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_root_location_data() -> dict:
+def get_root_location_data() -> dict[str, Any]:
     """
-    This method holds the correct data for the Root of CmdbLocations
+    Returns the document for the Root of the CmdbLocations tree
+
+    The root is the implicit parent of every top-level location and is inserted at setup.
+
     Returns:
-        (dict): Returns valid data for the Root of CmdbLocations
+        dict[str, Any]: Valid data for the Root CmdbLocation
     """
     return {
-        "public_id":1,
-        "name":"Root",
-        "parent":0,
-        "object_id":0,
-        "type_id":0,
-        "type_label":"Root",
-        "type_icon":"fas fa-globe",
-        "type_selectable":True
+        LocationKey.PUBLIC_ID: RootLocationDefault.PUBLIC_ID,
+        LocationKey.NAME: RootLocationDefault.NAME,
+        LocationKey.PARENT: RootLocationDefault.NO_PARENT,
+        LocationKey.OBJECT_ID: RootLocationDefault.NO_OBJECT,
+        LocationKey.TYPE_ID: RootLocationDefault.NO_TYPE,
+        LocationKey.TYPE_LABEL: RootLocationDefault.NAME,
+        LocationKey.TYPE_ICON: RootLocationDefault.ICON,
+        LocationKey.TYPE_SELECTABLE: RootLocationDefault.SELECTABLE,
     }

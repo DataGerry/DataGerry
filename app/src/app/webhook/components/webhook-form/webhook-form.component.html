@@ -2,7 +2,7 @@
   <h1>{{ publicId ? 'Edit Webhook' : 'Add Webhook' }}</h1>
   <form [formGroup]="webhookForm" (ngSubmit)="saveWebhook()" novalidate>
     <!-- Name Field -->
-    <div class="form-group">
+    <div class="mb-3">
       <label for="name">Name <span class="required">*</span></label>
       <input
         id="name"
@@ -20,7 +20,7 @@
       </div>
     </div>
     <!-- URL Field -->
-    <div class="form-group">
+    <div class="mb-3">
       <label for="url">URL <span class="required">*</span></label>
       <input
         id="url"
@@ -39,7 +39,7 @@
       </div>
     </div>
     <!-- Event Types -->
-    <div class="form-group">
+    <div class="mb-3">
       <label for="event_types">Event Types <span class="required">*</span>:</label>
       <ng-select
         [items]="eventOptions"

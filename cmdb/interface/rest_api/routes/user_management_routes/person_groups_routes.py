@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,10 @@
 """
 Implementation of all API routes for CmdbPersonGroups
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from flask import request, abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import PersonGroupsManager, PersonsManager
@@ -49,7 +51,7 @@ from cmdb.errors.manager.person_groups_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 person_group_blueprint = APIBlueprint('person_group', __name__)
 
@@ -60,7 +62,7 @@ person_group_blueprint = APIBlueprint('person_group', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.add')
 @person_group_blueprint.validate(CmdbPersonGroup.SCHEMA)
-def insert_cmdb_person_group(data: dict, request_user: CmdbUser):
+def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbPersonGroup into the database
 
@@ -78,16 +80,16 @@ def insert_cmdb_person_group(data: dict, request_user: CmdbUser):
 
         result_id = person_groups_manager.insert_item(data)
 
-        # Add the person to the selected groups
+        # Add the new group to each of its selected member persons
         selected_person_ids = data.get('group_members', [])
         persons_manager.add_group_to_persons(result_id, selected_person_ids)
 
         created_person_group = person_groups_manager.get_item(result_id, as_dict=True)
 
-        if created_person_group:
-            return InsertSingleResponse(created_person_group, result_id).make_response()
+        if not created_person_group:
+            abort(404, "Could not retrieve the created PersonGroup from the database!")
 
-        abort(404, "Could not retrieve the created PersonGroup from the database!")
+        return InsertSingleResponse(created_person_group, result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except PersonGroupsManagerInsertError as err:
@@ -107,7 +109,7 @@ def insert_cmdb_person_group(data: dict, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.view')
 @person_group_blueprint.parse_collection_parameters()
-def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser):
+def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbPersonGroupGroups
 
@@ -148,7 +150,7 @@ def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.view')
-def get_cmdb_person_group(public_id: int, request_user: CmdbUser):
+def get_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbPersonGroup
 
@@ -185,7 +187,7 @@ def get_cmdb_person_group(public_id: int, request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.edit')
 @person_group_blueprint.validate(CmdbPersonGroup.SCHEMA)
-def update_cmdb_person_group(public_id: int, data: dict, request_user: CmdbUser):
+def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbPersonGroup
 
@@ -214,9 +216,13 @@ def update_cmdb_person_group(public_id: int, data: dict, request_user: CmdbUser)
         persons_to_add = updated_persons - existing_persons  # New persons
         persons_to_remove = existing_persons - updated_persons  # Removed persons
 
-        persons_manager.update_group_in_persons(public_id, persons_to_add, persons_to_remove)
+        # Pin the public_id to the URL so a forged body public_id cannot rewrite the document identity
+        data['public_id'] = public_id
 
+        # Persist the PersonGroup first, then sync the reciprocal person membership only on success
         person_groups_manager.update_item(public_id, CmdbPersonGroup.from_data(data))
+
+        persons_manager.update_group_in_persons(public_id, persons_to_add, persons_to_remove)
 
         return UpdateSingleResponse(data).make_response()
     except HTTPException as http_err:
@@ -237,7 +243,7 @@ def update_cmdb_person_group(public_id: int, data: dict, request_user: CmdbUser)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.delete')
-def delete_cmdb_person_group(public_id: int, request_user: CmdbUser):
+def delete_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbPersonGroup
 
@@ -253,7 +259,7 @@ def delete_cmdb_person_group(public_id: int, request_user: CmdbUser):
                                                                                  request_user)
         persons_manager: PersonsManager = ManagerProvider.get_manager(ManagerType.PERSON, request_user)
 
-        to_delete_person_group = person_groups_manager.get_item(public_id)
+        to_delete_person_group = person_groups_manager.get_item(public_id, as_dict=True)
 
         if not to_delete_person_group:
             abort(404, f"The PersonGroup with ID:{public_id} was not found!")

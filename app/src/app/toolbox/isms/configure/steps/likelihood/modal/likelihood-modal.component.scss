@@ -1,10 +1,14 @@
+@use "sass:color";
+
 $dg-primary-color: #e94d18;
 $dg-border-color: rgba(#dee2e6, 0.5);
 $dg-error-message-color: #dc3545;
 
 // MODAL HEADER
 .modal-header {
-  background: linear-gradient(195deg, darken($dg-primary-color, 5%), $dg-primary-color);
+  background: linear-gradient(195deg,
+        color.scale($dg-primary-color, $lightness: -5%),
+        $dg-primary-color );
   color: white;
   padding: 1.5rem 2rem;
   border-bottom: none;

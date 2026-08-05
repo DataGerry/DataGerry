@@ -1,0 +1,176 @@
+$marker-size: 2.125rem;
+$accent: #e94d18;
+$done: #198754;
+$line-idle: #e5e7eb;
+$line-done: #7cc9a8;
+
+.wizard-stepper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  &__item {
+    position: relative;
+    padding-bottom: 1.75rem;
+
+    &:last-child {
+      padding-bottom: 0;
+    }
+  }
+
+  // Connector line between markers.
+  &__line {
+    position: absolute;
+    left: calc(#{$marker-size} / 2);
+    top: calc(#{$marker-size} + 0.15rem);
+    bottom: 0.35rem;
+    width: 2px;
+    transform: translateX(-1px);
+    border-radius: 2px;
+    background-color: $line-idle;
+    transition: background-color 200ms ease;
+  }
+
+  &__item.is-completed &__line {
+    background-color: $line-done;
+  }
+
+  &__button {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: default;
+  }
+
+  &__item.is-clickable &__button {
+    cursor: pointer;
+  }
+
+  &__marker {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: $marker-size;
+    height: $marker-size;
+    border-radius: 50%;
+    border: 2px solid $line-idle;
+    background-color: #fff;
+    color: #adb5bd;
+    font-size: 0.85rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    transition: border-color 180ms ease, background-color 180ms ease,
+      color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__index {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9ca3af;
+  }
+
+  &__title {
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: #6b7280;
+    transition: color 180ms ease;
+  }
+
+  // Hover affordance for steps the user can revisit.
+  &__item.is-clickable:not(.is-active):hover &__marker {
+    border-color: darken($line-idle, 12%);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 6px rgba(15, 23, 42, 0.1);
+  }
+
+  // Completed
+  &__item.is-completed &__marker {
+    border-color: $done;
+    background-color: $done;
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(25, 135, 84, 0.28);
+  }
+
+  &__item.is-completed &__title {
+    color: #374151;
+  }
+
+  // Active
+  &__item.is-active &__marker {
+    border-color: $accent;
+    background-color: #fff;
+    color: $accent;
+    box-shadow: 0 0 0 4px rgba(233, 77, 24, 0.12), 0 2px 8px rgba(233, 77, 24, 0.22);
+  }
+
+  &__item.is-active &__index {
+    color: $accent;
+  }
+
+  &__item.is-active &__title {
+    color: #1f2937;
+    font-weight: 600;
+  }
+
+  &__button:focus-visible {
+    outline: none;
+  }
+
+  &__button:focus-visible &__marker {
+    box-shadow: 0 0 0 0.2rem rgba(233, 77, 24, 0.35);
+  }
+}
+
+// Horizontal layout on small screens so the stepper sits above the content.
+@media (max-width: 767.98px) {
+  .wizard-stepper {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.25rem;
+
+    &__item {
+      flex: 1 1 0;
+      padding-bottom: 0;
+      text-align: center;
+    }
+
+    &__line {
+      left: 50%;
+      top: calc(#{$marker-size} / 2);
+      right: -50%;
+      bottom: auto;
+      width: auto;
+      height: 2px;
+      transform: none;
+    }
+
+    &__button {
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    &__index {
+      display: none;
+    }
+
+    &__title {
+      font-size: 0.78rem;
+    }
+  }
+}

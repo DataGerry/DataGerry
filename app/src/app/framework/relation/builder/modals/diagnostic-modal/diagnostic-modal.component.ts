@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -23,12 +23,11 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
     selector: 'cmdb-diagnostic-modal',
     templateUrl: './diagnostic-modal.component.html',
-    styleUrls: ['./diagnostic-modal.component.scss']
+    styleUrls: ['./diagnostic-modal.component.scss'],
+    standalone: false
 })
 export class DiagnosticModalComponent {
     @Input() data: any;
 
-    constructor(public activeModal: NgbActiveModal) {
-
-    }
+    public readonly activeModal = inject(NgbActiveModal);
 }

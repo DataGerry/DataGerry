@@ -1,58 +1,66 @@
 <div class="container-fluid">
   <div class="row">
-    <div class="col-auto mr-auto pl-0">
-      <ng-container *ngIf="type?.active">
+    <div class="col-auto me-auto ps-0">
+      @if (type?.active) {
+
         <button type="button"
                 *permissionLink="['base.framework.object.add'];acl:type.acl;requirements:'CREATE'"
-                class="btn btn-success btn-sm mr-1"
+                class="btn btn-success btn-sm me-1"
                 [ngClass]="getButtonClass()"
                 [ngbTooltip]="getButtonTooltip()"
-                [routerLink]="['/framework/object/add/', type?.public_id ]">
+                (click)="onAdd()">
           <i class="fas fa-plus"></i> Add
         </button>
         <button type="button"
                 *permissionLink="['base.framework.object.edit'];acl:type.acl;requirements:'UPDATE'"
                 [disabled]="selectedObjects.length<=0"
                 [ngbTooltip]="getBulkChangeTooltip()"
-                class="btn btn-secondary btn-sm mr-1" (click)="onBulkChange()">
+                class="btn btn-secondary btn-sm me-1" (click)="onBulkChange()">
           <i class="fas fa-tasks"></i> Bulk Change <span
-          class="badge badge-primary badge-pill">{{selectedObjects.length}}</span>
+          class="badge bg-primary bg-pill">{{selectedObjects.length}}</span>
         </button>
-        <button type="button" *permissionLink="['base.framework.object.delete'];acl:type.acl;requirements:'DELETE'" 
-                (click)="manyObjectDeletes.emit()"
+        <button type="button" *permissionLink="['base.framework.object.delete'];acl:type.acl;requirements:'DELETE'"
+                (click)="onDeleteSelected()"
                 [ngbTooltip]="getDeleteSelectedTooltip()"
                 [disabled]="selectedObjects.length<=0" 
-                class="btn btn-danger btn-sm mr-1">
+                class="btn btn-danger btn-sm me-1">
           <i class="far fa-trash-alt"></i> Delete Selected
-          <span class="badge badge-secondary badge-pill">{{selectedObjects.length}}</span>
+          <span class="badge bg-secondary bg-pill">{{selectedObjects.length}}</span>
         </button>
-      </ng-container>
+      
+}
     </div>
-    <div class="col-auto pr-0">
+    <div class="col-auto pe-0">
       <div class="dropdown" *permissionLink="'base.export.object.*'">
-        <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-toggle="dropdown">
+        <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown">
           <fa-icon icon="file-export"></fa-icon>
           Export
         </button>
-        <ul class="dropdown-menu dropdown-menu-right dropdown-menu-lg-left">
-          <li *ngFor="let item of formatList" id="export-{{item.extension}}"
+        <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-left">
+          @for (item of formatList; track item) {
+<li id="export-{{item.extension}}"
               [className]="item.active && totalResults > 0 ? 'dropdown-item' : 'dropdown-item disabled'">
             <div class="d-flex w-100 justify-content-between">
               <span><fa-icon icon="{{item.icon}}"></fa-icon> {{item.label}}</span>
-              <ng-container *ngIf="selectedObjectsIDs.length == 0; else customSelected">
+              @if (selectedObjectsIDs.length == 0) {
+
                 <small >Export (all)</small>
-              </ng-container>
-              <ng-template #customSelected>
+              
+} @else {
+
                 <small>Export ({{selectedObjectsIDs.length}})</small>
-              </ng-template>
+              
+}
+              
             </div>
             <small class="d-flex w-100 justify-content-between">
-              <a class="mr-2" href="javascript: void(0);" (click)="exporter(item);"
+              <a class="me-2" href="javascript: void(0);" (click)="exporter(item);"
                  [ngbTooltip]="item.helperText + ' - Export objects for import'">(Raw Export)</a>
               <a href="javascript: void(0);" (click)="exporter(item, 'render')"
                  [ngbTooltip]="item.helperText + ' - Export customer lines'">(Customer Export)</a>
             </small>
           </li>
+}
         </ul>
       </div>
     </div>

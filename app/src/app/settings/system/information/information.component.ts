@@ -1,17 +1,17 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { SystemService } from '../system.service';
 
 @Component({
-  selector: 'cmdb-information',
-  templateUrl: './information.component.html',
-  styleUrls: ['./information.component.scss']
+    selector: 'cmdb-information',
+    templateUrl: './information.component.html',
+    styleUrls: ['./information.component.scss'],
+    standalone: false
 })
 export class InformationComponent implements OnInit {
 
   public systemInfos: any;
 
-  constructor(private systemService: SystemService) {
-  }
+  private readonly systemService = inject(SystemService);
 
   public ngOnInit(): void {
     this.systemService.getDatagerryInformation().subscribe((infos: any[]) => {

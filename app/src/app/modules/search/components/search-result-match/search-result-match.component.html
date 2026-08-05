@@ -1,3 +1,5 @@
-<ng-container *ngIf="matchedField">
-    <i>{{matchedField.label}}</i>: <cmdb-render-element [mode]="MODE" [data]="matchedField"></cmdb-render-element>
-</ng-container>
+@if (matchedField) {
+
+<i>{{matchedField.label}}</i>: <cmdb-render-element [mode]="MODE" [data]="matchedField"></cmdb-render-element>
+
+}

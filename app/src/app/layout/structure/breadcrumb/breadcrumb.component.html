@@ -3,22 +3,31 @@
     <li class="breadcrumb-item">
       <a routerLink="">Dashboard</a>
     </li>
-    <ng-container *ngFor="let breadcrumb of breadcrumbService.get() | async; let last = last">
-      <li *ngIf="breadcrumb.label !== 'Dashboard'"
-          [ngClass]="{ 'breadcrumb-item': allowBootstrap, 'list': true, 'active': last }">
-        <a *ngIf="!last" [routerLink]="hasParams(breadcrumb)">
-          {{breadcrumb.label}}
-        </a>
-        <span *ngIf="last">{{ breadcrumb.label }}
-          <em *ngIf="breadcrumb.queryParams.value" class="text-primary">{{breadcrumb.queryParams.value}}</em>
+    @for (breadcrumb of breadcrumbService.get() | async; track $index; let last = $last) {
+
+    @if (breadcrumb.label !== 'Dashboard') {
+    <li [ngClass]="{ 'breadcrumb-item': allowBootstrap, 'list': true, 'active': last }">
+      @if (!last) {
+      <a [routerLink]="hasParams(breadcrumb)">
+        {{breadcrumb.label}}
+      </a>
+      }
+      @if (last) {
+      <span>{{ breadcrumb.label }}
+        @if (breadcrumb.queryParams.value) {
+        <em class="text-primary">{{breadcrumb.queryParams.value}}</em>
+        }
       </span>
-      </li>
-    </ng-container>
-    <div id="active-switch" class="custom-control custom-switch" data-toggle="tooltip" data-placement="bottom"
-         title="Only active objects">
-      <input type="checkbox" class="custom-control-input" name="active_cookiee" id="active_cookiee"
-             [(ngModel)]="isChecked" (change)="checkState($event)" checked/>
-      <label class="custom-control-label" for="active_cookiee"></label>
+      }
+    </li>
+    }
+
+    }
+    <div id="active-switch" class="form-check form-switch" data-bs-toggle="tooltip" data-bs-placement="bottom"
+      title="Only active objects">
+      <input type="checkbox" class="form-check-input" name="active_cookiee" id="active_cookiee" [(ngModel)]="isChecked"
+        (change)="checkState($event)" checked />
+      <label class="form-check-label" for="active_cookiee"></label>
     </div>
   </ol>
 </nav>

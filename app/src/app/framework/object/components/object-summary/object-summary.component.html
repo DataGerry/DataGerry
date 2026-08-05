@@ -1,27 +1,23 @@
 <table id="summaries-table" class="table table-sm table-hover">
     <tbody>
-        <tr *ngFor="let sum of summaries">
+        @for (sum of summaries; track sum) {
+        <tr>
             <th scope="row">{{ sum.label }}</th>
             <td>
-                <cmdb-render-element
-                    [mode]="mode"
-                    [data]="sum"
-                ></cmdb-render-element>
+                <cmdb-render-element [mode]="mode" [data]="sum"></cmdb-render-element>
             </td>
             <td class="clearfix">
-                <button
-                    type="button"
-                    *ngIf="sum.value"
-                    class="btn btn-outline-secondary btn-sm float-right"
-                    (click)="
+                @if (sum.value) {
+                <button type="button" class="btn btn-outline-secondary btn-sm text-end" (click)="
                         sum.value.$date
                             ? clipBoardFormattedSummary(sum.value)
                             : clipBoardSummary( sum, sum.value)
-                    "
-                >
+                    ">
                     <fa-icon [icon]="['far', 'clipboard']"></fa-icon>
                 </button>
+                }
             </td>
         </tr>
+        }
     </tbody>
 </table>

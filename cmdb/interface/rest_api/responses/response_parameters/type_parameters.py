@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -30,7 +30,7 @@ class TypeIterationParameters(CollectionParameters):
     through types in a collection. It includes the ability to specify a query string, an active flag, 
     and optional parameters like filters and projections
     """
-    def __init__(self, query_string: str, active: bool = True, **kwargs):
+    def __init__(self, query_string: str, active: bool = True, **kwargs) -> None:
         """
         Initialize the TypeIterationParameters
 
@@ -39,7 +39,7 @@ class TypeIterationParameters(CollectionParameters):
             active (bool, optional): Indicates if the iteration is active. Defaults to True
             **kwargs: Additional keyword arguments passed to the parent class constructor
         """
-        self.active = active
+        self.active: bool = active
         super().__init__(query_string = query_string, **kwargs)
 
 
@@ -58,7 +58,7 @@ class TypeIterationParameters(CollectionParameters):
             TypeIterationParameters: An instance of the class with the parsed parameters
         """
         if 'active' in optional:
-            active = str_to_bool(optional.get('active', True))
+            active: bool = str_to_bool(optional.get('active', True))
             del optional['active']
         else:
             active = True

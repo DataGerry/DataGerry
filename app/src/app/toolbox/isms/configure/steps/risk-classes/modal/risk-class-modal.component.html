@@ -14,87 +14,64 @@
     <div class="row mb-3">
       <!-- NAME (Required) -->
       <div class="col-6">
-        <div class="form-group">
+        <div class="mb-3">
           <label for="riskClassName" class="form-label">
             Name <span class="text-danger">*</span>
           </label>
-          <input
-            id="riskClassName"
-            type="text"
-            class="form-control"
-            formControlName="name"
-            placeholder="Enter a name..."
-          />
+          <input id="riskClassName" type="text" class="form-control" formControlName="name"
+            placeholder="Enter a name..." />
           <!-- Error message below the field -->
-          <div
-            class="invalid-feedback d-block"
-            *ngIf="form.get('name')?.invalid && (form.get('name')?.touched || form.get('name')?.dirty)"
-          >
+          @if (form.get('name')?.invalid && (form.get('name')?.touched || form.get('name')?.dirty)) {
+          <div class="invalid-feedback d-block">
             Name is required.
           </div>
+          }
         </div>
       </div>
 
       <!-- COLOR (Required) -->
       <div class="col-6">
-        <div class="form-group">
+        <div class="mb-3">
           <label for="riskClassColor" class="form-label">
             Color <span class="text-danger">*</span>
           </label>
-          <input
-            id="riskClassColor"
-            type="color"
-            class="form-control form-control-color wide-color-bar"
-            formControlName="color"
-          />
+          <input id="riskClassColor" type="color" class="form-control form-control-color wide-color-bar"
+            formControlName="color" />
           <!-- Error message below the field -->
-          <div
-            class="invalid-feedback d-block"
-            *ngIf="form.get('color')?.invalid && (form.get('color')?.touched || form.get('color')?.dirty)"
-          >
+          @if (form.get('color')?.invalid && (form.get('color')?.touched || form.get('color')?.dirty)) {
+          <div class="invalid-feedback d-block">
             Color is required.
           </div>
+          }
         </div>
       </div>
     </div>
 
     <!-- DESCRIPTION (Required) -->
     <div class="mb-3">
-      <div class="form-group">
+      <div class="mb-3">
         <label for="riskClassDescription" class="form-label">
-          Description 
+          Description
         </label>
-        <textarea
-          id="riskClassDescription"
-          class="form-control"
-          formControlName="description"
-          rows="3"
-          placeholder="Enter a description..."
-        ></textarea>
+        <textarea id="riskClassDescription" class="form-control" formControlName="description" rows="3"
+          placeholder="Enter a description..."></textarea>
       </div>
     </div>
 
     <!-- Modal Footer -->
     <div class="modal-footer">
-      <button
-        type="button"
-        class="btn btn-secondary"
-        (click)="onCancel()"
-      >
+      <button type="button" class="btn btn-secondary" (click)="onCancel()">
         Cancel
       </button>
-      <button
-        type="submit"
-        class="btn btn-success"
-        [disabled]="isSubmitting || form.invalid"
-      >
-        <span *ngIf="!isSubmitting">
+      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+        @if (!isSubmitting) {
+        <span>
           {{ isEditMode ? 'Save Changes' : 'Add Risk Class' }}
         </span>
-        <span
-          *ngIf="isSubmitting"
-          class="spinner-border spinner-border-sm"
-        ></span>
+        }
+        @if (isSubmitting) {
+        <span class="spinner-border spinner-border-sm"></span>
+        }
       </button>
     </div>
   </form>

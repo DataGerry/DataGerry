@@ -12,27 +12,20 @@
             {{ showInstructions ? 'Hide Instructions' : 'Show Import Instructions' }}
         </button>
 
-        <ng-container *ngIf="showInstructions">
-            <app-import-instructions
-              [title]="importInstructions.title"
-              [description]="importInstructions.description"
-              [headers]="importInstructions.headers"
-              [notes]="importInstructions.notes"
-              [mappings]="importInstructions.mappings"
-              [duplicates]="importInstructions.duplicates"
-              [exampleCsv]="importInstructions.exampleCsv"
-            ></app-import-instructions>
-          </ng-container>
-          
+        @if (showInstructions) {
+
+        <app-import-instructions [title]="importInstructions.title" [description]="importInstructions.description"
+            [headers]="importInstructions.headers" [notes]="importInstructions.notes"
+            [mappings]="importInstructions.mappings" [duplicates]="importInstructions.duplicates"
+            [exampleCsv]="importInstructions.exampleCsv"></app-import-instructions>
+
+        }
 
         <form [formGroup]="fileForm">
-            <div class="form-group">
-                <label for="file">Select CSV File:</label>
-                <div class="custom-file">
-                    <input type="file" class="custom-file-input" id="file" (change)="selectFile($event.target.files)"
-                        accept=".csv" />
-                    <label class="custom-file-label" for="file">{{ fileName }}</label>
-                </div>
+            <div class="mb-3">
+                <label for="file" class="form-label">Select CSV File:</label>
+                <input type="file" class="form-control" id="file" (change)="selectFile($event.target.files)"
+                    accept=".csv" />
             </div>
             <button type="button" class="btn btn-primary" [disabled]="fileForm.invalid" (click)="importRisk()">
                 Import Risks

@@ -1,0 +1,161 @@
+<section
+  class="ipam-overview"
+  aria-label="IPAM supernet overview"
+  dgFullscreen
+  #fullscreen="dgFullscreen"
+  (fullscreenChange)="onFullscreenChange($event)">
+  @if (hasOverviewData() && supernet; as data) {
+    <header class="ipam-overview__header">
+      <div class="ipam-overview__heading">
+        <h3 class="ipam-overview__title">Supernet Overview</h3>
+        @if (data.cidr) {
+          <span class="ipam-overview__subtitle">{{ data.cidr }}</span>
+        }
+      </div>
+
+      <div class="ipam-overview__controls">
+        <label class="ipam-overview__search" for="ipamSupernetSearch">
+          <span class="ipam-overview__search-visually-hidden">Search subnets</span>
+          <i class="fa fa-search ipam-overview__search-icon" aria-hidden="true"></i>
+          <input
+            id="ipamSupernetSearch"
+            type="search"
+            class="ipam-overview__search-input"
+            placeholder="Search subnets..."
+            autocomplete="off"
+            [formControl]="searchControl">
+        </label>
+
+        <app-button
+          label="Export"
+          bootstrapClass="btn-secondary btn-sm"
+          icon="fa fa-file-export"
+          ariaLabel="Export the supernet overview"
+          title="Export the supernet overview"
+          [disabled]="(isLoading$ | async) === true"
+          (clicked)="onExport()">
+        </app-button>
+
+        <app-button
+          label=""
+          bootstrapClass="btn-secondary btn-sm"
+          [icon]="isFullscreen ? 'fa fa-compress' : 'fa fa-expand'"
+          [ariaLabel]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+          [title]="isFullscreen ? 'Exit fullscreen view' : 'View in fullscreen'"
+          [ariaPressed]="isFullscreen"
+          (clicked)="fullscreen.toggle()">
+        </app-button>
+      </div>
+    </header>
+
+    <div class="ipam-overview__cards">
+      <button
+        type="button"
+        class="ipam-card ipam-card--clickable"
+        [class.ipam-card--active]="viewMode === 'all'"
+        [attr.aria-pressed]="viewMode === 'all'"
+        (click)="onShowAllSubnets()">
+        <span class="ipam-card__label">Total Subnets</span>
+        <span class="ipam-card__value">{{ data.subnet_count | number }}</span>
+      </button>
+
+      <article class="ipam-card">
+        <span class="ipam-card__label">Total IPs</span>
+        <span class="ipam-card__value">
+          {{ isIpv6 ? (data.total_ips | compactNumber) : (data.total_ips | number) }}
+        </span>
+      </article>
+
+      @if (data.ip_range; as range) {
+        <article class="ipam-card ipam-card--range">
+          <span class="ipam-card__label">IP Range</span>
+          <span class="ipam-card__range">
+            <span class="ipam-card__range-ip">{{ range.first }}</span>
+            <span class="ipam-card__range-dash" aria-hidden="true">&ndash;</span>
+            <span class="ipam-card__range-ip">{{ range.last }}</span>
+          </span>
+        </article>
+      }
+
+      <article class="ipam-card ipam-card--used">
+        <span class="ipam-card__label">Used IPs</span>
+        <span class="ipam-card__value">
+          @if (isIpv6) {
+            {{ data.used_ips | compactNumber }}
+          } @else {
+            {{ data.used_ips | number }}
+            <span class="ipam-card__suffix">({{ data.used_percent | number:'1.0-1' }}%)</span>
+          }
+        </span>
+      </article>
+
+      <article class="ipam-card ipam-card--free">
+        <span class="ipam-card__label">Free IPs</span>
+        <span class="ipam-card__value">
+          @if (isIpv6) {
+            {{ data.free_ips | compactNumber }}
+          } @else {
+            {{ data.free_ips | number }}
+            <span class="ipam-card__suffix">({{ data.free_percent | number:'1.0-1' }}%)</span>
+          }
+        </span>
+      </article>
+
+      <button
+        type="button"
+        class="ipam-card ipam-card--invalid ipam-card--clickable"
+        [class.ipam-card--active]="viewMode === 'invalid'"
+        [attr.aria-pressed]="viewMode === 'invalid'"
+        (click)="onShowInvalidSubnets()">
+        <span class="ipam-card__label">Conflict IPs</span>
+        <span class="ipam-card__value">{{ invalidCount | number }}</span>
+      </button>
+
+      @if (!isIpv6) {
+        <article class="ipam-card ipam-card--utilization">
+          <span class="ipam-card__label">Overall Utilization</span>
+          <div class="ipam-card__utilization">
+            <span class="ipam-card__value">{{ data.utilization_percent | number:'1.0-1' }}%</span>
+            <app-progress-bar
+              class="ipam-card__progress"
+              [value]="data.utilization_percent ?? 0"
+              [height]="8"
+              ariaLabel="Overall supernet utilization">
+            </app-progress-bar>
+          </div>
+        </article>
+      }
+    </div>
+
+    <cmdb-ipam-supernet-subnet-table
+      [supernetId]="publicId"
+      [ipv6]="isIpv6"
+      [rows]="subnetRows"
+      [totalItems]="total"
+      [page]="page"
+      [pageSize]="pageSize"
+      [sort]="sort"
+      [searchMode]="isSearching"
+      [invalidMode]="viewMode === 'invalid'"
+      [isFullscreen]="isFullscreen"
+      [loading]="(isLoading$ | async) === true"
+      (pageChange)="onPageChange($event)"
+      (pageSizeChange)="onPageSizeChange($event)"
+      (sortChange)="onSortChange($event)"
+      (unassign)="onUnassign($event)">
+    </cmdb-ipam-supernet-subnet-table>
+  } @else if (hasError) {
+    <div class="ipam-overview__state ipam-overview__state--error" role="alert">
+      Unable to load the IPAM overview. Please try again later.
+    </div>
+  } @else if ((isLoading$ | async) === false) {
+    <div class="ipam-overview__state ipam-overview__state--empty">
+      No IPAM data available for this object.
+    </div>
+  }
+
+  <app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data...">
+  </app-loading-popup>
+</section>

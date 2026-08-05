@@ -1,6 +1,6 @@
 /*
 * DATAGERRY - OpenSource Enterprise CMDB
-* Copyright (C) 2025 becon GmbH
+* Copyright (C) 2026 becon GmbH
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU Affero General Public License as
@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import {Component, OnInit} from '@angular/core';
+import {Component, inject, OnInit} from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { FileMetadata } from '../../model/metadata';
 import { FileService } from '../../service/file.service';
@@ -26,9 +26,10 @@ import { APIGetMultiResponse } from '../../../../../services/models/api-response
 import {CollectionParameters} from "../../../../../services/models/api-parameter";
 
 @Component({
-  selector: 'cmdb-move-dialog',
-  templateUrl: './move-dialog.component.html',
-  styleUrls: ['./move-dialog.component.scss']
+    selector: 'cmdb-move-dialog',
+    templateUrl: './move-dialog.component.html',
+    styleUrls: ['./move-dialog.component.scss'],
+    standalone: false
 })
 export class MoveDialogComponent implements OnInit {
 
@@ -36,7 +37,8 @@ export class MoveDialogComponent implements OnInit {
   public destinationFolder: FileElement[] = [];
   private readonly defaultApiParameter: CollectionParameters = {page: 1, limit: 100, order: 1};
 
-  constructor(private fileService: FileService, public activeModal: NgbActiveModal) {}
+  private readonly fileService = inject(FileService);
+  public readonly activeModal = inject(NgbActiveModal);
 
   groupByFn = (item) => item.metadata.parent ? item.metadata.parent : 0;
 

@@ -1,4 +1,4 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import {
   FormBuilder,
   FormGroup,
@@ -16,9 +16,10 @@ import { ImpactService } from 'src/app/toolbox/isms/services/impact.service';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 
 @Component({
-  selector: 'app-impact-category-modal',
-  templateUrl: './impact-category-modal.component.html',
-  styleUrls: ['./impact-category-modal.component.scss']
+    selector: 'app-impact-category-modal',
+    templateUrl: './impact-category-modal.component.html',
+    styleUrls: ['./impact-category-modal.component.scss'],
+    standalone: false
 })
 export class ImpactCategoryModalComponent implements OnInit {
   /**
@@ -45,13 +46,11 @@ export class ImpactCategoryModalComponent implements OnInit {
   // All impacts fetched from API to build a row for each impact
   public allImpacts: Impact[] = [];
 
-  constructor(
-    public activeModal: NgbActiveModal,
-    private fb: FormBuilder,
-    private impactCategoryService: ImpactCategoryService,
-    private impactService: ImpactService,
-    private toast: ToastService
-  ) { }
+  public readonly activeModal = inject(NgbActiveModal);
+  private readonly fb = inject(FormBuilder);
+  private readonly impactCategoryService = inject(ImpactCategoryService);
+  private readonly impactService = inject(ImpactService);
+  private readonly toast = inject(ToastService);
 
 
   ngOnInit(): void {

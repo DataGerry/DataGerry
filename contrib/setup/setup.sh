@@ -30,13 +30,18 @@ DIR_TMPFILES="/usr/lib/tmpfiles.d"
 # create directories
 mkdir -p ${DIR_ETC}/datagerry
 
+# stop datagerry service
+cp files/datagerry.service ${DIR_SYSTEMD}
+systemctl daemon-reload
+systemctl stop datagerry
+
 # install files
 cp files/cmdb.conf ${DIR_ETC}/datagerry
+cp files/app-config.json ${DIR_ETC}/datagerry
 cp files/datagerry ${DIR_BIN}
-cp files/datagerry.service ${DIR_SYSTEMD}
 cp files/datagerry.conf ${DIR_TMPFILES}
 
-# enable systemd service
+# enable datagerry service
 systemctl daemon-reload
 systemctl enable datagerry
 systemctl start datagerry

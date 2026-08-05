@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,8 +16,10 @@
 """
 Implementation of all API routes for ISMS Configuration
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 from flask import abort
+from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
@@ -31,17 +33,18 @@ from cmdb.manager import (
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.isms_model.isms_helper import check_risk_classes_set_in_matrix
+from cmdb.models.isms_model.isms_helper import check_risk_classes_set_in_matrix, ensure_default_risk_matrix
 
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.isms_routes.isms_config_helper import build_isms_config_status
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 isms_config_blueprint = APIBlueprint('isms_config', __name__)
 
@@ -50,7 +53,7 @@ isms_config_blueprint = APIBlueprint('isms_config', __name__)
 @isms_config_blueprint.route('/status', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_isms_config_status(request_user: CmdbUser):
+def get_isms_config_status(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the status of the ISMS configuration
 
@@ -68,32 +71,27 @@ def get_isms_config_status(request_user: CmdbUser):
                                                                                      request_user)
         risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(ManagerType.RISK_MATRIX, request_user)
 
-        risk_class_amount = risk_class_manager.count_items()
-        likelihood_amount = likelihood_manager.count_items()
-        impact_amount = impact_manager.count_items()
-        impact_category_amount = impact_category_manager.count_items()
+        risk_class_amount: int = risk_class_manager.count_documents()
+        likelihood_amount: int = likelihood_manager.count_documents()
+        impact_amount: int = impact_manager.count_documents()
+        impact_category_amount: int = impact_category_manager.count_documents()
 
-        current_risk_matrix = risk_matrix_manager.get_item(1, as_dict=True)
+        # The RiskMatrix is a singleton (public_id 1) seeded at setup; recreate the default if missing
+        current_risk_matrix: dict[str, Any] = ensure_default_risk_matrix(risk_matrix_manager)
 
-        if not current_risk_matrix:
-            abort(404, "The RiskMatrix with was not found in the database!")
+        risk_matrix_risk_class_status: bool = check_risk_classes_set_in_matrix(current_risk_matrix)
 
-        risk_matrix_risk_class_status = check_risk_classes_set_in_matrix(current_risk_matrix)
-
-        config_status = {
-            'risk_classes': risk_class_amount >= 3,
-            'likelihoods': likelihood_amount >= 3,
-            'impacts': impact_amount >= 3,
-            'impact_categories': impact_category_amount >= 1,
-            'risk_matrix': risk_matrix_risk_class_status and\
-                           risk_class_amount >= 3 and\
-                           likelihood_amount >= 3 and\
-                           impact_amount >= 3,
-        }
+        config_status: dict[str, bool] = build_isms_config_status(
+            risk_class_amount,
+            likelihood_amount,
+            impact_amount,
+            impact_category_amount,
+            risk_matrix_risk_class_status,
+        )
 
         return DefaultResponse(config_status).make_response()
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
         LOGGER.error("[get_isms_config_status] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "Internal server error!")
+        abort(500, "An internal server error occured while retrieving the ISMS configuration status!")

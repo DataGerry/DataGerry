@@ -1,0 +1,36 @@
+<div class="usage-wrap" [ngStyle]="badgeVars" [attr.aria-label]="ariaLabel" role="progressbar"
+  [attr.aria-valuemin]="min" [attr.aria-valuemax]="max" [attr.aria-valuenow]="value">
+
+  <!-- Track & progress -->
+  <div class="track" [ngStyle]="trackStyle">
+    <div class="fill" [ngStyle]="progressStyle"></div>
+
+    <!-- Floating value badge (clamped to track edges) -->
+    @if (showValueBadge) {
+    <div class="value-badge" aria-hidden="true">
+      {{ valueFormatter(value, 0, 0) }}
+      <span class="caret"></span>
+    </div>
+    }
+  </div>
+
+  <!-- Ticks -->
+  @if (showTicks) {
+  <div class="ticks" [ngStyle]="ticksGridStyle" [class.with-guides]="showTickGuides">
+
+    @for (t of ticks; track t; let isFirst = $first; let isLast = $last) {
+    <span class="tick">
+      <span class="label" [class.first]="isFirst" [class.last]="isLast"
+        [class.hide-last]="isLast && !showLastTickLabel">
+        {{ t.label }}
+      </span>
+    </span>
+    }
+
+    <!-- Pinned max label on the very right -->
+    @if (!showLastTickLabel) {
+    <span class="edge-max">{{ maxLabel }}</span>
+    }
+  </div>
+  }
+</div>

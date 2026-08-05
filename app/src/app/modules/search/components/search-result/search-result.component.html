@@ -1,33 +1,36 @@
 <div class="search-result pt-3">
     <div class="row">
         <div class="icon col-md-2">
-            <div class="media d-flex justify-content-center align-content-center flex-wrap">
+            <div class="d-flex justify-content-center align-content-center flex-wrap">
                 <i [class]="searchResult.result.type_information.icon"></i>
             </div>
         </div>
         <div class="col-md-8">
             <h5>
                 <cmdb-active-badge [activeStatus]="searchResult.result.object_information.active"></cmdb-active-badge>
-                <a
-                    [routerLink]="['/','framework', 'object', 'view', searchResult.result.object_information.object_id]"
-                >
-                    {{searchResult.result.type_information.type_label}} #{{searchResult.result.object_information.object_id}}
+                <a [routerLink]="['/','framework', 'object', 'view', searchResult.result.object_information.object_id]">
+                    {{searchResult.result.type_information.type_label}}
+                    #{{searchResult.result.object_information.object_id}}
                 </a>
             </h5>
             <div class="summary">
                 <strong>Summary:</strong> {{searchResult.result.summary_line}}
             </div>
             <div class="matched"><strong>Matched fields:</strong>
-                <div *ngIf="searchResult.matches; else no_display">
-                    <cmdb-search-result-match *ngFor="let match of searchResult.matches" [matchedField]="match"/>
+                @if (searchResult.matches) {
+                <div>
+                    @for (match of searchResult.matches; track match) {
+                    <cmdb-search-result-match [matchedField]="match" />
+                    }
                 </div>
-                <ng-template #no_display>
-                    <span class="d-block">No displayable content.</span>
-                </ng-template>
+                } @else {
+                <span class="d-block">No displayable content.</span>
+                }
+
             </div>
         </div>
         <div class="preview col-md-2">
-            <div class="media d-flex justify-content-center align-content-center flex-wrap">
+            <div class="d-flex justify-content-center align-content-center flex-wrap">
                 <button (click)="openPreview()" class="btn btn-light">
                     <i class="far fa-file-powerpoint"></i>
                 </button>
@@ -36,7 +39,7 @@
     </div>
     <div class="result-separator row">
         <div class="col-md-12">
-        <ng-content></ng-content>
+            <ng-content></ng-content>
         </div>
     </div>
 </div>

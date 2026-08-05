@@ -1,5 +1,5 @@
-# DATAGERRY - OpenSource Enterprise CMDB
-# Copyright (C) 2025 becon GmbH
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -17,13 +17,16 @@
 This module contains the implementation of CmdbWebhookEvent, which is representing
 a webhook event in Datagarry
 """
-import logging
+from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
+
+from cmdb.class_schema.webhook_model.cmdb_webhook_event_schema import get_cmdb_webhook_event_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbWebhook - CLASS                                                 #
@@ -37,7 +40,7 @@ class CmdbWebhookEvent(CmdbDAO):
     COLLECTION = 'framework.webhookEvents'
     MODEL = 'Webhook_Event'
     DEFAULT_VERSION: str = '1.0.0'
-    REQUIRED_INIT_KEYS = [
+    REQUIRED_INIT_KEYS: list[str] = [
         'event_time',
         'operation',
         'webhook_id',
@@ -48,41 +51,7 @@ class CmdbWebhookEvent(CmdbDAO):
         'response_code',
     ]
 
-    SCHEMA: dict = {
-        'public_id': {
-            'type': 'integer'
-        },
-        'event_time': {
-            'type': 'dict',
-            'nullable': True,
-        },
-        'operation': {
-            'type': 'string',
-        },
-        'webhook_id': {
-            'type': 'integer'
-        },
-        'object_before': {
-            'type': 'dict',
-            'required': False
-        },
-        'object_after': {
-            'type': 'dict',
-            'required': False
-        },
-        'changes': {
-            'type': 'dict',
-            'required': False
-        },
-        'response_code': {
-            'type': 'integer',
-            'default': 200,
-        },
-        'status': {
-            'type': 'boolean',
-            'required': False,
-        },
-    }
+    SCHEMA: dict[str, Any] = get_cmdb_webhook_event_schema()
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
@@ -97,7 +66,8 @@ class CmdbWebhookEvent(CmdbDAO):
             changes: dict,
             response_code: int,
             status: bool,
-            **kwargs):
+            **kwargs
+        ) -> None:
         """
         Initializes a new instance of the CmdbWebhookEvent class, representing the result of a webhook event operation
 
@@ -110,8 +80,6 @@ class CmdbWebhookEvent(CmdbDAO):
             changes (dict): Dictionary summarizing the changes made to the object
             response_code (int): HTTP response status code returned by the webhook endpoint
             status (bool): Whether the webhook request was successful (True if response code was 200)
-
-        Optional Args:
             **kwargs: Additional fields to pass to the superclass initializer
         """
         self.event_time = event_time

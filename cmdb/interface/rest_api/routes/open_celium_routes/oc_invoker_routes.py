@@ -1,0 +1,138 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+All API routes for OpenCelium Invokers
+"""
+from logging import Logger, getLogger
+from typing import Any
+
+from flask import abort, request, current_app
+from werkzeug import Response
+from werkzeug.exceptions import HTTPException
+
+from cmdb.manager import OcInvokerManager
+
+from cmdb.models.user_model import CmdbUser
+from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
+from cmdb.interface.rest_api.api_level_enum import ApiLevel
+from cmdb.interface.rest_api.responses import DefaultResponse
+
+from cmdb.errors.open_celium.invoker import (
+    OcInvokerGetError,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
+
+oc_invokers_blueprint = APIBlueprint('oc_invokers', __name__)
+
+# ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
+
+@oc_invokers_blueprint.route('/invokers', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving OpenCelium Invokers!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def get_all_oc_invokers(request_user: CmdbUser) -> Response:
+    """
+    **GET**/**HEAD** route for getting multiple OcInvokers
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        Response: All OcInvokers from OpenCelium
+    """
+    try:
+        # request.args type=bool is a footgun (bool('false') is True), so parse the flag explicitly:
+        # operations are included by default and only an explicit 'false' disables them
+        with_operations: bool = request.args.get("opsIncluded", default="true").lower() != "false"
+
+        oc_invoker_manager: OcInvokerManager = OcInvokerManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        invokers: list[dict[str, Any]] = oc_invoker_manager.get_all_invokers(with_operations)
+
+        return DefaultResponse(invokers).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcInvokerGetError as err:
+        LOGGER.error("[get_all_oc_invokers] OcInvokerGetError: %s.", err, exc_info=True)
+        abort(500, "Failed to retrieve OpenCelium Invokers!")
+
+
+@oc_invokers_blueprint.route('/invokers/<string:name>', methods=['GET', 'HEAD'])
+@handle_oc_errors("retrieving OpenCelium Invokers!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def get_oc_invoker_by_name(request_user: CmdbUser, name: str) -> Response:
+    """
+    **GET**/**HEAD** route to retrieve an Invoker by name
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        name (str): name of the Invoker
+
+    Returns:
+        Response: The Invoker with the given name
+    """
+    try:
+        oc_invoker_manager: OcInvokerManager = OcInvokerManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        invoker: dict[str, Any] = oc_invoker_manager.get_invoker_by_name(name)
+
+        return DefaultResponse(invoker).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcInvokerGetError as err:
+        LOGGER.error("[get_oc_invoker_by_name] OcInvokerGetError: %s.", err, exc_info=True)
+        abort(500, f"Failed to retrieve OpenCelium Invoker with name: {name}!")
+
+
+@oc_invokers_blueprint.route('/invokers/exists/<string:name>', methods=['GET', 'HEAD'])
+@handle_oc_errors("checking OpenCelium Invoker exists!")
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+def check_oc_invoker_exists(request_user: CmdbUser, name: str) -> Response:
+    """
+    **GET**/**HEAD** route to check if an Invoker with the given name exists
+
+    Args:
+        request_user (CmdbUser): User requesting this data
+        name (str): name of the Invoker
+
+    Returns:
+        Response: True if the Invoker exists, else False
+    """
+    try:
+        oc_invoker_manager: OcInvokerManager = OcInvokerManager(
+            current_app.database_manager,
+            request_user.database
+        )
+
+        invoker_exists: bool = oc_invoker_manager.check_invoker_exists(name)
+
+        return DefaultResponse(invoker_exists).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except OcInvokerGetError as err:
+        LOGGER.error("[check_oc_invoker_exists] OcInvokerGetError: %s.", err, exc_info=True)
+        abort(500, f"Failed to check if the OpenCelium Invoker with name: '{name}' exists!")
