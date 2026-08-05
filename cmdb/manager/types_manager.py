@@ -439,6 +439,36 @@ class TypesManager(BaseManager):
         return bool(matching_type)
 
 
+    def get_type_ids_of_special_type(self, special_type: SpecialType) -> list[int]:
+        """
+        Retrieves the public_ids of every CmdbType carrying the given SpecialType marker
+
+        One distinct query on the indexed public_id, so no type document is loaded. There is normally a
+        single type per marker, but the list form keeps a caller correct on an installation that somehow
+        grew two - and lets the ids be dropped straight into an '$in' / '$nin'
+
+        Args:
+            special_type (SpecialType): The SpecialType marker to look for
+
+        Raises:
+            TypesManagerGetError: If the lookup fails
+
+        Returns:
+            list[int]: The public_ids of the matching CmdbTypes, empty when the marker is unused
+        """
+        try:
+            return [
+                type_id
+                for type_id in self.get_distinct(
+                    TypeSchemaKey.PUBLIC_ID.value, {TypeSchemaKey.SPECIAL_TYPE: special_type},
+                )
+                if isinstance(type_id, int)
+            ]
+        except Exception as err:
+            LOGGER.error("[get_type_ids_of_special_type] Exception: %s. Type: %s", err, type(err))
+            raise TypesManagerGetError(str(err)) from err
+
+
     def get_existing_type_ids(self, public_ids: list[int]) -> set[int]:
         """
         Reports which of the given public_ids belong to an existing CmdbType

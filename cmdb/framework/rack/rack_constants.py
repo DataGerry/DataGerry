@@ -50,9 +50,11 @@ class RackOverviewKey(BaseStrEnum):
 
     The wire format the rack view is drawn from, so these are a frontend contract. TYPE_LABEL, TYPE_ICON and
     TYPE_COLOR double as the keys of the batch-resolved type metadata, so the projection can read the lookup
-    with the same names it writes out
+    with the same names it writes out - and a legend entry reuses them too, so a caller has one shape for
+    both a mount row and its legend entry
     """
     RACK = 'rack'
+    TYPES_LEGEND = 'types_legend'
     AREAS = 'areas'
     TOTAL_MOUNTS = 'total_mounts'
 
@@ -75,6 +77,10 @@ class RackOverviewKey(BaseStrEnum):
     # The colour the user picked for the type under Type Settings (CmdbType.ci_explorer_color), so a rack
     # draws each device in the same colour the CI-Explorer and the type chips use
     TYPE_COLOR = 'type_color'
+
+    # How many of the rack's members carry a legend entry's type. Only ever set on a legend entry - a mount
+    # row is one object, so a count there would always be 1
+    COUNT = 'count'
 
 
 class RackDisplayName:

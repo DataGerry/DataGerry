@@ -34,6 +34,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     apply_mount_changes,
     assign_position_if_needed,
     build_mount_candidate,
+    build_type_meta,
     format_mount_errors_for_abort,
     get_area_filter_or_abort,
     get_mount_of_rack_or_abort,
@@ -43,6 +44,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_requested_height_or_abort,
     is_rack_type,
     resolve_mounted_object_meta,
+    shape_assignable_page,
     normalize_geometry_value,
     refuse_second_membership,
     validate_member_object_or_abort,
@@ -685,3 +687,83 @@ def test_an_unusable_candidate_height_aborts_400(raw: Any) -> None:
         get_requested_height_or_abort(raw)
 
     assert err.value.code == 400
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             build_type_meta                                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_the_type_meta_collapses_duplicate_ids() -> None:
+    """A page full of one type must not ask for that type once per row"""
+    types_manager = MagicMock()
+    types_manager.get_types_lookup.return_value = {
+        PLAIN_TYPE_ID: SimpleNamespace(
+            label='Server', get_icon=lambda: 'fa-server', ci_explorer_color='#4b9e46',
+        ),
+    }
+
+    meta = build_type_meta(types_manager, [PLAIN_TYPE_ID, PLAIN_TYPE_ID, PLAIN_TYPE_ID])
+
+    assert types_manager.get_types_lookup.call_args.args[0] == [PLAIN_TYPE_ID]
+    assert meta[PLAIN_TYPE_ID]['type_label'] == 'Server'
+    assert meta[PLAIN_TYPE_ID]['type_icon'] == 'fa-server'
+    assert meta[PLAIN_TYPE_ID]['type_color'] == '#4b9e46'
+
+
+def test_the_type_meta_skips_the_read_for_no_ids() -> None:
+    """An empty page costs nothing"""
+    types_manager = MagicMock()
+
+    assert build_type_meta(types_manager, []) == {}
+    types_manager.get_types_lookup.assert_not_called()
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         shape_assignable_page                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_the_picker_page_is_resolved_in_two_bulk_reads() -> None:
+    """One page, one summary lookup and one type lookup - however many candidates it holds"""
+    objects_manager = MagicMock()
+    objects_manager.get_summary_lines_lookup.return_value = {OBJECT_ID: 'server-01'}
+    types_manager = MagicMock()
+    types_manager.get_types_lookup.return_value = {
+        PLAIN_TYPE_ID: SimpleNamespace(
+            label='Server', get_icon=lambda: 'fa-server', ci_explorer_color='#4b9e46',
+        ),
+    }
+
+    docs = [
+        {'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID},
+        {'public_id': OBJECT_ID + 1, 'type_id': PLAIN_TYPE_ID},
+    ]
+
+    rows = shape_assignable_page(objects_manager, types_manager, docs)
+
+    assert objects_manager.get_summary_lines_lookup.call_count == 1
+    assert types_manager.get_types_lookup.call_count == 1
+    assert [row['public_id'] for row in rows] == [OBJECT_ID, OBJECT_ID + 1]
+    assert rows[0]['summary_line'] == 'server-01'
+    assert rows[0]['type_label'] == 'Server'
+
+
+def test_the_picker_page_reuses_the_documents_it_was_given() -> None:
+    """The aggregation already returned the documents, so the summary lookup must not re-fetch them"""
+    objects_manager = MagicMock()
+    objects_manager.get_summary_lines_lookup.return_value = {}
+    types_manager = MagicMock()
+    types_manager.get_types_lookup.return_value = {}
+    docs = [{'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}]
+
+    shape_assignable_page(objects_manager, types_manager, docs)
+
+    assert objects_manager.get_summary_lines_lookup.call_args.kwargs['object_docs'] == docs
+    assert objects_manager.get_summary_lines_lookup.call_args.kwargs['with_type'] is False
+
+
+def test_an_empty_picker_page_reads_nothing() -> None:
+    """A rack whose every candidate is taken costs no lookup at all"""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+
+    assert shape_assignable_page(objects_manager, types_manager, []) == []
+    objects_manager.get_summary_lines_lookup.assert_not_called()
+    types_manager.get_types_lookup.assert_not_called()
