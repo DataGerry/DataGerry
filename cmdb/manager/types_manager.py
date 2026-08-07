@@ -469,6 +469,35 @@ class TypesManager(BaseManager):
             raise TypesManagerGetError(str(err)) from err
 
 
+    def get_type_ids_with_location_field(self) -> list[int]:
+        """
+        Retrieves the public_ids of every CmdbType that declares a location-typed field
+
+        The match is on the field's TYPE, never on its name, the same way the whole location machinery
+        matches - so a type whose location field is not called 'dg_location' still counts. One distinct
+        query, so no type document is loaded, and the result drops straight into an '$in'
+
+        Raises:
+            TypesManagerGetError: If the lookup fails
+
+        Returns:
+            list[int]: The public_ids of the matching CmdbTypes, empty when no type carries a location
+                       field
+        """
+        try:
+            return [
+                type_id
+                for type_id in self.get_distinct(
+                    TypeSchemaKey.PUBLIC_ID.value,
+                    {TypeSchemaKey.FIELDS.value: {'$elemMatch': {FieldKey.TYPE.value: FieldType.LOCATION.value}}},
+                )
+                if isinstance(type_id, int)
+            ]
+        except Exception as err:
+            LOGGER.error("[get_type_ids_with_location_field] Exception: %s. Type: %s", err, type(err))
+            raise TypesManagerGetError(str(err)) from err
+
+
     def get_existing_type_ids(self, public_ids: list[int]) -> set[int]:
         """
         Reports which of the given public_ids belong to an existing CmdbType

@@ -322,3 +322,86 @@ def test_a_failed_mounted_id_read_surfaces_as_the_managers_get_error() -> None:
 
     with pytest.raises(RackMountsManagerGetError):
         manager.get_mounted_object_ids()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           get_member_object_ids                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_get_member_object_ids_is_scoped_to_one_rack() -> None:
+    """
+    What a picker has to hide is the rack's OWN members
+
+    The objects other racks hold stay in the listing - mounting one of them moves it - so this is the
+    rack-scoped counterpart of get_mounted_object_ids, not a synonym for it.
+    """
+    manager = _manager()
+    manager.get_distinct = MagicMock(return_value=[OBJECT_ID, 801])
+
+    assert manager.get_member_object_ids(RACK_ID) == [OBJECT_ID, 801]
+    manager.get_distinct.assert_called_once_with('object_id', {'rack_id': RACK_ID})
+
+
+def test_get_member_object_ids_drops_non_integer_values() -> None:
+    """A drifted document would poison a '$nin' of ints"""
+    manager = _manager()
+    manager.get_distinct = MagicMock(return_value=[OBJECT_ID, None, 'garbage'])
+
+    assert manager.get_member_object_ids(RACK_ID) == [OBJECT_ID]
+
+
+def test_get_member_object_ids_is_empty_for_an_empty_rack() -> None:
+    """A rack holding nothing hides nothing"""
+    manager = _manager()
+    manager.get_distinct = MagicMock(return_value=[])
+
+    assert manager.get_member_object_ids(RACK_ID) == []
+
+
+def test_a_failed_member_id_read_surfaces_as_the_managers_get_error() -> None:
+    """A route never has to catch a raw distinct failure"""
+    manager = _manager()
+    manager.get_distinct = MagicMock(side_effect=BaseManagerGetError('boom'))
+
+    with pytest.raises(RackMountsManagerGetError):
+        manager.get_member_object_ids(RACK_ID)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           get_mounts_of_objects                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_get_mounts_of_objects_reads_a_whole_page_at_once() -> None:
+    """Resolving 'which rack is each of these in?' one at a time would be an N+1 on every picker page"""
+    manager = _manager()
+    manager.find = MagicMock(return_value=[_mount(MOUNT_ID)])
+
+    assert manager.get_mounts_of_objects([OBJECT_ID]) == [_mount(MOUNT_ID)]
+    manager.find.assert_called_once_with(criteria={'object_id': {'$in': [OBJECT_ID]}})
+
+
+def test_get_mounts_of_objects_collapses_duplicate_ids() -> None:
+    """The caller passes a page as it came, so the same object twice must not query twice for it"""
+    manager = _manager()
+    manager.find = MagicMock(return_value=[])
+
+    manager.get_mounts_of_objects([OBJECT_ID, OBJECT_ID])
+
+    assert manager.find.call_args.kwargs['criteria']['object_id']['$in'] == [OBJECT_ID]
+
+
+def test_get_mounts_of_objects_reads_nothing_for_an_empty_page() -> None:
+    """An empty picker page costs no query at all"""
+    manager = _manager()
+    manager.find = MagicMock()
+
+    assert manager.get_mounts_of_objects([]) == []
+    manager.find.assert_not_called()
+
+
+def test_a_failed_page_mount_read_surfaces_as_the_managers_get_error() -> None:
+    """The route turns it into a 400 rather than claiming every candidate is free"""
+    manager = _manager()
+    manager.find = MagicMock(side_effect=RuntimeError('boom'))
+
+    with pytest.raises(RackMountsManagerGetError):
+        manager.get_mounts_of_objects([OBJECT_ID])

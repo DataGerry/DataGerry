@@ -555,6 +555,33 @@ class TestSummaryLines:
         """An empty id list short-circuits to an empty mapping."""
         assert objects_manager.get_summary_lines_lookup([]) == {}
 
+    def test_unset_summary_value_yields_the_bare_prefix(
+        self, objects_manager: ObjectsManager,
+        database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Regression: an object whose summary field carries no value rendered as '#<id> - None'.
+
+        Reproduces what the rack overview showed for a real object ('#264 - None'): the summary field
+        exists on the type but the object's entry for it is unset.
+        """
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        unset_object_id: int = SUMMARY_OBJECT_ID + 1
+        doc = _object_doc(unset_object_id, value='x', type_id=SUMMARY_TYPE_ID)
+
+        for field in doc['fields']:
+            if field['name'] == NAME_FIELD:
+                field['value'] = None
+
+        objects.insert_one(doc)
+
+        try:
+            line = objects_manager.get_summary_line(unset_object_id, with_type=False)
+
+            assert line == f'#{unset_object_id}'
+            assert 'None' not in line
+        finally:
+            objects.delete_one({'public_id': unset_object_id})
+
 
 class TestReferences:
     """references resolves the CmdbObjects that point at a given object via a ref field."""

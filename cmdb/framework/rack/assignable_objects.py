@@ -14,22 +14,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Which CmdbObjects are free to be mounted into a Rack, and how they are shown in the picker
+Which CmdbObjects can be mounted into a Rack, and how they are shown in the picker
 
-Two rules decide it, and both are exclusions rather than a positive marker - anything that is not
-excluded can be mounted:
+One positive marker and two exclusions decide it:
 
-  1. **a Rack is not mountable** - Racks do not nest, so every object of a RACK-marked CmdbType is out
-  2. **an object belongs to at most one Rack** - so anything already held by a mount is out, whether it
-     is placed in that rack or merely a member of it
+  1. **the type must carry a location field** - a rack member is mirrored into the location tree under
+     its rack, and the object's own location field is what records that, so a type without one can not
+     be a member at all
+  2. **a Rack is not mountable** - Racks do not nest, so every object of a RACK-marked CmdbType is out.
+     This is NOT covered by rule 1: the Rack type has a location field of its own
+  3. **an object already in THIS rack is out** - it can not be added to the rack it is already in
 
-Neither rule depends on WHICH rack is being filled: the answer is the same for every rack, and the rack
-id in the route exists to validate the request, not to narrow the result.
+An object held by a DIFFERENT rack is deliberately kept: it is offered with a hint naming that rack, and
+mounting it moves it. So the answer does depend on which rack is being filled, and the rack id in the
+route narrows the result rather than only validating the request.
 
 Pure: the reads happen in the route, their results are passed in, so the filter construction and the row
-projection are unit-testable without a database. The exclusions are appended as '$match' stages onto the
+projection are unit-testable without a database. The rules are appended as '$match' stages onto the
 caller's own ``?filter=``, so a caller-supplied filter still applies and can not widen the result past
-the two rules
+them
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -43,27 +46,38 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def build_assignable_criteria(rack_type_ids: list[int], mounted_object_ids: list[int]) -> dict[str, Any]:
+def build_assignable_criteria(
+        location_field_type_ids: list[int],
+        rack_type_ids: list[int],
+        excluded_object_ids: list[int]) -> dict[str, Any]:
     """
-    Builds the criteria that keep only the CmdbObjects free to be mounted
+    Builds the criteria that keep only the CmdbObjects which may be mounted
 
-    Each half is omitted when it would exclude nothing, so an installation with no rack type and no
-    mounts produces an empty criteria dict rather than two '$nin' stages against empty lists
+    The type marker is always applied, including when the list is empty: an installation where no type
+    declares a location field has nothing that may be mounted, so '$in': [] matching nothing is the
+    right answer rather than a rule to skip. The two exclusions are omitted when they would exclude
+    nothing, so a rack holding nothing does not get a '$nin' against an empty list
 
     Args:
+        location_field_type_ids (list[int]): public_ids of the CmdbTypes declaring a location field
         rack_type_ids (list[int]): public_ids of the CmdbTypes carrying the RACK marker
-        mounted_object_ids (list[int]): public_ids of the CmdbObjects already held by a mount
+        excluded_object_ids (list[int]): public_ids of the CmdbObjects to hide - the members of the rack
+            being filled, or every mounted object when the caller asked for free objects only
 
     Returns:
-        dict[str, Any]: The Mongo criteria, empty when nothing has to be excluded
+        dict[str, Any]: The Mongo criteria
     """
-    criteria: dict[str, Any] = {}
+    type_criteria: dict[str, Any] = {'$in': location_field_type_ids}
 
     if rack_type_ids:
-        criteria[CmdbObjectKey.TYPE_ID.value] = {'$nin': rack_type_ids}
+        # Both operators sit in the same field expression: a type must declare a location field AND not
+        # be the Rack type, which does declare one
+        type_criteria['$nin'] = rack_type_ids
 
-    if mounted_object_ids:
-        criteria[CmdbObjectKey.PUBLIC_ID.value] = {'$nin': mounted_object_ids}
+    criteria: dict[str, Any] = {CmdbObjectKey.TYPE_ID.value: type_criteria}
+
+    if excluded_object_ids:
+        criteria[CmdbObjectKey.PUBLIC_ID.value] = {'$nin': excluded_object_ids}
 
     return criteria
 
@@ -103,19 +117,23 @@ def append_criteria_to_filter(
 def build_assignable_row(
         object_doc: dict[str, Any],
         summary_lines: dict[int, str],
-        type_meta: dict[int, dict[str, Any]]) -> dict[str, Any]:
+        type_meta: dict[int, dict[str, Any]],
+        assigned_racks: dict[int, dict[str, Any]]) -> dict[str, Any]:
     """
     Projects one candidate object into the row the rack picker draws
 
-    Deliberately the same keys a mount row carries, so the frontend has one shape for "an object I could
-    mount" and "an object I have mounted". An object whose type no longer resolves keeps its row with
-    null type metadata rather than being dropped - it is still assignable, and hiding it would offer no
-    way to notice the broken type
+    The first six keys are deliberately the ones a mount row carries, so the frontend has one shape for
+    "an object I could mount" and "an object I have mounted". The last two are the picker's own: they
+    name the rack the candidate is currently in, and are null for an object that is in no rack. An
+    object whose type no longer resolves keeps its row with null type metadata rather than being dropped
+    - it is still assignable, and hiding it would offer no way to notice the broken type
 
     Args:
         object_doc (dict[str, Any]): The candidate CmdbObject document
         summary_lines (dict[int, str]): {object_id: summary_line}, batch-resolved
         type_meta (dict[int, dict[str, Any]]): {type_id: metadata}, batch-resolved
+        assigned_racks (dict[int, dict[str, Any]]): {object_id: {public_id, display_name}} of the rack
+            the object is currently in, batch-resolved; absent for a free object
 
     Returns:
         dict[str, Any]: The picker row
@@ -123,6 +141,7 @@ def build_assignable_row(
     object_id: Any = object_doc.get(CmdbObjectKey.PUBLIC_ID.value)
     type_id: Any = object_doc.get(CmdbObjectKey.TYPE_ID.value)
     meta: dict[str, Any] = type_meta.get(type_id, {}) if isinstance(type_id, int) else {}
+    assigned: dict[str, Any] = assigned_racks.get(object_id, {}) if isinstance(object_id, int) else {}
 
     return {
         RackOverviewKey.PUBLIC_ID.value: object_id,
@@ -131,13 +150,16 @@ def build_assignable_row(
         RackOverviewKey.TYPE_LABEL.value: meta.get(RackOverviewKey.TYPE_LABEL.value),
         RackOverviewKey.TYPE_ICON.value: meta.get(RackOverviewKey.TYPE_ICON.value),
         RackOverviewKey.TYPE_COLOR.value: meta.get(RackOverviewKey.TYPE_COLOR.value),
+        RackOverviewKey.ASSIGNED_RACK_ID.value: assigned.get(RackOverviewKey.PUBLIC_ID.value),
+        RackOverviewKey.ASSIGNED_RACK_NAME.value: assigned.get(RackOverviewKey.DISPLAY_NAME.value),
     }
 
 
 def build_assignable_rows(
         object_docs: list[dict[str, Any]],
         summary_lines: dict[int, str],
-        type_meta: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+        type_meta: dict[int, dict[str, Any]],
+        assigned_racks: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Projects a whole page of candidates, preserving the order the database returned
 
@@ -148,8 +170,10 @@ def build_assignable_rows(
         object_docs (list[dict[str, Any]]): The candidate CmdbObject documents of one page
         summary_lines (dict[int, str]): {object_id: summary_line}, batch-resolved
         type_meta (dict[int, dict[str, Any]]): {type_id: metadata}, batch-resolved
+        assigned_racks (dict[int, dict[str, Any]]): {object_id: {public_id, display_name}} of the rack
+            each candidate is currently in, batch-resolved
 
     Returns:
         list[dict[str, Any]]: One row per document, in input order
     """
-    return [build_assignable_row(doc, summary_lines, type_meta) for doc in object_docs]
+    return [build_assignable_row(doc, summary_lines, type_meta, assigned_racks) for doc in object_docs]

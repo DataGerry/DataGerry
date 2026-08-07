@@ -140,3 +140,133 @@ class TestQueryMatching:
         """A number field with 'in' over string values matches once each element is coerced to int."""
         conditions = {'condition': 'or', 'rules': [{'field': 'num1', 'operator': 'in', 'value': ['10', '99']}]}
         assert _matched_ids(collection, conditions) == {OBJ_MATCH}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   date day-granularity + is-null missing entries                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+DATE_TYPE_ID: int = 9403
+
+OBJ_SAME_DAY_AFTERNOON: int = 9431  # d1 = 2026-08-06 14:30, t1 = 'x'
+OBJ_SAME_DAY_MIDNIGHT: int = 9432   # d1 = 2026-08-06 00:00, t1 = ''
+OBJ_NEXT_DAY: int = 9433            # d1 = 2026-08-07 09:00, t1 = None
+OBJ_NO_TEXT_ENTRY: int = 9434       # d1 = 2026-08-06 08:00, no t1 entry at all
+
+DATE_OBJECT_IDS: list[int] = [
+    OBJ_SAME_DAY_AFTERNOON, OBJ_SAME_DAY_MIDNIGHT, OBJ_NEXT_DAY, OBJ_NO_TEXT_ENTRY,
+]
+
+TARGET_DAY: str = '2026-08-06'
+
+
+def _date_type() -> CmdbType:
+    """A CmdbType with a date field and a text field."""
+    return CmdbType.from_data({
+        'public_id': DATE_TYPE_ID,
+        'name': 'qb_date_demo',
+        'label': 'QB Date Demo',
+        'active': True,
+        'author_id': 1,
+        'version': '1.0.0',
+        'fields': [
+            {'type': 'date', 'name': 'd1', 'label': 'Date'},
+            {'type': 'text', 'name': 't1', 'label': 'Txt'},
+        ],
+        'render_meta': {
+            'icon': 'fas fa-cube',
+            'externals': [],
+            'summary': {'fields': []},
+            'sections': [{'type': 'section', 'name': 'info', 'label': 'Info', 'fields': ['d1', 't1']}],
+        },
+    })
+
+
+def _date_object_doc(public_id: int, stamp: datetime, text_entry: dict[str, Any] | None) -> dict[str, Any]:
+    """Builds an object of the date type; text_entry is omitted entirely when None."""
+    fields: list[dict[str, Any]] = [{'name': 'd1', 'value': stamp, 'type': 'date'}]
+
+    if text_entry is not None:
+        fields.append(text_entry)
+
+    return {
+        'public_id': public_id,
+        'type_id': DATE_TYPE_ID,
+        'active': True,
+        'author_id': 1,
+        'creation_time': datetime.now(timezone.utc),
+        'version': '1.0.0',
+        'fields': fields,
+    }
+
+
+@pytest.fixture(name='_seed_date_objects', scope='module', autouse=True)
+def fixture_seed_date_objects(database_manager: MongoDatabaseManager, database_name: str):
+    """Seeds four objects covering both sides of a day boundary and a missing text entry."""
+    collection = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    collection.delete_many({'public_id': {'$in': DATE_OBJECT_IDS}})
+    collection.insert_many([
+        _date_object_doc(OBJ_SAME_DAY_AFTERNOON, datetime(2026, 8, 6, 14, 30, tzinfo=timezone.utc),
+                         {'name': 't1', 'value': 'x', 'type': 'text'}),
+        _date_object_doc(OBJ_SAME_DAY_MIDNIGHT, datetime(2026, 8, 6, 0, 0, tzinfo=timezone.utc),
+                         {'name': 't1', 'value': '', 'type': 'text'}),
+        _date_object_doc(OBJ_NEXT_DAY, datetime(2026, 8, 7, 9, 0, tzinfo=timezone.utc),
+                         {'name': 't1', 'value': None, 'type': 'text'}),
+        _date_object_doc(OBJ_NO_TEXT_ENTRY, datetime(2026, 8, 6, 8, 0, tzinfo=timezone.utc), None),
+    ])
+    yield
+    collection.delete_many({'public_id': {'$in': DATE_OBJECT_IDS}})
+
+
+def _date_matched_ids(collection, field: str, operator: str, value: Any) -> set[int]:
+    """Runs a single-rule report query of the date type and returns the matched public_ids."""
+    conditions = {'condition': 'and', 'rules': [{'field': field, 'operator': operator, 'value': value}]}
+    query = MongoDBQueryBuilder(conditions, _date_type()).build()
+
+    return {doc['public_id'] for doc in collection.find(query)}
+
+
+class TestDateDayGranularity:
+    """A date rule carries only a day, so every comparison spans that whole day."""
+
+    def test_equals_matches_the_whole_day(self, collection) -> None:
+        """Regression: '=' used to match only an object stamped exactly at midnight."""
+        assert _date_matched_ids(collection, 'd1', '=', TARGET_DAY) == {
+            OBJ_SAME_DAY_AFTERNOON, OBJ_SAME_DAY_MIDNIGHT, OBJ_NO_TEXT_ENTRY,
+        }
+
+    def test_less_than_or_equal_includes_the_whole_day(self, collection) -> None:
+        """Regression: '<=' used to drop everything after 00:00:00 on the given date."""
+        assert _date_matched_ids(collection, 'd1', '<=', TARGET_DAY) == {
+            OBJ_SAME_DAY_AFTERNOON, OBJ_SAME_DAY_MIDNIGHT, OBJ_NO_TEXT_ENTRY,
+        }
+
+    def test_greater_than_excludes_the_whole_day(self, collection) -> None:
+        """Regression: '>' used to still return the rest of the given date."""
+        assert _date_matched_ids(collection, 'd1', '>', TARGET_DAY) == {OBJ_NEXT_DAY}
+
+    def test_greater_than_or_equal_starts_at_midnight(self, collection) -> None:
+        """'>=' was already correct and still returns the day itself plus everything after."""
+        assert _date_matched_ids(collection, 'd1', '>=', TARGET_DAY) == set(DATE_OBJECT_IDS)
+
+    def test_less_than_excludes_the_day_itself(self, collection) -> None:
+        """'<' was already correct: nothing was stamped before the target day."""
+        assert _date_matched_ids(collection, 'd1', '<', TARGET_DAY) == set()
+
+    def test_not_equals_excludes_the_whole_day(self, collection) -> None:
+        """'!=' negates the day range, so same-day objects are all excluded."""
+        assert _date_matched_ids(collection, 'd1', '!=', TARGET_DAY) == {OBJ_NEXT_DAY}
+
+
+class TestIsNullMatchesMissingEntries:
+    """'is null' reaches objects that carry no entry for the field at all."""
+
+    def test_is_null_includes_empty_none_and_missing(self, collection) -> None:
+        """Regression: an object with no entry for the field could never be matched by $elemMatch."""
+        assert _date_matched_ids(collection, 't1', 'is null', None) == {
+            OBJ_SAME_DAY_MIDNIGHT, OBJ_NEXT_DAY, OBJ_NO_TEXT_ENTRY,
+        }
+
+    def test_is_not_null_only_matches_a_real_value(self, collection) -> None:
+        """The counterpart is unchanged: no entry means no value, so it stays excluded."""
+        assert _date_matched_ids(collection, 't1', 'is not null', None) == {OBJ_SAME_DAY_AFTERNOON}

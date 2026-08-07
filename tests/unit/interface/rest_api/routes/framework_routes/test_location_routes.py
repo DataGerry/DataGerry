@@ -102,17 +102,25 @@ def fixture_managers() -> dict[ManagerType, MagicMock]:
     """
     Separate mocks for each manager type the routes resolve via ManagerProvider.
 
-    The locations manager returns a realistic node dict rather than a bare MagicMock: the move / delete
-    routes now read `managed_by` off it (a feature-owned node may not be moved by hand), and on a MagicMock
-    every key reads as truthy - which would make every move look feature-owned.
+    The locations manager returns a realistic node dict rather than a bare MagicMock, because the move /
+    delete routes read the node itself.
+
+    RACK_MOUNTS is resolved too: those routes refuse to move a Rack member out of its rack by hand, and
+    the guard asks the mounts manager whether the object is one. It answers None - not a member - so an
+    ordinary move is not refused. `ManagerProvider.get_manager` is a classmethod, so patching it through
+    the route module patches it for the rack guard as well.
     """
     locations_manager = MagicMock(name='locations_manager')
     locations_manager.get_location_for_object.return_value = {'public_id': 1, 'object_id': 1, 'parent': 1}
+
+    rack_mounts_manager = MagicMock(name='rack_mounts_manager')
+    rack_mounts_manager.get_mount_of_object.return_value = None
 
     return {
         ManagerType.TYPES: MagicMock(name='types_manager'),
         ManagerType.LOCATIONS: locations_manager,
         ManagerType.OBJECTS: MagicMock(name='objects_manager'),
+        ManagerType.RACK_MOUNTS: rack_mounts_manager,
     }
 
 

@@ -18,11 +18,11 @@ Implementation of the API route listing the CmdbObjects free to be mounted into 
 
 The picker behind "add an object to this rack". Its own blueprint rather than a further route on the
 mount routes: nothing here writes, and the listing is a projection of the objects collection rather than
-of the mounts - the mounts only contribute an exclusion list.
+of the mounts - the mounts only contribute an exclusion list and the rack hint.
 
 Paginated the way every other listing in this codebase is - `?filter=`, `?limit=`, `?page=`, `?sort=`,
 `?order=` parsed into CollectionParameters and answered with a GetMultiResponse - so the frontend's
-existing table machinery works unchanged. The two assignability rules are appended as extra pipeline
+existing table machinery works unchanged. The assignability rules are appended as extra pipeline
 stages behind the caller's own filter, so no `?filter=` can widen the result past them
 
 **No object ACL is applied**, which is the feature-wide rule: a rack route checks rack rights and never
@@ -61,9 +61,10 @@ from cmdb.framework.rack.assignable_objects import (
     build_assignable_criteria,
 )
 
-from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import RackRight
+from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import RackMountParam, RackRight
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_or_abort,
+    is_flag_enabled,
     shape_assignable_page,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -81,14 +82,16 @@ rack_assignable_blueprint = APIBlueprint('rack_assignable', __name__)
 @rack_assignable_blueprint.protect(auth=True, right=RackRight.VIEW.value)
 def get_assignable_objects(params: CollectionParameters, rack_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route to list the CmdbObjects that can still be mounted into a Rack
+    HTTP `GET`/`HEAD` route to list the CmdbObjects that can be mounted into a Rack
 
-    Two exclusions decide it: an object of a RACK-marked type is never mountable (Racks do not nest), and
-    an object already held by a mount belongs to that rack, placed or not. Both are appended behind the
-    caller's own `?filter=`, so a filter can narrow the candidates but never widen them past the rules
+    Three rules decide it: the object's type must declare a location field (a member is mirrored into the
+    location tree, and that field is what records it), an object of a RACK-marked type is never mountable
+    (Racks do not nest), and an object already in THIS rack can not be added to it again. All are appended
+    behind the caller's own `?filter=`, so a filter can narrow the candidates but never widen them past
+    the rules
 
-    Neither rule depends on which rack is being filled - the rack id validates the request rather than
-    narrowing the answer, so a caller gets a 404 for a bad id instead of a misleading full list
+    An object held by a DIFFERENT rack is offered, with `assigned_rack_id` / `assigned_rack_name` naming
+    that rack: mounting it moves it. `?only_unmounted=true` narrows the list to the objects in no rack
 
     Guarded by the Rack's view right: this is a question, not a change. No object ACL is applied - see
     discussion-backlog item #122
@@ -113,9 +116,19 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
 
         get_rack_or_abort(objects_manager, types_manager, rack_id)
 
+        # Every mounted object when the caller asked for free ones only, otherwise just this rack's own
+        # members - the objects in another rack stay in the list and are offered as a move
+        only_unmounted: bool = is_flag_enabled(request.args.get(RackMountParam.ONLY_UNMOUNTED.value))
+
+        excluded_object_ids: list[int] = (
+            rack_mounts_manager.get_mounted_object_ids() if only_unmounted
+            else rack_mounts_manager.get_member_object_ids(rack_id)
+        )
+
         criteria: dict[str, Any] = build_assignable_criteria(
+            types_manager.get_type_ids_with_location_field(),
             types_manager.get_type_ids_of_special_type(SpecialType.RACK),
-            rack_mounts_manager.get_mounted_object_ids(),
+            excluded_object_ids,
         )
 
         params.filter = append_criteria_to_filter(params.filter, criteria)
@@ -130,7 +143,7 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
         object_docs, total = objects_manager.iterate_query(builder_params)
 
         return GetMultiResponse(
-            shape_assignable_page(objects_manager, types_manager, object_docs),
+            shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, object_docs),
             total=total,
             params=params,
             url=request.url,

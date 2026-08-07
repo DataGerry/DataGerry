@@ -82,6 +82,7 @@ def _rack_type_doc() -> dict[str, Any]:
         'fields': [
             {'type': 'text', 'name': RackField.NAME.value, 'label': 'Rackname', 'required': True},
             {'type': 'number', 'name': RackField.HEIGHT.value, 'label': 'Height', 'required': True},
+            {'type': 'location', 'name': RackField.LOCATION.value, 'label': 'Location'},
         ],
         'render_meta': {
             'icon': 'fa-server',
@@ -89,7 +90,7 @@ def _rack_type_doc() -> dict[str, Any]:
                 'type': 'section',
                 'name': RackSection.INFORMATION.value,
                 'label': 'Information',
-                'fields': [RackField.NAME.value, RackField.HEIGHT.value],
+                'fields': [RackField.NAME.value, RackField.HEIGHT.value, RackField.LOCATION.value],
             }],
             'summary': {'fields': [RackField.NAME.value]},
         },
@@ -99,7 +100,12 @@ def _rack_type_doc() -> dict[str, Any]:
 
 
 def _plain_type_doc() -> dict[str, Any]:
-    """An ordinary, mountable CmdbType carrying the colour the user picked for it"""
+    """
+    An ordinary, mountable CmdbType carrying the colour the user picked for it
+
+    It declares a location field, which every mountable type must: a rack member is mirrored into the
+    location tree through that field, so a type without one is refused by the mount write.
+    """
     return {
         'public_id': PLAIN_TYPE_ID,
         'ci_explorer_color': MEMBER_TYPE_COLOR,
@@ -108,7 +114,10 @@ def _plain_type_doc() -> dict[str, Any]:
         'author_id': SEED_AUTHOR_ID,
         'creation_time': datetime.now(timezone.utc),
         'active': True,
-        'fields': [{'type': 'text', 'name': PLAIN_FIELD, 'label': 'Plain'}],
+        'fields': [
+            {'type': 'text', 'name': PLAIN_FIELD, 'label': 'Plain'},
+            {'type': 'location', 'name': RackField.LOCATION.value, 'label': 'Location'},
+        ],
         'render_meta': {
             'icon': MEMBER_TYPE_ICON,
             'sections': [{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [PLAIN_FIELD]}],
@@ -330,20 +339,62 @@ class TestMountRefusals:
         """The degenerate case of the same rule"""
         assert _mount(rest_api, object_id=RACK_ID).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_an_object_can_only_be_in_one_rack(self, rest_api) -> None:
-        """The membership is exclusive, and the unassigned bucket counts as membership"""
+    def test_mounting_an_object_held_by_another_rack_moves_it(self, rest_api) -> None:
+        """
+        The membership is still exclusive, but a second one is a MOVE rather than a refusal
+
+        The picker offers the objects other racks hold, with a hint naming the rack, so refusing them
+        here would contradict the list they were chosen from.
+        """
         _mount(rest_api)
 
         response = _mount(rest_api, rack_id=OTHER_RACK_ID)
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert 'already mounted' in response.get_data(as_text=True)
+        assert response.status_code == HTTPStatus.CREATED
 
-    def test_the_same_object_can_not_be_mounted_twice_in_one_rack(self, rest_api) -> None:
-        """Same rule, same rack"""
+    def test_a_move_leaves_no_mount_behind_in_the_old_rack(self, rest_api) -> None:
+        """An object is a member of at most one rack - the old mount is deleted, not kept"""
+        _mount(rest_api)
+        _mount(rest_api, rack_id=OTHER_RACK_ID)
+
+        assert rest_api.get(f'{ROUTE_URL}/{RACK_ID}/mounts/').get_json() == []
+
+    def test_a_move_makes_the_object_a_member_of_the_new_rack(self, rest_api) -> None:
+        """The other half of the same move"""
+        _mount(rest_api)
+        _mount(rest_api, rack_id=OTHER_RACK_ID)
+
+        mounts = rest_api.get(f'{ROUTE_URL}/{OTHER_RACK_ID}/mounts/').get_json()
+
+        assert [mount['object_id'] for mount in mounts] == [OBJECT_ID]
+
+    def test_a_refused_move_leaves_the_object_in_its_old_rack(self, rest_api) -> None:
+        """
+        The old mount is removed only after the placement has been validated
+
+        Otherwise a rejected drop would take the object out of the rack it was in and put it nowhere.
+        """
         _mount(rest_api)
 
-        assert _mount(rest_api).status_code == HTTPStatus.BAD_REQUEST
+        refused = _mount(rest_api, rack_id=OTHER_RACK_ID, area=RackArea.FRONT.value,
+                         start_slot=RACK_HEIGHT + 5, height=2)
+
+        assert refused.status_code == HTTPStatus.BAD_REQUEST
+        assert len(rest_api.get(f'{ROUTE_URL}/{RACK_ID}/mounts/').get_json()) == 1
+
+    def test_the_same_object_can_not_be_mounted_twice_in_one_rack(self, rest_api) -> None:
+        """
+        Mounting into the rack the object is already in is still refused
+
+        Re-inserting it would drop the existing mount's public_id and collide with its own slots - the
+        verb for changing where it sits is a PATCH.
+        """
+        _mount(rest_api)
+
+        response = _mount(rest_api)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'already in this Rack' in response.get_data(as_text=True)
 
     def test_mounting_into_a_non_rack_is_refused(self, rest_api) -> None:
         """An ordinary object is not a rack, so it holds nothing"""
@@ -588,6 +639,21 @@ class TestManagerFailures:
         """Anything the route did not anticipate is an internal error, not a 400"""
         with patch.object(RackMountsManager, 'insert_item', side_effect=RuntimeError('boom')):
             assert _mount(rest_api).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_a_failed_removal_from_the_old_rack_is_a_400(self, rest_api) -> None:
+        """
+        A move that can not clear the old membership must not go ahead
+
+        The unique index would refuse the insert anyway, but as a duplicate-key error rather than
+        something the caller can read.
+        """
+        _mount(rest_api)
+
+        with patch.object(RackMountsManager, 'delete_item',
+                          side_effect=RackMountsManagerDeleteError('boom')):
+            response = _mount(rest_api, rack_id=OTHER_RACK_ID)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_a_created_mount_that_cannot_be_read_back_is_a_404(self, rest_api) -> None:
         """A mount that vanished between the write and the read is reported, not returned as null"""
@@ -1061,12 +1127,12 @@ class TestValidateMount:
     disagree - and it names the blocker so the UI can say why rather than just no.
     """
 
-    def _validate(self, rest_api, **body: Any):
+    def _validate(self, rest_api, rack_id: int = RACK_ID, **body: Any):
         """POSTs a candidate to the pre-validation route"""
         payload: dict[str, Any] = {'object_id': OBJECT_ID}
         payload.update(body)
 
-        return rest_api.post(f'{ROUTE_URL}/{RACK_ID}/mounts/validate', json=payload)
+        return rest_api.post(f'{ROUTE_URL}/{rack_id}/mounts/validate', json=payload)
 
     def test_a_valid_placement_is_accepted(self, rest_api) -> None:
         """The happy path answers valid with no reasons"""
@@ -1121,14 +1187,27 @@ class TestValidateMount:
         assert body['valid'] is False
         assert len(body['errors']) == 2
 
-    def test_an_already_mounted_object_is_rejected(self, rest_api) -> None:
+    def test_an_object_already_in_this_rack_is_rejected(self, rest_api) -> None:
         """The membership rule is checked too - something free_slots never covered"""
         _mount(rest_api)
 
         body = self._validate(rest_api, rack_id=RACK_ID).get_json()
 
         assert body['valid'] is False
-        assert 'already mounted' in body['errors'][0]['message']
+        assert 'already in this Rack' in body['errors'][0]['message']
+
+    def test_an_object_held_by_another_rack_validates_like_a_free_one(self, rest_api) -> None:
+        """
+        Mounting it there simply moves it, so the dry run must not call it invalid
+
+        It stays silent about the move: the picker row the candidate came from already names the rack it
+        is in, so saying it twice would be noise.
+        """
+        _mount(rest_api)
+
+        body = self._validate(rest_api, rack_id=OTHER_RACK_ID).get_json()
+
+        assert body == {'valid': True, 'errors': []}
 
     def test_another_rack_is_rejected(self, rest_api) -> None:
         """Racks do not nest, and the dry run says so before the drop"""
@@ -1221,7 +1300,7 @@ class TestValidateMount:
 
     def test_a_failed_read_is_a_400(self, rest_api) -> None:
         """A database failure is reported, not escaped"""
-        with patch.object(RackMountsManager, 'is_object_mounted',
+        with patch.object(RackMountsManager, 'get_mount_of_object',
                           side_effect=RackMountsManagerGetError('boom')):
             response = self._validate(rest_api)
 
@@ -1229,7 +1308,7 @@ class TestValidateMount:
 
     def test_an_unexpected_error_is_a_500(self, rest_api) -> None:
         """An unanticipated failure is an internal error"""
-        with patch.object(RackMountsManager, 'is_object_mounted', side_effect=RuntimeError('boom')):
+        with patch.object(RackMountsManager, 'get_mount_of_object', side_effect=RuntimeError('boom')):
             response = self._validate(rest_api)
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR

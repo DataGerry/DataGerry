@@ -16,14 +16,14 @@
 """
 Functional tests for rack membership in the CmdbLocation tree, over the REST routes
 
-The point of the whole design is that **both kinds of member end up in the same place**: one whose type has a
-location field and one whose type has none both hang off the rack's node, so how a customer happened to model
-a type never decides whether their device appears in the tree. Every test here checks the real
-`framework.locations` documents rather than a response body.
+A member hangs off its rack's node through its own location field, which is why only a type declaring one may
+be mounted at all. Every test here checks the real `framework.locations` documents rather than a response body.
 
-Also covered end to end: that the tree follows MEMBERSHIP (unplacing moves nothing), that a rack gaining,
-moving and losing a location drags its members with it, that leaving a rack or deleting the rack DELETES the
-members' nodes rather than promoting them, and the two drift guards
+Covered end to end: that mounting places the member under the rack, that a type without a location field is
+refused outright, that MOVING a member to another rack re-points its existing node rather than replacing it,
+that the tree follows MEMBERSHIP (unplacing moves nothing), that a rack gaining, moving and losing a location
+drags its members with it, that leaving a rack or deleting the rack DELETES the members' nodes rather than
+promoting them, and the drift guard on the object form
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -32,7 +32,6 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.database.predefined_data.predefined_data_constants import LocationManagedBy
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.rack_model import CmdbRackMount, RackArea
@@ -50,11 +49,15 @@ WITH_LOCATION_TYPE_ID: int = 9652     # a type that HAS a location field
 WITHOUT_LOCATION_TYPE_ID: int = 9653  # a type that has NONE - the D1 case
 
 RACK_ID: int = 9661
+OTHER_RACK_ID: int = 9663             # the rack a member is moved into
 PARENT_OBJECT_ID: int = 9662          # owns the location the rack is placed under
 MEMBER_WITH_FIELD_ID: int = 9671
-MEMBER_WITHOUT_FIELD_ID: int = 9672
+SECOND_MEMBER_ID: int = 9673          # a second mountable member
+MEMBER_WITHOUT_FIELD_ID: int = 9672   # unmountable: its type declares no location field
+CHILD_OBJECT_ID: int = 9674           # hangs under MEMBER_WITH_FIELD_ID in the tree
 
 PARENT_NODE_ID: int = 9681
+OTHER_PARENT_NODE_ID: int = 9682
 
 RACK_HEIGHT: int = 42
 LOCATION_FIELD: str = 'dg_location'
@@ -62,7 +65,11 @@ NAME_FIELD: str = 'dg-name'
 ROOT_NODE_ID: int = 1
 
 ALL_TYPE_IDS: list[int] = [RACK_TYPE_ID, WITH_LOCATION_TYPE_ID, WITHOUT_LOCATION_TYPE_ID]
-ALL_OBJECT_IDS: list[int] = [RACK_ID, PARENT_OBJECT_ID, MEMBER_WITH_FIELD_ID, MEMBER_WITHOUT_FIELD_ID]
+ALL_OBJECT_IDS: list[int] = [
+    RACK_ID, OTHER_RACK_ID, PARENT_OBJECT_ID, MEMBER_WITH_FIELD_ID, SECOND_MEMBER_ID,
+    MEMBER_WITHOUT_FIELD_ID, CHILD_OBJECT_ID,
+]
+ALL_NODE_IDS: list[int] = [PARENT_NODE_ID, OTHER_PARENT_NODE_ID]
 
 SEED_AUTHOR_ID: int = 1
 SEED_VERSION: str = '1.0.0'
@@ -125,6 +132,7 @@ def _object_doc(public_id: int, type_id: int, name: str, location: Any = None,
     if height is not None:
         fields.append({'type': 'number', 'name': RackField.HEIGHT.value, 'value': height})
 
+    # Both of these declare a location field; WITHOUT_LOCATION_TYPE_ID is the one that does not
     if type_id in (RACK_TYPE_ID, WITH_LOCATION_TYPE_ID):
         fields.append({'type': 'location', 'name': LOCATION_FIELD, 'value': location})
 
@@ -168,14 +176,17 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
     objects.delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
     locations.delete_many({'object_id': {'$in': ALL_OBJECT_IDS}})
-    locations.delete_many({'public_id': PARENT_NODE_ID})
-    mounts.delete_many({'rack_id': RACK_ID})
+    locations.delete_many({'public_id': {'$in': ALL_NODE_IDS}})
+    mounts.delete_many({'rack_id': {'$in': [RACK_ID, OTHER_RACK_ID]}})
 
     objects.insert_many([
         _object_doc(PARENT_OBJECT_ID, WITH_LOCATION_TYPE_ID, 'datacenter', ROOT_NODE_ID),
         _object_doc(RACK_ID, RACK_TYPE_ID, 'rack-a', None, height=RACK_HEIGHT),
+        _object_doc(OTHER_RACK_ID, RACK_TYPE_ID, 'rack-b', None, height=RACK_HEIGHT),
         _object_doc(MEMBER_WITH_FIELD_ID, WITH_LOCATION_TYPE_ID, 'server-01', None),
+        _object_doc(SECOND_MEMBER_ID, WITH_LOCATION_TYPE_ID, 'server-02', None),
         _object_doc(MEMBER_WITHOUT_FIELD_ID, WITHOUT_LOCATION_TYPE_ID, 'switch-01'),
+        _object_doc(CHILD_OBJECT_ID, WITH_LOCATION_TYPE_ID, 'blade-01', None),
     ])
     locations.insert_one({
         'public_id': PARENT_NODE_ID,
@@ -192,37 +203,38 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
     objects.delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
     locations.delete_many({'object_id': {'$in': ALL_OBJECT_IDS}})
-    locations.delete_many({'public_id': PARENT_NODE_ID})
-    mounts.delete_many({'rack_id': RACK_ID})
+    locations.delete_many({'public_id': {'$in': ALL_NODE_IDS}})
+    mounts.delete_many({'rack_id': {'$in': [RACK_ID, OTHER_RACK_ID]}})
 
 
-def _rack_payload(location: Any, height: int = RACK_HEIGHT) -> dict[str, Any]:
+def _rack_payload(location: Any, height: int = RACK_HEIGHT, rack_id: int = RACK_ID,
+                  name: str = 'rack-a') -> dict[str, Any]:
     """The full Rack payload PUT /objects/<id> expects"""
     return {
-        'public_id': RACK_ID,
+        'public_id': rack_id,
         'type_id': RACK_TYPE_ID,
         'active': True,
         'author_id': SEED_AUTHOR_ID,
         'version': SEED_VERSION,
         'fields': [
-            {'type': 'text', 'name': RackField.NAME.value, 'value': 'rack-a'},
+            {'type': 'text', 'name': RackField.NAME.value, 'value': name},
             {'type': 'number', 'name': RackField.HEIGHT.value, 'value': height},
             {'type': 'location', 'name': LOCATION_FIELD, 'value': location},
         ],
     }
 
 
-def _place_rack(rest_api, node_id: Any = PARENT_NODE_ID):
-    """Gives the rack a location through the ordinary object route"""
-    return rest_api.put(f'{OBJECTS_URL}/{RACK_ID}', json=_rack_payload(node_id))
+def _place_rack(rest_api, node_id: Any = PARENT_NODE_ID, rack_id: int = RACK_ID, name: str = 'rack-a'):
+    """Gives a rack a location through the ordinary object route"""
+    return rest_api.put(f'{OBJECTS_URL}/{rack_id}', json=_rack_payload(node_id, RACK_HEIGHT, rack_id, name))
 
 
-def _mount(rest_api, object_id: int, **body: Any):
-    """Mounts an object into the rack"""
+def _mount(rest_api, object_id: int, rack_id: int = RACK_ID, **body: Any):
+    """Mounts an object into a rack"""
     payload: dict[str, Any] = {'object_id': object_id}
     payload.update(body)
 
-    return rest_api.post(f'{RACKS_URL}/{RACK_ID}/mounts/', json=payload)
+    return rest_api.post(f'{RACKS_URL}/{rack_id}/mounts/', json=payload)
 
 
 def _node_of(locations, object_id: int) -> dict[str, Any] | None:
@@ -230,13 +242,13 @@ def _node_of(locations, object_id: int) -> dict[str, Any] | None:
     return locations.find_one({'object_id': object_id})
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                       both branches land in the same place                                           #
+#                                        a member lands under its rack                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestBothBranches:
-    """A member with a location field and one without both end up under the rack"""
+class TestMemberPlacement:
+    """Mounting an object hangs it off the rack's node through its own location field"""
 
     def test_a_member_whose_type_has_a_location_field_is_placed(self, rest_api, collections) -> None:
-        """The field branch: the field is driven and the ordinary mirror creates the node"""
+        """The field is driven and the ordinary mirror creates the node"""
         _, locations, _ = collections
         _place_rack(rest_api)
         rack_node = _node_of(locations, RACK_ID)
@@ -247,54 +259,38 @@ class TestBothBranches:
         assert node is not None
         assert node['parent'] == rack_node['public_id']
 
-    def test_a_member_whose_type_has_no_location_field_is_placed_too(self, rest_api, collections) -> None:
+    def test_a_member_whose_type_has_no_location_field_can_not_be_mounted(self, rest_api,
+                                                                          collections) -> None:
         """
-        The D1 case, and the reason this step exists
+        There is nowhere to record where the object is, so it can not be a member at all
 
-        There is no field to mirror, so the node is written directly - but it lands in the same place.
+        The picker never offers such an object either - this is the write path meeting the same rule.
         """
         _, locations, _ = collections
         _place_rack(rest_api)
-        rack_node = _node_of(locations, RACK_ID)
 
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        response = _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
 
-        node = _node_of(locations, MEMBER_WITHOUT_FIELD_ID)
-        assert node is not None
-        assert node['parent'] == rack_node['public_id']
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID) is None
 
-    def test_both_members_hang_off_the_same_rack_node(self, rest_api, collections) -> None:
-        """Indistinguishable in the tree, which is the whole point"""
+    def test_every_member_hangs_off_the_same_rack_node(self, rest_api, collections) -> None:
+        """One rack, one parent for all of it"""
         _, locations, _ = collections
         _place_rack(rest_api)
         rack_node = _node_of(locations, RACK_ID)
 
         _mount(rest_api, MEMBER_WITH_FIELD_ID)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
         parents = {
             _node_of(locations, MEMBER_WITH_FIELD_ID)['parent'],
-            _node_of(locations, MEMBER_WITHOUT_FIELD_ID)['parent'],
+            _node_of(locations, SECOND_MEMBER_ID)['parent'],
         }
         assert parents == {rack_node['public_id']}
 
-    def test_only_the_field_less_member_is_marked_as_managed(self, rest_api, collections) -> None:
-        """
-        The marker exists for the node the user cannot correct through a field
-
-        The field-driven node needs no marker: its own object's field says where it belongs.
-        """
-        _, locations, _ = collections
-        _place_rack(rest_api)
-
-        _mount(rest_api, MEMBER_WITH_FIELD_ID)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
-
-        assert _node_of(locations, MEMBER_WITH_FIELD_ID).get('managed_by') is None
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID)['managed_by'] == LocationManagedBy.RACK.value
-
-    def test_the_field_branch_writes_the_objects_location_field(self, rest_api, collections) -> None:
-        """The field is the record for that branch, so it has to actually be set"""
+    def test_mounting_writes_the_objects_location_field(self, rest_api, collections) -> None:
+        """The field is the record and the node derives from it, so it has to actually be set"""
         objects, locations, _ = collections
         _place_rack(rest_api)
         rack_node = _node_of(locations, RACK_ID)
@@ -316,9 +312,9 @@ class TestTreeFollowsMembership:
         _, locations, _ = collections
         _place_rack(rest_api)
 
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID) is not None
+        assert _node_of(locations, SECOND_MEMBER_ID) is not None
 
     def test_unplacing_a_member_does_not_move_it(self, rest_api, collections) -> None:
         """
@@ -328,26 +324,26 @@ class TestTreeFollowsMembership:
         """
         _, locations, _ = collections
         _place_rack(rest_api)
-        response = _mount(rest_api, MEMBER_WITHOUT_FIELD_ID,
+        response = _mount(rest_api, SECOND_MEMBER_ID,
                           area=RackArea.FRONT.value, start_slot=10, height=2)
         mount_id = response.get_json()['result_id']
-        before = _node_of(locations, MEMBER_WITHOUT_FIELD_ID)['parent']
+        before = _node_of(locations, SECOND_MEMBER_ID)['parent']
 
         rest_api.patch(f'{RACKS_URL}/{RACK_ID}/mounts/{mount_id}',
                        json={'area': RackArea.UNASSIGNED.value})
 
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID)['parent'] == before
+        assert _node_of(locations, SECOND_MEMBER_ID)['parent'] == before
 
     def test_a_height_shrink_does_not_move_a_member(self, rest_api, collections) -> None:
         """The displaced member keeps its place in the tree - it is still a member"""
         _, locations, _ = collections
         _place_rack(rest_api)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID, area=RackArea.FRONT.value, start_slot=30, height=2)
-        before = _node_of(locations, MEMBER_WITHOUT_FIELD_ID)['parent']
+        _mount(rest_api, SECOND_MEMBER_ID, area=RackArea.FRONT.value, start_slot=30, height=2)
+        before = _node_of(locations, SECOND_MEMBER_ID)['parent']
 
         rest_api.put(f'{OBJECTS_URL}/{RACK_ID}', json=_rack_payload(PARENT_NODE_ID, height=10))
 
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID)['parent'] == before
+        assert _node_of(locations, SECOND_MEMBER_ID)['parent'] == before
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                    the rack's own location drives the members                                        #
@@ -359,9 +355,9 @@ class TestRackLocationDrivesMembers:
         """There is nowhere to hang it - the documented "then they do not need to be displayed\""""
         _, locations, _ = collections
 
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID) is None
+        assert _node_of(locations, SECOND_MEMBER_ID) is None
 
     def test_giving_the_rack_a_location_places_its_existing_members(self, rest_api, collections) -> None:
         """
@@ -371,27 +367,27 @@ class TestRackLocationDrivesMembers:
         """
         _, locations, _ = collections
         _mount(rest_api, MEMBER_WITH_FIELD_ID)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID) is None
+        _mount(rest_api, SECOND_MEMBER_ID)
+        assert _node_of(locations, SECOND_MEMBER_ID) is None
 
         _place_rack(rest_api)
 
         rack_node = _node_of(locations, RACK_ID)
         assert _node_of(locations, MEMBER_WITH_FIELD_ID)['parent'] == rack_node['public_id']
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID)['parent'] == rack_node['public_id']
+        assert _node_of(locations, SECOND_MEMBER_ID)['parent'] == rack_node['public_id']
 
     def test_moving_the_rack_moves_its_members(self, rest_api, collections) -> None:
         """The members' nodes are re-pointed, not duplicated"""
         _, locations, _ = collections
         _place_rack(rest_api)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
         _place_rack(rest_api, ROOT_NODE_ID)
 
         rack_node = _node_of(locations, RACK_ID)
         assert rack_node['parent'] == ROOT_NODE_ID
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID)['parent'] == rack_node['public_id']
-        assert locations.count_documents({'object_id': MEMBER_WITHOUT_FIELD_ID}) == 1
+        assert _node_of(locations, SECOND_MEMBER_ID)['parent'] == rack_node['public_id']
+        assert locations.count_documents({'object_id': SECOND_MEMBER_ID}) == 1
 
     def test_the_rack_losing_its_location_removes_its_members(self, rest_api, collections) -> None:
         """
@@ -402,22 +398,121 @@ class TestRackLocationDrivesMembers:
         _, locations, _ = collections
         _place_rack(rest_api)
         _mount(rest_api, MEMBER_WITH_FIELD_ID)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
         rest_api.put(f'{OBJECTS_URL}/{RACK_ID}', json=_rack_payload(None))
 
         assert _node_of(locations, MEMBER_WITH_FIELD_ID) is None
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID) is None
+        assert _node_of(locations, SECOND_MEMBER_ID) is None
 
     def test_members_are_not_promoted_to_the_racks_former_parent(self, rest_api, collections) -> None:
         """The explicit opposite of the generic re-parenting behaviour"""
         _, locations, _ = collections
         _place_rack(rest_api)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
         rest_api.put(f'{OBJECTS_URL}/{RACK_ID}', json=_rack_payload(None))
 
-        assert locations.count_documents({'parent': PARENT_NODE_ID, 'object_id': MEMBER_WITHOUT_FIELD_ID}) == 0
+        assert locations.count_documents({'parent': PARENT_NODE_ID, 'object_id': SECOND_MEMBER_ID}) == 0
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          moving between racks                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestMovingBetweenRacks:
+    """Mounting an object another rack holds moves it, and its node follows rather than being replaced"""
+
+    def test_the_member_hangs_off_the_new_rack(self, rest_api, collections) -> None:
+        """The move is the whole point of offering objects other racks hold"""
+        _, locations, _ = collections
+        _place_rack(rest_api)
+        _place_rack(rest_api, PARENT_NODE_ID, OTHER_RACK_ID, 'rack-b')
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+
+        _mount(rest_api, MEMBER_WITH_FIELD_ID, rack_id=OTHER_RACK_ID)
+
+        other_rack_node = _node_of(locations, OTHER_RACK_ID)
+        assert _node_of(locations, MEMBER_WITH_FIELD_ID)['parent'] == other_rack_node['public_id']
+
+    def test_the_node_keeps_its_public_id(self, rest_api, collections) -> None:
+        """
+        The existing node is re-pointed, not deleted and recreated
+
+        A new id would go stale for anything holding the old one, and the delete would promote the
+        member's own children onto the rack it just left.
+        """
+        _, locations, _ = collections
+        _place_rack(rest_api)
+        _place_rack(rest_api, PARENT_NODE_ID, OTHER_RACK_ID, 'rack-b')
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+        before: int = _node_of(locations, MEMBER_WITH_FIELD_ID)['public_id']
+
+        _mount(rest_api, MEMBER_WITH_FIELD_ID, rack_id=OTHER_RACK_ID)
+
+        assert _node_of(locations, MEMBER_WITH_FIELD_ID)['public_id'] == before
+
+    def test_the_member_leaves_exactly_one_node_behind(self, rest_api, collections) -> None:
+        """One object, one node - a move must not duplicate it"""
+        _, locations, _ = collections
+        _place_rack(rest_api)
+        _place_rack(rest_api, PARENT_NODE_ID, OTHER_RACK_ID, 'rack-b')
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+
+        _mount(rest_api, MEMBER_WITH_FIELD_ID, rack_id=OTHER_RACK_ID)
+
+        assert locations.count_documents({'object_id': MEMBER_WITH_FIELD_ID}) == 1
+
+    def test_the_objects_location_field_follows_the_move(self, rest_api, collections) -> None:
+        """The field is the record, so it has to name the new rack's node"""
+        objects, locations, _ = collections
+        _place_rack(rest_api)
+        _place_rack(rest_api, PARENT_NODE_ID, OTHER_RACK_ID, 'rack-b')
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+
+        _mount(rest_api, MEMBER_WITH_FIELD_ID, rack_id=OTHER_RACK_ID)
+
+        other_rack_node = _node_of(locations, OTHER_RACK_ID)
+        stored = objects.find_one({'public_id': MEMBER_WITH_FIELD_ID})
+        field = next(f for f in stored['fields'] if f['name'] == LOCATION_FIELD)
+        assert field['value'] == other_rack_node['public_id']
+
+    def test_moving_into_a_rack_without_a_location_takes_the_member_out_of_the_tree(
+        self, rest_api, collections,
+    ) -> None:
+        """
+        Leaving it where it was would show the object in a rack it no longer belongs to
+
+        The new rack has nowhere to hang it, so the node goes - the same outcome as a rack losing its
+        own location.
+        """
+        _, locations, _ = collections
+        _place_rack(rest_api)
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+        assert _node_of(locations, MEMBER_WITH_FIELD_ID) is not None
+
+        _mount(rest_api, MEMBER_WITH_FIELD_ID, rack_id=OTHER_RACK_ID)
+
+        assert _node_of(locations, MEMBER_WITH_FIELD_ID) is None
+
+    def test_a_child_of_the_moved_member_rides_along(self, rest_api, collections) -> None:
+        """
+        Nothing under the moved object is promoted onto the rack it left
+
+        This is what the re-point buys over a delete and recreate: delete_location promotes the direct
+        children onto the deleted node's own parent, which would strand them in the old rack.
+        """
+        _, locations, _ = collections
+        _place_rack(rest_api)
+        _place_rack(rest_api, PARENT_NODE_ID, OTHER_RACK_ID, 'rack-b')
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+
+        member_node_id: int = _node_of(locations, MEMBER_WITH_FIELD_ID)['public_id']
+        child_payload = _object_doc(CHILD_OBJECT_ID, WITH_LOCATION_TYPE_ID, 'blade-01', member_node_id)
+        child_payload.pop('creation_time')
+        rest_api.put(f'{OBJECTS_URL}/{CHILD_OBJECT_ID}', json=child_payload)
+
+        _mount(rest_api, MEMBER_WITH_FIELD_ID, rack_id=OTHER_RACK_ID)
+
+        assert _node_of(locations, CHILD_OBJECT_ID)['parent'] == member_node_id
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          leaving the rack (5a)                                                       #
@@ -429,11 +524,11 @@ class TestLeavingTheRack:
         """Leaving the rack means leaving the tree"""
         _, locations, _ = collections
         _place_rack(rest_api)
-        mount_id = _mount(rest_api, MEMBER_WITHOUT_FIELD_ID).get_json()['result_id']
+        mount_id = _mount(rest_api, SECOND_MEMBER_ID).get_json()['result_id']
 
         rest_api.delete(f'{RACKS_URL}/{RACK_ID}/mounts/{mount_id}')
 
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID) is None
+        assert _node_of(locations, SECOND_MEMBER_ID) is None
 
     def test_removing_a_field_driven_member_clears_its_field(self, rest_api, collections) -> None:
         """A field left pointing at a deleted node would fail the object's next edit"""
@@ -452,18 +547,18 @@ class TestLeavingTheRack:
         """5a: the mount row must not outlive the object it points at"""
         _, _, mounts = collections
         _place_rack(rest_api)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
-        rest_api.delete(f'{OBJECTS_URL}/{MEMBER_WITHOUT_FIELD_ID}')
+        rest_api.delete(f'{OBJECTS_URL}/{SECOND_MEMBER_ID}')
 
-        assert mounts.count_documents({'object_id': MEMBER_WITHOUT_FIELD_ID}) == 0
+        assert mounts.count_documents({'object_id': SECOND_MEMBER_ID}) == 0
 
     def test_deleting_the_rack_removes_every_membership(self, rest_api, collections) -> None:
         """5a: no mount row may outlive its rack"""
         _, _, mounts = collections
         _place_rack(rest_api)
         _mount(rest_api, MEMBER_WITH_FIELD_ID)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
         rest_api.delete(f'{OBJECTS_URL}/{RACK_ID}')
 
@@ -474,12 +569,12 @@ class TestLeavingTheRack:
         _, locations, _ = collections
         _place_rack(rest_api)
         _mount(rest_api, MEMBER_WITH_FIELD_ID)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
         rest_api.delete(f'{OBJECTS_URL}/{RACK_ID}')
 
         assert _node_of(locations, MEMBER_WITH_FIELD_ID) is None
-        assert _node_of(locations, MEMBER_WITHOUT_FIELD_ID) is None
+        assert _node_of(locations, SECOND_MEMBER_ID) is None
         assert locations.count_documents({'parent': PARENT_NODE_ID}) == 0
 
     def test_deleting_the_rack_keeps_the_member_objects(self, rest_api, collections) -> None:
@@ -487,12 +582,12 @@ class TestLeavingTheRack:
         objects, _, _ = collections
         _place_rack(rest_api)
         _mount(rest_api, MEMBER_WITH_FIELD_ID)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
         rest_api.delete(f'{OBJECTS_URL}/{RACK_ID}')
 
         assert objects.find_one({'public_id': MEMBER_WITH_FIELD_ID}) is not None
-        assert objects.find_one({'public_id': MEMBER_WITHOUT_FIELD_ID}) is not None
+        assert objects.find_one({'public_id': SECOND_MEMBER_ID}) is not None
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 the drift guards                                                     #
@@ -500,27 +595,17 @@ class TestLeavingTheRack:
 class TestDriftGuards:
     """The tree may not be talked out of agreeing with the rack"""
 
-    def test_a_rack_owned_node_can_not_be_moved_by_hand(self, rest_api, collections) -> None:
+    def test_a_members_node_can_not_be_re_parented_by_hand(self, rest_api, collections) -> None:
         """
         There is no field behind it and nothing in the object form to correct
 
         So a manual move would leave the tree disagreeing with the rack indefinitely.
         """
         _place_rack(rest_api)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
 
-        response = rest_api.patch(f'{LOCATIONS_URL}/{MEMBER_WITHOUT_FIELD_ID}/parent',
+        response = rest_api.patch(f'{LOCATIONS_URL}/{SECOND_MEMBER_ID}/parent',
                                   json={'parent': ROOT_NODE_ID})
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert 'managed by' in response.get_data(as_text=True)
-
-    def test_a_rack_owned_node_can_not_be_deleted_by_hand(self, rest_api, collections) -> None:
-        """Same reasoning as the move"""
-        _place_rack(rest_api)
-        _mount(rest_api, MEMBER_WITHOUT_FIELD_ID)
-
-        response = rest_api.delete(f'{LOCATIONS_URL}/{MEMBER_WITHOUT_FIELD_ID}/object')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 

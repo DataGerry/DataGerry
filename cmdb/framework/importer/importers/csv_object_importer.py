@@ -219,7 +219,10 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
                 values.append({
                     CmdbObjectMdsRowKey.MULTI_DATA_ID.value: len(values) + FIRST_MDS_ROW_ID,
                     CmdbObjectMdsRowKey.DATA.value: [
-                        {CmdbObjectFieldKey.NAME.value: name, CmdbObjectFieldKey.VALUE.value: value}
+                        {
+                            CmdbObjectFieldKey.NAME.value: name,
+                            CmdbObjectFieldKey.VALUE.value: CsvObjectImporter._blank_to_none(value),
+                        }
                         for name, value in cells
                     ],
                 })
@@ -266,6 +269,25 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             bool: True when the cell is None or an empty string
         """
         return value is None or value == ''
+
+
+    @staticmethod
+    def _blank_to_none(value):
+        """
+        Normalises an empty cell to the absent value
+
+        An empty cell carries no value, and DataGerry stores an unfilled field as None rather than as
+        an empty string - that is what an object written through the UI holds, and what the exporter
+        writes back out as an empty cell. Without this, an emptied field would come back as `''` and
+        read as a value that the object does not actually have
+
+        Args:
+            value: The parsed cell value
+
+        Returns:
+            The value, or None when the cell is blank
+        """
+        return None if CsvObjectImporter._is_blank(value) else value
 
 
     def generate_object(self, entry: dict, *args, **kwargs) -> dict:
@@ -381,7 +403,9 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
 
             fields.append({
                 CmdbObjectFieldKey.NAME.value: entry_field.get_name(),
-                CmdbObjectFieldKey.VALUE.value: entry.get(entry_field.get_value()),
+                CmdbObjectFieldKey.VALUE.value: CsvObjectImporter._blank_to_none(
+                    entry.get(entry_field.get_value())
+                ),
             })
 
         # Reference fields are kept but cleared (unresolvable on import); no ref_name lookup is done
