@@ -1,0 +1,68 @@
+<dg-modal icon="fas fa-server" eyebrow="Rack" [title]="title" (dismiss)="activeModal.dismiss()">
+
+  <form [formGroup]="form">
+    @if (isEditMode) {
+      <p>
+        Object: <strong>{{ mount?.summary_line || ('#' + mount?.object_id) }}</strong>
+      </p>
+    } @else {
+      <app-form-select label="Object" placeholder="Select an object..." bindLabel="summary_line" bindValue="public_id"
+        [items]="assignableObjects" [required]="true" [loading]="isFetchingPage" formControlName="objectId"
+        (selectedItemChange)="onObjectSelected()" (scrolledToEnd)="onAssignableScrollEnd()">
+      </app-form-select>
+
+      @if (assignableTotal) {
+        <p class="text-muted">
+          {{ assignableObjects.length }} of {{ assignableTotal }} assignable objects loaded &mdash; scroll for more.
+        </p>
+      }
+    }
+
+    <app-form-select label="Area" placeholder="Select an area..." bindLabel="label" bindValue="value"
+      [items]="areaOptions" [required]="true" formControlName="area">
+    </app-form-select>
+
+    @if (isSlotArea) {
+      <app-form-input label="Start slot" type="number" placeholder="Slot 1 is the bottom of the rack"
+        [required]="true" [errorMessage]="startSlotError" formControlName="startSlot">
+      </app-form-input>
+    }
+
+    @if (showsHeight) {
+      <app-form-input label="Height (U)" type="number" [required]="isSlotArea" [errorMessage]="heightError"
+        formControlName="height">
+      </app-form-input>
+    }
+
+    @if (showsPosition) {
+      <app-form-input label="Position (optional)" type="number"
+        placeholder="Leave empty to append to the end of the area" [errorMessage]="positionError"
+        formControlName="position">
+      </app-form-input>
+    }
+
+    @if (slotRangeHint) {
+      <p>{{ slotRangeHint }}</p>
+    }
+
+    @if (validationErrors.length) {
+      <div class="alert alert-danger" role="alert">
+        <ul class="mb-0">
+          @for (error of validationErrors; track $index) {
+            <li>{{ error }}</li>
+          }
+        </ul>
+      </div>
+    }
+  </form>
+
+  <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" (clicked)="activeModal.dismiss()">
+  </app-button>
+
+  <app-button dgModalFooter bootstrapClass="btn-primary" [label]="isEditMode ? 'Save' : 'Mount'"
+    [disabled]="form.invalid" (clicked)="onSubmit()">
+  </app-button>
+</dg-modal>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
+</app-loading-popup>

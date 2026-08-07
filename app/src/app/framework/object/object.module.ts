@@ -51,6 +51,9 @@ import { IpamTypeDistributionComponent } from './object-view/ipam-overview/compo
 import { IpamSupernetSubnetTableComponent } from './object-view/ipam-overview/components/ipam-supernet-subnet-table/ipam-supernet-subnet-table.component';
 import { IpamUnassignIpModalComponent } from './object-view/ipam-overview/components/ipam-unassign-ip-modal/ipam-unassign-ip-modal.component';
 import { IpamAssignIpModalComponent } from './object-view/ipam-overview/components/ipam-assign-ip-modal/ipam-assign-ip-modal.component';
+import { RackOverviewComponent } from './object-view/rack-overview/rack-overview.component';
+import { RackMountModalComponent } from './object-view/rack-overview/components/rack-mount-modal/rack-mount-modal.component';
+import { RackPlacementComponent } from './object-view/rack-overview/components/rack-placement/rack-placement.component';
 import { ObjectActionsComponent } from './components/object-actions/object-actions.component';
 import { ObjectViewMetaComponent } from './components/object-view-meta/object-view-meta.component';
 import { ObjectEditComponent } from './object-edit/object-edit.component';
@@ -109,6 +112,9 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         IpamSupernetSubnetTableComponent,
         IpamUnassignIpModalComponent,
         IpamAssignIpModalComponent,
+        RackOverviewComponent,
+        RackMountModalComponent,
+        RackPlacementComponent,
         ObjectActionsComponent,
         ObjectViewRenderComponent,
         ObjectViewMetaComponent,
