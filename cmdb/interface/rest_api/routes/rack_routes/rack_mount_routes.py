@@ -47,7 +47,7 @@ from cmdb.manager.rack_mounts_manager import RackMountsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.rack_model.rack_mount_constants import RackMountKey
+from cmdb.models.rack_model.rack_mount_constants import RackMountKey, RackMountKind
 
 from cmdb.utils.validation_error import build_error
 
@@ -68,6 +68,7 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 from cmdb.framework.rack.height_change import get_height_conflicts
+from cmdb.framework.rack.occupant_validator import read_stored_kind
 from cmdb.framework.rack.overview import build_mount_row, build_rack_overview
 
 from cmdb.interface.rest_api.routes.rack_routes.rack_location_helper import (
@@ -93,10 +94,13 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_height,
     get_rack_or_abort,
     get_requested_height_or_abort,
+    refuse_kind_change,
+    resolve_kind_or_abort,
     resolve_move_source_or_abort,
     resolve_mounted_object_meta,
     validate_member_object_or_abort,
     validate_placement_or_abort,
+    validate_shape_or_abort,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -145,18 +149,23 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
 
         rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id)
 
-        object_id: int = validate_member_object_or_abort(
-            objects_manager, types_manager, rack_id, payload.get(RackMountRequestKey.OBJECT_ID.value),
-        )
+        kind: str = resolve_kind_or_abort(payload)
 
-        # An object held by another rack is mounted by moving it out of that one. Resolved before the
-        # geometry is validated but removed after, so a refused placement leaves the object where it was
-        move_source: dict[str, Any] | None = resolve_move_source_or_abort(
-            rack_mounts_manager, rack_id, object_id,
-        )
+        object_id: int | None = None
+        move_source: dict[str, Any] | None = None
 
-        candidate: dict[str, Any] = build_mount_candidate(rack_id, object_id, payload)
+        if not RackMountKind.is_occupant(kind):
+            object_id = validate_member_object_or_abort(
+                objects_manager, types_manager, rack_id, payload.get(RackMountRequestKey.OBJECT_ID.value),
+            )
 
+            # An object held by another rack is mounted by moving it out of that one. Resolved before the
+            # geometry is validated but removed after, so a refused placement leaves it where it was
+            move_source = resolve_move_source_or_abort(rack_mounts_manager, rack_id, object_id)
+
+        candidate: dict[str, Any] = build_mount_candidate(rack_id, object_id, payload, kind)
+
+        validate_shape_or_abort(kind, payload, candidate)
         validate_placement_or_abort(rack_mounts_manager, candidate, get_rack_height(rack))
         assign_position_if_needed(rack_mounts_manager, candidate)
 
@@ -179,7 +188,8 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
 
         # The tree follows membership, so the member is placed under the rack as soon as it joins - whether
         # or not it was given a slot. A no-op while the rack itself has no location, unless the object
-        # arrived from another rack, where its node would otherwise be left behind
+        # arrived from another rack, where its node would otherwise be left behind. Also a no-op for an
+        # occupant, which names no object: the hook itself refuses a non-object id
         handle_mount_created(
             rack_id, object_id, request_user, objects_manager,
             ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user),
@@ -507,17 +517,26 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
         rack: dict[str, Any] = get_rack_or_abort(objects_manager, types_manager, rack_id)
         stored: dict[str, Any] = get_mount_of_rack_or_abort(rack_mounts_manager, rack_id, mount_id)
 
+        refuse_kind_change(stored, payload)
+        kind: str = read_stored_kind(stored)
+
         candidate: dict[str, Any] = apply_mount_changes(stored, payload)
 
+        validate_shape_or_abort(kind, payload, candidate)
         validate_placement_or_abort(
             rack_mounts_manager, candidate, get_rack_height(rack), exclude_mount_id=mount_id,
         )
         assign_position_if_needed(rack_mounts_manager, candidate)
 
-        # The identity, the membership and the authorship are never taken from the body
+        # The identity, the kind, the membership and the authorship are never taken from the body
         candidate[RackMountKey.PUBLIC_ID.value] = mount_id
         candidate[RackMountKey.RACK_ID.value] = rack_id
-        candidate[RackMountKey.OBJECT_ID.value] = stored[RackMountKey.OBJECT_ID.value]
+        candidate[RackMountKey.KIND.value] = kind
+
+        # Re-asserted rather than merged, and only when the row has one: an occupant OMITS the key, and
+        # writing it back as null would put it into the partial unique index
+        if RackMountKey.OBJECT_ID.value in stored:
+            candidate[RackMountKey.OBJECT_ID.value] = stored[RackMountKey.OBJECT_ID.value]
         candidate[RackMountKey.AUTHOR_ID.value] = stored.get(RackMountKey.AUTHOR_ID.value)
         candidate[RackMountKey.CREATION_TIME.value] = stored.get(RackMountKey.CREATION_TIME.value)
         candidate[RackMountKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
@@ -586,9 +605,10 @@ def delete_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
             abort(400, "Could not remove the object from the Rack!")
 
         # Leaving the rack means leaving the tree - unlike merely being unplaced, which keeps the member
-        # under the rack because the tree follows membership
+        # under the rack because the tree follows membership. An occupant carries no object_id and never
+        # had a node, so the hook refuses the id rather than the route testing the kind here
         handle_mount_removed(
-            mount[RackMountKey.OBJECT_ID.value],
+            mount.get(RackMountKey.OBJECT_ID.value),
             request_user,
             objects_manager,
             ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user),

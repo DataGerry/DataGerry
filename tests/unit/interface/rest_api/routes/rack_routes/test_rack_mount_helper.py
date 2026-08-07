@@ -20,6 +20,7 @@ Managers are mocked, so these assert the decisions each step makes rather than a
 requests are refused and with which status, that the rack and the object never come from the body, how a
 PATCH is merged onto the stored mount, and that unplacing frees the slots while keeping the height hint
 """
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -28,6 +29,7 @@ import pytest
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.rack_model import RackArea
+from cmdb.models.rack_model.rack_mount_constants import RackMountKind
 from cmdb.models.special_type_model.rack_constants import RackField
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -43,8 +45,9 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_height,
     get_rack_or_abort,
     get_requested_height_or_abort,
-    is_flag_enabled,
     is_rack_type,
+    refuse_kind_change,
+    resolve_kind_or_abort,
     resolve_assigned_racks,
     resolve_move_source_or_abort,
     resolve_mounted_object_meta,
@@ -53,6 +56,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     normalize_geometry_value,
     validate_member_object_or_abort,
     validate_placement_or_abort,
+    validate_shape_or_abort,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -905,17 +909,129 @@ def test_a_mount_whose_rack_vanished_contributes_no_hint() -> None:
 
     assert resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID]) == {}
 
+
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                              is_flag_enabled                                                         #
+#                                        the row kinds - build and merge                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize('raw_value', ['true', 'True', 'TRUE', ' true '], ids=str)
-def test_a_flag_is_on_for_true_in_any_casing(raw_value: str) -> None:
-    """A query parameter typed by hand is as likely to read 'TRUE'"""
-    assert is_flag_enabled(raw_value) is True
+def test_a_candidate_defaults_to_the_mount_kind() -> None:
+    """A client that predates the reservations keeps creating mounts without saying so"""
+    candidate = build_mount_candidate(RACK_ID, OBJECT_ID, {})
+
+    assert candidate['kind'] == RackMountKind.MOUNT.value
+    assert candidate['object_id'] == OBJECT_ID
 
 
-@pytest.mark.parametrize('raw_value', [None, '', 'false', '1', 'yes', 'nonsense'], ids=str)
-def test_a_flag_is_off_unless_explicitly_asked_for(raw_value: Any) -> None:
-    """An unrecognised value means the default list, never a 400 - a stale frontend still works"""
-    assert is_flag_enabled(raw_value) is False
+def test_an_occupant_candidate_omits_the_object_id_entirely() -> None:
+    """
+    Omitted, not stored as null
+
+    The unique index is partial on the field's presence, and a stored null would still be indexed - so
+    the second occupant in the collection would be refused with a duplicate-key error.
+    """
+    candidate = build_mount_candidate(RACK_ID, None, {}, RackMountKind.BLOCKER.value)
+
+    assert 'object_id' not in candidate
+    assert candidate['kind'] == RackMountKind.BLOCKER.value
+
+
+def test_a_reservation_candidate_carries_its_dates_and_colour() -> None:
+    """Parsed on the way in, so what is stored is a datetime rather than whatever string arrived"""
+    candidate = build_mount_candidate(RACK_ID, None, {
+        'start_date': '2026-09-01', 'end_date': '2026-09-30', 'color': '#4CAF50',
+    }, RackMountKind.RESERVATION.value)
+
+    assert candidate['start_date'] == datetime(2026, 9, 1)
+    assert candidate['end_date'] == datetime(2026, 9, 30)
+    assert candidate['color'] == '#4CAF50'
+
+
+def test_a_blocker_candidate_carries_no_reservation_fields_at_all() -> None:
+    """Not even as nulls - a blocker has no date range to speak of"""
+    candidate = build_mount_candidate(RACK_ID, None, {}, RackMountKind.BLOCKER.value)
+
+    assert 'start_date' not in candidate
+    assert 'end_date' not in candidate
+    assert 'color' not in candidate
+
+
+def test_a_label_is_carried_on_any_kind() -> None:
+    """The one descriptive field that is not reservation-specific"""
+    assert build_mount_candidate(RACK_ID, None, {'label': 'Metal frame'},
+                                 RackMountKind.BLOCKER.value)['label'] == 'Metal frame'
+
+
+def test_a_patch_can_edit_a_reservations_descriptive_fields() -> None:
+    """Each is editable on its own, without re-sending the geometry"""
+    stored = _stored_mount(kind=RackMountKind.RESERVATION.value, label='old', color='#000000')
+
+    candidate = apply_mount_changes(stored, {'label': 'new', 'color': '#4CAF50'})
+
+    assert candidate['label'] == 'new'
+    assert candidate['color'] == '#4CAF50'
+    assert candidate['start_slot'] == stored['start_slot']
+
+
+def test_a_patch_can_clear_a_reservation_date() -> None:
+    """Both ends are optional, so removing one has to be expressible"""
+    stored = _stored_mount(kind=RackMountKind.RESERVATION.value, end_date=datetime(2026, 9, 30))
+
+    assert apply_mount_changes(stored, {'end_date': None})['end_date'] is None
+
+
+def test_a_patch_parses_a_date_it_is_given() -> None:
+    """A JSON body carries a string; what is stored is a datetime"""
+    stored = _stored_mount(kind=RackMountKind.RESERVATION.value)
+
+    assert apply_mount_changes(stored, {'start_date': '2026-09-01'})['start_date'] == datetime(2026, 9, 1)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          the kind route guards                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_resolving_an_absent_kind_yields_mount() -> None:
+    """The default that keeps every existing client working"""
+    assert resolve_kind_or_abort({}) == RackMountKind.MOUNT.value
+
+
+def test_resolving_an_unknown_kind_aborts_400() -> None:
+    """Refused rather than defaulted - a misspelling must not create the wrong kind of row"""
+    with pytest.raises(HTTPException) as err:
+        resolve_kind_or_abort({'kind': 'RESERVATON'})
+
+    assert err.value.code == 400
+
+
+def test_a_wrong_shaped_row_aborts_400_with_every_reason() -> None:
+    """One corrected payload rather than one refusal per request"""
+    with pytest.raises(HTTPException) as err:
+        validate_shape_or_abort(
+            RackMountKind.BLOCKER.value,
+            {'object_id': OBJECT_ID, 'color': '#4CAF50'},
+            {'area': RackArea.FRONT.value},
+        )
+
+    assert err.value.code == 400
+    assert 'object_id' in err.value.description
+    assert 'color' in err.value.description
+
+
+def test_a_well_shaped_row_passes_the_guard() -> None:
+    """The happy path writes nothing and raises nothing"""
+    validate_shape_or_abort(RackMountKind.MOUNT.value, {'object_id': OBJECT_ID},
+                            {'area': RackArea.FRONT.value})
+
+
+def test_changing_the_kind_of_a_stored_row_aborts_400() -> None:
+    """A reservation is deleted and re-created as a mount, never converted in place"""
+    with pytest.raises(HTTPException) as err:
+        refuse_kind_change(_stored_mount(kind=RackMountKind.RESERVATION.value),
+                           {'kind': RackMountKind.MOUNT.value})
+
+    assert err.value.code == 400
+
+
+def test_echoing_the_stored_kind_back_is_allowed() -> None:
+    """A client that PATCHes the whole row must not be refused for sending what is already there"""
+    refuse_kind_change(_stored_mount(kind=RackMountKind.RESERVATION.value),
+                       {'kind': RackMountKind.RESERVATION.value})

@@ -27,8 +27,11 @@ Server-side behaviour of the Rack View feature
   - height_change: what a height reduction does to the mounts that no longer fit - they are UNPLACED
       into the rack's unassigned bucket, never deleted. Backs both the shrink pre-check route and the
       post-write hook on the object update path
-  - overview: the pure projection of one rack for drawing - the mounts grouped per area, each resolved to
-      the mounted object's summary line and its type's label, icon and colour
+  - occupant_validator: the per-kind SHAPE rules - which fields a MOUNT, a RESERVATION and a BLOCKER may
+      carry, the optional reservation date range and its ordering, and the '#RRGGBB' colour
+  - overview: the pure projection of one rack for drawing - the rows grouped per area, each resolved to
+      the mounted object's summary line and its type's label, icon and colour, plus the two legends
+      (the distinct types the rack holds, and the reservations and blockers it holds)
 
 Field and section name enums are imported from cmdb.models.special_type_model.rack_constants and the
 mount's own enums from cmdb.models.rack_model; the validation messages and limits live in
@@ -39,6 +42,7 @@ from cmdb.framework.rack.rack_constants import (
     RackLimits,
     RackMountError,
     RackMountLimits,
+    RackOccupantError,
     RackOverviewKey,
     RackValidationError,
 )
@@ -61,13 +65,24 @@ from cmdb.framework.rack.mount_validator import (
     validate_mount_placement,
     validate_mount_shape,
 )
+from cmdb.framework.rack.occupant_validator import (
+    area_blocker,
+    coerce_kind,
+    date_order_blocker,
+    date_value_blockers,
+    field_blockers,
+    kind_change_blocker,
+    read_stored_kind,
+    shape_blockers,
+    unknown_kind_blocker,
+)
 from cmdb.framework.rack.height_change import (
     find_mounts_beyond_height,
     get_height_conflicts,
     handle_rack_height_change,
     unplace_mounts_beyond_height,
 )
-from cmdb.framework.rack.overview import build_mount_row, build_rack_overview
+from cmdb.framework.rack.overview import build_mount_row, build_occupants_legend, build_rack_overview
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -75,6 +90,7 @@ __all__: list[str] = [
     'RackLimits',
     'RackMountError',
     'RackMountLimits',
+    'RackOccupantError',
     'RackOverviewKey',
     'RackValidationError',
     'coerce_rack_height',
@@ -90,10 +106,20 @@ __all__: list[str] = [
     'validate_mount_fits_rack',
     'validate_mount_placement',
     'validate_mount_shape',
+    'area_blocker',
+    'coerce_kind',
+    'date_order_blocker',
+    'date_value_blockers',
+    'field_blockers',
+    'kind_change_blocker',
+    'read_stored_kind',
+    'shape_blockers',
+    'unknown_kind_blocker',
     'find_mounts_beyond_height',
     'get_height_conflicts',
     'handle_rack_height_change',
     'unplace_mounts_beyond_height',
     'build_mount_row',
+    'build_occupants_legend',
     'build_rack_overview',
 ]
