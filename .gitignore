@@ -86,3 +86,5 @@ node_modules/
 # ui config-file
 etc/app-config.json
 etc/cmdb.conf
+app/src/environments/
+app/package-lock.json
