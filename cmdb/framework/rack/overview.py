@@ -19,10 +19,17 @@ Assembly of the rack overview - everything needed to draw one Rack
 Pure: the reads happen in the route helper and their results are passed in, so the whole projection is
 unit-testable without a database. Two things it computes rather than stores:
 
-  - the **buckets**: the rack's mounts grouped by area, each resolved to the object's summary line and
+  - the **buckets**: the rack's rows grouped by area, each resolved to the object's summary line and
     type metadata (label, icon, colour) so the frontend needs no follow-up request per mounted object
   - the **types legend**: one entry per distinct type among the rack's members, with how many of them
     carry it - the same metadata the rows already hold, tallied so a legend needs no scan of the buckets
+  - the **occupants legend**: the same idea for the rows that have no type - how many reservations and
+    blockers the rack holds, and how much of its height they hold
+
+A bucket holds every kind of row: a MOUNT, and the two occupant kinds that name no CmdbObject. Each row
+says which it is in ``kind``, so the grid styles a reservation differently from a blocker without
+inferring it from which fields happen to be null. The type keys are null on an occupant and the
+reservation keys are null on everything else - one row shape, whatever the row is.
 
 Slot 1 is the bottom of the rack and the numbers increase upward; a mount is anchored at its ``start_slot``
 and extends downward from there (see cmdb.models.rack_model.rack_mount_helpers).
@@ -36,11 +43,13 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.object_model.cmdb_object_helpers import extract_field_value
-from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
+from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey, RackMountKind
+from cmdb.models.rack_model.rack_mount_helpers import occupied_slots_of
 from cmdb.models.special_type_model.rack_constants import RackField
 
 from cmdb.framework.rack.rack_constants import RackOverviewKey
 from cmdb.framework.rack.mount_validator import coerce_slot_value
+from cmdb.framework.rack.occupant_validator import read_stored_kind
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -53,11 +62,16 @@ def build_mount_row(
         type_meta: dict[int, dict[str, Any]],
         object_types: dict[int, int]) -> dict[str, Any]:
     """
-    Projects one mount into the row the rack view draws
+    Projects one row of the rack into what the rack view draws
 
-    Carries the mount's own geometry plus enough about the mounted object to render it without a
-    follow-up request. An object that no longer resolves keeps its slots and is reported with no summary
-    line rather than dropped - a hole in the layout would be a worse lie than an unnamed block
+    Carries the row's own geometry plus, for a MOUNT, enough about the mounted object to render it
+    without a follow-up request. An object that no longer resolves keeps its slots and is reported with
+    no summary line rather than dropped - a hole in the layout would be a worse lie than an unnamed block,
+    and the same holds for an occupant, which never had an object to resolve.
+
+    Every key is present on every row. An occupant carries null type metadata, a MOUNT and a BLOCKER
+    carry null reservation fields, and `kind` says which the row is - so the grid switches on one key
+    instead of guessing from the nulls
 
     Args:
         mount (dict[str, Any]): The CmdbRackMount document
@@ -75,10 +89,15 @@ def build_mount_row(
     return {
         RackOverviewKey.MOUNT_ID.value: mount.get(RackMountKey.PUBLIC_ID.value),
         RackOverviewKey.OBJECT_ID.value: object_id,
+        RackOverviewKey.KIND.value: read_stored_kind(mount),
+        RackOverviewKey.LABEL.value: mount.get(RackMountKey.LABEL.value),
         RackOverviewKey.AREA.value: mount.get(RackMountKey.AREA.value),
         RackOverviewKey.START_SLOT.value: mount.get(RackMountKey.START_SLOT.value),
         RackOverviewKey.HEIGHT.value: mount.get(RackMountKey.HEIGHT.value),
         RackOverviewKey.POSITION.value: mount.get(RackMountKey.POSITION.value),
+        RackOverviewKey.START_DATE.value: mount.get(RackMountKey.START_DATE.value),
+        RackOverviewKey.END_DATE.value: mount.get(RackMountKey.END_DATE.value),
+        RackOverviewKey.COLOR.value: mount.get(RackMountKey.COLOR.value),
         RackOverviewKey.SUMMARY_LINE.value: summary_lines.get(object_id),
         RackOverviewKey.TYPE_ID.value: type_id,
         RackOverviewKey.TYPE_LABEL.value: meta.get(RackOverviewKey.TYPE_LABEL.value),
@@ -162,8 +181,10 @@ def build_types_legend(
 
     Follows MEMBERSHIP, not placement: an unplaced member is in the rack and its type belongs in the
     legend. The Rack's own type never appears - a Rack can not be mounted inside a Rack, so no mount
-    contributes it. A mount whose object no longer resolves has no type and is tallied nowhere, so the
-    counts can sum to less than the rack's total mount count
+    contributes it. A mount whose object no longer resolves has no type and is tallied nowhere, and
+    neither does a RESERVATION or a BLOCKER, which never had an object - so the counts can sum to less
+    than the rack's total row count. The legend stays types-only by design: an occupant tally is a
+    different thing and belongs beside it, not inside it
 
     Ordered by label with the type id as a tie-break: two types may carry the same label, and without
     the tie-break their order would wobble between two reads of the same rack
@@ -209,6 +230,51 @@ def build_types_legend(
     return legend
 
 
+def build_occupants_legend(mounts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Tallies the rack's reservations and blockers into the legend drawn beside the types legend
+
+    The counterpart of build_types_legend for the rows that have no type: an occupant is tallied by its
+    KIND instead. Together the two legends explain the rack's total row count, which the types legend
+    alone can not - it skips every row that names no resolvable object.
+
+    Two numbers per kind, because they answer different questions. ``count`` is how many rows there are
+    and follows MEMBERSHIP, so an unassigned blocker is still one blocker the user has to deal with.
+    ``slots`` is how much of the rack's height is actually held, so only a placed row contributes - an
+    unassigned one holds nothing, which is exactly what makes the unassigned bucket a to-do list.
+
+    A kind the rack does not hold is left out, the same way a type nobody uses is left out of the types
+    legend, so an ordinary rack renders no occupant legend at all rather than two zeroes. Ordered by kind
+    so two reads of the same rack agree
+
+    Args:
+        mounts (list[dict[str, Any]]): Every row of the rack, all areas
+
+    Returns:
+        list[dict[str, Any]]: One entry per occupant kind present, empty when the rack holds none
+    """
+    counts: dict[str, int] = {}
+    slots: dict[str, int] = {}
+
+    for mount in mounts:
+        kind: str = read_stored_kind(mount)
+
+        if not RackMountKind.is_occupant(kind):
+            continue
+
+        counts[kind] = counts.get(kind, 0) + 1
+        slots[kind] = slots.get(kind, 0) + len(occupied_slots_of(mount))
+
+    return [
+        {
+            RackOverviewKey.KIND.value: kind,
+            RackOverviewKey.COUNT.value: count,
+            RackOverviewKey.SLOTS.value: slots[kind],
+        }
+        for kind, count in sorted(counts.items())
+    ]
+
+
 def build_rack_header(rack: dict[str, Any], rack_height: int, display_name: str) -> dict[str, Any]:
     """
     Projects the Rack CmdbObject's own fields into the overview header
@@ -252,8 +318,13 @@ def build_rack_overview(
         object_types (dict[int, int]): {object_id: type_id}, from the same batch
 
     Returns:
-        dict[str, Any]: The overview document: the rack header, the types legend, the area buckets and
-                        the member count
+        dict[str, Any]: The overview document: the rack header, the two legends, the area buckets and the
+                        row count
+
+    Note ``total_mounts`` counts every ROW the rack holds, occupants included - they occupy the rack the
+    same way a mount does. The two legends account for that total between them: the types legend tallies
+    the rows that name a resolvable object, the occupants legend the rows that name none. A shortfall in
+    both is a mount whose object or type no longer resolves - drawn in its bucket, tallied nowhere
     """
     buckets: dict[str, list[dict[str, Any]]] = build_area_buckets(
         mounts, summary_lines, type_meta, object_types,
@@ -262,6 +333,7 @@ def build_rack_overview(
     return {
         RackOverviewKey.RACK.value: build_rack_header(rack, rack_height, display_name),
         RackOverviewKey.TYPES_LEGEND.value: build_types_legend(mounts, type_meta, object_types),
+        RackOverviewKey.OCCUPANTS_LEGEND.value: build_occupants_legend(mounts),
         RackOverviewKey.AREAS.value: buckets,
         RackOverviewKey.TOTAL_MOUNTS.value: sum(len(rows) for rows in buckets.values()),
     }

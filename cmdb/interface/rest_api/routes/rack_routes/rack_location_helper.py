@@ -16,6 +16,10 @@
 """
 Mirroring rack membership into the CmdbLocation tree
 
+**The tree mirrors CmdbObjects.** A RESERVATION or a BLOCKER names none, so it never appears in the tree
+at all - both mount hooks refuse anything that is not an object id, and every bulk path already filters on
+the same test.
+
 **The tree follows MEMBERSHIP, not placement.** An object assigned to a rack appears under it whether or
 not it is placed in a slot, so unplacing, re-slotting or a height-driven displacement never moves anything
 in the tree. Only joining, moving between racks and leaving do.
@@ -59,6 +63,23 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def is_object_id(value: Any) -> bool:
+    """
+    Reports whether a value identifies a CmdbObject, as opposed to an occupant row's missing id
+
+    The test both mount hooks apply before touching the tree. Booleans are excluded on purpose: bool is
+    an int subclass in Python, so a drifted `object_id: true` would otherwise pass as the object with
+    public_id 1 and hang a node under the rack for it - the same trap `coerce_whole_number` avoids
+
+    Args:
+        value (Any): The candidate object id
+
+    Returns:
+        bool: True when the value is a usable CmdbObject public_id
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
+
 
 def get_rack_location_node(locations_manager: LocationsManager, rack_id: int) -> dict[str, Any] | None:
     """
@@ -241,13 +262,20 @@ def detach_all_member_locations(
 
 def handle_mount_created(
         rack_id: int,
-        member_id: int,
+        member_id: Any,
         request_user: CmdbUser,
         objects_manager: ObjectsManager,
         locations_manager: LocationsManager,
         moved_from_rack: bool = False) -> None:
     """
     Mirrors a new membership into the tree
+
+    **A no-op unless it is given an object id.** The tree mirrors CmdbObjects, so a RESERVATION or a
+    BLOCKER - which names none - never gets a node. The guard lives here rather than at the call site so
+    the invariant is stated once, in the module that owns the tree, and holds for any future caller; it
+    is the same `isinstance(..., int)` test `get_member_object_ids`, `get_mounted_object_ids` and
+    `delete_rack_memberships` apply, and together they are the house rule "anything keyed on the mounted
+    object skips the rows that have none".
 
     When the new rack has a location the member is placed under it - which for a member arriving from
     another rack re-points the node it already had.
@@ -260,12 +288,15 @@ def handle_mount_created(
 
     Args:
         rack_id (int): public_id of the Rack
-        member_id (int): public_id of the newly mounted CmdbObject
+        member_id (Any): public_id of the newly mounted CmdbObject; anything else is an occupant row
         request_user (CmdbUser): The user performing the mount
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
         moved_from_rack (bool): True when the object was taken out of another rack to be mounted here
     """
+    if not is_object_id(member_id):
+        return
+
     rack_node: dict[str, Any] | None = get_rack_location_node(locations_manager, rack_id)
 
     if not rack_node:
@@ -281,22 +312,28 @@ def handle_mount_created(
 
 
 def handle_mount_removed(
-        member_id: int,
+        member_id: Any,
         request_user: CmdbUser,
         objects_manager: ObjectsManager,
         locations_manager: LocationsManager) -> None:
     """
     Removes a member from the tree when it is taken out of the rack
 
+    **A no-op unless it is given an object id**, for the same reason as handle_mount_created: an occupant
+    never had a node to remove.
+
     Note this is NOT called when a member is merely unplaced: the tree follows membership, so an object
     moved into the unassigned bucket keeps its place under the rack
 
     Args:
-        member_id (int): public_id of the CmdbObject removed from the rack
+        member_id (Any): public_id of the CmdbObject removed from the rack; anything else is an occupant
         request_user (CmdbUser): The user performing the removal
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
     """
+    if not is_object_id(member_id):
+        return
+
     detach_member_location(member_id, request_user, objects_manager, locations_manager)
 
 

@@ -41,10 +41,20 @@ class RackMountRequestKey(BaseStrEnum):
     RACK_ID is deliberately absent: the rack comes from the URL, never from the body, so a request can
     not move a mount into a different rack by editing its payload.
 
+    KIND says what is being created - a MOUNT (the default, so every existing client is unaffected), a
+    RESERVATION or a BLOCKER. OBJECT_ID belongs to a MOUNT alone; START_DATE, END_DATE and COLOR to a
+    RESERVATION alone; LABEL to any of them. Which of these a kind may carry is enforced by
+    cmdb.framework.rack.occupant_validator, which refuses the wrong ones rather than dropping them.
+
     MOUNT_ID is accepted by the pre-validation route only, to say "I am validating a MOVE of this existing
     mount" - which excludes it from its own overlap and membership checks, exactly as the PATCH does
     """
     OBJECT_ID = 'object_id'
+    KIND = 'kind'
+    LABEL = 'label'
+    START_DATE = 'start_date'
+    END_DATE = 'end_date'
+    COLOR = 'color'
     AREA = 'area'
     START_SLOT = 'start_slot'
     HEIGHT = 'height'

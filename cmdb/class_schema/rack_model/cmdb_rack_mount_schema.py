@@ -28,7 +28,7 @@ cross-document rule
 """
 from typing import Any
 
-from cmdb.models.rack_model.rack_mount_constants import RackArea
+from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKind
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_rack_mount_schema() -> dict[str, Any]:
@@ -46,9 +46,38 @@ def get_cmdb_rack_mount_schema() -> dict[str, Any]:
             'type': 'integer',
             'required': True,
         },
-        'object_id': {  # public_id of the mounted CmdbObject (unique - one rack per object)
+        'object_id': {  # public_id of the mounted CmdbObject (unique - one rack per object). Present
+                        # on a MOUNT row only; an occupant OMITS it, which is what lets the unique
+                        # index be partial. That a MOUNT requires one is a per-kind rule, checked by
+                        # cmdb.framework.rack.occupant_validator
             'type': 'integer',
-            'required': True,
+            'required': False,
+        },
+        'kind': {  # What the row represents - a mounted object, a reservation or a blocker
+            'type': 'string',
+            'required': False,
+            'allowed': [kind.value for kind in RackMountKind],
+            'default': RackMountKind.MOUNT.value,
+        },
+        'label': {  # Free text shown on the row, e.g. 'Reserved for DB cluster'
+            'type': 'string',
+            'nullable': True,
+            'required': False,
+        },
+        'start_date': {  # Start of a reservation's period; purely descriptive, never a rule
+            'type': 'datetime',
+            'nullable': True,
+            'required': False,
+        },
+        'end_date': {  # End of a reservation's period; equally descriptive
+            'type': 'datetime',
+            'nullable': True,
+            'required': False,
+        },
+        'color': {  # A reservation's '#RRGGBB' colour; null lets the frontend choose
+            'type': 'string',
+            'nullable': True,
+            'required': False,
         },
         'area': {  # Where in the rack the object sits; UNASSIGNED means "member, not placed"
             'type': 'string',

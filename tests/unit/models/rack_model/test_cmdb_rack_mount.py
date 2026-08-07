@@ -25,7 +25,8 @@ from typing import Any
 
 import pytest
 
-from cmdb.models.rack_model import CmdbRackMount, RackArea, RackMountKey
+from cmdb.models.rack_model import CmdbRackMount, RackArea
+from cmdb.models.rack_model.rack_mount_constants import RackMountKind, RackMountKey
 from cmdb.errors.models.cmdb_rack_mount import (
     CmdbRackMountInitError,
     CmdbRackMountInitFromDataError,
@@ -237,3 +238,80 @@ def test_a_broken_instance_raises_the_models_to_json_error() -> None:
 
     with pytest.raises(CmdbRackMountToJsonError):
         CmdbRackMount.to_json(instance)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          the row kinds and their fields                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_a_row_without_a_kind_reads_as_a_mount() -> None:
+    """Which is what every row written before the kinds existed is"""
+    assert CmdbRackMount.from_data(_mount_data()).kind == RackMountKind.MOUNT.value
+
+
+def test_a_stored_kind_survives_the_round_trip() -> None:
+    """The discriminator the grid draws from"""
+    mount = CmdbRackMount.from_data(_mount_data(kind=RackMountKind.BLOCKER.value))
+
+    assert CmdbRackMount.to_json(mount)['kind'] == RackMountKind.BLOCKER.value
+
+
+def test_an_occupant_needs_no_object_id() -> None:
+    """It holds space and names no CmdbObject, so the model must not demand one"""
+    data = _mount_data(kind=RackMountKind.RESERVATION.value)
+    data.pop('object_id')
+
+    assert CmdbRackMount.from_data(data).object_id is None
+
+
+def test_the_reservation_fields_survive_the_round_trip() -> None:
+    """The three fields a reservation adds"""
+    mount = CmdbRackMount.from_data(_mount_data(
+        kind=RackMountKind.RESERVATION.value,
+        start_date=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        end_date=datetime(2026, 9, 30, tzinfo=timezone.utc),
+        color='#4CAF50',
+        label='Reserved for DB cluster',
+    ))
+
+    stored = CmdbRackMount.to_json(mount)
+    assert stored['start_date'] == datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assert stored['end_date'] == datetime(2026, 9, 30, tzinfo=timezone.utc)
+    assert stored['color'] == '#4CAF50'
+    assert stored['label'] == 'Reserved for DB cluster'
+
+
+def test_a_reservation_date_arriving_as_a_string_is_parsed() -> None:
+    """A drifted document holding an ISO string still loads as a datetime"""
+    mount = CmdbRackMount.from_data(_mount_data(start_date='2026-09-01T00:00:00Z'))
+
+    assert isinstance(mount.start_date, datetime)
+
+
+def test_an_unusable_reservation_date_loads_as_none() -> None:
+    """
+    Lenient where the audit timestamps are strict
+
+    A malformed reservation date is refused by the routes with a readable 400 long before it could be
+    stored, so a drifted one here must not stop the whole row from loading.
+    """
+    assert CmdbRackMount.from_data(_mount_data(start_date='not-a-date')).start_date is None
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            the partial unique index                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_the_object_id_index_is_partial_on_the_fields_presence() -> None:
+    """
+    What lets many occupants coexist while one rack per object still holds
+
+    A unique index treats every missing value as the same null, so without the filter the SECOND
+    occupant in the whole collection would be refused with a duplicate-key error. The filter is the
+    field's presence rather than kind == MOUNT so that a row written before the kinds existed - which
+    has an object_id but no kind - keeps its guarantee.
+    """
+    index = next(model.document for model in CmdbRackMount.get_index_keys()
+                 if model.document['name'] == 'object_id')
+
+    assert index['unique'] is True
+    assert index['partialFilterExpression'] == {'object_id': {'$exists': True}}

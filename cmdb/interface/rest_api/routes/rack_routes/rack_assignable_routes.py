@@ -50,6 +50,8 @@ from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerGetError
 
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.utils.helpers import is_truthy_query_arg
+
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetMultiResponse
@@ -64,7 +66,6 @@ from cmdb.framework.rack.assignable_objects import (
 from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import RackMountParam, RackRight
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_or_abort,
-    is_flag_enabled,
     shape_assignable_page,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -118,7 +119,7 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
 
         # Every mounted object when the caller asked for free ones only, otherwise just this rack's own
         # members - the objects in another rack stay in the list and are offered as a move
-        only_unmounted: bool = is_flag_enabled(request.args.get(RackMountParam.ONLY_UNMOUNTED.value))
+        only_unmounted: bool = is_truthy_query_arg(request.args.get(RackMountParam.ONLY_UNMOUNTED.value))
 
         excluded_object_ids: list[int] = (
             rack_mounts_manager.get_mounted_object_ids() if only_unmounted

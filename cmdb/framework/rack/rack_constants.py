@@ -55,6 +55,9 @@ class RackOverviewKey(BaseStrEnum):
     """
     RACK = 'rack'
     TYPES_LEGEND = 'types_legend'
+    # The tally beside the types legend: how many reservations and blockers the rack holds, and how much
+    # of its height they hold. Separate from TYPES_LEGEND because an occupant has no type to tally under
+    OCCUPANTS_LEGEND = 'occupants_legend'
     AREAS = 'areas'
     TOTAL_MOUNTS = 'total_mounts'
 
@@ -71,6 +74,17 @@ class RackOverviewKey(BaseStrEnum):
     START_SLOT = 'start_slot'
     POSITION = 'position'
     SUMMARY_LINE = 'summary_line'
+
+    # What the row is - a RackMountKind value. Always present, so the grid picks its styling from one key
+    # rather than inferring it from which of the others happen to be null
+    KIND = 'kind'
+    # Free text on any row: a reservation's purpose, what a blocker physically is
+    LABEL = 'label'
+    # A reservation's descriptive period and colour. Present on every row and null on the kinds that can
+    # not carry them, so the frontend reads one row shape rather than one per kind
+    START_DATE = 'start_date'
+    END_DATE = 'end_date'
+    COLOR = 'color'
     TYPE_ID = 'type_id'
     TYPE_LABEL = 'type_label'
     TYPE_ICON = 'type_icon'
@@ -81,6 +95,10 @@ class RackOverviewKey(BaseStrEnum):
     # How many of the rack's members carry a legend entry's type. Only ever set on a legend entry - a mount
     # row is one object, so a count there would always be 1
     COUNT = 'count'
+
+    # How many U an occupants-legend entry holds in total. Only the placed rows contribute: an unassigned
+    # reservation is still counted by COUNT, but it occupies no slot to add here
+    SLOTS = 'slots'
 
     # Which rack a picker candidate is currently in, null when it is in none. Only ever set on an
     # assignable-objects row: a mount row is by definition in the rack being drawn. Mounting such a
@@ -130,8 +148,29 @@ class RackMountError(BaseStrEnum):
     INVALID_POSITION = 'The position must be a whole number of at least {minimum}, but was {value}!'
 
 
+class RackOccupantError(BaseStrEnum):
+    """
+    Messages reported when a Rack row carries fields its kind does not allow
+
+    The geometry rules live in RackMountError; these are the per-kind SHAPE rules - which fields belong
+    to a MOUNT, a RESERVATION and a BLOCKER. Every one is a business-rule rejection surfaced as an
+    HTTP 400. Members with a `{...}` placeholder are filled via `format()`
+    """
+    UNKNOWN_KIND = "'{kind}' is not a valid Rack row kind. Allowed: {allowed}"
+    OBJECT_ID_ON_OCCUPANT = 'A {kind} holds space and names no CmdbObject, so it can not carry an ' \
+                            'object_id!'
+    RESERVATION_FIELD_ON_OTHER_KIND = "'{field}' belongs to a RESERVATION and can not be set on a {kind}!"
+    INVALID_DATE = "'{value}' is not a valid {field} - expected a date or a timestamp!"
+    END_BEFORE_START = 'The end_date of a RESERVATION can not be before its start_date!'
+    INVALID_COLOR = "'{value}' is not a valid color - expected the form '#RRGGBB'!"
+    INVALID_LABEL = 'The label of a Rack row must be text!'
+    OCCUPANT_IN_SIDE_AREA = 'A {kind} can only be placed in the {allowed} areas, or left unassigned!'
+    KIND_IS_IMMUTABLE = 'The kind of a Rack row can not be changed - delete it and create the new one!'
+
+
 ABORT_PREFIX: str = 'Rack validation failed'
 MOUNT_ABORT_PREFIX: str = 'Rack mount validation failed'
+OCCUPANT_ABORT_PREFIX: str = 'Rack row validation failed'
 
 
 class RackMountLimits:

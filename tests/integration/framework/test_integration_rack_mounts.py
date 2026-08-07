@@ -37,6 +37,7 @@ from pymongo.errors import DuplicateKeyError
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.rack_mounts_manager import RackMountsManager
 from cmdb.models.rack_model import CmdbRackMount, RackArea
+from cmdb.models.rack_model.rack_mount_constants import RackMountKind
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RACK_ID: int = 46101
@@ -311,3 +312,103 @@ def test_get_mounts_of_objects_resolves_a_whole_page(mounts, manager: RackMounts
 def test_get_mounts_of_objects_skips_the_free_candidates(mounts, manager: RackMountsManager) -> None:
     """A page of free objects contributes no hint and no rack read"""
     assert manager.get_mounts_of_objects([OBJECT_ID, OTHER_OBJECT_ID]) == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       the partial index and the occupants                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def _occupant_doc(public_id: int, kind: str, start_slot: int, rack_id: int = RACK_ID) -> dict[str, Any]:
+    """
+    Builds a stored occupant row - a reservation or a blocker
+
+    It OMITS object_id rather than storing null, which is the whole point: the unique index is partial on
+    the field's presence, and a stored null would still be indexed.
+    """
+    return {
+        'public_id': public_id,
+        'rack_id': rack_id,
+        'kind': kind,
+        'label': 'held',
+        'area': RackArea.FRONT.value,
+        'start_slot': start_slot,
+        'height': 1,
+        'position': None,
+        'author_id': 1,
+        'creation_time': datetime.now(timezone.utc),
+        'last_edit_time': None,
+    }
+
+
+def test_the_object_id_index_is_partial_on_the_fields_presence(mounts) -> None:
+    """
+    The declaration really produces a PARTIAL unique index
+
+    Guards against the filter being dropped: nothing else in the codebase would notice, because index
+    reconciliation is name-based and never compares options - and the symptom would be a duplicate-key
+    error on the second occupant, which points nowhere near the cause.
+    """
+    index = mounts.index_information()['object_id']
+
+    assert index.get('unique') is True
+    assert index.get('partialFilterExpression') == {'object_id': {'$exists': True}}
+
+
+def test_many_occupants_coexist_in_one_collection(mounts) -> None:
+    """
+    What the partial filter buys
+
+    A unique index treats every missing value as the same null, so without it the SECOND occupant
+    anywhere in the installation would be refused - "multiple blockers are possible" would not work.
+    """
+    mounts.insert_many([
+        _occupant_doc(MOUNT_IDS[0], RackMountKind.BLOCKER.value, 20),
+        _occupant_doc(MOUNT_IDS[1], RackMountKind.BLOCKER.value, 15),
+        _occupant_doc(MOUNT_IDS[2], RackMountKind.RESERVATION.value, 10),
+    ])
+
+    assert mounts.count_documents({'rack_id': RACK_ID}) == 3
+
+
+def test_occupants_do_not_weaken_one_rack_per_object(mounts) -> None:
+    """The guarantee still holds for the rows that DO name an object"""
+    mounts.insert_one(_occupant_doc(MOUNT_IDS[0], RackMountKind.BLOCKER.value, 20))
+    mounts.insert_one(_mount_doc(MOUNT_IDS[1], OBJECT_ID, RackArea.FRONT.value, start_slot=1, height=1))
+
+    with pytest.raises(DuplicateKeyError):
+        mounts.insert_one(
+            _mount_doc(MOUNT_IDS[2], OBJECT_ID, RackArea.BACK.value, start_slot=1, height=1),
+        )
+
+
+def test_a_legacy_row_without_a_kind_keeps_its_guarantee(mounts) -> None:
+    """
+    Why the filter is the field's presence rather than kind == MOUNT
+
+    A row written before the kinds existed carries an object_id but no kind. A kind-based filter would
+    quietly stop guaranteeing anything for it; the presence-based one still does.
+    """
+    legacy = _mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.FRONT.value, start_slot=1, height=1)
+    legacy.pop('kind', None)
+    mounts.insert_one(legacy)
+
+    with pytest.raises(DuplicateKeyError):
+        mounts.insert_one(
+            _mount_doc(MOUNT_IDS[1], OBJECT_ID, RackArea.BACK.value, start_slot=1, height=1),
+        )
+
+
+def test_the_member_ids_of_a_rack_skip_its_occupants(mounts, manager: RackMountsManager) -> None:
+    """
+    Anything keyed on the mounted object must skip the rows that have none
+
+    The same house rule the location hooks apply - an occupant is not a member, so it must not reach the
+    picker's exclusion list or the location tree.
+    """
+    mounts.insert_many([
+        _occupant_doc(MOUNT_IDS[0], RackMountKind.BLOCKER.value, 20),
+        _mount_doc(MOUNT_IDS[1], OBJECT_ID, RackArea.FRONT.value, start_slot=1, height=1),
+    ])
+
+    assert manager.get_member_object_ids(RACK_ID) == [OBJECT_ID]
+    assert manager.get_mounted_object_ids() == [OBJECT_ID]

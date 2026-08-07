@@ -14,15 +14,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the implementation of CmdbRackMount, binding a CmdbObject to a Rack
+This module contains the implementation of CmdbRackMount, a row occupying space in a Rack
 """
 from logging import Logger, getLogger
 from datetime import datetime, timezone
 from typing import Any
+
 from dateutil.parser import parse
 
+from cmdb.utils.helpers import coerce_datetime
+
 from cmdb.models.cmdb_dao import CmdbDAO
-from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
+from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey, RackMountKind
 from cmdb.models.rack_model.rack_mount_helpers import occupied_slots_of
 
 from cmdb.class_schema.rack_model.cmdb_rack_mount_schema import get_cmdb_rack_mount_schema
@@ -41,27 +44,50 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbRackMount(CmdbDAO):
     """
-    A CmdbRackMount binds one CmdbObject to one Rack
+    A CmdbRackMount is one row occupying space in a Rack
 
-    The document's EXISTENCE is the object's membership of the rack; its GEOMETRY is the placement
-    within the rack, and that is optional - an UNASSIGNED mount is a member sitting nowhere yet. The
-    mount row is the single authority on both: the rack view, the location tree and the CI-Explorer are
-    all projections of it, never the other way round.
+    A MOUNT row binds one CmdbObject to the rack: the document's EXISTENCE is the object's membership,
+    its GEOMETRY is the placement, and the geometry is optional - an UNASSIGNED mount is a member
+    sitting nowhere yet. The row is the single authority on both: the rack view, the location tree and
+    the CI-Explorer are all projections of it, never the other way round.
 
-    Which geometry keys an area requires, and whether a placement collides, is enforced by
-    cmdb.framework.rack.mount_validator - not by the document schema, which can only describe shape
+    A RESERVATION or BLOCKER row names no CmdbObject; it holds space. Same document, same geometry
+    rules, same overlap check - only the kind and what the grid draws differ. An occupant is never
+    mirrored into the location tree, because the tree mirrors CmdbObjects.
+
+    Which geometry keys an area requires and whether a placement collides is enforced by
+    cmdb.framework.rack.mount_validator; which fields a kind may carry, by
+    cmdb.framework.rack.occupant_validator. Neither is expressible in the document schema, which can
+    only describe shape per field
 
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.rackMounts'
     MODEL = 'RackMount'
-    REQUIRED_INIT_KEYS: list[str] = ['rack_id', 'object_id', 'area']
+    # object_id is deliberately absent: an occupant row has none. That a MOUNT requires one is a
+    # per-kind rule, checked by the occupant validator where the kind is known
+    REQUIRED_INIT_KEYS: list[str] = ['rack_id', 'area']
 
     INDEX_KEYS: list[dict[str, Any]] = [
         # An object belongs to at most one rack, and only once - the UNASSIGNED bucket counts as
         # membership, so this also stops an object being unplaced in one rack and placed in another.
-        # This index is the actual guarantee; nothing else enforces it
-        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': True},
+        # This index is the actual guarantee; nothing else enforces it.
+        #
+        # Partial because an occupant row OMITS object_id, and a unique index treats every missing
+        # value as the same null - without the filter the second occupant in the whole collection would
+        # be refused with a duplicate-key error.
+        #
+        # The filter is the field's PRESENCE rather than kind == MOUNT, which is the stricter of the
+        # two: it also covers a row written before the kinds existed (such a row has an object_id but
+        # no kind, and a kind-based filter would quietly stop guaranteeing anything for it). It relies
+        # on the occupant row omitting the key rather than storing null - which build_mount_candidate
+        # does, and the update path re-asserts only when the key is already there
+        {
+            'keys': [('object_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'object_id',
+            'unique': True,
+            'partialFilterExpression': {'object_id': {'$exists': True}},
+        },
         {'keys': [('rack_id', CmdbDAO.DAO_ASCENDING)], 'name': 'rack_id', 'unique': False},
         # Every read of a rack is "one rack, one area": the overview's buckets and the overlap check
         # both filter on exactly this pair, so it is served from one index instead of a rack-wide scan
@@ -78,13 +104,18 @@ class CmdbRackMount(CmdbDAO):
     SCHEMA: dict = get_cmdb_rack_mount_schema()
 
 
-    #pylint: disable=R0913, R0917
+    #pylint: disable=R0913, R0914, R0917
     def __init__(
             self,
             public_id: int,
             rack_id: int,
-            object_id: int,
             area: str,
+            object_id: int | None = None,
+            kind: str = RackMountKind.MOUNT.value,
+            label: str | None = None,
+            start_date: datetime | None = None,
+            end_date: datetime | None = None,
+            color: str | None = None,
             start_slot: int | None = None,
             height: int | None = None,
             position: int | None = None,
@@ -96,9 +127,17 @@ class CmdbRackMount(CmdbDAO):
 
         Args:
             public_id (int): public_id of the CmdbRackMount
-            rack_id (int): public_id of the Rack CmdbObject the object is mounted in
-            object_id (int): public_id of the mounted CmdbObject
-            area (str): A RackArea value - where in the rack the object sits
+            rack_id (int): public_id of the Rack CmdbObject the row belongs to
+            area (str): A RackArea value - where in the rack the row sits
+            object_id (int | None): public_id of the mounted CmdbObject; None on an occupant row,
+                                    which holds space without naming an object
+            kind (str): A RackMountKind value. Defaults to MOUNT, which is also what a row written
+                        before the kinds existed reads as
+            label (str | None): Free text shown on the row, e.g. 'Reserved for DB cluster'
+            start_date (datetime | None): Start of a reservation's period. Purely descriptive - it
+                                          never affects whether the row blocks its slots
+            end_date (datetime | None): End of a reservation's period, equally descriptive
+            color (str | None): A reservation's '#RRGGBB' colour; None lets the frontend choose
             start_slot (int | None): The U the mount is anchored at - its TOPMOST occupied slot,
                                      since a mount extends downward; None for a side or unassigned mount
             height (int | None): Occupied U count; None for a side mount, retained as a hint when
@@ -113,7 +152,12 @@ class CmdbRackMount(CmdbDAO):
         """
         try:
             self.rack_id: int = rack_id
-            self.object_id: int = object_id
+            self.object_id: int | None = object_id
+            self.kind: str = kind
+            self.label: str | None = label
+            self.start_date: datetime | None = start_date
+            self.end_date: datetime | None = end_date
+            self.color: str | None = color
             self.area: str = area
             self.start_slot: int | None = start_slot
             self.height: int | None = height
@@ -157,11 +201,20 @@ class CmdbRackMount(CmdbDAO):
                 public_id = data.get('public_id'),
                 rack_id = data.get('rack_id'),
                 object_id = data.get('object_id'),
+                kind = data.get('kind', RackMountKind.MOUNT.value),
+                label = data.get('label'),
+                start_date = coerce_datetime(data.get('start_date')),
+                end_date = coerce_datetime(data.get('end_date')),
+                color = data.get('color'),
                 area = data.get('area'),
                 start_slot = data.get('start_slot'),
                 height = data.get('height'),
                 position = data.get('position'),
                 author_id = data.get('author_id'),
+                # The audit timestamps parse strictly: an unusable one surfaces as the model's own
+                # error rather than silently becoming "now". The reservation dates above are lenient
+                # instead, because the routes refuse an unusable one with a readable 400 before it is
+                # ever stored
                 creation_time = creation_time,
                 last_edit_time = last_edit_time,
             )
@@ -188,6 +241,11 @@ class CmdbRackMount(CmdbDAO):
                 'public_id': instance.get_public_id(),
                 'rack_id': instance.rack_id,
                 'object_id': instance.object_id,
+                'kind': instance.kind,
+                'label': instance.label,
+                'start_date': instance.start_date,
+                'end_date': instance.end_date,
+                'color': instance.color,
                 'area': instance.area,
                 'start_slot': instance.start_slot,
                 'height': instance.height,

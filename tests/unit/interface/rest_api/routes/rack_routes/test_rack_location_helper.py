@@ -30,6 +30,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.interface.rest_api.routes.rack_routes.rack_location_helper import (
     attach_all_member_locations,
@@ -425,3 +427,54 @@ def test_the_rack_node_lookup_is_by_the_racks_own_object_id() -> None:
 
     assert get_rack_location_node(manager, RACK_ID) == rack_node
     manager.get_location_for_object.assert_called_once_with(RACK_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        occupants never reach the tree                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize('member_id', [None, 'nonsense', 3.5, True], ids=str)
+def test_creating_an_occupant_row_places_nothing(member_id: Any) -> None:
+    """
+    The tree mirrors CmdbObjects, and a RESERVATION or a BLOCKER names none
+
+    The guard lives in the hook rather than at the call site, so the invariant holds for any future
+    caller - the route does not have to remember to test the kind before calling.
+    """
+    locations_manager = _locations_manager(rack_node={'public_id': RACK_NODE_ID, 'object_id': RACK_ID})
+
+    with patch(f'{HELPER_PATH}.attach_member_location') as attach, \
+         patch(f'{HELPER_PATH}.detach_member_location') as detach:
+        handle_mount_created(RACK_ID, member_id, MagicMock(), MagicMock(), locations_manager)
+
+    attach.assert_not_called()
+    detach.assert_not_called()
+
+
+def test_an_occupant_row_is_not_even_looked_up() -> None:
+    """The guard runs before the rack's own node is read, so an occupant costs no query"""
+    locations_manager = _locations_manager()
+
+    handle_mount_created(RACK_ID, None, MagicMock(), MagicMock(), locations_manager)
+
+    locations_manager.get_location_for_object.assert_not_called()
+
+
+@pytest.mark.parametrize('member_id', [None, 'nonsense', 3.5, True], ids=str)
+def test_deleting_an_occupant_row_detaches_nothing(member_id: Any) -> None:
+    """It never had a node to remove"""
+    with patch(f'{HELPER_PATH}.detach_member_location') as detach:
+        handle_mount_removed(member_id, MagicMock(), MagicMock(), MagicMock())
+
+    detach.assert_not_called()
+
+
+def test_a_moved_occupant_is_not_detached_either() -> None:
+    """The moved_from_rack branch is guarded by the same test"""
+    locations_manager = _locations_manager(rack_node=None)
+
+    with patch(f'{HELPER_PATH}.detach_member_location') as detach:
+        handle_mount_created(RACK_ID, None, MagicMock(), MagicMock(), locations_manager,
+                             moved_from_rack=True)
+
+    detach.assert_not_called()

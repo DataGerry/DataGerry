@@ -29,9 +29,11 @@ from flask import abort
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.rack_mounts_manager import RackMountsManager
 
+from cmdb.utils.helpers import coerce_datetime
+
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.object_model.cmdb_object_helpers import extract_field_value
-from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
+from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey, RackMountKind
 from cmdb.models.special_type_model.rack_constants import RackField
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.type_model.field_key_enum import FieldKey
@@ -40,6 +42,7 @@ from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 
 from cmdb.framework.rack.rack_constants import (
     MOUNT_ABORT_PREFIX,
+    OCCUPANT_ABORT_PREFIX,
     RackDisplayName,
     RackLimits,
     RackMountError,
@@ -47,6 +50,14 @@ from cmdb.framework.rack.rack_constants import (
 )
 from cmdb.framework.rack.rack_validator import coerce_rack_height
 from cmdb.framework.rack.mount_validator import coerce_slot_value, validate_mount_placement
+from cmdb.framework.rack.occupant_validator import (
+    DATE_KEYS,
+    coerce_kind,
+    kind_change_blocker,
+    read_stored_kind,
+    shape_blockers,
+    unknown_kind_blocker,
+)
 from cmdb.framework.rack.assignable_objects import build_assignable_rows
 
 from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import (
@@ -64,9 +75,6 @@ GEOMETRY_KEYS: tuple[RackMountKey, ...] = (
     RackMountKey.POSITION,
 )
 
-# The only value that turns a boolean query parameter on
-PARAM_TRUE: str = 'true'
-
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def format_mount_errors_for_abort(errors: list[str]) -> str:
@@ -80,6 +88,90 @@ def format_mount_errors_for_abort(errors: list[str]) -> str:
         str: 'Rack mount validation failed: <msg1> | <msg2> | ...'
     """
     return f"{MOUNT_ABORT_PREFIX}: {' | '.join(errors)}"
+
+
+def format_shape_errors_for_abort(errors: list[str]) -> str:
+    """
+    Joins the occupant validator's messages into one string for Flask's abort(400, ...)
+
+    A different prefix from the geometry one, because these are two different failures: "this row may not
+    carry that field" versus "this placement does not fit"
+
+    Args:
+        errors (list[str]): The accumulated validator messages
+
+    Returns:
+        str: 'Rack row validation failed: <msg1> | <msg2> | ...'
+    """
+    return f"{OCCUPANT_ABORT_PREFIX}: {' | '.join(errors)}"
+
+
+def resolve_kind_or_abort(payload: dict[str, Any]) -> str:
+    """
+    Reads what kind of row a request is creating, aborting 400 on an unknown kind
+
+    An absent kind means MOUNT, so a client that predates the reservations and blockers keeps working
+    unchanged. A misspelled one is refused rather than defaulted - silently creating a mount for
+    'RESERVATON' would be worse than saying no
+
+    Args:
+        payload (dict[str, Any]): The request body
+
+    Raises:
+        HTTPException: 400 when the body names a kind that does not exist
+
+    Returns:
+        str: The RackMountKind value of the row being created
+    """
+    blocker: str | None = unknown_kind_blocker(payload.get(RackMountRequestKey.KIND.value))
+
+    if blocker:
+        abort(400, blocker)
+
+    return coerce_kind(payload.get(RackMountRequestKey.KIND.value))
+
+
+def validate_shape_or_abort(kind: str, payload: dict[str, Any], candidate: dict[str, Any]) -> None:
+    """
+    Checks a row carries only the fields its kind allows, aborting 400 with every reason at once
+
+    The write path's wrapper around the occupant validator's aggregate
+
+    Args:
+        kind (str): The RackMountKind value of the row
+        payload (dict[str, Any]): The request body
+        candidate (dict[str, Any]): The row as it would be persisted
+
+    Raises:
+        HTTPException: 400 when a field does not belong to the kind, a date is unusable, the date range
+                       ends before it starts, the colour is malformed, or an occupant is put in a side area
+    """
+    errors: list[str] = shape_blockers(kind, payload, candidate)
+
+    if errors:
+        abort(400, format_shape_errors_for_abort(errors))
+
+
+def refuse_kind_change(stored: dict[str, Any], payload: dict[str, Any]) -> None:
+    """
+    Aborts 400 when a PATCH would change what an existing row is
+
+    A reservation is never converted into a mount in place, and a mount never becomes a blocker: the row
+    is deleted and the new one created. Echoing the same kind back is not a change
+
+    Args:
+        stored (dict[str, Any]): The row as currently persisted
+        payload (dict[str, Any]): The PATCH body
+
+    Raises:
+        HTTPException: 400 when the body names a different kind
+    """
+    blocker: str | None = kind_change_blocker(
+        read_stored_kind(stored), payload.get(RackMountRequestKey.KIND.value),
+    )
+
+    if blocker:
+        abort(400, blocker)
 
 
 def get_rack_or_abort(
@@ -362,28 +454,49 @@ def resolve_move_source_or_abort(
     return existing_mount
 
 
-def build_mount_candidate(rack_id: int, object_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+def build_mount_candidate(
+        rack_id: int,
+        object_id: int | None,
+        payload: dict[str, Any],
+        kind: str = RackMountKind.MOUNT.value) -> dict[str, Any]:
     """
-    Builds the mount document a create request would persist
+    Builds the row a create request would persist
 
     The rack and the object are taken from the resolved arguments, never from the body, and the geometry
-    is normalised: a value the request omits is stored as None rather than left absent, so a mount
-    document always has the same shape. The area defaults to UNASSIGNED, which makes a bare
-    {"object_id": N} request mean "assign to this rack without placing it"
+    is normalised: a value the request omits is stored as None rather than left absent, so a row always
+    has the same shape. The area defaults to UNASSIGNED, which makes a bare {"object_id": N} request mean
+    "assign to this rack without placing it".
+
+    An occupant row (a RESERVATION or a BLOCKER) is given no object_id at all - the key is OMITTED rather
+    than stored as None, because the unique index is partial on the kind and a stored null would still be
+    indexed. Its label and, for a reservation, its date range and colour come straight from the body,
+    already judged by the occupant validator
 
     Args:
         rack_id (int): public_id of the Rack
-        object_id (int): public_id of the CmdbObject to mount
+        object_id (int | None): public_id of the CmdbObject to mount; None for an occupant
         payload (dict[str, Any]): The request body
+        kind (str): The RackMountKind value of the row. Defaults to MOUNT
 
     Returns:
-        dict[str, Any]: The candidate mount document, without its public_id or audit fields
+        dict[str, Any]: The candidate row, without its public_id or audit fields
     """
     candidate: dict[str, Any] = {
         RackMountKey.RACK_ID.value: rack_id,
-        RackMountKey.OBJECT_ID.value: object_id,
+        RackMountKey.KIND.value: kind,
         RackMountKey.AREA.value: payload.get(RackMountRequestKey.AREA.value, RackArea.UNASSIGNED.value),
+        RackMountKey.LABEL.value: payload.get(RackMountRequestKey.LABEL.value),
     }
+
+    if not RackMountKind.is_occupant(kind):
+        candidate[RackMountKey.OBJECT_ID.value] = object_id
+
+    if kind == RackMountKind.RESERVATION.value:
+        candidate[RackMountKey.START_DATE.value] = coerce_datetime(
+            payload.get(RackMountRequestKey.START_DATE.value))
+        candidate[RackMountKey.END_DATE.value] = coerce_datetime(
+            payload.get(RackMountRequestKey.END_DATE.value))
+        candidate[RackMountKey.COLOR.value] = payload.get(RackMountRequestKey.COLOR.value)
 
     for key in GEOMETRY_KEYS:
         candidate[key.value] = normalize_geometry_value(payload.get(key.value))
@@ -397,14 +510,17 @@ def apply_mount_changes(stored: dict[str, Any], payload: dict[str, Any]) -> dict
 
     Only the keys the request actually carries are applied, so a body naming just an area moves the
     mount without touching its geometry. Moving INTO the unassigned bucket clears the placement while
-    keeping the height as a hint, so re-placing the object can pre-fill the size the user already chose
+    keeping the height as a hint, so re-placing the object can pre-fill the size the user already chose.
+
+    The descriptive fields merge the same way - a reservation's label, dates and colour are each editable
+    on their own, and passing null clears one. The kind is NOT merged: what a row is never changes
 
     Args:
-        stored (dict[str, Any]): The mount as currently persisted
+        stored (dict[str, Any]): The row as currently persisted
         payload (dict[str, Any]): The PATCH body
 
     Returns:
-        dict[str, Any]: The merged candidate mount document
+        dict[str, Any]: The merged candidate row
     """
     candidate: dict[str, Any] = dict(stored)
 
@@ -414,6 +530,16 @@ def apply_mount_changes(stored: dict[str, Any], payload: dict[str, Any]) -> dict
     for key in GEOMETRY_KEYS:
         if key.value in payload:
             candidate[key.value] = normalize_geometry_value(payload[key.value])
+
+    if RackMountRequestKey.LABEL.value in payload:
+        candidate[RackMountKey.LABEL.value] = payload[RackMountRequestKey.LABEL.value]
+
+    for key in DATE_KEYS:
+        if key.value in payload:
+            candidate[key.value] = coerce_datetime(payload[key.value])
+
+    if RackMountRequestKey.COLOR.value in payload:
+        candidate[RackMountKey.COLOR.value] = payload[RackMountRequestKey.COLOR.value]
 
     if candidate.get(RackMountKey.AREA.value) == RackArea.UNASSIGNED.value:
         # Unplacing frees the slots and drops the ordering of the area it left, but the height stays:
@@ -790,24 +916,6 @@ def get_requested_height_or_abort(raw_height: Any) -> int:
     return height
 
 
-def is_flag_enabled(raw_value: str | None) -> bool:
-    """
-    Reads a boolean query parameter
-
-    Off unless the caller explicitly asked for it: an absent, empty or unrecognised value means off,
-    never an error, so a stale frontend passing something odd gets the default list rather than a 400.
-    Case-insensitive, unlike the older `onlyActiveObjCookie` check, because a query parameter typed by
-    hand is as likely to read 'TRUE'
-
-    Args:
-        raw_value (str | None): The raw query parameter value
-
-    Returns:
-        bool: True when the flag is on
-    """
-    return isinstance(raw_value, str) and raw_value.strip().lower() == PARAM_TRUE
-
-
 def get_area_filter_or_abort(raw_area: str | None) -> str | None:
     """
     Validates an optional ?area= filter
@@ -843,10 +951,15 @@ def collect_mount_blockers(
     """
     Returns every reason a candidate mount would be refused, writing nothing
 
-    Runs the same three checks the write path runs, in the same order, through the same blocker cores - so
-    the dry run cannot answer "yes" to a placement the write would refuse, or vice versa. Short-circuits
-    after the membership checks: a candidate whose object may not be mounted at all has no meaningful
-    geometry answer, and reporting one would bury the real problem
+    Runs the same checks the write path runs, in the same order, through the same blocker cores - so the
+    dry run cannot answer "yes" to a row the write would refuse, or vice versa. Short-circuits after each
+    stage: a candidate whose object may not be mounted at all has no meaningful geometry answer, and a row
+    carrying the wrong fields for its kind has no meaningful placement answer either - reporting one would
+    bury the real problem.
+
+    A RESERVATION or a BLOCKER skips the object checks entirely: it names no CmdbObject, so there is no
+    membership to judge. Its geometry is judged exactly like a mount's, which is what makes an occupant
+    block the slots it holds.
 
     An object held by ANOTHER rack validates like a free one, because mounting it there simply moves it -
     the answer stays silent about the move, since the picker row the candidate came from already names the
@@ -868,21 +981,35 @@ def collect_mount_blockers(
     """
     exclude_mount_id: int | None = coerce_slot_value(payload.get(RackMountRequestKey.MOUNT_ID.value))
 
-    member_id, blocker = member_object_blocker(
-        objects_manager, types_manager, rack_id, payload.get(RackMountRequestKey.OBJECT_ID.value),
-    )
+    kind_blocker: str | None = unknown_kind_blocker(payload.get(RackMountRequestKey.KIND.value))
 
-    if blocker:
-        return [blocker]
+    if kind_blocker:
+        return [kind_blocker]
 
-    membership_blocker: str | None = same_rack_membership_blocker(
-        rack_mounts_manager.get_mount_of_object(member_id), rack_id, member_id, exclude_mount_id,
-    )
+    kind: str = coerce_kind(payload.get(RackMountRequestKey.KIND.value))
+    member_id: int | None = None
 
-    if membership_blocker:
-        return [membership_blocker]
+    if not RackMountKind.is_occupant(kind):
+        member_id, blocker = member_object_blocker(
+            objects_manager, types_manager, rack_id, payload.get(RackMountRequestKey.OBJECT_ID.value),
+        )
 
-    candidate: dict[str, Any] = build_mount_candidate(rack_id, member_id, payload)
+        if blocker:
+            return [blocker]
+
+        membership_blocker: str | None = same_rack_membership_blocker(
+            rack_mounts_manager.get_mount_of_object(member_id), rack_id, member_id, exclude_mount_id,
+        )
+
+        if membership_blocker:
+            return [membership_blocker]
+
+    candidate: dict[str, Any] = build_mount_candidate(rack_id, member_id, payload, kind)
+
+    shape_errors: list[str] = shape_blockers(kind, payload, candidate)
+
+    if shape_errors:
+        return shape_errors
 
     return placement_blockers(
         rack_mounts_manager, candidate, get_rack_height(rack), exclude_mount_id,
