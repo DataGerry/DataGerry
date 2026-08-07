@@ -82,9 +82,3 @@ node_modules/
 # Ignore Samba temporary delete marker files created in VM shared folders
 .smbdelete*
 **/.smbdelete*
-
-# ui config-file
-etc/app-config.json
-etc/cmdb.conf
-app/src/environments/
-app/package-lock.json
