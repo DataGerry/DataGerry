@@ -570,10 +570,10 @@ class ObjectsManager(BaseManager):
             query_pipeline.append({'$project': {"public_id": 1, "_id": 0}})
 
             # Get all objects of these types
-            query_pipeline.append(Builder.lookup_(_from='framework.objects',
-                                        _local='public_id',
-                                        _foreign='type_id',
-                                        _as='type_objects'))
+            query_pipeline.append(Builder.lookup_(from_collection='framework.objects',
+                                                  local_field='public_id',
+                                                  foreign_field='type_id',
+                                                  as_field='type_objects'))
 
             # Filter out types which don't have any objects
             query_pipeline.append({'$match': {"type_objects.0": {"$exists": True}}})
@@ -729,7 +729,10 @@ class ObjectsManager(BaseManager):
                 query += criteria
 
             # Lookup related types by joining with the 'framework.types' collection
-            query.append(Builder.lookup_(_from='framework.types', _local='type_id', _foreign='public_id', _as='type'))
+            query.append(Builder.lookup_(from_collection='framework.types',
+                                         local_field='type_id',
+                                         foreign_field='public_id',
+                                         as_field='type'))
             query.append(Builder.unwind_({'path': '$type', 'preserveNullAndEmptyArrays': True}))
 
             # Keep only objects whose type references object_'s type and which point at its public_id
@@ -1250,6 +1253,14 @@ class ObjectsManager(BaseManager):
         a partially broken type definition should not block the caller. Centralizing this
         composition lets `get_summary_line` and `get_summary_lines_lookup` share one body
 
+        A summary field the object has no value for contributes NOTHING - neither text nor a
+        separator. Interpolating it would put the literal word 'None' in front of a user (an object
+        whose summary field is unset used to read '#264 - None'), and emitting the separator alone
+        would leave a line trailing off as '#264 - '. Only a genuinely absent value is skipped:
+        `0`, `False` and other falsy-but-present values are real data and are rendered. The
+        separator therefore tracks the first field actually EMITTED, not the first one configured,
+        so an unset first field does not push a stray '|' to the front of the line
+
         Args:
             target_object (dict[str, Any]): The CmdbObject document (as_dict=True shape)
             target_object_type: The CmdbType instance of the object
@@ -1278,6 +1289,9 @@ class ObjectsManager(BaseManager):
                 field_value = next(
                     (field['value'] for field in target_object['fields'] if field['name'] == field_name), None
                 )
+
+                if field_value is None or field_value == '':
+                    continue
 
                 if first:
                     summary_line += f' - {field_value}'

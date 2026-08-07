@@ -30,6 +30,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.rack_model import RackArea
 from cmdb.models.special_type_model.rack_constants import RackField
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     apply_mount_changes,
     assign_position_if_needed,
@@ -42,22 +43,30 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_height,
     get_rack_or_abort,
     get_requested_height_or_abort,
+    is_flag_enabled,
     is_rack_type,
+    resolve_assigned_racks,
+    resolve_move_source_or_abort,
     resolve_mounted_object_meta,
+    same_rack_membership_blocker,
     shape_assignable_page,
     normalize_geometry_value,
-    refuse_second_membership,
     validate_member_object_or_abort,
     validate_placement_or_abort,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RACK_ID: int = 700
+OTHER_RACK_ID: int = 701
 RACK_TYPE_ID: int = 70
 PLAIN_TYPE_ID: int = 71
+NO_LOCATION_TYPE_ID: int = 72
 OBJECT_ID: int = 800
 MOUNT_ID: int = 900
+OTHER_MOUNT_ID: int = 901
 RACK_HEIGHT: int = 42
+
+LOCATION_FIELD: dict[str, Any] = {'name': 'dg_location', 'label': 'Location', 'type': FieldType.LOCATION}
 
 
 def _rack_object(height: Any = RACK_HEIGHT) -> dict[str, Any]:
@@ -70,16 +79,29 @@ def _rack_object(height: Any = RACK_HEIGHT) -> dict[str, Any]:
 
 
 def _types_manager(rack_type_ids: set[int] | None = None) -> MagicMock:
-    """A TypesManager where the given type ids resolve to the RACK SpecialType"""
+    """
+    A TypesManager where the given type ids resolve to the RACK SpecialType
+
+    PLAIN_TYPE_ID is an ordinary mountable type: it declares a location field, which every rack member's
+    type must. NO_LOCATION_TYPE_ID is the same type without one, so it may not be mounted.
+    """
     rack_type_ids = rack_type_ids if rack_type_ids is not None else {RACK_TYPE_ID}
     manager = MagicMock()
 
     def _get_type(type_id: int) -> dict[str, Any] | None:
         if type_id in rack_type_ids:
-            return {'public_id': type_id, 'special_type': SpecialType.RACK.value}
+            # A Rack is placed in the location tree itself, so its own type carries a location field
+            return {
+                'public_id': type_id,
+                'special_type': SpecialType.RACK.value,
+                'fields': [LOCATION_FIELD],
+            }
 
         if type_id == PLAIN_TYPE_ID:
-            return {'public_id': type_id}
+            return {'public_id': type_id, 'fields': [LOCATION_FIELD]}
+
+        if type_id == NO_LOCATION_TYPE_ID:
+            return {'public_id': type_id, 'fields': [{'name': 'hostname', 'type': 'text'}]}
 
         return None
 
@@ -179,7 +201,7 @@ def test_get_rack_height_falls_back_to_zero_for_a_drifted_rack(stored: Any) -> N
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def test_a_plain_object_may_be_mounted() -> None:
-    """Any type is mountable, so an ordinary object passes"""
+    """A type that declares a location field and is not a Rack is mountable"""
     objects_manager = MagicMock()
     objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}
 
@@ -234,7 +256,7 @@ def test_mounting_a_nonexistent_object_is_refused() -> None:
 
 
 def test_mounting_another_rack_is_refused() -> None:
-    """Racks do not nest - any type is mountable EXCEPT the Rack type"""
+    """Racks do not nest, although the Rack type does carry a location field"""
     objects_manager = MagicMock()
     objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': RACK_TYPE_ID}
 
@@ -244,29 +266,92 @@ def test_mounting_another_rack_is_refused() -> None:
     assert err.value.code == 400
     assert 'another Rack' in err.value.description
 
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          refuse_second_membership                                                    #
-# -------------------------------------------------------------------------------------------------------------------- #
 
-def test_second_membership_is_refused_with_400() -> None:
-    """The unique index would raise a duplicate-key error; the caller gets a readable 400 instead"""
-    manager = MagicMock()
-    manager.is_object_mounted.return_value = True
+def test_mounting_an_object_whose_type_has_no_location_field_is_refused() -> None:
+    """
+    A member is mirrored into the tree through its own location field
+
+    Without one there is nowhere to record where the object is, so it can not be a member at all - the
+    same rule the picker filters on, enforced here so an API client meets it too.
+    """
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': NO_LOCATION_TYPE_ID}
 
     with pytest.raises(HTTPException) as err:
-        refuse_second_membership(manager, OBJECT_ID)
+        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID)
+
+    assert err.value.code == 400
+    assert 'location field' in err.value.description
+
+
+def test_mounting_an_object_whose_type_vanished_is_refused() -> None:
+    """A type that does not resolve can not be shown to declare a location field"""
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': 4242}
+
+    with pytest.raises(HTTPException) as err:
+        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID)
 
     assert err.value.code == 400
 
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       same_rack_membership_blocker                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
 
-def test_a_free_object_passes_the_membership_check() -> None:
-    """An unmounted object may be mounted"""
+def test_an_object_in_no_rack_is_free_to_mount() -> None:
+    """Nothing holds it, so there is nothing to judge"""
+    assert same_rack_membership_blocker(None, RACK_ID, OBJECT_ID) is None
+
+
+def test_an_object_in_another_rack_is_not_blocked() -> None:
+    """It is offered by the picker and mounting it moves it - a second membership is no longer refused"""
+    other_mount = _stored_mount(public_id=OTHER_MOUNT_ID, rack_id=OTHER_RACK_ID)
+
+    assert same_rack_membership_blocker(other_mount, RACK_ID, OBJECT_ID) is None
+
+
+def test_an_object_already_in_this_rack_is_blocked() -> None:
+    """Re-inserting it would drop its mount's public_id and collide with its own slots - PATCH it instead"""
+    blocker = same_rack_membership_blocker(_stored_mount(), RACK_ID, OBJECT_ID)
+
+    assert blocker is not None
+    assert 'already in this Rack' in blocker
+
+
+def test_the_mount_being_changed_is_excluded_from_its_own_check() -> None:
+    """A PATCH of an existing mount is obviously allowed to be the one holding the object"""
+    assert same_rack_membership_blocker(_stored_mount(), RACK_ID, OBJECT_ID, MOUNT_ID) is None
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        resolve_move_source_or_abort                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_a_free_object_has_no_move_source() -> None:
+    """An ordinary mount - nothing has to be removed first"""
     manager = MagicMock()
-    manager.is_object_mounted.return_value = False
+    manager.get_mount_of_object.return_value = None
 
-    refuse_second_membership(manager, OBJECT_ID)
+    assert resolve_move_source_or_abort(manager, RACK_ID, OBJECT_ID) is None
 
-    manager.is_object_mounted.assert_called_once_with(OBJECT_ID, None)
+
+def test_the_mount_of_another_rack_is_returned_as_the_move_source() -> None:
+    """The caller deletes it to complete the move"""
+    other_mount = _stored_mount(public_id=OTHER_MOUNT_ID, rack_id=OTHER_RACK_ID)
+    manager = MagicMock()
+    manager.get_mount_of_object.return_value = other_mount
+
+    assert resolve_move_source_or_abort(manager, RACK_ID, OBJECT_ID) == other_mount
+
+
+def test_resolving_a_move_aborts_400_for_an_object_already_in_this_rack() -> None:
+    """The write path's wrapper around the blocker"""
+    manager = MagicMock()
+    manager.get_mount_of_object.return_value = _stored_mount()
+
+    with pytest.raises(HTTPException) as err:
+        resolve_move_source_or_abort(manager, RACK_ID, OBJECT_ID)
+
+    assert err.value.code == 400
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            build_mount_candidate                                                     #
@@ -720,7 +805,7 @@ def test_the_type_meta_skips_the_read_for_no_ids() -> None:
 #                                         shape_assignable_page                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_the_picker_page_is_resolved_in_two_bulk_reads() -> None:
+def test_the_picker_page_is_resolved_in_bulk_reads() -> None:
     """One page, one summary lookup and one type lookup - however many candidates it holds"""
     objects_manager = MagicMock()
     objects_manager.get_summary_lines_lookup.return_value = {OBJECT_ID: 'server-01'}
@@ -730,19 +815,23 @@ def test_the_picker_page_is_resolved_in_two_bulk_reads() -> None:
             label='Server', get_icon=lambda: 'fa-server', ci_explorer_color='#4b9e46',
         ),
     }
+    rack_mounts_manager = MagicMock()
+    rack_mounts_manager.get_mounts_of_objects.return_value = []
 
     docs = [
         {'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID},
         {'public_id': OBJECT_ID + 1, 'type_id': PLAIN_TYPE_ID},
     ]
 
-    rows = shape_assignable_page(objects_manager, types_manager, docs)
+    rows = shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, docs)
 
     assert objects_manager.get_summary_lines_lookup.call_count == 1
     assert types_manager.get_types_lookup.call_count == 1
+    assert rack_mounts_manager.get_mounts_of_objects.call_count == 1
     assert [row['public_id'] for row in rows] == [OBJECT_ID, OBJECT_ID + 1]
     assert rows[0]['summary_line'] == 'server-01'
     assert rows[0]['type_label'] == 'Server'
+    assert rows[0]['assigned_rack_id'] is None
 
 
 def test_the_picker_page_reuses_the_documents_it_was_given() -> None:
@@ -751,9 +840,11 @@ def test_the_picker_page_reuses_the_documents_it_was_given() -> None:
     objects_manager.get_summary_lines_lookup.return_value = {}
     types_manager = MagicMock()
     types_manager.get_types_lookup.return_value = {}
+    rack_mounts_manager = MagicMock()
+    rack_mounts_manager.get_mounts_of_objects.return_value = []
     docs = [{'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}]
 
-    shape_assignable_page(objects_manager, types_manager, docs)
+    shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, docs)
 
     assert objects_manager.get_summary_lines_lookup.call_args.kwargs['object_docs'] == docs
     assert objects_manager.get_summary_lines_lookup.call_args.kwargs['with_type'] is False
@@ -763,7 +854,68 @@ def test_an_empty_picker_page_reads_nothing() -> None:
     """A rack whose every candidate is taken costs no lookup at all"""
     objects_manager = MagicMock()
     types_manager = MagicMock()
+    rack_mounts_manager = MagicMock()
+    rack_mounts_manager.get_mounts_of_objects.return_value = []
 
-    assert shape_assignable_page(objects_manager, types_manager, []) == []
+    assert shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, []) == []
     objects_manager.get_summary_lines_lookup.assert_not_called()
     types_manager.get_types_lookup.assert_not_called()
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           resolve_assigned_racks                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_a_page_of_free_candidates_reads_no_rack() -> None:
+    """No mount holds any of them, so there is no rack to name and no second read"""
+    objects_manager = MagicMock()
+    rack_mounts_manager = MagicMock()
+    rack_mounts_manager.get_mounts_of_objects.return_value = []
+
+    assert resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID]) == {}
+    objects_manager.find_objects.assert_not_called()
+
+
+def test_a_candidate_in_another_rack_resolves_to_that_racks_name() -> None:
+    """The hint is the rack's id and its display name, resolved for the whole page in one read"""
+    rack_mounts_manager = MagicMock()
+    rack_mounts_manager.get_mounts_of_objects.return_value = [
+        _stored_mount(public_id=OTHER_MOUNT_ID, rack_id=OTHER_RACK_ID),
+    ]
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [{
+        'public_id': OTHER_RACK_ID,
+        'type_id': RACK_TYPE_ID,
+        'fields': [{'name': RackField.NAME.value, 'value': 'Rack A', 'type': 'text'}],
+    }]
+
+    assigned = resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID])
+
+    assert assigned[OBJECT_ID]['public_id'] == OTHER_RACK_ID
+    assert assigned[OBJECT_ID]['display_name'] == 'Rack A'
+
+
+def test_a_mount_whose_rack_vanished_contributes_no_hint() -> None:
+    """A row reads as free rather than naming a rack the user can not open"""
+    rack_mounts_manager = MagicMock()
+    rack_mounts_manager.get_mounts_of_objects.return_value = [
+        _stored_mount(public_id=OTHER_MOUNT_ID, rack_id=OTHER_RACK_ID),
+    ]
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = []
+
+    assert resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID]) == {}
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              is_flag_enabled                                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize('raw_value', ['true', 'True', 'TRUE', ' true '], ids=str)
+def test_a_flag_is_on_for_true_in_any_casing(raw_value: str) -> None:
+    """A query parameter typed by hand is as likely to read 'TRUE'"""
+    assert is_flag_enabled(raw_value) is True
+
+
+@pytest.mark.parametrize('raw_value', [None, '', 'false', '1', 'yes', 'nonsense'], ids=str)
+def test_a_flag_is_off_unless_explicitly_asked_for(raw_value: Any) -> None:
+    """An unrecognised value means the default list, never a 400 - a stale frontend still works"""
+    assert is_flag_enabled(raw_value) is False

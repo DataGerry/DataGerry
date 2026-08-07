@@ -53,9 +53,17 @@ class RackMountRequestKey(BaseStrEnum):
 
 
 class RackMountParam(BaseStrEnum):
-    """Query parameters of the mount read routes"""
+    """
+    Query parameters of the mount read routes
+
+    ONLY_UNMOUNTED belongs to the assignable-objects picker, which by default also offers the objects
+    held by ANOTHER rack (mounting one moves it). It narrows the list back to the objects in no rack at
+    all - which a ``?filter=`` can not express, because the rack a candidate sits in is resolved after
+    the query and filtering on it in the frontend would break the paging
+    """
     AREA = 'area'
     HEIGHT = 'height'
+    ONLY_UNMOUNTED = 'only_unmounted'
 
 
 class RackValidationResponseKey(BaseStrEnum):

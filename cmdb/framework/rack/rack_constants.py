@@ -82,6 +82,12 @@ class RackOverviewKey(BaseStrEnum):
     # row is one object, so a count there would always be 1
     COUNT = 'count'
 
+    # Which rack a picker candidate is currently in, null when it is in none. Only ever set on an
+    # assignable-objects row: a mount row is by definition in the rack being drawn. Mounting such a
+    # candidate MOVES it out of that rack, so the pair exists to let the frontend say so before it does
+    ASSIGNED_RACK_ID = 'assigned_rack_id'
+    ASSIGNED_RACK_NAME = 'assigned_rack_name'
+
 
 class RackDisplayName:
     """
@@ -107,8 +113,10 @@ class RackMountError(BaseStrEnum):
     OBJECT_NOT_FOUND = 'No CmdbObject with ID {object_id} exists!'
     OBJECT_IS_THE_RACK = 'A Rack can not be mounted inside itself!'
     OBJECT_IS_A_RACK = 'A Rack can not be mounted inside another Rack!'
-    OBJECT_ALREADY_MOUNTED = 'The CmdbObject with ID {object_id} is already mounted in a Rack - an ' \
-                             'object can only be mounted in one Rack at a time!'
+    TYPE_HAS_NO_LOCATION_FIELD = 'The type of the CmdbObject with ID {object_id} has no location field, ' \
+                                 'so it can not be mounted into a Rack!'
+    OBJECT_ALREADY_IN_THIS_RACK = 'The CmdbObject with ID {object_id} is already in this Rack - change ' \
+                                  'its placement instead of mounting it again!'
     INVALID_AREA = "'{area}' is not a valid Rack area. Allowed: {allowed}"
     MISSING_START_SLOT = 'A mount in the {area} area requires a start slot!'
     MISSING_HEIGHT = 'A mount in the {area} area requires a height!'

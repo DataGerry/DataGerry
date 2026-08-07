@@ -154,10 +154,10 @@ def guard_member_location_change(
     """
     Refuses moving a rack member's location away from the rack it is mounted in
 
-    The counterpart of the ``managed_by`` guard, for the other branch: a member whose type HAS a location
-    field can be edited in the ordinary object form, so without this a user could point it anywhere and the
-    tree would disagree with the rack until something re-reconciled it. The rack owns where its members sit,
-    so the change is refused with the rack named - the way to move the device is to take it out of the rack
+    A rack member's location field can be edited in the ordinary object form, so without this a user could
+    point it anywhere and the tree would disagree with the rack until something re-reconciled it. The rack
+    owns where its members sit, so the change is refused with the rack named - the way to move the device
+    is to take it out of the rack, or to mount it into another one
 
     A no-op for an object that is not a rack member, and for a member being pointed at the rack it is
     already in (which is what the rack's own mirroring does)

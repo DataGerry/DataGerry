@@ -54,6 +54,25 @@ class RenderResult:
         self.multi_data_sections: list = []
 
 
+    def to_json(self) -> dict[str, Any]:
+        """
+        Serializes the render result for an API response
+
+        Returns a *copy* of the instance attributes rather than the live `__dict__`, so a caller
+        cannot mutate the render result through the value it was handed. The attribute names are
+        deliberately the wire contract — the Angular `RenderResult` model mirrors them one to one —
+        so this must stay a plain attribute dump rather than a curated mapping
+
+        The values are returned unconverted: `current_render_time` stays a `datetime` and is turned
+        into its `{'$date': <millis>}` form further down by the `database_utils.default` JSON hook,
+        which is the shape the frontend model declares
+
+        Returns:
+            dict[str, Any]: Shallow copy of the render result's attributes
+        """
+        return dict(self.__dict__)
+
+
     def __str__(self) -> str:
         return (
             f"{self.__class__.__name__}(\n"

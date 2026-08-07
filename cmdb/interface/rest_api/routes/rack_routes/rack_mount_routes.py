@@ -22,8 +22,9 @@ These routes are the only way a mount is written. Four invariants hold across th
    another rack by editing its payload.
 2. **The identity and the audit fields are server-owned.** A payload public_id is ignored, and
    `author_id` / `creation_time` / `last_edit_time` are stamped from the request.
-3. **An object belongs to one rack.** Enforced by a unique index on `object_id`; the routes pre-check it
-   so the caller gets a readable 400 rather than a duplicate-key error.
+3. **An object belongs to one rack.** Enforced by a unique index on `object_id`. Mounting an object that
+   another rack holds is not refused - it MOVES it, deleting the old mount first because the index leaves
+   no other order. Only mounting an object into the rack it is already in is refused, with a readable 400.
 4. **Membership and placement are separate.** A `POST` with no area assigns the object to the rack
    without placing it (the UNASSIGNED bucket); a `PATCH` places, moves or unplaces it. `DELETE` is the
    stronger verb - it removes the object from the rack entirely, but never touches the object itself.
@@ -92,7 +93,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_height,
     get_rack_or_abort,
     get_requested_height_or_abort,
-    refuse_second_membership,
+    resolve_move_source_or_abort,
     resolve_mounted_object_meta,
     validate_member_object_or_abort,
     validate_placement_or_abort,
@@ -119,6 +120,10 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
     with a main area it is placed, which requires a start slot and a height and is refused when the
     slots are taken or the mount would stick out of the rack
 
+    An object that another Rack holds is MOVED here: its old mount is deleted and its place in the
+    location tree follows. The frontend knows this is coming, because the picker row it was chosen from
+    names the rack it is in. An object already in THIS rack is refused - a PATCH re-places it
+
     Args:
         rack_id (int): public_id of the Rack the object is mounted into
         request_user (CmdbUser): CmdbUser requesting this operation
@@ -143,7 +148,12 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
         object_id: int = validate_member_object_or_abort(
             objects_manager, types_manager, rack_id, payload.get(RackMountRequestKey.OBJECT_ID.value),
         )
-        refuse_second_membership(rack_mounts_manager, object_id)
+
+        # An object held by another rack is mounted by moving it out of that one. Resolved before the
+        # geometry is validated but removed after, so a refused placement leaves the object where it was
+        move_source: dict[str, Any] | None = resolve_move_source_or_abort(
+            rack_mounts_manager, rack_id, object_id,
+        )
 
         candidate: dict[str, Any] = build_mount_candidate(rack_id, object_id, payload)
 
@@ -154,6 +164,12 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
         candidate[RackMountKey.CREATION_TIME.value] = datetime.now(timezone.utc)
         candidate[RackMountKey.LAST_EDIT_TIME.value] = None
 
+        if move_source:
+            # The unique index on 'object_id' forces this order, so there is a moment where the object is
+            # in no rack. Not a transaction - the insert below is what completes the move, and a failure
+            # between the two leaves the object unmounted rather than in two racks at once
+            rack_mounts_manager.delete_item(move_source[RackMountKey.PUBLIC_ID.value])
+
         mount_id: int = rack_mounts_manager.insert_item(candidate)
 
         created: dict[str, Any] | None = rack_mounts_manager.get_item(mount_id, as_dict=True)
@@ -162,10 +178,12 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
             abort(404, "Could not retrieve the created Rack mount from the database!")
 
         # The tree follows membership, so the member is placed under the rack as soon as it joins - whether
-        # or not it was given a slot. A no-op while the rack itself has no location
+        # or not it was given a slot. A no-op while the rack itself has no location, unless the object
+        # arrived from another rack, where its node would otherwise be left behind
         handle_mount_created(
             rack_id, object_id, request_user, objects_manager,
             ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user),
+            moved_from_rack=bool(move_source),
         )
 
         return InsertSingleResponse(created, mount_id).make_response()
@@ -177,6 +195,9 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
     except RackMountsManagerGetError as err:
         LOGGER.error("[insert_rack_mount] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created Rack mount from the database!")
+    except RackMountsManagerDeleteError as err:
+        LOGGER.error("[insert_rack_mount] %s", err, exc_info=True)
+        abort(400, "Could not remove the object from the Rack it is currently in!")
     except Exception as err:
         LOGGER.error("[insert_rack_mount] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while mounting the object into the Rack!")

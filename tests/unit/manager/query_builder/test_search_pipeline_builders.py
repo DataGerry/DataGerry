@@ -18,8 +18,9 @@ Unit tests for the search aggregation-pipeline builders
 
 Pins the MongoDB pipeline shape produced by SearchReferencesPipelineBuilder, QuickSearchPipelineBuilder
 and SearchPipelineBuilder so a future optimisation of these aggregations is safe. The builders are pure
-dict constructors; the only external dependency (SearchPipelineBuilder's CategoriesManager, resolved
-lazily via ManagerProvider) is stubbed, and the ACL builder needs only a group_id.
+dict constructors; their external dependencies are resolved lazily through ManagerProvider and stubbed
+here - SearchPipelineBuilder's CategoriesManager, and the TypesManager the ACL filter reads the denied
+types from.
 """
 from types import SimpleNamespace
 from typing import Any, Iterator
@@ -32,11 +33,13 @@ from cmdb.manager.query_builder import (
     SearchPipelineBuilder,
 )
 from cmdb.framework.search.search_param import SearchParam
+from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CATEGORY_TYPE_IDS: list[int] = [10, 11]
 GROUP_ID: int = 1
+DENIED_TYPE_IDS: list[int] = [21, 22]
 
 
 def _deep_find(obj: Any, key: str) -> Iterator[Any]:
@@ -69,6 +72,29 @@ class _StubCategoriesManager:
     def get_categories_by(self, **_kwargs: Any) -> list[_StubCategory]:
         """Mirrors CategoriesManager.get_categories_by, ignoring the filter."""
         return [_StubCategory(CATEGORY_TYPE_IDS)]
+
+
+class _StubTypesManager:
+    """Stand-in for TypesManager answering the ACL filter's denied-types query."""
+
+    def __init__(self, denied_type_ids: list[int]) -> None:
+        self.denied_type_ids = denied_type_ids
+
+    def find(self, **_kwargs: Any) -> list[dict[str, int]]:
+        """Mirrors BaseManager.find, ignoring the criteria and returning the configured ids."""
+        return [{'public_id': type_id} for type_id in self.denied_type_ids]
+
+
+def _stub_manager_provider(monkeypatch: pytest.MonkeyPatch, denied_type_ids: list[int]) -> None:
+    """Routes ManagerProvider.get_manager to the right stub for the requested ManagerType."""
+    def _get_manager(manager_type: ManagerType, *_a: Any, **_k: Any) -> Any:
+        if manager_type == ManagerType.TYPES:
+            return _StubTypesManager(denied_type_ids)
+        return _StubCategoriesManager()
+
+    monkeypatch.setattr(
+        'cmdb.manager.manager_provider_model.ManagerProvider.get_manager', _get_manager
+    )
 
 
 @pytest.fixture(name='user')
@@ -116,14 +142,28 @@ class TestQuickSearchPipelineBuilder:
 
         assert {'active': {'$eq': True}} not in [c for conj in _deep_find(pipeline, '$and') for c in conj]
 
-    def test_permission_appends_acl_stages(self, user: SimpleNamespace) -> None:
-        """Passing a user + permission appends the ACL stages to the pipeline."""
+    def test_permission_appends_acl_stage(self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A user + permission whose group is denied a type appends the excluding $match."""
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
+
+        pipeline = QuickSearchPipelineBuilder().build(
+            search_term='x', user=user, permission=AccessControlPermission.READ
+        )
+
+        assert {'type_id': {'$nin': DENIED_TYPE_IDS}} in _stages(pipeline, '$match')
+
+    def test_permission_adds_nothing_when_no_type_is_denied(
+        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A group that may access every type costs no extra stage at all."""
+        _stub_manager_provider(monkeypatch, [])
+
         without = QuickSearchPipelineBuilder().build(search_term='x')
         with_acl = QuickSearchPipelineBuilder().build(
             search_term='x', user=user, permission=AccessControlPermission.READ
         )
 
-        assert len(with_acl) > len(without)
+        assert with_acl == without
 
     def test_final_stage_projects_counts(self) -> None:
         """The last stage projects the active / inactive / total counters."""
@@ -136,12 +176,9 @@ class TestSearchPipelineBuilder:
     """The full-search pipeline maps each SearchParam form onto its aggregation stage(s)."""
 
     @pytest.fixture(autouse=True)
-    def _stub_categories_manager(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Stubs ManagerProvider.get_manager (resolved lazily in build) to a stub CategoriesManager."""
-        monkeypatch.setattr(
-            'cmdb.manager.manager_provider_model.ManagerProvider.get_manager',
-            lambda *_a, **_k: _StubCategoriesManager(),
-        )
+    def _stub_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Stubs the managers build() resolves lazily: CategoriesManager and the ACL TypesManager."""
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
 
     def test_text_param_adds_regex_match(self) -> None:
         """A text param becomes a regex match on fields.value."""
@@ -181,12 +218,22 @@ class TestSearchPipelineBuilder:
 
         assert {'active': {'$eq': True}} in _stages(pipeline, '$match')
 
-    def test_permission_appends_acl_stages(self, user: SimpleNamespace) -> None:
-        """Passing a user + permission appends the ACL stages."""
+    def test_permission_appends_acl_stage(self, user: SimpleNamespace) -> None:
+        """A user + permission whose group is denied a type appends the excluding $match."""
+        pipeline = SearchPipelineBuilder().build([], user=user, permission=AccessControlPermission.READ)
+
+        assert {'type_id': {'$nin': DENIED_TYPE_IDS}} in _stages(pipeline, '$match')
+
+    def test_permission_adds_nothing_when_no_type_is_denied(
+        self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A group that may access every type costs no extra stage at all."""
+        _stub_manager_provider(monkeypatch, [])
+
         without = SearchPipelineBuilder().build([])
         with_acl = SearchPipelineBuilder().build([], user=user, permission=AccessControlPermission.READ)
 
-        assert len(with_acl) > len(without)
+        assert with_acl == without
 
     def test_get_regex_pipes_values(self) -> None:
         """get_regex_pipes_values extracts the regex values from the built pipeline."""

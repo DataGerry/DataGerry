@@ -664,3 +664,49 @@ def test_get_type_ids_of_special_type_wraps_get_error() -> None:
 
     with pytest.raises(TypesManagerGetError):
         TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK)
+
+
+# ----------------------------------------- get_type_ids_with_location_field ----------------------------------------- #
+
+def test_get_type_ids_with_location_field_matches_on_the_field_type() -> None:
+    """
+    The mountable types of the Rack picker, answered without loading a type document.
+
+    The match is on the field's TYPE rather than its name, the way the whole location machinery matches,
+    so a type whose location field is not called 'dg_location' still counts.
+    """
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [9552]
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == [9552]
+
+    call = mgr.get_distinct.call_args
+    assert call.args[0] == TypeSchemaKey.PUBLIC_ID.value
+    assert call.args[1] == {
+        TypeSchemaKey.FIELDS.value: {'$elemMatch': {FieldKey.TYPE.value: FieldType.LOCATION.value}},
+    }
+
+
+def test_get_type_ids_with_location_field_is_empty_when_no_type_declares_one() -> None:
+    """An empty list, which the picker turns into an '$in' matching nothing - nothing is mountable."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = []
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == []
+
+
+def test_get_type_ids_with_location_field_drops_non_integer_values() -> None:
+    """The ids go straight into an '$in' of ints, so a drifted value must not travel with them."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [9552, None, 'garbage']
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == [9552]
+
+
+def test_get_type_ids_with_location_field_wraps_get_error() -> None:
+    """A failing distinct query surfaces as the manager's own error type."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_type_ids_with_location_field(mgr)

@@ -280,6 +280,61 @@ class RackMountsManager(GenericManager):
             raise RackMountsManagerGetError(str(err)) from err
 
 
+    def get_member_object_ids(self, rack_id: int) -> list[int]:
+        """
+        Retrieves the public_ids of every CmdbObject that is a member of ONE rack, placed or not
+
+        The rack-scoped counterpart of get_mounted_object_ids: what the picker of a given rack has to
+        hide, since an object already in this rack can not be added to it again. Objects held by a
+        DIFFERENT rack are deliberately not in this list - they are offered, with a hint, and mounting
+        one moves it
+
+        Args:
+            rack_id (int): public_id of the Rack CmdbObject
+
+        Raises:
+            RackMountsManagerGetError: If the lookup failed
+
+        Returns:
+            list[int]: The rack's member object ids, empty when the rack holds nothing
+        """
+        try:
+            return [
+                object_id
+                for object_id in self.get_distinct(
+                    RackMountKey.OBJECT_ID.value, {RackMountKey.RACK_ID.value: rack_id},
+                )
+                if isinstance(object_id, int)
+            ]
+        except BaseManagerGetError as err:
+            raise RackMountsManagerGetError(str(err)) from err
+
+
+    def get_mounts_of_objects(self, object_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves the CmdbRackMounts holding any of the given CmdbObjects, in one read
+
+        Answers "which rack is each of these objects in?" for a whole page of picker candidates at
+        once - resolving them one at a time through get_mount_of_object would be an N+1
+
+        Args:
+            object_ids (list[int]): public_ids of the CmdbObjects to look up; duplicates are allowed
+
+        Raises:
+            RackMountsManagerGetError: If the CmdbRackMounts could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: The mounts holding those objects, empty when none of them is mounted
+        """
+        if not object_ids:
+            return []
+
+        try:
+            return self.find(criteria={RackMountKey.OBJECT_ID.value: {'$in': list(set(object_ids))}})
+        except Exception as err:
+            raise RackMountsManagerGetError(str(err)) from err
+
+
     def get_unassigned_mounts(self, rack_id: int) -> list[dict[str, Any]]:
         """
         Retrieves the rack members that carry no placement

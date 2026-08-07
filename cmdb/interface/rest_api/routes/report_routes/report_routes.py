@@ -56,6 +56,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     PREVIEW_LIMIT,
     PREVIEW_PARAM,
+    REPORT_CONDITIONS_INVALID_MSG,
     REPORT_RETRIEVE_FAILED_MSG,
     ReportKey,
 )
@@ -68,6 +69,7 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
 )
 
 from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.mongo_query_builder import MongoDBQueryBuilderError
 from cmdb.errors.manager.reports_manager import (
     ReportsManagerInsertError,
     ReportsManagerGetError,
@@ -105,7 +107,8 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
 
     Raises:
         HTTPException: 400 on missing / malformed parameters, an unresolved category or type, a
-                       referenced Ref-Section-Field or a failed insert; 500 on an unexpected failure
+                       referenced Ref-Section-Field, an unbuildable condition tree or a failed
+                       insert; 500 on an unexpected failure
     """
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
@@ -117,6 +120,9 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
         return DefaultResponse(new_report_id).make_response()
     except HTTPException as http_err:
         raise http_err
+    except MongoDBQueryBuilderError as err:
+        LOGGER.error("[create_cmdb_report] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, REPORT_CONDITIONS_INVALID_MSG.format(reason=err))
     except ReportsManagerInsertError as err:
         LOGGER.error("[create_cmdb_report] ReportsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new Report in the database!")
@@ -339,6 +345,9 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
         return UpdateSingleResponse({**current_report, **payload}).make_response()
     except HTTPException as http_err:
         raise http_err
+    except MongoDBQueryBuilderError as err:
+        LOGGER.error("[update_cmdb_report] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, REPORT_CONDITIONS_INVALID_MSG.format(reason=err))
     except ReportsManagerGetError as err:
         LOGGER.error("[update_cmdb_report] ReportsManagerGetError: %s", err, exc_info=True)
         abort(400, REPORT_RETRIEVE_FAILED_MSG.format(public_id=public_id))

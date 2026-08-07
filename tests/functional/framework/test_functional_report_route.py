@@ -179,6 +179,41 @@ class TestPostReport:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
+    def test_unsupported_condition_operator_returns_400(self, rest_api) -> None:
+        """A condition the query builder cannot translate is caller-fixable input, so 400 not 500.
+
+        Regression: no caller caught MongoDBQueryBuilderError by name, so every unbuildable
+        condition tree fell through to the generic handler and answered 500.
+        """
+        params = _report_params()
+        params['conditions'] = json.dumps(
+            {'condition': 'and', 'rules': [{'field': PLAIN_FIELD, 'operator': 'between', 'value': 'x'}]}
+        )
+
+        response = rest_api.post(f'{ROUTE_URL}/', query_string=params)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_condition_rule_missing_a_key_returns_400(self, rest_api) -> None:
+        """A malformed rule is rejected with 400 as well."""
+        params = _report_params()
+        params['conditions'] = json.dumps({'condition': 'and', 'rules': [{'operator': '=', 'value': 'x'}]})
+
+        response = rest_api.post(f'{ROUTE_URL}/', query_string=params)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_unknown_condition_logic_returns_400(self, rest_api) -> None:
+        """An unknown group combiner is rejected with 400."""
+        params = _report_params()
+        params['conditions'] = json.dumps(
+            {'condition': 'xor', 'rules': [{'field': PLAIN_FIELD, 'operator': '=', 'value': 'x'}]}
+        )
+
+        response = rest_api.post(f'{ROUTE_URL}/', query_string=params)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
     def test_unknown_report_category_returns_400(self, rest_api) -> None:
         """A POST whose report_category_id does not resolve to a CmdbReportCategory is rejected."""
         response = rest_api.post(
@@ -348,6 +383,24 @@ class TestPutReport:
 
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
             assert collection.find_one({'public_id': REPORT_ID_FOR_UPDATE})['name'] == UPDATED_NAME
+        finally:
+            collection.delete_one({'public_id': REPORT_ID_FOR_UPDATE})
+
+    def test_unbuildable_conditions_return_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The update route maps an untranslatable condition tree to 400 like the create route."""
+        collection = _reports(database_manager, database_name)
+        collection.insert_one(_report_doc(REPORT_ID_FOR_UPDATE))
+        try:
+            params = _report_params(name=UPDATED_NAME)
+            params['conditions'] = json.dumps(
+                {'condition': 'and', 'rules': [{'field': PLAIN_FIELD, 'operator': 'between', 'value': 'x'}]}
+            )
+
+            response = rest_api.put(f'{ROUTE_URL}/{REPORT_ID_FOR_UPDATE}', query_string=params)
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
         finally:
             collection.delete_one({'public_id': REPORT_ID_FOR_UPDATE})
 

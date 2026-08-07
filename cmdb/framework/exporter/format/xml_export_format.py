@@ -31,6 +31,7 @@ from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
     TYPE_INFO_LABEL_KEY,
     OBJECT_INFO_ID_KEY,
+    to_export_cell,
 )
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
 from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey
@@ -248,7 +249,7 @@ class XmlExportFormat(BaseExporterFormat):
         for field in columns:
             field_attribs: dict[str, str] = {
                 FieldKey.NAME.value: str(field),
-                FieldKey.VALUE.value: str(obj_fields_dict.get(field, ''))
+                FieldKey.VALUE.value: to_export_cell(obj_fields_dict.get(field))
             }
             ET.SubElement(cmdb_object_fields, XML_FIELD_TAG, field_attribs)
 
@@ -286,5 +287,5 @@ class XmlExportFormat(BaseExporterFormat):
                 for entry in row.get(CmdbObjectMdsRowKey.DATA.value, []):
                     ET.SubElement(row_element, XML_FIELD_TAG, {
                         FieldKey.NAME.value: str(entry.get(FieldKey.NAME.value, '')),
-                        FieldKey.VALUE.value: str(entry.get(FieldKey.VALUE.value, '')),
+                        FieldKey.VALUE.value: to_export_cell(entry.get(FieldKey.VALUE.value)),
                     })

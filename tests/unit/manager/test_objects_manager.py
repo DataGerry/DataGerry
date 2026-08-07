@@ -133,8 +133,8 @@ def test_compose_summary_line_falls_back_to_default_when_field_walk_raises() -> 
     assert result == f"Server #{OWNER_OBJECT_ID}"
 
 
-def test_compose_summary_line_emits_none_for_missing_field_value() -> None:
-    """A summary field absent from the object's fields list shows up as None in the line"""
+def test_compose_summary_line_skips_a_summary_field_absent_from_the_object() -> None:
+    """Regression: a summary field the object has no entry for used to render the text 'None'"""
     obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
         {'name': 'hostname', 'value': 'web01'},
     ])
@@ -146,7 +146,89 @@ def test_compose_summary_line_emits_none_for_missing_field_value() -> None:
 
     result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
 
-    assert result == f"Server #{OWNER_OBJECT_ID} - web01 | None"
+    assert result == f"Server #{OWNER_OBJECT_ID} - web01"
+
+
+@pytest.mark.parametrize('unset_value', [None, ''], ids=['none', 'empty-string'])
+def test_compose_summary_line_skips_an_unset_summary_value(unset_value) -> None:
+    """Regression: an unset summary value used to leave the line trailing off as '#<id> - '"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'hostname', 'value': unset_value},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'hostname'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID}"
+
+
+@pytest.mark.parametrize('value, rendered', [(0, '0'), (False, 'False')], ids=['zero', 'false'])
+def test_compose_summary_line_renders_falsy_but_present_values(value, rendered: str) -> None:
+    """Only an absent value is skipped - a zero or a False is real data and must still show"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'ports', 'value': value},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'ports'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID} - {rendered}"
+
+
+def test_compose_summary_line_separator_follows_the_first_emitted_field() -> None:
+    """An unset FIRST field must not push a stray '|' to the front of the line"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'hostname', 'value': None},
+        {'name': 'fqdn', 'value': 'web01.example.com'},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server',
+        has_summaries=True,
+        summary_fields=[{'name': 'hostname'}, {'name': 'fqdn'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID} - web01.example.com"
+
+
+def test_compose_summary_line_closes_the_gap_left_by_an_unset_middle_field() -> None:
+    """An unset field between two set ones leaves no double separator"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'a', 'value': 'x'},
+        {'name': 'b', 'value': None},
+        {'name': 'c', 'value': 'z'},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server',
+        has_summaries=True,
+        summary_fields=[{'name': 'a'}, {'name': 'b'}, {'name': 'c'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID} - x | z"
+
+
+def test_compose_summary_line_with_every_summary_field_unset_is_the_bare_prefix() -> None:
+    """All summary fields unset yields the prefix alone, with no dangling separator"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'a', 'value': None},
+        {'name': 'b', 'value': ''},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server',
+        has_summaries=True,
+        summary_fields=[{'name': 'a'}, {'name': 'b'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID}"
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

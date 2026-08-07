@@ -884,7 +884,7 @@ class TestExportImportRoundTrip:
     def test_empty_values_survive_the_csv_round_trip(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """The export writes an empty value as 'None'; the import must read it back as empty."""
+        """The export writes an unfilled value as an empty cell; the import must store it as None."""
         exported = self._export(rest_api, 'CsvExportFormat')
 
         form = {

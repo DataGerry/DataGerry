@@ -61,10 +61,4 @@ def get_cmdb_location_schema() -> dict[str, Any]:
             'type': 'boolean',
             'default': True,
         },
-        'managed_by': {  # A LocationManagedBy value when a feature owns this node; absent when the
-                         # node is the ordinary mirror of the object's own location field
-            'type': 'string',
-            'nullable': True,
-            'required': False,
-        },
     }

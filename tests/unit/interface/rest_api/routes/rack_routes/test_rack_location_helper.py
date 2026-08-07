@@ -16,23 +16,21 @@
 """
 Unit tests for the rack location mirroring
 
-The centre of it is the **branch**: a member whose type has a location field gets that field driven and the
-ordinary mirror creates its node, while a member whose type has none gets a node written directly and marked
-``managed_by = 'rack'``. Both must end up hanging off the same rack node - how a type happens to be modelled
-must not decide whether the device shows up in the tree.
+There is one mechanism: the member's own location field is driven to the rack's node and the ordinary mirror
+writes the node. Only a type declaring a location field may be mounted, so there is no second branch - the
+picker and the mount write both refuse the rest.
 
-Also covered: that the tree follows MEMBERSHIP (so nothing here is triggered by unplacing), that leaving the
-rack DELETES the member's node rather than promoting it, and that the reconcile is a reconcile - it reads the
-rack's current node and needs no before/after comparison
+Covered here: that the field is written before the mirror runs (the field is the record, the node derives
+from it), that MOVING a member to another rack re-points its existing node rather than replacing it, that
+the tree follows MEMBERSHIP (so nothing here is triggered by unplacing), that leaving the rack DELETES the
+member's node rather than promoting it, and that the reconcile is a reconcile - it reads the rack's current
+node and needs no before/after comparison
 """
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from cmdb.models.type_model.field_type_enum import FieldType
-from cmdb.database.predefined_data.predefined_data_constants import LocationManagedBy
 from cmdb.interface.rest_api.routes.rack_routes.rack_location_helper import (
     attach_all_member_locations,
     attach_member_location,
@@ -43,8 +41,6 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_location_helper import (
     handle_mount_created,
     handle_mount_removed,
     reconcile_member_locations,
-    type_has_location_field,
-    upsert_managed_member_node,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -58,12 +54,12 @@ MEMBER_TYPE_ID: int = 60
 MEMBER_NODE_ID: int = 32
 
 
-def _type(with_location: bool) -> SimpleNamespace:
-    """A CmdbType stand-in that either declares a location field or does not"""
-    fields: list[dict[str, Any]] = [{'type': FieldType.TEXT.value, 'name': 'dg-name'}]
-
-    if with_location:
-        fields.append({'type': FieldType.LOCATION.value, 'name': 'dg_location'})
+def _type() -> SimpleNamespace:
+    """A CmdbType stand-in for a mountable member - every one of them declares a location field"""
+    fields: list[dict[str, Any]] = [
+        {'type': FieldType.TEXT.value, 'name': 'dg-name'},
+        {'type': FieldType.LOCATION.value, 'name': 'dg_location'},
+    ]
 
     return SimpleNamespace(
         public_id=MEMBER_TYPE_ID,
@@ -73,13 +69,13 @@ def _type(with_location: bool) -> SimpleNamespace:
     )
 
 
-def _objects_manager(with_location: bool = False, member_exists: bool = True) -> MagicMock:
-    """An ObjectsManager returning one member object of a type with or without a location field"""
+def _objects_manager(member_exists: bool = True) -> MagicMock:
+    """An ObjectsManager returning one mountable member object"""
     manager = MagicMock()
     manager.get_object.return_value = (
         {'public_id': MEMBER_ID, 'type_id': MEMBER_TYPE_ID} if member_exists else None
     )
-    manager.get_object_type.return_value = _type(with_location)
+    manager.get_object_type.return_value = _type()
 
     return manager
 
@@ -111,52 +107,17 @@ def _mounts_manager(member_ids: list[int] | None = None) -> MagicMock:
     return manager
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                            type_has_location_field                                                   #
+#                                                     attach                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_a_type_with_a_location_field_is_detected() -> None:
-    """This is what decides which branch a member takes"""
-    assert type_has_location_field(_type(with_location=True)) is True
-
-
-def test_a_type_without_a_location_field_is_detected() -> None:
-    """The D1 case - the whole reason the second branch exists"""
-    assert type_has_location_field(_type(with_location=False)) is False
-
-
-def test_a_missing_type_has_no_location_field() -> None:
-    """A drifted object must not crash the mirror"""
-    assert type_has_location_field(None) is False
-
-
-def test_a_type_without_fields_has_no_location_field() -> None:
-    """An empty or absent field list is not an error"""
-    assert type_has_location_field(SimpleNamespace(fields=None)) is False
-
-
-def test_the_field_is_matched_by_type_not_by_name() -> None:
-    """
-    A location field called anything still counts
-
-    The location machinery matches on the field type too, so keying on the 'dg_location' name would miss a
-    type that models it differently.
-    """
-    odd = SimpleNamespace(fields=[{'type': FieldType.LOCATION.value, 'name': 'wherever'}])
-
-    assert type_has_location_field(odd) is True
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                        attach - the field branch                                                     #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-def test_a_member_with_a_location_field_gets_the_field_driven() -> None:
+def test_a_member_gets_its_location_field_driven() -> None:
     """
     The field is the record and the node is derived from it
 
-    So the field is written first and the ordinary mirror creates the node - which is what makes the node
+    So the field is written first and the ordinary mirror writes the node - which is what makes the node
     survive the object's next save.
     """
-    objects_manager = _objects_manager(with_location=True)
+    objects_manager = _objects_manager()
     locations_manager = _locations_manager()
 
     with patch(f'{HELPER_PATH}.sync_object_location') as sync:
@@ -169,103 +130,37 @@ def test_a_member_with_a_location_field_gets_the_field_driven() -> None:
     assert sync.call_args.args[1] == RACK_NODE_ID
 
 
-def test_the_field_branch_writes_no_node_itself() -> None:
+def test_the_attach_writes_no_node_itself() -> None:
     """It must not bypass the mirror - that would produce a node the next save disagrees with"""
     locations_manager = _locations_manager()
 
     with patch(f'{HELPER_PATH}.sync_object_location'):
         attach_member_location(
-            MEMBER_ID, RACK_NODE_ID, MagicMock(), _objects_manager(with_location=True), locations_manager,
+            MEMBER_ID, RACK_NODE_ID, MagicMock(), _objects_manager(), locations_manager,
         )
 
     locations_manager.insert_location.assert_not_called()
 
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                     attach - the rack-owned node branch                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
 
-def test_a_member_without_a_location_field_gets_a_marked_node() -> None:
+def test_moving_a_member_re_points_its_node_instead_of_replacing_it() -> None:
     """
-    The D1 answer: there is no field to mirror, so the node is written directly and marked
+    A member arriving from another rack already has a node, and it has to survive the move
 
-    The marker is what lets the location routes refuse a manual move of a node the user cannot correct.
+    The mirror updates the parent of an existing node, so the node keeps its public_id and anything hanging
+    beneath the moved object rides along. Deleting and recreating would promote those children onto the OLD
+    rack and hand out a new node id.
     """
-    locations_manager = _locations_manager()
-
-    with patch(f'{HELPER_PATH}.resolve_location_name', return_value='switch-01'):
-        attach_member_location(
-            MEMBER_ID, RACK_NODE_ID, MagicMock(), _objects_manager(with_location=False), locations_manager,
-        )
-
-    written = locations_manager.insert_location.call_args.args[0]
-    assert written['object_id'] == MEMBER_ID
-    assert written['parent'] == RACK_NODE_ID
-    assert written['managed_by'] == LocationManagedBy.RACK.value
-    assert written['name'] == 'switch-01'
-
-
-def test_the_node_branch_touches_no_object_field() -> None:
-    """There is no location field on the type, so writing one would invent a field the type does not define"""
-    objects_manager = _objects_manager(with_location=False)
-
-    with patch(f'{HELPER_PATH}.resolve_location_name', return_value='switch-01'):
-        attach_member_location(
-            MEMBER_ID, RACK_NODE_ID, MagicMock(), objects_manager, _locations_manager(),
-        )
-
-    objects_manager.set_location_field_for_objects.assert_not_called()
-
-
-def test_a_rack_owned_node_is_not_selectable_as_a_parent() -> None:
-    """
-    Nothing may be hung under a rack member
-
-    Its place in the tree is owned by the rack, so a child would be moved or removed without the user
-    being involved.
-    """
-    locations_manager = _locations_manager()
-
-    with patch(f'{HELPER_PATH}.resolve_location_name', return_value='switch-01'):
-        upsert_managed_member_node(
-            MEMBER_ID, RACK_NODE_ID, _type(False), MagicMock(), MagicMock(), locations_manager,
-        )
-
-    assert locations_manager.insert_location.call_args.args[0]['type_selectable'] is False
-
-
-def test_an_existing_rack_owned_node_is_re_pointed_not_duplicated() -> None:
-    """A rack moving to a new location must not leave a second node behind for the same object"""
     existing = {'public_id': MEMBER_NODE_ID, 'object_id': MEMBER_ID, 'parent': 99}
     locations_manager = _locations_manager(member_node=existing)
 
-    with patch(f'{HELPER_PATH}.resolve_location_name', return_value='switch-01'):
-        upsert_managed_member_node(
-            MEMBER_ID, RACK_NODE_ID, _type(False), MagicMock(), MagicMock(), locations_manager,
+    with patch(f'{HELPER_PATH}.sync_object_location') as sync:
+        attach_member_location(
+            MEMBER_ID, RACK_NODE_ID, MagicMock(), _objects_manager(), locations_manager,
         )
 
-    locations_manager.insert_location.assert_not_called()
-    object_id, update = locations_manager.update_location.call_args.args
-    assert object_id == MEMBER_ID
-    assert update['parent'] == RACK_NODE_ID
-    assert update['managed_by'] == LocationManagedBy.RACK.value
+    locations_manager.delete_location.assert_not_called()
+    assert sync.call_args.args[1] == RACK_NODE_ID
 
-
-def test_a_type_that_no_longer_resolves_still_gets_a_node() -> None:
-    """The member is in the rack, so it belongs in the tree even if its type metadata is gone"""
-    locations_manager = _locations_manager()
-
-    with patch(f'{HELPER_PATH}.resolve_location_name', return_value='unknown'):
-        upsert_managed_member_node(
-            MEMBER_ID, RACK_NODE_ID, None, MagicMock(), MagicMock(), locations_manager,
-        )
-
-    written = locations_manager.insert_location.call_args.args[0]
-    assert written['type_id'] == 0
-    assert written['type_label'] == ''
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              attach - robustness                                                     #
-# -------------------------------------------------------------------------------------------------------------------- #
 
 def test_a_missing_member_object_is_skipped() -> None:
     """Nothing to place"""
@@ -284,7 +179,7 @@ def test_a_failure_is_swallowed_rather_than_rolled_back() -> None:
 
     Same best-effort contract sync_object_location already has.
     """
-    objects_manager = _objects_manager(with_location=False)
+    objects_manager = _objects_manager()
     objects_manager.get_object.side_effect = RuntimeError('boom')
 
     attach_member_location(
@@ -455,12 +350,46 @@ def test_a_new_membership_in_a_rack_without_a_location_does_nothing() -> None:
     """
     locations_manager = _locations_manager(rack_node=None)
 
-    with patch(f'{HELPER_PATH}.attach_member_location') as attach:
+    with patch(f'{HELPER_PATH}.attach_member_location') as attach, \
+         patch(f'{HELPER_PATH}.detach_member_location') as detach:
         handle_mount_created(
             RACK_ID, MEMBER_ID, MagicMock(), MagicMock(), locations_manager,
         )
 
     attach.assert_not_called()
+    detach.assert_not_called()
+
+
+def test_a_member_moved_into_a_rack_without_a_location_leaves_the_tree() -> None:
+    """
+    It still sits under the rack it came from, so doing nothing would show it in a rack it left
+
+    This is the one case where the two differ: a member that was never in a rack has no node to worry
+    about, while a moved one does.
+    """
+    locations_manager = _locations_manager(rack_node=None)
+
+    with patch(f'{HELPER_PATH}.detach_member_location') as detach:
+        handle_mount_created(
+            RACK_ID, MEMBER_ID, MagicMock(), MagicMock(), locations_manager, moved_from_rack=True,
+        )
+
+    detach.assert_called_once()
+
+
+def test_a_member_moved_into_a_rack_with_a_location_is_re_attached() -> None:
+    """The ordinary path - the move is the attach, which re-points the node it already has"""
+    locations_manager = _locations_manager(rack_node={'public_id': RACK_NODE_ID, 'object_id': RACK_ID})
+
+    with patch(f'{HELPER_PATH}.attach_member_location') as attach, \
+         patch(f'{HELPER_PATH}.detach_member_location') as detach:
+        handle_mount_created(
+            RACK_ID, MEMBER_ID, MagicMock(), MagicMock(), locations_manager, moved_from_rack=True,
+        )
+
+    attach.assert_called_once()
+    assert attach.call_args.args[1] == RACK_NODE_ID
+    detach.assert_not_called()
 
 
 def test_removing_a_membership_detaches_the_member() -> None:

@@ -34,6 +34,8 @@ from cmdb.models.object_model.cmdb_object_helpers import extract_field_value
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
 from cmdb.models.special_type_model.rack_constants import RackField
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 
 from cmdb.framework.rack.rack_constants import (
@@ -61,6 +63,9 @@ GEOMETRY_KEYS: tuple[RackMountKey, ...] = (
     RackMountKey.HEIGHT,
     RackMountKey.POSITION,
 )
+
+# The only value that turns a boolean query parameter on
+PARAM_TRUE: str = 'true'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -110,6 +115,66 @@ def get_rack_or_abort(
     return rack
 
 
+def get_type_doc(types_manager: TypesManager, type_id: Any) -> dict[str, Any] | None:
+    """
+    Reads a CmdbType document by id, tolerating an id that is not one
+
+    Exists so the mount rules that judge a type - is it a Rack, does it carry a location field - can be
+    answered from a single read rather than one per rule
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        type_id (Any): public_id of the CmdbType to read
+
+    Returns:
+        dict[str, Any] | None: The type document, or None when the id is unusable or nothing matches
+    """
+    if not isinstance(type_id, int):
+        return None
+
+    return types_manager.get_type(type_id)
+
+
+def is_rack_type_doc(type_doc: dict[str, Any] | None) -> bool:
+    """
+    Reports whether a CmdbType document carries the RACK marker
+
+    Args:
+        type_doc (dict[str, Any] | None): The CmdbType document
+
+    Returns:
+        bool: True when the type is the Rack SpecialType
+    """
+    if not type_doc:
+        return False
+
+    return type_doc.get(TypeSchemaKey.SPECIAL_TYPE) == SpecialType.RACK
+
+
+def type_doc_has_location_field(type_doc: dict[str, Any] | None) -> bool:
+    """
+    Reports whether a CmdbType document declares a location-typed field
+
+    A rack member is mirrored into the location tree under its rack and the member's own location field
+    is what records that, so a type without one can not be mounted at all. The check is on the field's
+    TYPE, never on its name, the same way the rest of the location machinery matches - a type whose
+    location field is not called 'dg_location' still counts
+
+    Args:
+        type_doc (dict[str, Any] | None): The CmdbType document
+
+    Returns:
+        bool: True when the type declares a location field
+    """
+    if not type_doc:
+        return False
+
+    return any(
+        isinstance(field, dict) and field.get(FieldKey.TYPE.value) == FieldType.LOCATION
+        for field in type_doc.get(TypeSchemaKey.FIELDS.value) or []
+    )
+
+
 def is_rack_type(types_manager: TypesManager, type_id: Any) -> bool:
     """
     Reports whether a CmdbType id is the Rack SpecialType
@@ -121,15 +186,7 @@ def is_rack_type(types_manager: TypesManager, type_id: Any) -> bool:
     Returns:
         bool: True when the type carries the RACK marker
     """
-    if not isinstance(type_id, int):
-        return False
-
-    type_doc: dict[str, Any] | None = types_manager.get_type(type_id)
-
-    if not type_doc:
-        return False
-
-    return type_doc.get(TypeSchemaKey.SPECIAL_TYPE) == SpecialType.RACK
+    return is_rack_type_doc(get_type_doc(types_manager, type_id))
 
 
 def get_rack_height(rack: dict[str, Any]) -> int:
@@ -159,10 +216,14 @@ def member_object_blocker(
     """
     Judges whether an object may be mounted, without aborting
 
-    Three rules in the order they can be judged: the id has to be a usable int, a CmdbObject has to carry
-    it, and that object may be neither the rack itself nor another Rack - Racks do not nest. Returns the
-    reason instead of raising so the same rules back both the write route (which aborts) and the dry-run
-    validate route (which reports); this is the blocker/guard pairing used by types_helper
+    Four rules in the order they can be judged: the id has to be a usable int, a CmdbObject has to carry
+    it, that object may be neither the rack itself nor another Rack (Racks do not nest), and its type has
+    to declare a location field - the same rule the picker filters on, enforced here so an API client
+    meets it too. Returns the reason instead of raising so the same rules back both the write route
+    (which aborts) and the dry-run validate route (which reports); this is the blocker/guard pairing used
+    by types_helper
+
+    Belonging to ANOTHER rack is deliberately not a blocker: mounting such an object moves it
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -189,8 +250,13 @@ def member_object_blocker(
     if not member:
         return None, RackMountError.OBJECT_NOT_FOUND.format(object_id=member_id)
 
-    if is_rack_type(types_manager, member.get(CmdbObjectKey.TYPE_ID)):
+    type_doc: dict[str, Any] | None = get_type_doc(types_manager, member.get(CmdbObjectKey.TYPE_ID))
+
+    if is_rack_type_doc(type_doc):
         return None, RackMountError.OBJECT_IS_A_RACK.value
+
+    if not type_doc_has_location_field(type_doc):
+        return None, RackMountError.TYPE_HAS_NO_LOCATION_FIELD.format(object_id=member_id)
 
     return member_id, None
 
@@ -226,52 +292,74 @@ def validate_member_object_or_abort(
     return member_id
 
 
-def second_membership_blocker(
-        rack_mounts_manager: RackMountsManager,
+def same_rack_membership_blocker(
+        existing_mount: dict[str, Any] | None,
+        rack_id: int,
         object_id: int,
         exclude_mount_id: int | None = None) -> str | None:
     """
-    Judges whether the object already belongs to a rack, without aborting
+    Judges whether the object is already in THIS rack, without aborting
 
-    An object is a member of at most one rack - the UNASSIGNED bucket counts, so an object can not be
-    unplaced in one rack and placed in another. The unique index on 'object_id' is the real guarantee; this
-    exists so the caller can report it readably
+    An object is still a member of at most one rack, but a second membership is no longer refused: an
+    object held by ANOTHER rack is mounted by moving it out of that one, which is what the picker offers.
+    What stays refused is mounting an object into the rack it is already in - the verb for that is a PATCH
+    of its existing mount, and re-inserting it would drop that mount's public_id and collide with its own
+    slots
+
+    Pure - the mount is read by the caller and passed in, so both the write path and the dry run judge the
+    same document they already hold
 
     Args:
-        rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
+        existing_mount (dict[str, Any] | None): The mount currently holding the object, if any
+        rack_id (int): public_id of the Rack the object would be mounted into
         object_id (int): public_id of the CmdbObject being mounted
         exclude_mount_id (int | None): public_id of the mount being changed, which may hold the object
 
     Returns:
-        str | None: The reason the object may not be mounted, or None when it is free
+        str | None: The reason the object may not be mounted, or None when it may be
     """
-    if rack_mounts_manager.is_object_mounted(object_id, exclude_mount_id):
-        return RackMountError.OBJECT_ALREADY_MOUNTED.format(object_id=object_id)
+    if not existing_mount:
+        return None
+
+    if existing_mount.get(RackMountKey.PUBLIC_ID.value) == exclude_mount_id:
+        return None
+
+    if existing_mount.get(RackMountKey.RACK_ID.value) == rack_id:
+        return RackMountError.OBJECT_ALREADY_IN_THIS_RACK.format(object_id=object_id)
 
     return None
 
 
-def refuse_second_membership(
+def resolve_move_source_or_abort(
         rack_mounts_manager: RackMountsManager,
-        object_id: int,
-        exclude_mount_id: int | None = None) -> None:
+        rack_id: int,
+        object_id: int) -> dict[str, Any] | None:
     """
-    Aborts 400 when the object already belongs to a rack
+    Reads the mount the object has to be taken out of before it can be mounted here
 
-    The write path's wrapper around second_membership_blocker
+    The write path's wrapper around same_rack_membership_blocker: it aborts when the object is already in
+    this rack and otherwise returns the mount holding it in a DIFFERENT rack, which the caller deletes
+    to complete the move. None means the object is in no rack and this is an ordinary mount
 
     Args:
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
+        rack_id (int): public_id of the Rack the object is being mounted into
         object_id (int): public_id of the CmdbObject being mounted
-        exclude_mount_id (int | None): public_id of the mount being updated
 
     Raises:
-        HTTPException: 400 when another mount already holds the object
+        HTTPException: 400 when the object is already a member of this rack
+
+    Returns:
+        dict[str, Any] | None: The mount to remove, or None when the object is free
     """
-    blocker: str | None = second_membership_blocker(rack_mounts_manager, object_id, exclude_mount_id)
+    existing_mount: dict[str, Any] | None = rack_mounts_manager.get_mount_of_object(object_id)
+
+    blocker: str | None = same_rack_membership_blocker(existing_mount, rack_id, object_id)
 
     if blocker:
         abort(400, blocker)
+
+    return existing_mount
 
 
 def build_mount_candidate(rack_id: int, object_id: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -553,18 +641,20 @@ def resolve_mounted_object_meta(
 def shape_assignable_page(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
+        rack_mounts_manager: RackMountsManager,
         object_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Resolves one page of mount candidates into the rows the rack picker draws
 
-    Two bulk reads for the whole page - the summary lines (composed from the documents already in hand,
-    so nothing is re-fetched) and the type metadata of the types actually present on the page. Scoping
-    the type read to the page rather than to every mountable type keeps a tenant with many types but a
-    small page from paying for lookups it never renders
+    Four bulk reads for the whole page - the summary lines (composed from the documents already in hand,
+    so nothing is re-fetched), the type metadata of the types actually present on the page, and the two
+    behind the rack hint. Scoping each read to the page rather than to every mountable object keeps a
+    tenant with many types or many racks from paying for lookups it never renders
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
+        rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
         object_docs (list[dict[str, Any]]): The candidate CmdbObject documents of one page
 
     Returns:
@@ -585,7 +675,66 @@ def shape_assignable_page(
         object_ids, with_type=False, object_docs=object_docs,
     ) if object_ids else {}
 
-    return build_assignable_rows(object_docs, summary_lines, build_type_meta(types_manager, type_ids))
+    return build_assignable_rows(
+        object_docs,
+        summary_lines,
+        build_type_meta(types_manager, type_ids),
+        resolve_assigned_racks(objects_manager, rack_mounts_manager, object_ids),
+    )
+
+
+def resolve_assigned_racks(
+        objects_manager: ObjectsManager,
+        rack_mounts_manager: RackMountsManager,
+        object_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """
+    Batch-resolves which rack each picker candidate is currently in
+
+    Two bulk reads for the whole page: the mounts holding these objects, then the racks those mounts
+    belong to. The candidates of the rack being filled are already excluded from the page, so every
+    rack found here is a DIFFERENT one - the hint the frontend shows before a mount moves the object.
+    A mount pointing at a rack that no longer resolves contributes no entry, so the row simply reads as
+    free rather than naming a rack the user can not open
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
+        object_ids (list[int]): public_ids of the candidates on the page
+
+    Returns:
+        dict[int, dict[str, Any]]: {object_id: {public_id, display_name}}, absent for a free candidate
+    """
+    mounts: list[dict[str, Any]] = rack_mounts_manager.get_mounts_of_objects(object_ids)
+
+    if not mounts:
+        return {}
+
+    rack_ids: list[int] = [
+        mount[RackMountKey.RACK_ID.value]
+        for mount in mounts
+        if isinstance(mount.get(RackMountKey.RACK_ID.value), int)
+    ]
+
+    rack_docs: list[dict[str, Any]] = objects_manager.find_objects(
+        criteria={CmdbObjectKey.PUBLIC_ID.value: {'$in': list(set(rack_ids))}},
+        as_dict=True,
+    )
+
+    rack_names: dict[int, str] = {
+        doc[CmdbObjectKey.PUBLIC_ID.value]: get_rack_display_name(doc)
+        for doc in rack_docs
+        if isinstance(doc.get(CmdbObjectKey.PUBLIC_ID.value), int)
+    }
+
+    return {
+        mount[RackMountKey.OBJECT_ID.value]: {
+            RackOverviewKey.PUBLIC_ID.value: mount[RackMountKey.RACK_ID.value],
+            RackOverviewKey.DISPLAY_NAME.value: rack_names[mount[RackMountKey.RACK_ID.value]],
+        }
+        for mount in mounts
+        if isinstance(mount.get(RackMountKey.OBJECT_ID.value), int)
+        and mount.get(RackMountKey.RACK_ID.value) in rack_names
+    }
 
 
 def build_type_meta(types_manager: TypesManager, type_ids: list[int]) -> dict[int, dict[str, Any]]:
@@ -641,6 +790,24 @@ def get_requested_height_or_abort(raw_height: Any) -> int:
     return height
 
 
+def is_flag_enabled(raw_value: str | None) -> bool:
+    """
+    Reads a boolean query parameter
+
+    Off unless the caller explicitly asked for it: an absent, empty or unrecognised value means off,
+    never an error, so a stale frontend passing something odd gets the default list rather than a 400.
+    Case-insensitive, unlike the older `onlyActiveObjCookie` check, because a query parameter typed by
+    hand is as likely to read 'TRUE'
+
+    Args:
+        raw_value (str | None): The raw query parameter value
+
+    Returns:
+        bool: True when the flag is on
+    """
+    return isinstance(raw_value, str) and raw_value.strip().lower() == PARAM_TRUE
+
+
 def get_area_filter_or_abort(raw_area: str | None) -> str | None:
     """
     Validates an optional ?area= filter
@@ -681,6 +848,10 @@ def collect_mount_blockers(
     after the membership checks: a candidate whose object may not be mounted at all has no meaningful
     geometry answer, and reporting one would bury the real problem
 
+    An object held by ANOTHER rack validates like a free one, because mounting it there simply moves it -
+    the answer stays silent about the move, since the picker row the candidate came from already names the
+    rack it is in
+
     ``mount_id`` in the payload means "this is a MOVE of that existing mount", which excludes it from its own
     membership and overlap checks - the same exclusion the PATCH route applies
 
@@ -704,8 +875,8 @@ def collect_mount_blockers(
     if blocker:
         return [blocker]
 
-    membership_blocker: str | None = second_membership_blocker(
-        rack_mounts_manager, member_id, exclude_mount_id,
+    membership_blocker: str | None = same_rack_membership_blocker(
+        rack_mounts_manager.get_mount_of_object(member_id), rack_id, member_id, exclude_mount_id,
     )
 
     if membership_blocker:

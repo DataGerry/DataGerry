@@ -14,9 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Object search of DataGerry
-
-`SearcherFramework` runs a search pipeline through the `ObjectsManager` and wraps the rendered hits
-in a `SearchResult`, which additionally reports, per hit, which of its fields matched the search
-patterns. `SearchParam` models one parsed search criterion from the request
+Integration tests for the security layer of DataGerry
 """

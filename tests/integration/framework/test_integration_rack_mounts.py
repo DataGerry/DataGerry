@@ -256,3 +256,58 @@ def test_is_object_mounted_reflects_the_stored_state(mounts, manager: RackMounts
     assert manager.is_object_mounted(OBJECT_ID) is True
     assert manager.is_object_mounted(OBJECT_ID, exclude_mount_id=MOUNT_IDS[0]) is False
     assert manager.is_object_mounted(THIRD_OBJECT_ID) is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            the picker's reads                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_get_member_object_ids_returns_only_this_racks_members(mounts, manager: RackMountsManager) -> None:
+    """
+    What the picker hides is scoped to one rack
+
+    The objects another rack holds stay in the listing - mounting one of them moves it - so this must
+    not answer with every mounted object the way get_mounted_object_ids does.
+    """
+    mounts.insert_many([
+        _mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.FRONT.value, rack_id=RACK_ID, start_slot=1, height=1),
+        _mount_doc(MOUNT_IDS[1], OTHER_OBJECT_ID, RackArea.UNASSIGNED.value, rack_id=RACK_ID, position=0),
+        _mount_doc(MOUNT_IDS[2], THIRD_OBJECT_ID, RackArea.FRONT.value, rack_id=OTHER_RACK_ID,
+                   start_slot=1, height=1),
+    ])
+
+    assert sorted(manager.get_member_object_ids(RACK_ID)) == sorted([OBJECT_ID, OTHER_OBJECT_ID])
+    assert manager.get_member_object_ids(OTHER_RACK_ID) == [THIRD_OBJECT_ID]
+
+
+def test_get_member_object_ids_counts_an_unplaced_member(mounts, manager: RackMountsManager) -> None:
+    """Membership is what makes an object 'already here', not placement"""
+    mounts.insert_one(_mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.UNASSIGNED.value, position=0))
+
+    assert manager.get_member_object_ids(RACK_ID) == [OBJECT_ID]
+
+
+def test_get_member_object_ids_is_empty_for_an_empty_rack(mounts, manager: RackMountsManager) -> None:
+    """A rack holding nothing hides nothing"""
+    assert manager.get_member_object_ids(RACK_ID) == []
+
+
+def test_get_mounts_of_objects_resolves_a_whole_page(mounts, manager: RackMountsManager) -> None:
+    """The rack hint behind a picker page: one read for every candidate on it"""
+    mounts.insert_many([
+        _mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.FRONT.value, rack_id=RACK_ID, start_slot=1, height=1),
+        _mount_doc(MOUNT_IDS[1], OTHER_OBJECT_ID, RackArea.FRONT.value, rack_id=OTHER_RACK_ID,
+                   start_slot=1, height=1),
+    ])
+
+    found = manager.get_mounts_of_objects([OBJECT_ID, OTHER_OBJECT_ID, THIRD_OBJECT_ID])
+
+    assert {mount['object_id']: mount['rack_id'] for mount in found} == {
+        OBJECT_ID: RACK_ID,
+        OTHER_OBJECT_ID: OTHER_RACK_ID,
+    }
+
+
+def test_get_mounts_of_objects_skips_the_free_candidates(mounts, manager: RackMountsManager) -> None:
+    """A page of free objects contributes no hint and no rack read"""
+    assert manager.get_mounts_of_objects([OBJECT_ID, OTHER_OBJECT_ID]) == []
