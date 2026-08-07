@@ -64,6 +64,10 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     return this.renderResult?.object_information?.special_type === SpecialType.SUBNET;
   }
 
+  public get isRack(): boolean {
+    return this.renderResult?.object_information?.special_type === SpecialType.RACK;
+  }
+
   private pendingSelectedId: number | null = null;
   private readonly unsubscribe = new Subject<void>();
   private readonly objectViewSubject = new BehaviorSubject<RenderResult>(undefined);

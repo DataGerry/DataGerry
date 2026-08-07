@@ -1,0 +1,177 @@
+<section class="rack-overview">
+
+  @if (rack) {
+    <header>
+      <h3>Rack view</h3>
+      <p>
+        {{ rack.display_name }} &middot; {{ rack.height }}U &middot; {{ totalMounts }} entr{{ totalMounts === 1 ? 'y' : 'ies' }}
+      </p>
+
+      @if (occupantsLegend.length) {
+        <ul class="rack-overview__legend">
+          @for (entry of occupantsLegend; track entry.kind) {
+            <li>
+              <i [class]="kindIcon(entry.kind)" aria-hidden="true"></i>
+              {{ kindTitle(entry.kind) }}: {{ entry.count }} &middot; {{ entry.slots }}U held
+            </li>
+          }
+        </ul>
+      }
+
+      <div class="btn-group" role="group" aria-label="Rack side">
+        <app-button label="Front" [bootstrapClass]="activeSide === AREAS.FRONT ? 'btn-primary' : 'btn-outline-primary'"
+          [ariaPressed]="activeSide === AREAS.FRONT" (clicked)="onSideChange(AREAS.FRONT)">
+        </app-button>
+
+        <app-button label="Rear" [bootstrapClass]="activeSide === AREAS.BACK ? 'btn-primary' : 'btn-outline-primary'"
+          [ariaPressed]="activeSide === AREAS.BACK" (clicked)="onSideChange(AREAS.BACK)">
+        </app-button>
+      </div>
+
+      <app-button *permissionLink="['base.framework.rack.edit']" label="Add to rack" icon="fas fa-plus"
+        bootstrapClass="btn-primary" (clicked)="onMountObject()">
+      </app-button>
+    </header>
+
+    <!-- Slot grid of the active side. Slot 1 is the bottom, so the rows run top down and a mount
+         occupies one row as tall as its U range, between a U ruler on each post. -->
+    <p class="rack-grid__caption">{{ activeSide === AREAS.FRONT ? 'Front' : 'Rear' }} view</p>
+
+    <div class="rack-grid">
+      <div class="rack-grid__slots">
+        @for (row of slotRows; track row.slot) {
+          <!-- The U numbers sit inside the row, so a row and its posts can never fall out of step. -->
+          <div class="rack-unit" [style.height]="heightOf(row)">
+            <span class="rack-unit__ruler" aria-hidden="true">
+              @for (tick of ticksOf(row); track tick) {
+                <span>{{ tick }}</span>
+              }
+            </span>
+
+            @if (row.mount) {
+              <div class="rack-unit__device" [style.background]="accentTintOf(row.mount)">
+                <i class="rack-unit__icon" [class]="iconOf(row.mount)" aria-hidden="true"></i>
+
+                @if (isMount(row.mount)) {
+                  <button type="button" class="rack-unit__name" (click)="onOpenObject(row.mount.object_id)">
+                    {{ labelOf(row.mount) }}
+                  </button>
+                } @else {
+                  <span class="rack-unit__name">{{ labelOf(row.mount) }}</span>
+                }
+
+                <span class="rack-unit__meta">
+                  ({{ isMount(row.mount) ? row.mount.type_label : kindTitleOf(row.mount) }},
+                  {{ row.mount.height }}U@if (isFullDepth(row.mount)) {, full depth })
+                </span>
+
+                @if (secondaryLabelOf(row.mount); as extraLabel) {
+                  <span class="rack-unit__meta rack-unit__meta--secondary">{{ extraLabel }}</span>
+                }
+
+                @if (periodOf(row.mount); as period) {
+                  <span class="rack-unit__meta rack-unit__meta--secondary">{{ period }}</span>
+                }
+
+                <span class="rack-unit__actions" *permissionLink="['base.framework.rack.edit']">
+                  <app-button label="Edit" bootstrapClass="btn-sm btn-outline-secondary"
+                    [ariaLabel]="'Edit the mount of ' + labelOf(row.mount)" (clicked)="onEditMount(row.mount)">
+                  </app-button>
+
+                  <app-button label="Unplace" bootstrapClass="btn-sm btn-outline-secondary"
+                    title="Free the slots but keep the object in the rack"
+                    [ariaLabel]="'Unplace ' + labelOf(row.mount)" (clicked)="onUnplaceMount(row.mount)">
+                  </app-button>
+
+                  <app-button label="Remove" bootstrapClass="btn-sm btn-outline-danger"
+                    [ariaLabel]="'Remove ' + labelOf(row.mount) + ' from the rack'"
+                    (clicked)="onRemoveMount(row.mount)">
+                  </app-button>
+                </span>
+
+                <span class="rack-unit__chip" [style.background]="accentOf(row.mount)" aria-hidden="true"></span>
+              </div>
+            } @else {
+              <!-- The empty bay is always drawn; only the add action is permission-gated. -->
+              <div class="rack-unit__free">
+                <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-unit__add"
+                  [attr.aria-label]="'Fill slot ' + row.slot" (click)="onFreeSlotClick(row)">
+                  <span class="rack-unit__add-label">+ U{{ row.slot }}</span>
+                </button>
+              </div>
+            }
+
+            <span class="rack-unit__ruler" aria-hidden="true">
+              @for (tick of ticksOf(row); track tick) {
+                <span>{{ tick }}</span>
+              }
+            </span>
+          </div>
+        } @empty {
+          <p class="rack-grid__unset">This rack has no height configured.</p>
+        }
+      </div>
+    </div>
+
+    @if (outOfRangeMounts.length) {
+      <div class="alert alert-warning" role="alert">
+        <p>These mounts no longer fit inside the rack height and cannot be drawn:</p>
+        <ul>
+          @for (mount of outOfRangeMounts; track mount.mount_id) {
+            <li>
+              {{ labelOf(mount) }} &mdash; slot {{ mount.start_slot }}, {{ mount.height }}U
+              <app-button *permissionLink="['base.framework.rack.edit']" label="Edit"
+                bootstrapClass="btn-sm btn-outline-secondary" [ariaLabel]="'Edit the mount of ' + labelOf(mount)"
+                (clicked)="onEditMount(mount)">
+              </app-button>
+            </li>
+          }
+        </ul>
+      </div>
+    }
+
+    <!-- Areas without slot geometry, ordered by their position. -->
+    @for (group of positionAreaGroups; track group.area) {
+      <div class="rack-overview__area">
+        <h4>{{ group.title }} ({{ group.mounts.length }})</h4>
+
+        <ul>
+          @for (mount of group.mounts; track mount.mount_id) {
+            <li>
+              @if (isMount(mount)) {
+                <button type="button" class="btn btn-link p-0" (click)="onOpenObject(mount.object_id)">
+                  {{ labelOf(mount) }}
+                </button>
+              } @else {
+                <span><i [class]="iconOf(mount)" aria-hidden="true"></i> {{ labelOf(mount) }}</span>
+              }
+              <small>
+                {{ isMount(mount) ? mount.type_label : kindTitleOf(mount) }}
+                @if (mount.height) { &middot; {{ mount.height }}U }
+                @if (mount.position !== null) { &middot; position {{ mount.position }} }
+                @if (periodOf(mount); as period) { &middot; {{ period }} }
+              </small>
+
+              <ng-container *permissionLink="['base.framework.rack.edit']">
+                <app-button label="Edit" bootstrapClass="btn-sm btn-outline-secondary"
+                  [ariaLabel]="'Edit the mount of ' + labelOf(mount)" (clicked)="onEditMount(mount)">
+                </app-button>
+
+                <app-button label="Remove" bootstrapClass="btn-sm btn-outline-danger"
+                  [ariaLabel]="'Remove ' + labelOf(mount) + ' from the rack'" (clicked)="onRemoveMount(mount)">
+                </app-button>
+              </ng-container>
+            </li>
+          } @empty {
+            <li>No objects in this area.</li>
+          }
+        </ul>
+      </div>
+    }
+  } @else if (hasError) {
+    <p>The rack overview could not be loaded.</p>
+  }
+</section>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
+</app-loading-popup>

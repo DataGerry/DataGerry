@@ -10,7 +10,8 @@
 
   <ng-select [items]="items" [bindLabel]="bindLabel" [bindValue]="bindValue" [multiple]="multiple"
     [placeholder]="placeholder" [disabled]="disabled" [clearable]="true" [(ngModel)]="value"
-    [dropdownPosition]="dropdownDirection" (change)="onValueChange($event)" (blur)="onTouched()" [groupBy]="groupBy">
+    [dropdownPosition]="dropdownDirection" (change)="onValueChange($event)" (blur)="onTouched()" [groupBy]="groupBy"
+    [loading]="loading" [typeahead]="typeahead" (scrollToEnd)="scrolledToEnd.emit()">
     @if (showSelectAllToggle) {
 
       <ng-template ng-header-tmp>

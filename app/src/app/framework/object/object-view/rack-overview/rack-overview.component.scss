@@ -1,0 +1,194 @@
+$rack-border: #c8ccd2;
+$rack-line: #dfe3e8;
+$rack-post: #f5f6f8;
+$rack-ink: #444;
+$rack-ink-muted: #6b7280;
+
+.rack-view {
+  /* One U. Every row height is a multiple of it. */
+  --rack-u: 1.75rem;
+}
+
+.rack-overview {
+  /* What the reservations and blockers of this rack hold, next to the rack's own summary. */
+  &__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0 0 0.5rem;
+    padding: 0;
+    list-style: none;
+    font-size: 0.8rem;
+    color: $rack-ink-muted;
+
+    li {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+  }
+}
+
+.rack-grid {
+  /* A rack is tall, not wide - without a cap it stretches across the whole page. */
+  width: 100%;
+  max-width: 30rem;
+  border: 1px solid $rack-border;
+  background: #fff;
+
+  &__caption {
+    margin: 0.75rem 0 0.35rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: $rack-ink;
+  }
+
+  &__slots {
+    display: flex;
+    flex-direction: column;
+  }
+
+  &__unset {
+    margin: 0;
+    padding: 1rem;
+    font-size: 0.85rem;
+    color: $rack-ink-muted;
+  }
+}
+
+.rack-unit {
+  display: flex;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border-bottom: 1px solid $rack-line;
+  overflow: hidden;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  /* The posts: one number per U the row covers, spread over the row's height. */
+  &__ruler {
+    display: flex;
+    flex: 0 0 1.9rem;
+    flex-direction: column;
+    justify-content: space-around;
+    align-items: center;
+    background: $rack-post;
+    border-right: 1px solid $rack-line;
+    font-size: 0.7rem;
+    line-height: 1;
+    color: $rack-ink-muted;
+    font-variant-numeric: tabular-nums;
+
+    &:last-child {
+      border-right: 0;
+      border-left: 1px solid $rack-line;
+    }
+  }
+
+  &__free,
+  &__device {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* Empty bays are hatched, the way a rack diagram marks free space. */
+  &__free {
+    background-image: repeating-linear-gradient(
+      45deg,
+      #eceef1 0 6px,
+      #f7f8fa 6px 12px
+    );
+  }
+
+  &__add {
+    width: 100%;
+    height: 100%;
+    padding: 0 0 0 0.5rem;
+    border: 0;
+    background: none;
+    color: $rack-ink-muted;
+    font-size: 0.72rem;
+    text-align: left;
+
+    &-label {
+      opacity: 0;
+    }
+
+    &:hover .rack-unit__add-label,
+    &:focus-visible .rack-unit__add-label {
+      opacity: 1;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $rack-ink-muted;
+      outline-offset: -2px;
+    }
+  }
+
+  &__device {
+    gap: 0.35rem;
+    padding: 0 0.35rem 0 0.5rem;
+  }
+
+  &__icon {
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    color: $rack-ink;
+  }
+
+  &__name {
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 0.8rem;
+    color: $rack-ink;
+    white-space: nowrap;
+
+    /* Only a mount opens its object, so only that name reads as a link. */
+    &:is(button):hover {
+      text-decoration: underline;
+    }
+  }
+
+  &__meta {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.8rem;
+    color: $rack-ink;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    /* A label or a booked period only takes the room it needs, after the type and size. */
+    &--secondary {
+      flex: 0 1 auto;
+      color: $rack-ink-muted;
+    }
+  }
+
+  /* Row actions stay out of the drawing until the row is hovered or focused. */
+  &__actions {
+    display: none;
+    gap: 0.2rem;
+    flex: 0 0 auto;
+  }
+
+  &__device:hover &__actions,
+  &__device:focus-within &__actions {
+    display: flex;
+  }
+
+  /* The type colour, like the status chip in a classic rack drawing. */
+  &__chip {
+    flex: 0 0 auto;
+    width: 0.7rem;
+    height: 0.7rem;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+  }
+}

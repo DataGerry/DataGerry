@@ -88,6 +88,12 @@
       <div *ngIf="!isGraphView" id="object-view" class="col-md-12">
         <cmdb-object-relations [objectId]="currentObjectID" [typeId]="renderResult?.type_information?.type_id">
           <!-- Projected into the "Attributes" tab -->
+          <!-- A mount is stored apart from the object, so a mounted object only learns about its rack here. -->
+          @if (!isRack) {
+            <cmdb-rack-placement *permissionLink="['base.framework.rack.view']" [objectId]="currentObjectID">
+            </cmdb-rack-placement>
+          }
+
           <cmdb-object-view-render [mode]="mode" [renderResult]="renderResult"></cmdb-object-view-render>
 
           @if (isSupernet) {
@@ -96,6 +102,10 @@
           } @else if (isSubnet) {
             <hr class="ipam-section-divider" />
             <cmdb-ipam-subnet-overview [publicId]="currentObjectID"></cmdb-ipam-subnet-overview>
+          } @else if (isRack) {
+            <hr />
+            <cmdb-rack-overview *permissionLink="['base.framework.rack.view']" [publicId]="currentObjectID">
+            </cmdb-rack-overview>
           }
         </cmdb-object-relations>
       </div>

@@ -266,15 +266,17 @@ $sb-speed : 200ms;
 .sb-filter {
   display: flex;
   align-items: center;
+  gap: 6px;
   background: #ffffff;
   border: 1px solid $sb-border-color;
   border-radius: $sb-radius-sm;
-  padding: 0 10px;
+  padding: 0 6px 0 10px;
   height: 38px;
   margin: 0 12px 16px;
 
   input {
     flex: 1;
+    min-width: 0;
     border: none;
     background: transparent;
     font-size: 13px;
@@ -282,10 +284,31 @@ $sb-speed : 200ms;
   }
 
   &__clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    padding: 0;
     border: none;
+    border-radius: 50%;
     background: transparent;
     color: $sb-text-muted;
+    font-size: 12px;
+    line-height: 1;
     cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background: $sb-row-hover;
+      color: $sb-text-primary;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $sb-accent;
+      outline-offset: 1px;
+    }
   }
 }
 

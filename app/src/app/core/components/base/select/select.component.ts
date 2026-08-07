@@ -27,6 +27,7 @@ import {
     ControlValueAccessor,
     NG_VALUE_ACCESSOR
   } from '@angular/forms';
+  import { Subject } from 'rxjs';
   
   @Component({
     selector: 'app-form-select',
@@ -95,7 +96,25 @@ import {
      */
     @Input() enableSelectAll = false;
 
+    /**
+     * Shows the dropdown's own spinner. Set it while a paginated host is fetching the next page.
+     */
+    @Input() loading = false;
+
+    /**
+     * Hand a Subject in to search server side: the typed term is pushed into it and the dropdown stops
+     * filtering the options itself, so the host decides what `items` holds. Leave it unset for a fully
+     * loaded list, which keeps the built-in filtering.
+     */
+    @Input() typeahead: Subject<string>;
+
     @Output() selectedItemChange = new EventEmitter<any>();
+
+    /**
+     * Emitted when the option list is scrolled to its end, so a host that loads its items page by
+     * page can append the next one. Leave it unbound for a fully loaded list.
+     */
+    @Output() scrolledToEnd = new EventEmitter<void>();
 
   
     /**
