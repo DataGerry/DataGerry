@@ -20,13 +20,17 @@ import { Injectable } from '@angular/core';
 import {
     AutomationConditionGroup,
     AutomationDefinition,
+    AutomationMappingEntry,
     AutomationRuleOperator,
-    isTriggerSupported
+    findSystemField,
+    isTriggerSupported,
+    systemFieldValue
 } from '../models/automation-definition.model';
 import {
     OcArrow,
     OcConnection,
     OcCreateAutomationRequest,
+    OcEnhancement,
     OcFieldBinding,
     OcMethod,
     OcOperator,
@@ -432,9 +436,10 @@ export class AutomationCompilerService {
     /**
      * Wires each mapped field pair.
      *
-     * Two things happen per pair: the reference string is written straight into the target method's
-     * request body, and a fieldBinding entry records the same pair with the enhancement script
-     * OpenCelium executes. The reference payloads contain both, so both are produced.
+     * A pair that reads from the source produces two things: the reference string written straight
+     * into the target method's request body, and a fieldBinding entry carrying the script OpenCelium
+     * executes. The reference payloads contain both, so both are produced. A pair whose value is a
+     * constant needs neither - the literal goes into the body and there is nothing to read.
      */
     private buildFieldBindings(
         definition: AutomationDefinition,
@@ -451,18 +456,24 @@ export class AutomationCompilerService {
                 continue;
             }
 
-            const sourceField = this.resolveSourceFieldPath(definition, context, entry.source, warnings);
+            const value = this.resolveSourceValue(definition, context, entry.source, warnings);
 
-            if (!sourceField) {
+            if (!value) {
                 continue;
             }
 
-            const sourcePath = `body.$.${ocCollectionElementPath(arrayPath, sourceField)}`;
+            if (value.kind === 'constant') {
+                this.setBodyField(targetMethod.request, entry.target, value.value);
+
+                continue;
+            }
+
+            const sourcePath = `body.$.${ocCollectionElementPath(arrayPath, value.path)}`;
             const targetPath = `body.$.${entry.target}`;
             const reference = ocFieldReference(
                 AutomationCompilerService.SOURCE_COLOR,
                 'response',
-                ocCollectionElementPath(arrayPath, sourceField)
+                ocCollectionElementPath(arrayPath, value.path)
             );
 
             this.setBodyField(targetMethod.request, entry.target, reference);
@@ -470,15 +481,7 @@ export class AutomationCompilerService {
             bindings.push({
                 from: [{ color: AutomationCompilerService.SOURCE_COLOR, field: sourcePath, type: 'response' }],
                 to: [{ color: AutomationCompilerService.TARGET_COLOR, field: targetPath, type: 'request' }],
-                enhancement: {
-                    name: '',
-                    description: '',
-                    language: 'js',
-                    simpleCode: null,
-                    expertVar: `//var RESULT_VAR = ${AutomationCompilerService.TARGET_COLOR}.(request).${targetPath};\n`
-                        + `//var VAR_0 = ${AutomationCompilerService.SOURCE_COLOR}.(response).${sourcePath};`,
-                    expertCode: 'RESULT_VAR = VAR_0;'
-                }
+                enhancement: this.buildEnhancement(sourcePath, targetPath, entry, warnings)
             });
         }
 
@@ -487,23 +490,88 @@ export class AutomationCompilerService {
 
 
     /**
-     * Works out how to address a source field.
+     * The script OpenCelium runs for one pair.
      *
-     * When the source is a foreign system the mapping already holds its response path. When the
-     * source is DataGerry, the value lives inside the `fields` array of the object, which OpenCelium
-     * addresses positionally - hence the lookup through the type's field order.
+     * Without a transformation this is the plain assignment the reference payloads carry. With one,
+     * the user's statements are wrapped so they operate on a variable named `value`: the wizard's
+     * vocabulary never mentions RESULT_VAR or VAR_0, and the wrapping keeps a mistyped script from
+     * reaching past its own pair.
      */
-    private resolveSourceFieldPath(
+    private buildEnhancement(
+        sourcePath: string,
+        targetPath: string,
+        entry: AutomationMappingEntry,
+        warnings: string[]
+    ): OcEnhancement {
+        const script = entry.transform?.enabled ? entry.transform.script.trim() : '';
+
+        if (entry.transform?.enabled && !script) {
+            warnings.push(
+                `The value adjustment for "${entry.source}" has no content, so the value is transferred `
+                + 'unchanged.'
+            );
+        }
+
+        return {
+            name: '',
+            description: '',
+            language: 'js',
+            simpleCode: null,
+            expertVar: `//var RESULT_VAR = ${AutomationCompilerService.TARGET_COLOR}.(request).${targetPath};\n`
+                + `//var VAR_0 = ${AutomationCompilerService.SOURCE_COLOR}.(response).${sourcePath};`,
+            expertCode: script
+                ? `var value = VAR_0;\n${script}\nRESULT_VAR = value;`
+                : 'RESULT_VAR = VAR_0;'
+        };
+    }
+
+
+    /**
+     * Works out where one mapping entry takes its value from.
+     *
+     * Three cases: a value the wizard already knows (the chosen object type) is a literal; a
+     * DataGerry system value such as the object id sits at the top of the object; everything else is
+     * an ordinary field, which on the DataGerry side lives inside the object's `fields` array.
+     */
+    private resolveSourceValue(
         definition: AutomationDefinition,
         context: AutomationCompileContext,
         source: string,
         warnings: string[]
-    ): string | null {
-        if (definition.direction === 'incoming') {
-            return source;
+    ): SourceValue | null {
+        const systemField = findSystemField(source);
+
+        if (systemField) {
+            if (systemField.kind === 'constant') {
+                const value = systemFieldValue(systemField, definition);
+
+                if (!value) {
+                    warnings.push(`"${systemField.label}" has no value yet and was skipped.`);
+
+                    return null;
+                }
+
+                return { kind: 'constant', value };
+            }
+
+            if (definition.direction !== 'outgoing') {
+                warnings.push(
+                    `"${systemField.label}" can only be read when DataGerry is the source, so it was skipped.`
+                );
+
+                return null;
+            }
+
+            return { kind: 'path', path: systemField.responsePath! };
         }
 
-        return this.resolveDataGerryFieldPath(context, source, warnings);
+        if (definition.direction === 'incoming') {
+            return { kind: 'path', path: source };
+        }
+
+        const path = this.resolveDataGerryFieldPath(context, source, warnings);
+
+        return path ? { kind: 'path', path } : null;
     }
 
 
@@ -954,6 +1022,17 @@ export class AutomationCompilerService {
         });
     }
 }
+
+
+/**
+ * Where a mapping entry's value comes from.
+ *
+ * 'path' is read out of the source system's answer and needs a fieldBinding; 'constant' is written
+ * into the request as a literal, exactly as the reference payloads carry their own fixed values.
+ */
+type SourceValue =
+    | { kind: 'path'; path: string }
+    | { kind: 'constant'; value: string };
 
 
 /** The two operations and connectors an automation runs across. */

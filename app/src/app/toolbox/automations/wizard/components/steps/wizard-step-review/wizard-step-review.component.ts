@@ -20,7 +20,10 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import {
     AutomationDefinition,
     AutomationErrorHandling,
-    AutomationField
+    AutomationField,
+    findSystemField,
+    hasActiveTransform,
+    systemFieldValue
 } from '../../../models/automation-definition.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -80,15 +83,29 @@ export class WizardStepReviewComponent {
 
     /* ---------------------------------------------------- GETTERS --------------------------------------------------- */
 
-    /** The mapped pairs, with a sample value where one is known. */
-    public get preview(): Array<{ source: string; target: string; value: string }> {
+    /**
+     * The mapped pairs, with a sample value where one is known.
+     *
+     * A fixed value needs no sample - it is already the value that will be sent, so it is shown
+     * directly. Pairs carrying a value adjustment are marked, because their sample is what is read,
+     * not what arrives.
+     */
+    public get preview(): Array<{ source: string; target: string; value: string; adjusted: boolean }> {
         return this.definition.mapping
             .filter(entry => !!entry.target)
-            .map(entry => ({
-                source: this.sourceFields.find(field => field.name === entry.source)?.label ?? entry.source,
-                target: entry.target,
-                value: this.sampleValues[entry.source] ?? ''
-            }));
+            .map(entry => {
+                const systemField = findSystemField(entry.source);
+                const value = systemField?.kind === 'constant'
+                    ? systemFieldValue(systemField, this.definition)
+                    : this.sampleValues[entry.source] ?? '';
+
+                return {
+                    source: this.sourceFields.find(field => field.name === entry.source)?.label ?? entry.source,
+                    target: entry.target,
+                    value,
+                    adjusted: hasActiveTransform(entry)
+                };
+            });
     }
 
 

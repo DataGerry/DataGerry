@@ -87,27 +87,31 @@ export class AutomationFieldMappingService {
 
 
     /**
-     * Re-runs the suggestion for the source fields that are still unmapped.
+     * Re-runs the suggestion for the source fields the user has not decided on.
      *
-     * Manual entries are preserved untouched, and their targets stay reserved.
+     * Anything the user touched is preserved untouched, and that includes a pair they deliberately
+     * left unmapped - re-suggesting a target the user just cleared would undo their decision on the
+     * next keystroke. Their targets stay reserved either way.
      */
     public fillGaps(
         existing: AutomationMappingEntry[],
         sourceFields: AutomationField[],
         targetFields: TargetField[]
     ): AutomationMappingEntry[] {
+        const settled = (entry?: AutomationMappingEntry) => !!entry && (!!entry.target || entry.origin === 'manual');
+
         const taken = new Set(existing.filter(entry => entry.target).map(entry => entry.target));
         const free = (targetFields ?? []).filter(field => !taken.has(field.path));
         const bySource = new Map(existing.map(entry => [entry.source, entry]));
 
-        const gaps = (sourceFields ?? []).filter(field => !bySource.get(field.name)?.target);
+        const gaps = (sourceFields ?? []).filter(field => !settled(bySource.get(field.name)));
         const filled = new Map(this.suggest(gaps, free).map(entry => [entry.source, entry]));
 
         return (sourceFields ?? []).map(field => {
             const current = bySource.get(field.name);
 
-            if (current?.target) {
-                return current;
+            if (settled(current)) {
+                return current!;
             }
 
             return filled.get(field.name) ?? {

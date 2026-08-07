@@ -34,6 +34,17 @@
   code {
     font-size: 0.8rem;
   }
+
+  &__badge {
+    margin-left: 0.4rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    background: rgba(233, 77, 24, 0.12);
+    color: $accent;
+  }
 }
 
 .review-toggle {

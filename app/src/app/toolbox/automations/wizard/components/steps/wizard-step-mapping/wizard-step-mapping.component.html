@@ -15,6 +15,10 @@
   <div class="mapping-status">
     <span class="mapping-status__pill mapping-status__pill--ok">{{ resolvedCount }} matched</span>
 
+    @if (adjustedCount > 0) {
+      <span class="mapping-status__pill">{{ adjustedCount }} adjusted</span>
+    }
+
     @if (unresolvedCount > 0) {
       <span class="mapping-status__pill mapping-status__pill--open">{{ unresolvedCount }} open</span>
 
@@ -27,6 +31,10 @@
 
   @if (definition.mapping.length === 0) {
     <p class="text-muted">Choose a target system and its action first.</p>
+  } @else if (targetFields.length === 0) {
+    <p class="text-muted">
+      The chosen action offers no fields to write to. Pick a different action on the previous step.
+    </p>
   } @else {
     <table class="table mapping-table">
       <thead>
@@ -35,19 +43,28 @@
           <th scope="col" class="mapping-table__arrow"></th>
           <th scope="col">Target field</th>
           <th scope="col">Match</th>
+          <th scope="col" class="mapping-table__actions"></th>
         </tr>
       </thead>
       <tbody>
         @for (entry of visibleMapping; track entry.source) {
           <tr [class.is-unresolved]="!entry.target">
-            <td>{{ labelOf(entry.source) }}</td>
+            <td>
+              <span class="mapping-table__source">{{ labelOf(entry.source) }}</span>
+
+              @if (isFixedValue(entry.source)) {
+                <span class="mapping-table__fixed">
+                  fixed value: <code>{{ fixedValueOf(entry.source) || '-' }}</code>
+                </span>
+              }
+            </td>
             <td class="mapping-table__arrow"><i class="fas fa-arrow-right"></i></td>
             <td>
               <app-form-select
                 label=""
                 placeholder="Not mapped"
-                [items]="availableTargets(entry.source)"
-                bindLabel="path"
+                [items]="targetChoices(entry.source)"
+                bindLabel="label"
                 bindValue="path"
                 [ngModel]="entry.target"
                 (ngModelChange)="onTargetSelected(entry.source, $event)">
@@ -64,7 +81,67 @@
                 </span>
               }
             </td>
+            <td class="mapping-table__actions">
+              <!-- Fixed values are already what they are; there is nothing to reshape. -->
+              @if (!isFixedValue(entry.source)) {
+                <button
+                  type="button"
+                  class="btn btn-link btn-sm mapping-table__adjust"
+                  [class.is-active]="hasActiveTransform(entry)"
+                  [disabled]="!entry.target"
+                  [attr.aria-expanded]="isExpanded(entry.source)"
+                  [title]="hasActiveTransform(entry) ? 'Edit the value adjustment' : 'Adjust the value before sending'"
+                  (click)="onToggleTransform(entry)">
+                  <i class="fas fa-sliders me-1"></i>
+                  {{ hasActiveTransform(entry) ? 'Adjusted' : 'Adjust' }}
+                </button>
+              }
+            </td>
           </tr>
+
+          @if (isExpanded(entry.source)) {
+            <tr class="mapping-transform">
+              <td colspan="5">
+                <div class="mapping-transform__head">
+                  <div>
+                    <strong>Adjust the value</strong>
+                    <p class="mapping-transform__hint mb-0">
+                      Optional. The value arrives in <code>value</code>; change it and it is sent
+                      changed. Leave it alone and the value is transferred as it is.
+                    </p>
+                  </div>
+
+                  <label class="mapping-transform__toggle">
+                    <input
+                      type="checkbox"
+                      [checked]="entry.transform?.enabled"
+                      (change)="onTransformEnabledChanged(entry, !entry.transform?.enabled)">
+                    <span>Active</span>
+                  </label>
+                </div>
+
+                <textarea
+                  class="form-control mapping-transform__editor"
+                  rows="4"
+                  spellcheck="false"
+                  placeholder="value = value.toUpperCase();"
+                  [ngModel]="entry.transform?.script"
+                  (ngModelChange)="onTransformScriptChanged(entry, $event)"></textarea>
+
+                <div class="mapping-transform__footer">
+                  <span class="mapping-transform__examples">
+                    Examples: <code>value = value.trim();</code>
+                    <code>value = 'SRV-' + value;</code>
+                    <code>value = value ? 'yes' : 'no';</code>
+                  </span>
+
+                  <button type="button" class="btn btn-link btn-sm" (click)="onRemoveTransform(entry)">
+                    <i class="fas fa-times me-1"></i> Remove adjustment
+                  </button>
+                </div>
+              </td>
+            </tr>
+          }
         }
       </tbody>
     </table>
