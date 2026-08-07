@@ -105,8 +105,9 @@ export interface RackMount {
 
 
 /**
- * An object this rack is allowed to take. The backend already drops the rack itself, other racks and
- * anything mounted elsewhere, so the picker shows exactly what can be mounted.
+ * An object this rack is allowed to take. The backend drops the rack itself and other racks, but an
+ * object mounted in another rack is still offered and carries the rack it currently sits in -
+ * mounting it here moves it. Request `only_unmounted` to get the free objects only.
  */
 export interface RackAssignableObject {
     public_id: number;
@@ -115,6 +116,17 @@ export interface RackAssignableObject {
     type_label: string;
     type_icon: string;
     type_color: string;
+    assigned_rack_id: number | null;
+    assigned_rack_name: string | null;
+}
+
+
+/**
+ * An assignable object plus the label the picker renders for it. The dropdown binds a plain property
+ * path, so the rack hint is composed once per row instead of in the template.
+ */
+export interface RackAssignableOption extends RackAssignableObject {
+    option_label: string;
 }
 
 

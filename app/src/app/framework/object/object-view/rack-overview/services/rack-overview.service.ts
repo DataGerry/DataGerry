@@ -87,12 +87,14 @@ export class RackOverviewService {
 
 
     /**
-     * The objects this rack can still take. Membership rules are applied server side, so the picker
-     * never has to filter racks or already-mounted objects out of the list itself.
+     * The objects this rack can take. Membership rules are applied server side, so the picker never
+     * has to filter racks out of the list itself. Objects mounted in another rack are included and
+     * flagged with that rack; `onlyUnmounted` narrows the list to objects that are free.
      */
     public getAssignableObjects(
         rackId: number,
-        params: CollectionParameters = { filter: undefined, limit: 10, sort: 'public_id', order: 1, page: 1 }
+        params: CollectionParameters = { filter: undefined, limit: 10, sort: 'public_id', order: 1, page: 1 },
+        onlyUnmounted = false
     ): Observable<APIGetMultiResponse<RackAssignableObject>> {
         let httpParams = new HttpParams();
 
@@ -100,6 +102,7 @@ export class RackOverviewService {
             httpParams = httpParams.set('filter', JSON.stringify(params.filter));
         }
 
+        httpParams = httpParams.set('only_unmounted', String(onlyUnmounted));
         httpParams = httpParams.set('limit', String(params.limit));
         httpParams = httpParams.set('sort', params.sort);
         httpParams = httpParams.set('order', String(params.order));

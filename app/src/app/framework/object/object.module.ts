@@ -54,6 +54,7 @@ import { IpamAssignIpModalComponent } from './object-view/ipam-overview/componen
 import { RackOverviewComponent } from './object-view/rack-overview/rack-overview.component';
 import { RackMountModalComponent } from './object-view/rack-overview/components/rack-mount-modal/rack-mount-modal.component';
 import { RackPlacementComponent } from './object-view/rack-overview/components/rack-placement/rack-placement.component';
+import { RackObjectPickerComponent } from './object-view/rack-overview/components/rack-object-picker/rack-object-picker.component';
 import { ObjectActionsComponent } from './components/object-actions/object-actions.component';
 import { ObjectViewMetaComponent } from './components/object-view-meta/object-view-meta.component';
 import { ObjectEditComponent } from './object-edit/object-edit.component';
@@ -175,7 +176,8 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         MatIconModule,
         CoreModule,
         RiskAssessmentModule,
-        QRCodeComponent],
+        QRCodeComponent,
+        RackObjectPickerComponent],
     exports: [
         ObjectViewRenderComponent,
         ObjectTableActionsComponent,

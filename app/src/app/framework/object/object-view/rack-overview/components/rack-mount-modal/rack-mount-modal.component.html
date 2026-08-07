@@ -6,49 +6,41 @@
         Object: <strong>{{ mount?.summary_line || ('#' + mount?.object_id) }}</strong>
       </p>
     } @else {
-      <app-form-select label="Object" placeholder="Select an object..." bindLabel="summary_line" bindValue="public_id"
-        [items]="assignableObjects" [required]="true" [loading]="isFetchingPage" formControlName="objectId"
-        (selectedItemChange)="onObjectSelected()" (scrolledToEnd)="onAssignableScrollEnd()">
-      </app-form-select>
-
-      @if (assignableTotal) {
-        <p class="text-muted">
-          {{ assignableObjects.length }} of {{ assignableTotal }} assignable objects loaded &mdash; scroll for more.
-        </p>
-      }
+      <cmdb-rack-object-picker [rackId]="rackId" formControlName="objectId" (objectSelected)="onObjectSelected()">
+      </cmdb-rack-object-picker>
     }
 
     <app-form-select label="Area" placeholder="Select an area..." bindLabel="label" bindValue="value"
       [items]="areaOptions" [required]="true" formControlName="area">
     </app-form-select>
 
-    @if (isSlotArea) {
+    @if (isSlotArea()) {
       <app-form-input label="Start slot" type="number" placeholder="Slot 1 is the bottom of the rack"
         [required]="true" [errorMessage]="startSlotError" formControlName="startSlot">
       </app-form-input>
     }
 
-    @if (showsHeight) {
-      <app-form-input label="Height (U)" type="number" [required]="isSlotArea" [errorMessage]="heightError"
+    @if (showsHeight()) {
+      <app-form-input label="Height (U)" type="number" [required]="isSlotArea()" [errorMessage]="heightError"
         formControlName="height">
       </app-form-input>
     }
 
-    @if (showsPosition) {
+    @if (showsPosition()) {
       <app-form-input label="Position (optional)" type="number"
         placeholder="Leave empty to append to the end of the area" [errorMessage]="positionError"
         formControlName="position">
       </app-form-input>
     }
 
-    @if (slotRangeHint) {
-      <p>{{ slotRangeHint }}</p>
+    @if (slotRangeHint(); as hint) {
+      <p>{{ hint }}</p>
     }
 
-    @if (validationErrors.length) {
+    @if (validationErrors().length) {
       <div class="alert alert-danger" role="alert">
         <ul class="mb-0">
-          @for (error of validationErrors; track $index) {
+          @for (error of validationErrors(); track $index) {
             <li>{{ error }}</li>
           }
         </ul>

@@ -15,19 +15,18 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, Input, OnInit, OnDestroy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, Input, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
-import { Observable, Subject, finalize, of, switchMap, takeUntil } from 'rxjs';
+import { Observable, finalize, of, switchMap } from 'rxjs';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
-import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 
 import {
     RACK_SLOT_AREAS,
     RackArea,
-    RackAssignableObject,
     RackMountPayload,
     RackMountRow,
     RackMountUpdatePayload,
@@ -41,9 +40,6 @@ interface RackAreaOption {
     value: RackArea;
     label: string;
 }
-
-/** Assignable objects are pulled in pages as the dropdown is scrolled. */
-const ASSIGNABLE_PAGE_SIZE = 25;
 
 const AREA_OPTIONS: RackAreaOption[] = [
     { value: RackArea.FRONT, label: 'Front' },
@@ -62,14 +58,19 @@ const AREA_OPTIONS: RackAreaOption[] = [
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: false
 })
-export class RackMountModalComponent implements OnInit, OnDestroy {
+export class RackMountModalComponent implements OnInit {
 
     public readonly activeModal = inject(NgbActiveModal);
     private readonly rackOverviewService = inject(RackOverviewService);
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
-    private readonly changesRef = inject(ChangeDetectorRef);
+    private readonly destroyRef = inject(DestroyRef);
 
+    /**
+     * Decorator inputs on purpose: NgbModal hands the values over by assigning them on the component
+     * instance, and a signal input cannot be written from the outside. They are set once, before the
+     * first change detection run, and never change while the modal is open.
+     */
     @Input() public rackId: number;
     @Input() public rackHeight = 0;
     /** Set when an existing mount is edited; null when a new object is mounted. */
@@ -79,14 +80,7 @@ export class RackMountModalComponent implements OnInit, OnDestroy {
 
     public readonly areaOptions = AREA_OPTIONS;
     public readonly isLoading$ = this.loaderService.isLoading$;
-    public validationErrors: string[] = [];
-    public assignableObjects: RackAssignableObject[] = [];
-    /** Drives the dropdown spinner while a page is in flight. */
-    public isFetchingPage = false;
-    public assignableTotal = 0;
-
-    private nextPage = 1;
-    private hasMoreAssignableObjects = true;
+    public readonly validationErrors = signal<string[]>([]);
 
     public readonly form = new FormGroup({
         objectId: new FormControl<number | null>(null, Validators.required),
@@ -96,7 +90,32 @@ export class RackMountModalComponent implements OnInit, OnDestroy {
         position: new FormControl<number | null>(null)
     });
 
-    private readonly destroy$ = new Subject<void>();
+    /** The form values as a signal, so what the template shows is derived once per change, not per cycle. */
+    private readonly formValue = toSignal(this.form.valueChanges, { initialValue: this.form.getRawValue() });
+
+    public readonly isSlotArea = computed(() => RACK_SLOT_AREAS.includes(this.formValue().area));
+
+    /** An unplaced mount keeps its height as a hint, so re-placing it can be pre-filled. */
+    public readonly showsHeight = computed(() => this.isSlotArea() || this.formValue().area === RackArea.UNASSIGNED);
+
+    public readonly showsPosition = computed(() => !this.isSlotArea());
+
+    /** Spells out the slots the current input would take, since the anchor extends downward. */
+    public readonly slotRangeHint = computed<string | null>(() => {
+        if (!this.isSlotArea()) {
+            return null;
+        }
+
+        const { startSlot, height } = this.formValue();
+        const anchorSlot = this.toNumber(startSlot);
+        const span = this.toNumber(height);
+
+        if (anchorSlot === null || span === null) {
+            return null;
+        }
+
+        return `Occupies slot ${anchorSlot - span + 1} to ${anchorSlot} of ${this.rackHeight}U.`;
+    });
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -104,34 +123,18 @@ export class RackMountModalComponent implements OnInit, OnDestroy {
         this.seedForm();
         this.applyAreaRules(this.form.controls.area.value);
 
-        if (!this.isEditMode) {
-            this.loadAssignableObjects();
-        }
-
         this.form.controls.area.valueChanges
-            .pipe(takeUntil(this.destroy$))
+            .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe((area) => {
                 this.applyAreaRules(area);
-                this.validationErrors = [];
-                this.changesRef.markForCheck();
+                this.validationErrors.set([]);
             });
-    }
-
-    public ngOnDestroy(): void {
-        this.destroy$.next();
-        this.destroy$.complete();
     }
 
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onObjectSelected(): void {
-        this.validationErrors = [];
-        this.changesRef.markForCheck();
-    }
-
-    /** Reaching the end of the option list pulls the next page in. */
-    public onAssignableScrollEnd(): void {
-        this.loadAssignableObjects();
+        this.validationErrors.set([]);
     }
 
     /** Pre-validates through the dry-run route and only writes when the placement is accepted. */
@@ -141,23 +144,21 @@ export class RackMountModalComponent implements OnInit, OnDestroy {
             return;
         }
 
-        this.validationErrors = [];
+        this.validationErrors.set([]);
         this.loaderService.show();
 
         this.rackOverviewService
             .validateMount(this.rackId, this.buildValidatePayload())
             .pipe(
                 switchMap((validation) => this.persistWhenValid(validation)),
-                takeUntil(this.destroy$),
+                takeUntilDestroyed(this.destroyRef),
                 finalize(() => this.loaderService.hide())
             )
             .subscribe({
                 next: (saved) => {
                     if (saved) {
                         this.activeModal.close(true);
-                        return;
                     }
-                    this.changesRef.markForCheck();
                 },
                 error: (err) => this.toastService.error(err?.error?.message)
             });
@@ -169,39 +170,14 @@ export class RackMountModalComponent implements OnInit, OnDestroy {
         return this.mount !== null;
     }
 
-    public get isSlotArea(): boolean {
-        return RACK_SLOT_AREAS.includes(this.form.controls.area.value);
-    }
-
-    /** An unplaced mount keeps its height as a hint, so re-placing it can be pre-filled. */
-    public get showsHeight(): boolean {
-        return this.isSlotArea || this.form.controls.area.value === RackArea.UNASSIGNED;
-    }
-
-    public get showsPosition(): boolean {
-        return !this.isSlotArea;
-    }
-
     public get title(): string {
         return this.isEditMode ? 'Edit mount' : 'Mount object';
     }
 
-    /** Spells out the slots the current input would take, since the anchor extends downward. */
-    public get slotRangeHint(): string | null {
-        if (!this.isSlotArea) {
-            return null;
-        }
-
-        const startSlot = this.toNumber(this.form.controls.startSlot.value);
-        const height = this.toNumber(this.form.controls.height.value);
-
-        if (startSlot === null || height === null) {
-            return null;
-        }
-
-        return `Occupies slot ${startSlot - height + 1} to ${startSlot} of ${this.rackHeight}U.`;
-    }
-
+    /**
+     * The error texts read `touched` and `valid`, which reactive forms do not expose as signals, so
+     * they stay getters and are re-read on the change detection the form's own events trigger.
+     */
     public get startSlotError(): string {
         const control = this.form.controls.startSlot;
 
@@ -233,62 +209,6 @@ export class RackMountModalComponent implements OnInit, OnDestroy {
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
-
-    /**
-     * Loads the next page of assignable objects and appends it. The first page runs behind the modal
-     * loader; later pages report through the dropdown's own spinner, since the user is still in it.
-     */
-    private loadAssignableObjects(): void {
-        if (this.isFetchingPage || !this.hasMoreAssignableObjects) {
-            return;
-        }
-
-        const isFirstPage = this.nextPage === 1;
-        this.isFetchingPage = true;
-
-        if (isFirstPage) {
-            this.loaderService.show();
-        }
-
-        this.rackOverviewService
-            .getAssignableObjects(this.rackId, {
-                filter: undefined,
-                limit: ASSIGNABLE_PAGE_SIZE,
-                sort: 'public_id',
-                order: 1,
-                page: this.nextPage
-            })
-            .pipe(
-                takeUntil(this.destroy$),
-                finalize(() => {
-                    this.isFetchingPage = false;
-
-                    if (isFirstPage) {
-                        this.loaderService.hide();
-                    }
-
-                    this.changesRef.markForCheck();
-                })
-            )
-            .subscribe({
-                next: (response) => this.appendAssignablePage(response),
-                error: (err) => {
-                    // Stop paging on a failed page rather than retrying the same one on every scroll.
-                    this.hasMoreAssignableObjects = false;
-                    this.toastService.error(err?.error?.message);
-                }
-            });
-    }
-
-    private appendAssignablePage(response: APIGetMultiResponse<RackAssignableObject>): void {
-        const page = response?.results ?? [];
-
-        // A fresh array so OnPush picks the new options up.
-        this.assignableObjects = [...this.assignableObjects, ...page];
-        this.assignableTotal = response?.total ?? this.assignableObjects.length;
-        this.hasMoreAssignableObjects = page.length > 0 && this.assignableObjects.length < this.assignableTotal;
-        this.nextPage = this.nextPage + 1;
-    }
 
     private seedForm(): void {
         if (this.mount) {
@@ -350,7 +270,7 @@ export class RackMountModalComponent implements OnInit, OnDestroy {
 
     private persistWhenValid(validation: RackMountValidationResponse): Observable<unknown | null> {
         if (!validation?.valid) {
-            this.validationErrors = (validation?.errors ?? []).map(error => error.message);
+            this.validationErrors.set((validation?.errors ?? []).map(error => error.message));
             return of(null);
         }
 
