@@ -4,8 +4,19 @@
     <header>
       <h3>Rack view</h3>
       <p>
-        {{ rack.display_name }} &middot; {{ rack.height }}U &middot; {{ totalMounts }} mounted object(s)
+        {{ rack.display_name }} &middot; {{ rack.height }}U &middot; {{ totalMounts }} entr{{ totalMounts === 1 ? 'y' : 'ies' }}
       </p>
+
+      @if (occupantsLegend.length) {
+        <ul class="rack-overview__legend">
+          @for (entry of occupantsLegend; track entry.kind) {
+            <li>
+              <i [class]="kindIcon(entry.kind)" aria-hidden="true"></i>
+              {{ kindTitle(entry.kind) }}: {{ entry.count }} &middot; {{ entry.slots }}U held
+            </li>
+          }
+        </ul>
+      }
 
       <div class="btn-group" role="group" aria-label="Rack side">
         <app-button label="Front" [bootstrapClass]="activeSide === AREAS.FRONT ? 'btn-primary' : 'btn-outline-primary'"
@@ -17,7 +28,7 @@
         </app-button>
       </div>
 
-      <app-button *permissionLink="['base.framework.rack.edit']" label="Mount object" icon="fas fa-plus"
+      <app-button *permissionLink="['base.framework.rack.edit']" label="Add to rack" icon="fas fa-plus"
         bootstrapClass="btn-primary" (clicked)="onMountObject()">
       </app-button>
     </header>
@@ -41,13 +52,26 @@
               <div class="rack-unit__device" [style.background]="accentTintOf(row.mount)">
                 <i class="rack-unit__icon" [class]="iconOf(row.mount)" aria-hidden="true"></i>
 
-                <button type="button" class="rack-unit__name" (click)="onOpenObject(row.mount.object_id)">
-                  {{ labelOf(row.mount) }}
-                </button>
+                @if (isMount(row.mount)) {
+                  <button type="button" class="rack-unit__name" (click)="onOpenObject(row.mount.object_id)">
+                    {{ labelOf(row.mount) }}
+                  </button>
+                } @else {
+                  <span class="rack-unit__name">{{ labelOf(row.mount) }}</span>
+                }
 
                 <span class="rack-unit__meta">
-                  ({{ row.mount.type_label }}, {{ row.mount.height }}U@if (isFullDepth(row.mount)) {, full depth })
+                  ({{ isMount(row.mount) ? row.mount.type_label : kindTitleOf(row.mount) }},
+                  {{ row.mount.height }}U@if (isFullDepth(row.mount)) {, full depth })
                 </span>
+
+                @if (secondaryLabelOf(row.mount); as extraLabel) {
+                  <span class="rack-unit__meta rack-unit__meta--secondary">{{ extraLabel }}</span>
+                }
+
+                @if (periodOf(row.mount); as period) {
+                  <span class="rack-unit__meta rack-unit__meta--secondary">{{ period }}</span>
+                }
 
                 <span class="rack-unit__actions" *permissionLink="['base.framework.rack.edit']">
                   <app-button label="Edit" bootstrapClass="btn-sm btn-outline-secondary"
@@ -68,10 +92,10 @@
                 <span class="rack-unit__chip" [style.background]="accentOf(row.mount)" aria-hidden="true"></span>
               </div>
             } @else {
-              <!-- The empty bay is always drawn; only the mount action is permission-gated. -->
+              <!-- The empty bay is always drawn; only the add action is permission-gated. -->
               <div class="rack-unit__free">
                 <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-unit__add"
-                  [attr.aria-label]="'Mount an object into slot ' + row.slot" (click)="onFreeSlotClick(row)">
+                  [attr.aria-label]="'Fill slot ' + row.slot" (click)="onFreeSlotClick(row)">
                   <span class="rack-unit__add-label">+ U{{ row.slot }}</span>
                 </button>
               </div>
@@ -114,13 +138,18 @@
         <ul>
           @for (mount of group.mounts; track mount.mount_id) {
             <li>
-              <button type="button" class="btn btn-link p-0" (click)="onOpenObject(mount.object_id)">
-                {{ labelOf(mount) }}
-              </button>
+              @if (isMount(mount)) {
+                <button type="button" class="btn btn-link p-0" (click)="onOpenObject(mount.object_id)">
+                  {{ labelOf(mount) }}
+                </button>
+              } @else {
+                <span><i [class]="iconOf(mount)" aria-hidden="true"></i> {{ labelOf(mount) }}</span>
+              }
               <small>
-                {{ mount.type_label }}
+                {{ isMount(mount) ? mount.type_label : kindTitleOf(mount) }}
                 @if (mount.height) { &middot; {{ mount.height }}U }
                 @if (mount.position !== null) { &middot; position {{ mount.position }} }
+                @if (periodOf(mount); as period) { &middot; {{ period }} }
               </small>
 
               <ng-container *permissionLink="['base.framework.rack.edit']">

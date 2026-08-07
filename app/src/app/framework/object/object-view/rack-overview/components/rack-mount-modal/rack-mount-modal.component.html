@@ -1,17 +1,33 @@
-<dg-modal icon="fas fa-server" eyebrow="Rack" [title]="title" (dismiss)="activeModal.dismiss()">
+<dg-modal icon="fas fa-server" eyebrow="Rack" [title]="title()" (dismiss)="activeModal.dismiss()">
 
   <form [formGroup]="form">
     @if (isEditMode) {
       <p>
-        Object: <strong>{{ mount?.summary_line || ('#' + mount?.object_id) }}</strong>
+        Type: <strong>{{ kindLabel() }}</strong>
       </p>
     } @else {
-      <cmdb-rack-object-picker [rackId]="rackId" formControlName="objectId" (objectSelected)="onObjectSelected()">
-      </cmdb-rack-object-picker>
+      <app-form-select label="What holds the space" bindLabel="label" bindValue="value" [items]="kindOptions"
+        [required]="true" formControlName="kind">
+      </app-form-select>
     }
 
+    @if (isMount()) {
+      @if (isEditMode) {
+        <p>
+          Object: <strong>{{ mount?.summary_line || ('#' + mount?.object_id) }}</strong>
+        </p>
+      } @else {
+        <cmdb-rack-object-picker [rackId]="rackId" formControlName="objectId" (objectSelected)="onObjectSelected()">
+        </cmdb-rack-object-picker>
+      }
+    }
+
+    <app-form-input label="Label (optional)" placeholder="Shown on the row, for example Metal frame"
+      formControlName="label">
+    </app-form-input>
+
     <app-form-select label="Area" placeholder="Select an area..." bindLabel="label" bindValue="value"
-      [items]="areaOptions" [required]="true" formControlName="area">
+      [items]="areaOptions()" [required]="true" formControlName="area">
     </app-form-select>
 
     @if (isSlotArea()) {
@@ -33,6 +49,19 @@
       </app-form-input>
     }
 
+    @if (isReservation()) {
+      <app-form-input label="Reserved from (optional)" type="date" formControlName="startDate">
+      </app-form-input>
+
+      <app-form-input label="Reserved until (optional)" type="date" [errorMessage]="dateRangeError"
+        formControlName="endDate">
+      </app-form-input>
+
+      <app-form-input label="Colour (optional)" placeholder="#4CAF50" [errorMessage]="colorError"
+        formControlName="color">
+      </app-form-input>
+    }
+
     @if (slotRangeHint(); as hint) {
       <p>{{ hint }}</p>
     }
@@ -51,7 +80,7 @@
   <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" (clicked)="activeModal.dismiss()">
   </app-button>
 
-  <app-button dgModalFooter bootstrapClass="btn-primary" [label]="isEditMode ? 'Save' : 'Mount'"
+  <app-button dgModalFooter bootstrapClass="btn-primary" [label]="isEditMode ? 'Save' : 'Add'"
     [disabled]="form.invalid" (clicked)="onSubmit()">
   </app-button>
 </dg-modal>

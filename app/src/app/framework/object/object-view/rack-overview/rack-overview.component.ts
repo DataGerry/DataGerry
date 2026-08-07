@@ -38,14 +38,18 @@ import {
     RackArea,
     RackAreaGroup,
     RackHeader,
+    RackMountKind,
     RackMountRow,
+    RackOccupantLegendEntry,
     RackOverviewResponse,
     RackSlotRow,
-    RackViewSide
+    RackViewSide,
+    kindOf,
+    toDayString
 } from './models/rack-overview.types';
 import { RackOverviewService } from './services/rack-overview.service';
 import { buildSlotRows, collectOutOfRangeMounts, sortByPosition } from './utils/rack-layout.util';
-import { accentTint, safeAccent, safeIcon } from './utils/rack-visual.util';
+import { RACK_KIND_ICONS, RACK_KIND_LABELS, accentTint, safeAccent, safeIcon } from './utils/rack-visual.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Opacity of the type colour filling the row of a mounted object. */
@@ -80,6 +84,7 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     public slotRows: RackSlotRow[] = [];
     public outOfRangeMounts: RackMountRow[] = [];
     public positionAreaGroups: RackAreaGroup[] = [];
+    public occupantsLegend: RackOccupantLegendEntry[] = [];
     public hasError = false;
 
     private overview: RackOverviewResponse | null = null;
@@ -115,7 +120,7 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         this.openMountModal(null, this.activeSide, null);
     }
 
-    /** Mounting straight into the clicked slot, pre-filled with that slot as the anchor. */
+    /** Filling the clicked slot, pre-filled with that slot as the anchor. */
     public onFreeSlotClick(row: RackSlotRow): void {
         if (row.mount) {
             return;
@@ -144,21 +149,69 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     public onRemoveMount(mount: RackMountRow): void {
         this.deleteModalService.confirmDelete({
             title: 'Remove from rack',
-            itemType: 'Rack mount',
+            itemType: this.kindTitleOf(mount),
             itemName: this.labelOf(mount),
-            description: 'The object leaves the rack. The object itself is not deleted.',
+            description: this.isMount(mount)
+                ? 'The object leaves the rack. The object itself is not deleted.'
+                : 'The slots it holds become free again.',
             onConfirm: () => this.deleteMount(mount)
         });
     }
 
-    public onOpenObject(objectId: number): void {
+    /** Only a mount has an object to open; an occupant row never reaches this. */
+    public onOpenObject(objectId: number | null): void {
+        if (objectId == null) {
+            return;
+        }
+
         this.router.navigate([`/framework/object/view/${objectId}`]);
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
+    /** A mount is named by its object, an occupant by its own label and otherwise by its kind. */
     public labelOf(mount: RackMountRow): string {
-        return mount.summary_line || `#${mount.object_id}`;
+        if (this.isMount(mount)) {
+            return mount.summary_line || `#${mount.object_id}`;
+        }
+
+        return mount.label?.trim() || this.kindTitleOf(mount);
+    }
+
+    public isMount(mount: RackMountRow): boolean {
+        return kindOf(mount) === RackMountKind.MOUNT;
+    }
+
+    public kindTitleOf(mount: RackMountRow): string {
+        return RACK_KIND_LABELS[kindOf(mount)];
+    }
+
+    public kindTitle(kind: RackMountKind): string {
+        return RACK_KIND_LABELS[kind];
+    }
+
+    /** The label of a mount is already the object, so it only adds something to a named occupant. */
+    public secondaryLabelOf(mount: RackMountRow): string | null {
+        return this.isMount(mount) ? mount.label?.trim() || null : null;
+    }
+
+    /**
+     * The booked period of a reservation, as plain days. Either end may be open, and a reservation
+     * without any dates simply has no period to show.
+     */
+    public periodOf(mount: RackMountRow): string | null {
+        const from = toDayString(mount.start_date);
+        const until = toDayString(mount.end_date);
+
+        if (from && until) {
+            return `${from} to ${until}`;
+        }
+
+        if (from) {
+            return `from ${from}`;
+        }
+
+        return until ? `until ${until}` : null;
     }
 
     public isFullDepth(mount: RackMountRow | null): boolean {
@@ -179,15 +232,19 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     }
 
     public accentOf(mount: RackMountRow): string {
-        return safeAccent(mount.type_color);
+        return safeAccent(this.colorSourceOf(mount));
     }
 
     public accentTintOf(mount: RackMountRow): string {
-        return accentTint(mount.type_color, ROW_TINT_ALPHA);
+        return accentTint(this.colorSourceOf(mount), ROW_TINT_ALPHA);
+    }
+
+    public kindIcon(kind: RackMountKind): string {
+        return RACK_KIND_ICONS[kind];
     }
 
     public iconOf(mount: RackMountRow): string {
-        return safeIcon(mount.type_icon);
+        return this.isMount(mount) ? safeIcon(mount.type_icon) : RACK_KIND_ICONS[kindOf(mount)];
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
@@ -215,6 +272,7 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         this.overview = response;
         this.rack = response?.rack ?? null;
         this.totalMounts = response?.total_mounts ?? 0;
+        this.occupantsLegend = response?.occupants_legend ?? [];
         this.hasError = false;
 
         this.positionAreaGroups = [
@@ -267,6 +325,15 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
             },
             () => undefined
         );
+    }
+
+    /** Where the row takes its colour from: its type for a mount, its own colour for a reservation. */
+    private colorSourceOf(mount: RackMountRow): string | null {
+        if (this.isMount(mount)) {
+            return mount.type_color;
+        }
+
+        return kindOf(mount) === RackMountKind.RESERVATION ? mount.color : null;
     }
 
     private deleteMount(mount: RackMountRow): void {

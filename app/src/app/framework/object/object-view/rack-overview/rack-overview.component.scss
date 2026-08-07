@@ -9,6 +9,26 @@ $rack-ink-muted: #6b7280;
   --rack-u: 1.75rem;
 }
 
+.rack-overview {
+  /* What the reservations and blockers of this rack hold, next to the rack's own summary. */
+  &__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0 0 0.5rem;
+    padding: 0;
+    list-style: none;
+    font-size: 0.8rem;
+    color: $rack-ink-muted;
+
+    li {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+  }
+}
+
 .rack-grid {
   /* A rack is tall, not wide - without a cap it stretches across the whole page. */
   width: 100%;
@@ -130,7 +150,8 @@ $rack-ink-muted: #6b7280;
     color: $rack-ink;
     white-space: nowrap;
 
-    &:hover {
+    /* Only a mount opens its object, so only that name reads as a link. */
+    &:is(button):hover {
       text-decoration: underline;
     }
   }
@@ -143,6 +164,12 @@ $rack-ink-muted: #6b7280;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    /* A label or a booked period only takes the room it needs, after the type and size. */
+    &--secondary {
+      flex: 0 1 auto;
+      color: $rack-ink-muted;
+    }
   }
 
   /* Row actions stay out of the drawing until the row is hovered or focused. */

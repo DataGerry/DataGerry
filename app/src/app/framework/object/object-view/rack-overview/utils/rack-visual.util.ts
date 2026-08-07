@@ -15,12 +15,28 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { RackMountKind } from '../models/rack-overview.types';
+/* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Accent used when a type carries no colour, or one that is not a plain hex value. */
 const FALLBACK_ACCENT = '#64748b';
 
 /** Icon used when a type carries no icon, or one that is not a Font Awesome class list. */
 const FALLBACK_ICON = 'fas fa-microchip';
+
+/** How each kind is named wherever a row is described. */
+export const RACK_KIND_LABELS: Record<RackMountKind, string> = {
+    [RackMountKind.MOUNT]: 'Mounted object',
+    [RackMountKind.RESERVATION]: 'Reservation',
+    [RackMountKind.BLOCKER]: 'Blocker'
+};
+
+/** An occupant has no type behind it, so its row is drawn with the icon of its kind. */
+export const RACK_KIND_ICONS: Record<RackMountKind, string> = {
+    [RackMountKind.MOUNT]: FALLBACK_ICON,
+    [RackMountKind.RESERVATION]: 'fas fa-calendar-check',
+    [RackMountKind.BLOCKER]: 'fas fa-ban'
+};
 
 const HEX_COLOR = /^#([\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i;
 

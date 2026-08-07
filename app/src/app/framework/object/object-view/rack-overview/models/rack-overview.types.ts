@@ -32,6 +32,52 @@ export type RackViewSide = RackArea.FRONT | RackArea.BACK;
 export const RACK_SLOT_AREAS: RackArea[] = [RackArea.FRONT, RackArea.BACK, RackArea.FULL_DEPTH];
 
 
+/**
+ * What holds the slots. A MOUNT is an object in the rack; a RESERVATION books the space for later and
+ * has to be released before anything can be mounted there; a BLOCKER simply takes the space out of use.
+ * The last two carry no object and are called occupants.
+ */
+export enum RackMountKind {
+    MOUNT = 'MOUNT',
+    RESERVATION = 'RESERVATION',
+    BLOCKER = 'BLOCKER'
+}
+
+export const RACK_OCCUPANT_KINDS: RackMountKind[] = [RackMountKind.RESERVATION, RackMountKind.BLOCKER];
+
+/** The side areas hold objects only, so an occupant may take any other area. */
+export const RACK_OCCUPANT_FORBIDDEN_AREAS: RackArea[] = [RackArea.LEFT, RackArea.RIGHT];
+
+
+export type RackApiDate = string | number | { $date: string | number } | null;
+
+
+/** The day of an API date, as `YYYY-MM-DD`, which is what a date input reads and writes. */
+export function toDayString(value: RackApiDate): string | null {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+
+    if (typeof value === 'string') {
+        return value.slice(0, 10);
+    }
+
+    const parsed = new Date(typeof value === 'number' ? value : value.$date);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+
+/** A row without a kind predates the occupants and is an object mount. */
+export function kindOf(row: { kind?: RackMountKind | null }): RackMountKind {
+    return row?.kind ?? RackMountKind.MOUNT;
+}
+
+export function isOccupant(row: { kind?: RackMountKind | null }): boolean {
+    return RACK_OCCUPANT_KINDS.includes(kindOf(row));
+}
+
+
 export interface RackHeader {
     public_id: number;
     display_name: string;
@@ -42,13 +88,22 @@ export interface RackHeader {
 }
 
 
+/**
+ * One row shape for all three kinds: a mount carries the object and its type metadata and leaves the
+ * reservation fields null, an occupant does the opposite. The label is the only field all three share.
+ */
 export interface RackMountRow {
     mount_id: number;
-    object_id: number;
+    kind: RackMountKind;
+    object_id: number | null;
+    label: string | null;
     area: RackArea;
     start_slot: number | null;
     height: number | null;
     position: number | null;
+    start_date: RackApiDate;
+    end_date: RackApiDate;
+    color: string | null;
     summary_line: string | null;
     type_id: number | null;
     type_label: string | null;
@@ -60,34 +115,59 @@ export interface RackMountRow {
 export type RackAreaBuckets = Record<RackArea, RackMountRow[]>;
 
 
+/** How much of the rack the occupants of one kind hold. Absent kinds simply have no entry. */
+export interface RackOccupantLegendEntry {
+    kind: RackMountKind;
+    count: number;
+    slots: number;
+}
+
+
 export interface RackOverviewResponse {
     rack: RackHeader;
     areas: RackAreaBuckets;
     total_mounts: number;
+    occupants_legend: RackOccupantLegendEntry[];
 }
 
 
+/**
+ * The body that creates a row. Which keys are allowed depends on the kind: a MOUNT needs an object and
+ * refuses the reservation fields, a RESERVATION refuses the object, and a BLOCKER refuses both.
+ */
 export interface RackMountPayload {
-    object_id: number;
+    kind?: RackMountKind;
+    object_id?: number | null;
+    label?: string | null;
     area?: RackArea;
     start_slot?: number | null;
     height?: number | null;
     position?: number | null;
+    start_date?: string | null;
+    end_date?: string | null;
+    color?: string | null;
 }
 
 
-/** Same body as a mount, plus the mount being moved so it is excluded from its own overlap check. */
+/** Same body as a new row, plus the row being moved so it is excluded from its own overlap check. */
 export interface RackMountValidatePayload extends RackMountPayload {
     mount_id?: number;
 }
 
 
-/** PATCH applies only the keys it carries, so every field is optional. */
+/**
+ * PATCH applies only the keys it carries, so every field is optional and null clears a value. The kind
+ * is immutable and therefore absent.
+ */
 export interface RackMountUpdatePayload {
     area?: RackArea;
     start_slot?: number | null;
     height?: number | null;
     position?: number | null;
+    label?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
+    color?: string | null;
 }
 
 
