@@ -19,7 +19,15 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 
 import { CmdbType } from 'src/app/framework/models/cmdb-type';
 
-import { AutomationDefinition, AutomationDirection, AutomationField } from '../../../models/automation-definition.model';
+import {
+    AutomationDefinition,
+    AutomationDirection,
+    AutomationField,
+    AutomationSystemField,
+    findSystemField,
+    systemFieldValue,
+    toAutomationField
+} from '../../../models/automation-definition.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -40,6 +48,9 @@ export class WizardStepDataComponent {
     @Input() public definition!: AutomationDefinition;
     @Input() public objectTypes: CmdbType[] = [];
     @Input() public availableFields: AutomationField[] = [];
+
+    /** DataGerry values beyond the type's own fields - the object's id and its type. */
+    @Input() public systemFields: AutomationSystemField[] = [];
 
     @Output() public definitionChange = new EventEmitter<AutomationDefinition>();
     @Output() public objectTypeChange = new EventEmitter<number | null>();
@@ -70,6 +81,13 @@ export class WizardStepDataComponent {
         }
 
         this.definition.direction = direction;
+        // A value read out of a DataGerry object is unavailable once DataGerry is the side being
+        // written, so those selections cannot survive the switch. Fixed values can.
+        this.definition.fields = this.definition.fields.filter(field => {
+            const systemField = findSystemField(field.name);
+
+            return !systemField || systemField.kind === 'constant' || direction === 'outgoing';
+        });
         // The mapping sides swap with the direction, so previous pairs no longer apply.
         this.definition.mapping = [];
         this.emit();
@@ -106,8 +124,39 @@ export class WizardStepDataComponent {
     }
 
 
+    /* ------------------------------------------------- SYSTEM FIELDS ------------------------------------------------ */
+
+    public isSystemFieldSelected(field: AutomationSystemField): boolean {
+        return this.definition.fields.some(selected => selected.name === field.key);
+    }
+
+
+    public onToggleSystemField(field: AutomationSystemField): void {
+        if (this.isSystemFieldSelected(field)) {
+            this.definition.fields = this.definition.fields.filter(selected => selected.name !== field.key);
+            this.definition.mapping = this.definition.mapping.filter(entry => entry.source !== field.key);
+            this.emit();
+
+            return;
+        }
+
+        this.definition.fields = [...this.definition.fields, toAutomationField(field)];
+        this.emit();
+    }
+
+
+    /** The literal a fixed value stands for, so the user sees what will be sent. */
+    public valuePreview(field: AutomationSystemField): string {
+        return field.kind === 'constant' ? systemFieldValue(field, this.definition) : '';
+    }
+
+    /* --------------------------------------------------- SELECTION -------------------------------------------------- */
+
     public onSelectAll(): void {
-        this.definition.fields = [...this.filteredFields];
+        // Only the type's own fields are listed here; a system field the user picked stays picked.
+        const systemSelection = this.definition.fields.filter(field => findSystemField(field.name));
+
+        this.definition.fields = [...systemSelection, ...this.filteredFields];
         this.emit();
     }
 

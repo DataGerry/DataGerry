@@ -460,6 +460,89 @@ describe('AutomationCompilerService', () => {
             expect(payload.connection.fieldBinding.length).toBe(1);
             expect(warnings.some(warning => warning.includes('not_in_type'))).toBeTrue();
         });
+
+
+        it('addresses the object id at the top of the object, not inside its fields', () => {
+            const definition = outgoingDefinition();
+            definition.fields = [...definition.fields, { name: '$public_id', label: 'DataGerry object ID', type: 'number' }];
+            definition.mapping = [{ source: '$public_id', target: 'params.title', origin: 'manual', confidence: 1 }];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.fieldBinding[0].from[0].field).toBe('body.$.results[0].public_id');
+        });
+    });
+
+    /* ------------------------------------------------- IDENTIFICATION -------------------------------------------------- */
+
+    describe('identification', () => {
+        it('writes the object type as a literal instead of reading it from the source', () => {
+            // The reason this exists: objects created in DataGerry must land under the type the user
+            // chose, and that type is known to the wizard rather than to the system being read.
+            const definition = incomingDefinition();
+            definition.fields = [{ name: '$type_id', label: 'DataGerry object type ID', type: 'number' }];
+            definition.mapping = [{ source: '$type_id', target: 'type_id', origin: 'manual', confidence: 1 }];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.toConnector.methods[0].request.body.fields.type_id).toBe('1');
+            // A literal is not read from anywhere, so it needs no binding.
+            expect(payload.connection.fieldBinding.length).toBe(0);
+        });
+
+
+        it('skips a DataGerry object value when DataGerry is not the side being read', () => {
+            const definition = incomingDefinition();
+            definition.mapping = [
+                { source: '$public_id', target: 'active', origin: 'manual', confidence: 1 },
+                { source: 'id', target: 'version', origin: 'manual', confidence: 1 }
+            ];
+
+            const { payload, warnings } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.fieldBinding.length).toBe(1);
+            expect(warnings.some(warning => warning.includes('DataGerry object ID'))).toBeTrue();
+        });
+    });
+
+    /* ------------------------------------------------ VALUE ADJUSTMENT ------------------------------------------------- */
+
+    describe('value adjustments', () => {
+        function adjusted(script: string, enabled = true): AutomationDefinition {
+            const definition = incomingDefinition();
+            definition.mapping = [{
+                source: 'id',
+                target: 'version',
+                origin: 'manual',
+                confidence: 1,
+                transform: { enabled, script }
+            }];
+
+            return definition;
+        }
+
+
+        it('wraps the user script around a variable named value', () => {
+            const { payload } = compiler.compileForCreate(adjusted('value = value.toUpperCase();'), context());
+
+            expect(payload.connection.fieldBinding[0].enhancement.expertCode)
+                .toBe('var value = VAR_0;\nvalue = value.toUpperCase();\nRESULT_VAR = value;');
+        });
+
+
+        it('transfers the value unchanged while the adjustment is switched off', () => {
+            const { payload } = compiler.compileForCreate(adjusted('value = value.trim();', false), context());
+
+            expect(payload.connection.fieldBinding[0].enhancement.expertCode).toBe('RESULT_VAR = VAR_0;');
+        });
+
+
+        it('warns about an adjustment that has no content', () => {
+            const { payload, warnings } = compiler.compileForCreate(adjusted('   '), context());
+
+            expect(payload.connection.fieldBinding[0].enhancement.expertCode).toBe('RESULT_VAR = VAR_0;');
+            expect(warnings.some(warning => warning.includes('no content'))).toBeTrue();
+        });
     });
 
     /* -------------------------------------------------- CONDITIONS ---------------------------------------------------- */

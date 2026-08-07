@@ -33,8 +33,11 @@ import { InternalConnectorHelperService } from '../../../connectors/services/int
 import {
     AutomationDefinition,
     AutomationField,
+    AutomationSystemField,
     createEmptyAutomationDefinition,
-    describeAutomation
+    describeAutomation,
+    findSystemField,
+    systemFieldsFor
 } from '../../models/automation-definition.model';
 import {
     furthestReachableGroup,
@@ -43,7 +46,7 @@ import {
     WIZARD_GROUPS,
     WIZARD_GROUP_COUNT
 } from '../../models/automation-wizard-step.model';
-import { TargetField } from '../../models/target-catalog.model';
+import { ResolvedOperation, TargetField } from '../../models/target-catalog.model';
 import { AutomationCompilerService, AutomationCompileContext } from '../../services/automation-compiler.service';
 import { AutomationDefinitionCodecService } from '../../services/automation-definition-codec.service';
 import { AutomationFieldMappingService } from '../../services/automation-field-mapping.service';
@@ -292,14 +295,14 @@ export class AutomationWizardComponent implements OnInit {
     }
 
 
-    /** Recomputes the target field list and re-runs automatic mapping for the chosen action. */
+    /**
+     * Starts the mapping over for a newly chosen system or action.
+     *
+     * Unlike the reconciliation in refresh(), this discards existing pairs: they were made against a
+     * different set of target fields and carrying them over would silently keep stale targets.
+     */
     public onTargetChanged(): void {
-        const targetInvoker = this.definition.direction === 'outgoing'
-            ? this.connectorOf(this.definition.target.connectorId)?.invoker
-            : this.internalConnector?.invoker;
-        const operation = this.catalog.resolveOperation(targetInvoker, this.definition.target.operation);
-
-        this.targetFields = this.catalog.targetFields(operation);
+        this.refreshTargetFields();
         this.definition.mapping = this.mapper.suggest(this.sourceFieldsForMapping(), this.targetFields);
         this.refresh();
     }
@@ -454,6 +457,12 @@ export class AutomationWizardComponent implements OnInit {
 
     /** Recomputes validation, warnings and the technical preview after every change. */
     private refresh(): void {
+        // Both derive from the definition, so they are rebuilt here rather than at each call site -
+        // a target list that only refreshed on the target step went stale as soon as the direction
+        // changed, and stayed empty altogether when an automation was reopened for editing.
+        this.refreshTargetFields();
+        this.reconcileMapping();
+
         const context = this.compileContext();
 
         if (!context) {
@@ -481,6 +490,46 @@ export class AutomationWizardComponent implements OnInit {
     }
 
 
+    /**
+     * Rebuilds the fields the target action accepts.
+     *
+     * Which invoker that is follows from the direction: an outgoing automation writes to the chosen
+     * system, an incoming one writes to DataGerry.
+     */
+    private refreshTargetFields(): void {
+        const targetInvoker = this.definition.direction === 'outgoing'
+            ? this.connectorOf(this.definition.target.connectorId)?.invoker
+            : this.internalConnector?.invoker;
+
+        const operation: ResolvedOperation | null = this.catalog.resolveOperation(
+            targetInvoker,
+            this.definition.target.operation
+        );
+
+        this.targetFields = this.catalog.targetFields(operation);
+    }
+
+
+    /**
+     * Keeps the mapping in step with the fields currently on the source side.
+     *
+     * Fields are picked before the mapping step and can be changed afterwards, so entries are added
+     * for new ones and dropped for removed ones. Everything the user decided - a chosen target, a
+     * cleared one, a value adjustment - survives, because fillGaps only touches undecided pairs.
+     */
+    private reconcileMapping(): void {
+        const sources = this.sourceFieldsForMapping();
+
+        if (sources.length === 0) {
+            this.definition.mapping = [];
+
+            return;
+        }
+
+        this.definition.mapping = this.mapper.fillGaps(this.definition.mapping, sources, this.targetFields);
+    }
+
+
     private compileContext(): AutomationCompileContext | null {
         const targetConnector = this.connectorOf(this.definition.target.connectorId);
 
@@ -505,7 +554,8 @@ export class AutomationWizardComponent implements OnInit {
      * Which fields feed the left-hand side of the mapping.
      *
      * Outgoing automations read DataGerry, so the user's field selection applies. Incoming ones read
-     * the foreign system, so its response fields do.
+     * the foreign system, so its response fields do - plus any fixed value the user picked, such as
+     * the object type, which has to reach DataGerry no matter which side is being read.
      */
     private sourceFieldsForMapping(): AutomationField[] {
         if (this.definition.direction === 'outgoing') {
@@ -514,12 +564,17 @@ export class AutomationWizardComponent implements OnInit {
 
         const sourceConnector = this.connectorOf(this.definition.target.connectorId);
         const operation = this.catalog.resolveOperation(sourceConnector?.invoker, 'list');
-
-        return this.catalog.sourceItemFields(operation).map(field => ({
+        const remoteFields = this.catalog.sourceItemFields(operation).map(field => ({
             name: field.path,
             label: field.name,
             type: field.type
         }));
+
+        const constants = this.definition.fields.filter(
+            field => findSystemField(field.name)?.kind === 'constant'
+        );
+
+        return [...constants, ...remoteFields];
     }
 
 
@@ -569,6 +624,12 @@ export class AutomationWizardComponent implements OnInit {
 
     public get sourceFields(): AutomationField[] {
         return this.sourceFieldsForMapping();
+    }
+
+
+    /** The DataGerry values that can be mapped besides the object type's own fields. */
+    public get systemFields(): AutomationSystemField[] {
+        return systemFieldsFor(this.definition.direction);
     }
 
 

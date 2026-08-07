@@ -106,6 +106,43 @@ describe('AutomationFieldMappingService', () => {
     });
 
 
+    it('leaves a pair the user deliberately cleared alone', () => {
+        const existing = [{ source: 'serial', target: '', origin: 'manual' as const, confidence: 1 }];
+
+        const filled = service.fillGaps(existing, [field('serial')], [target('serial')]);
+
+        expect(filled[0].target).toBe('');
+    });
+
+
+    it('adds an entry for a field picked after the mapping was made', () => {
+        const existing = [{ source: 'hostname', target: 'title', origin: 'manual' as const, confidence: 1 }];
+
+        const filled = service.fillGaps(
+            existing,
+            [field('hostname'), field('serial')],
+            [target('title'), target('serial')]
+        );
+
+        expect(filled.length).toBe(2);
+        expect(filled[1].source).toBe('serial');
+        expect(filled[1].target).toBe('serial');
+    });
+
+
+    it('drops an entry whose field is no longer selected', () => {
+        const existing = [
+            { source: 'hostname', target: 'title', origin: 'manual' as const, confidence: 1 },
+            { source: 'serial', target: 'serial', origin: 'manual' as const, confidence: 1 }
+        ];
+
+        const filled = service.fillGaps(existing, [field('hostname')], [target('title')]);
+
+        expect(filled.length).toBe(1);
+        expect(filled[0].source).toBe('hostname');
+    });
+
+
     it('counts the entries that still need attention', () => {
         expect(service.unresolvedCount([
             { source: 'a', target: 'x', origin: 'auto', confidence: 1 },

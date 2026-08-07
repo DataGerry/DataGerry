@@ -59,6 +59,99 @@
     // Draw attention to exactly the rows that still need the user.
     box-shadow: inset 3px 0 0 #ffc107;
   }
+
+  &__actions {
+    width: 8rem;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  &__source {
+    display: block;
+  }
+
+  &__fixed {
+    display: block;
+    font-size: 0.7rem;
+    color: $muted;
+
+    code {
+      color: #374151;
+    }
+  }
+
+  &__adjust {
+    color: $muted;
+    text-decoration: none;
+
+    &:hover:not(:disabled) {
+      color: $accent;
+    }
+
+    &.is-active {
+      color: $accent;
+      font-weight: 600;
+    }
+  }
+}
+
+// The value adjustment, folded out under the pair it belongs to.
+.mapping-transform {
+  background: #f9fafb;
+
+  > td {
+    padding: 0.85rem 0.9rem;
+  }
+
+  &__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.6rem;
+  }
+
+  &__hint {
+    font-size: 0.75rem;
+    color: $muted;
+    margin-top: 0.15rem;
+    max-width: 60ch;
+  }
+
+  &__toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+    font-size: 0.8rem;
+    color: $muted;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  &__editor {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+  }
+
+  &__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 0.4rem;
+  }
+
+  &__examples {
+    font-size: 0.72rem;
+    color: $muted;
+
+    code {
+      margin-right: 0.5rem;
+      color: #374151;
+    }
+  }
 }
 
 .rule-combinator {

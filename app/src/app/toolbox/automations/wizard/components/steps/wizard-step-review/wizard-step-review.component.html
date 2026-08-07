@@ -60,7 +60,15 @@
       <tbody>
         @for (row of preview; track row.target) {
           <tr>
-            <td>{{ row.source }}</td>
+            <td>
+              {{ row.source }}
+
+              @if (row.adjusted) {
+                <span class="review-table__badge" title="This value is adjusted before it is sent">
+                  adjusted
+                </span>
+              }
+            </td>
             <td><code>{{ row.target }}</code></td>
             <td>
               @if (row.value) {

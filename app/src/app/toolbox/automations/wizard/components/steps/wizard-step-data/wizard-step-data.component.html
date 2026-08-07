@@ -99,3 +99,45 @@
     </div>
   }
 </section>
+
+<section class="wizard-section">
+  <h5 class="wizard-section__title">4. Add identification</h5>
+  <p class="wizard-section__hint">
+    Optional. Besides the fields of the type, DataGerry knows which object and which object type the
+    data belongs to. Add those values here to line them up with the identification of the target
+    system.
+  </p>
+
+  @if (!definition.objectType.typeId) {
+    <p class="text-muted">Choose an object type first.</p>
+  } @else {
+    <ul class="system-field-list">
+      @for (field of systemFields; track field.key) {
+        <li class="system-field">
+          <label class="system-field__option">
+            <input
+              type="checkbox"
+              [checked]="isSystemFieldSelected(field)"
+              (change)="onToggleSystemField(field)">
+
+            <span class="system-field__text">
+              <span class="system-field__label">
+                {{ field.label }}
+
+                @if (field.kind === 'constant') {
+                  <span class="system-field__badge">fixed value</span>
+                }
+              </span>
+
+              <span class="system-field__hint">{{ field.hint }}</span>
+            </span>
+          </label>
+
+          @if (field.kind === 'constant') {
+            <code class="system-field__value">{{ valuePreview(field) || '-' }}</code>
+          }
+        </li>
+      }
+    </ul>
+  }
+</section>

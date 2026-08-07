@@ -57,6 +57,14 @@ export type AutomationErrorHandling = 'abort' | 'continue' | 'notify';
 /** Whether a mapping entry was suggested automatically or set by hand. */
 export type AutomationMappingOrigin = 'auto' | 'manual';
 
+/**
+ * Where a mapping entry takes its value from.
+ *
+ * 'objectValue' is read out of the source system's answer; 'constant' is a value the wizard already
+ * knows - the chosen object type, for instance - and is written into the request as a literal.
+ */
+export type AutomationSystemFieldKind = 'objectValue' | 'constant';
+
 /** How the rules of a condition group are combined. */
 export type AutomationRuleCombinator = 'and' | 'or';
 
@@ -127,6 +135,23 @@ export interface AutomationTarget {
 }
 
 
+/**
+ * An optional rule that reshapes a value on its way to the target field.
+ *
+ * Systems rarely agree on how a value looks - one expects "SRV-01", the next "srv01" - and without
+ * this the only way out was the old editor's raw enhancement script. The user writes plain
+ * JavaScript against a single variable named `value`; the compiler wraps it into the script
+ * OpenCelium executes, so nothing about enhancements leaks into the wizard's vocabulary.
+ */
+export interface AutomationValueTransform {
+    /** False keeps the script but passes the value through unchanged, so drafts survive. */
+    enabled: boolean;
+
+    /** JavaScript statements. `value` holds the source value and is what gets written. */
+    script: string;
+}
+
+
 export interface AutomationMappingEntry {
     /** Field name on the source side of the automation. */
     source: string;
@@ -137,6 +162,9 @@ export interface AutomationMappingEntry {
 
     /** Similarity score of an automatic suggestion, 0..1. Always 1 for manual entries. */
     confidence: number;
+
+    /** Absent for the overwhelming majority of pairs, which move their value unchanged. */
+    transform?: AutomationValueTransform;
 }
 
 
@@ -165,6 +193,147 @@ export interface AutomationAdvancedSettings {
     parallelExecution: boolean;
     batchSize: number;
     errorHandling: AutomationErrorHandling;
+}
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                    SYSTEM FIELDS                                                   */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * A value DataGerry knows about an object beyond the fields of its type.
+ *
+ * The object's own id and its type are what identify it, and identity is what most automations need
+ * to line up: "this DataGerry object is that object over there". Those values are not part of the
+ * type's field list, so without this table they could not be mapped at all.
+ */
+export interface AutomationSystemField {
+    /**
+     * Mapping key. Prefixed with '$' so it can never collide with a type field, whose names are
+     * chosen by users.
+     */
+    key: string;
+    label: string;
+    type: string;
+    hint: string;
+    kind: AutomationSystemFieldKind;
+
+    /** 'objectValue': dotted path inside one item of the DataGerry object response. */
+    responsePath?: string;
+
+    /**
+     * 'constant': reads the literal out of the definition the user has already filled in.
+     *
+     * Deliberately not named valueOf - that name is taken by Object.prototype and typing it as a
+     * string factory makes every object literal in the table fail to type-check.
+     */
+    fixedValue?: (definition: AutomationDefinition) => string;
+}
+
+/**
+ * The DataGerry values an automation can map besides the type's own fields.
+ *
+ * Paths are the ones DataGerry's REST API answers with, as declared by the shipped invoker
+ * (cmdb/open_celium/invokers/dg_cloud_invoker.xml).
+ */
+export const DATAGERRY_SYSTEM_FIELDS: ReadonlyArray<AutomationSystemField> = [
+    {
+        key: '$public_id',
+        label: 'DataGerry object ID',
+        type: 'number',
+        hint: 'The object\'s own identifier - map it onto the identifier of the target system.',
+        kind: 'objectValue',
+        responsePath: 'public_id'
+    },
+    {
+        key: '$active',
+        label: 'Active',
+        type: 'boolean',
+        hint: 'Whether the object is active in DataGerry.',
+        kind: 'objectValue',
+        responsePath: 'active'
+    },
+    {
+        key: '$author_id',
+        label: 'Author ID',
+        type: 'number',
+        hint: 'The user who created the object.',
+        kind: 'objectValue',
+        responsePath: 'author_id'
+    },
+    {
+        key: '$creation_time',
+        label: 'Created at',
+        type: 'date',
+        hint: 'When the object was created.',
+        kind: 'objectValue',
+        responsePath: 'creation_time'
+    },
+    {
+        key: '$last_edit_time',
+        label: 'Last changed at',
+        type: 'date',
+        hint: 'When the object was last changed.',
+        kind: 'objectValue',
+        responsePath: 'last_edit_time'
+    },
+    {
+        key: '$type_id',
+        label: 'DataGerry object type ID',
+        type: 'number',
+        hint: 'The ID of the selected object type, sent as a fixed value.',
+        kind: 'constant',
+        fixedValue: definition => definition.objectType.typeId === null ? '' : String(definition.objectType.typeId)
+    },
+    {
+        key: '$type_name',
+        label: 'DataGerry object type name',
+        type: 'text',
+        hint: 'The technical name of the selected object type, sent as a fixed value.',
+        kind: 'constant',
+        fixedValue: definition => definition.objectType.name
+    },
+    {
+        key: '$type_label',
+        label: 'DataGerry object type label',
+        type: 'text',
+        hint: 'The display name of the selected object type, sent as a fixed value.',
+        kind: 'constant',
+        fixedValue: definition => definition.objectType.label
+    }
+];
+
+
+export function findSystemField(name: string): AutomationSystemField | null {
+    return DATAGERRY_SYSTEM_FIELDS.find(field => field.key === name) ?? null;
+}
+
+
+export function isSystemField(name: string): boolean {
+    return findSystemField(name) !== null;
+}
+
+
+/**
+ * The system fields that make sense for a direction.
+ *
+ * A value read out of a DataGerry object is only available when DataGerry is the side being read.
+ * Constants hold either way: an incoming automation needs the object type id just as much, to create
+ * its objects under the right type.
+ */
+export function systemFieldsFor(direction: AutomationDirection): AutomationSystemField[] {
+    return DATAGERRY_SYSTEM_FIELDS.filter(field => direction === 'outgoing' || field.kind === 'constant');
+}
+
+
+/** The literal a constant system field stands for, or '' when the wizard cannot supply it yet. */
+export function systemFieldValue(field: AutomationSystemField, definition: AutomationDefinition): string {
+    return field.fixedValue ? field.fixedValue(definition) ?? '' : '';
+}
+
+
+/** System fields in the shape the field picker and the mapping step work with. */
+export function toAutomationField(field: AutomationSystemField): AutomationField {
+    return { name: field.key, label: field.label, type: field.type };
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -252,7 +421,7 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
         objectType: { ...base.objectType, ...(raw.objectType ?? {}) },
         fields: Array.isArray(raw.fields) ? raw.fields : base.fields,
         target: { ...base.target, ...(raw.target ?? {}) },
-        mapping: Array.isArray(raw.mapping) ? raw.mapping : base.mapping,
+        mapping: Array.isArray(raw.mapping) ? raw.mapping.map(normalizeMappingEntry) : base.mapping,
         conditions: {
             ...base.conditions,
             ...(raw.conditions ?? {}),
@@ -263,12 +432,41 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
     };
 }
 
+/**
+ * Drops a malformed transform rather than carrying it into the compiler.
+ *
+ * A definition that predates transforms has none at all, and a hand-edited one could carry anything,
+ * so the shape is established once here.
+ */
+function normalizeMappingEntry(raw: AutomationMappingEntry): AutomationMappingEntry {
+    const transform = raw?.transform;
+
+    if (!transform || typeof transform.script !== 'string') {
+        const { transform: _dropped, ...rest } = raw ?? ({} as AutomationMappingEntry);
+
+        return rest as AutomationMappingEntry;
+    }
+
+    return { ...raw, transform: { enabled: !!transform.enabled, script: transform.script } };
+}
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       HELPERS                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export function isTriggerSupported(type: AutomationTriggerType): boolean {
     return SUPPORTED_TRIGGER_TYPES.includes(type);
+}
+
+
+export function createEmptyTransform(): AutomationValueTransform {
+    return { enabled: true, script: '' };
+}
+
+
+/** Whether an entry actually reshapes its value, as opposed to merely carrying an empty draft. */
+export function hasActiveTransform(entry: AutomationMappingEntry): boolean {
+    return !!entry.transform?.enabled && !!entry.transform.script.trim();
 }
 
 
