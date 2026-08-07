@@ -95,7 +95,18 @@ import {
      */
     @Input() enableSelectAll = false;
 
+    /**
+     * Shows the dropdown's own spinner. Set it while a paginated host is fetching the next page.
+     */
+    @Input() loading = false;
+
     @Output() selectedItemChange = new EventEmitter<any>();
+
+    /**
+     * Emitted when the option list is scrolled to its end, so a host that loads its items page by
+     * page can append the next one. Leave it unbound for a fully loaded list.
+     */
+    @Output() scrolledToEnd = new EventEmitter<void>();
 
   
     /**
