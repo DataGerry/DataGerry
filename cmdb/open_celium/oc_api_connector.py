@@ -66,7 +66,7 @@ class OcApiConnector:
             self.email: str = scr.get_value("email", "OpenCelium")
             self.user: str = scr.get_value("user", "OpenCelium")
             self.password: str = scr.get_value("password", "OpenCelium")
-            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}/api"
+            self.base_url: str = f"{self.protocol}://{self.host}:{self.port}"
 
         self.settings_manager: SettingsManager = SettingsManager(dbm, db_name)
 
