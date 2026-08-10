@@ -1,0 +1,36 @@
+<section class="wizard-section">
+  <h5 class="wizard-section__title">What happens in {{ systemName }}</h5>
+  <p class="wizard-section__hint">
+    Only the target system's calls. Reading from and writing to DataGerry is built from the object
+    type and its fields, so it does not appear as a step of its own.
+  </p>
+
+  @if (steps.length === 0) {
+    <p class="text-muted">Choose a target system and an action first.</p>
+  } @else {
+    <ol class="flow">
+      @for (step of steps; track $index) {
+        <li class="flow__row" [class.is-nested]="step.nested" [class.is-branch]="step.kind === 'branch'">
+          <span class="flow__marker">
+            @if (step.kind === 'branch') { ? } @else { {{ $index + 1 }} }
+          </span>
+
+          <span class="flow__main">
+            <span class="flow__title">{{ step.title }}</span>
+            <span class="flow__detail">{{ step.detail }}</span>
+          </span>
+
+          <span class="flow__note">{{ step.note }}</span>
+        </li>
+      }
+    </ol>
+
+    @if (needsIdentifier) {
+      <div class="alert alert-warning mt-3">
+        <strong>The lookup has nothing to search by yet.</strong>
+        Mark the field that identifies the object on the next step, otherwise this automation cannot
+        tell a new object from one it already wrote.
+      </div>
+    }
+  }
+</section>

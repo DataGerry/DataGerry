@@ -1,0 +1,66 @@
+$accent: #e94d18;
+$border: #e5e7eb;
+$muted: #6b7280;
+
+.flow {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid $border;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.flow__row {
+    display: grid;
+    grid-template-columns: 1.9rem minmax(0, 1fr) auto;
+    gap: 0.7rem;
+    align-items: center;
+    padding: 0.6rem 0.8rem;
+    border-top: 1px solid #f1f3f5;
+    background: #fff;
+
+    &:first-child { border-top: 0; }
+
+    // A step inside a branch runs only when that branch is taken, so it is set back and shaded.
+    &.is-nested {
+        padding-left: 2.4rem;
+        background: #f8f9fa;
+    }
+}
+
+.flow__marker {
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 0.375rem;
+    display: grid;
+    place-items: center;
+    background: rgba(233, 77, 24, 0.1);
+    color: $accent;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.is-branch .flow__marker {
+    background: #fff;
+    border: 1px dashed #ced4da;
+    color: $muted;
+}
+
+.flow__title {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.flow__detail {
+    display: block;
+    font-size: 0.75rem;
+    color: $muted;
+}
+
+.flow__note {
+    font-size: 0.6875rem;
+    color: $muted;
+    text-align: right;
+}

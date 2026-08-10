@@ -55,23 +55,20 @@
               (definitionChange)="onDefinitionChanged($event)">
             </app-wizard-step-trigger>
           }
-          @case (WizardGroup.DATA) {
-            <app-wizard-step-data
+          @case (WizardGroup.LINK) {
+            <app-wizard-step-link
               [definition]="definition"
               [objectTypes]="objectTypes"
               [availableFields]="availableFields"
               [systemFields]="systemFields"
-              (objectTypeChange)="onObjectTypeChanged($event)"
-              (definitionChange)="onDefinitionChanged($event)">
-            </app-wizard-step-data>
-          }
-          @case (WizardGroup.TARGET) {
-            <app-wizard-step-target
-              [definition]="definition"
               [targetSystems]="targetSystems"
+              (objectTypeChange)="onObjectTypeChanged($event)"
               (definitionChange)="onDefinitionChanged($event)"
               (targetChange)="onTargetChanged()">
-            </app-wizard-step-target>
+            </app-wizard-step-link>
+          }
+          @case (WizardGroup.FLOW) {
+            <app-wizard-step-flow [definition]="definition"></app-wizard-step-flow>
           }
           @case (WizardGroup.MAPPING) {
             <app-wizard-step-mapping
