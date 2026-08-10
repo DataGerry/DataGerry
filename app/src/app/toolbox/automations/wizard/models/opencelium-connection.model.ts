@@ -100,6 +100,15 @@ export function ocPresenceField(color: string, arrayPath: string): string {
     return `${color}.(response).body.$.${arrayPath}[*]`;
 }
 
+/**
+ * Operation type that makes OpenCelium page through a result set.
+ *
+ * The engine only reads an operation's pagination block when the operation is typed this way, so
+ * the type doubles as the only signal that an operation pages - the block itself lives in the
+ * invoker file and no endpoint returns it.
+ */
+export const OC_PAGING_OPERATION = 'page';
+
 /** Name the loop operator gives the element it is currently on. */
 export const OC_LOOP_ITERATOR = 'i';
 

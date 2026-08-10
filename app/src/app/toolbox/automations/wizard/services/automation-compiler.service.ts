@@ -60,6 +60,7 @@ import {
     OC_SCHEDULER_ACTIVE,
     OC_SCHEDULER_INACTIVE,
     OC_NOT_EMPTY,
+    OC_PAGING_OPERATION,
     OC_SOURCE_INDEX,
     OC_TARGET_INDEX,
     OC_UI_LAYOUT
@@ -1122,7 +1123,12 @@ export class AutomationCompilerService {
         // An operation that pages sets its own page size, and writing ours over it would either
         // fight the engine for the same parameter or cut the run short at one page. Where paging is
         // declared the ceiling is not needed, so the setting is ignored and said to be ignored.
-        if (sides.source?.definition?.pagination) {
+        //
+        // Read from the operation's type rather than from its pagination block: the block lives in
+        // the invoker file and no endpoint exposes it - FunctionDTO carries name, type, request and
+        // response and nothing else - so a check on the block itself would never fire. The type is
+        // also what the engine keys off, so the two agree by construction.
+        if (this.pagesByItself(sides.source)) {
             warnings.push(
                 `The read operation "${sides.source.name}" fetches every page by itself, so the limit `
                 + 'on objects per run does not apply and the whole object type is processed.'
@@ -1138,6 +1144,12 @@ export class AutomationCompilerService {
         }
 
         this.setBodyField(sourceMethod.request, placement.bodyPath!, String(batchSize));
+    }
+
+
+    /** Whether the read operation fetches every page by itself. See applyListLimit. */
+    private pagesByItself(operation: ResolvedOperation | null): boolean {
+        return operation?.definition?.type === OC_PAGING_OPERATION;
     }
 
 
