@@ -196,7 +196,7 @@ function incomingDefinition(): AutomationDefinition {
         operation: 'create',
         remoteObjectTypeId: '10'
     };
-    definition.mapping = [{ source: 'id', target: 'version', origin: 'auto', confidence: 1 }];
+    definition.mapping = [{ target: 'version', sources: [{ field: 'id', origin: 'auto', confidence: 1 }] }];
     definition.advanced.batchSize = 1;
 
     return definition;
@@ -249,7 +249,7 @@ describe('AutomationCompilerService', () => {
 
         it('reports when nothing has been mapped', () => {
             const definition = incomingDefinition();
-            definition.mapping = [{ source: 'id', target: '', origin: 'auto', confidence: 0 }];
+            definition.mapping = [{ target: '', sources: [{ field: 'id', origin: 'auto', confidence: 0 }] }];
 
             expect(compiler.validate(definition, context())
                 .some(error => error.includes('Map at least one field'))).toBeTrue();
@@ -509,7 +509,7 @@ describe('AutomationCompilerService', () => {
                 { name: 'hostname', label: 'Hostname', type: 'text' },
                 { name: 'serial', label: 'Serial', type: 'text' }
             ];
-            definition.mapping = [{ source: 'serial', target: 'params.title', origin: 'manual', confidence: 1 }];
+            definition.mapping = [{ target: 'params.title', sources: [{ field: 'serial', origin: 'manual', confidence: 1 }] }];
 
             return definition;
         }
@@ -543,8 +543,8 @@ describe('AutomationCompilerService', () => {
         it('skips a mapped field that is not part of the object type', () => {
             const definition = outgoingDefinition();
             definition.mapping = [
-                { source: 'not_in_type', target: 'params.title', origin: 'manual', confidence: 1 },
-                { source: 'serial', target: 'params.category', origin: 'manual', confidence: 1 }
+                { target: 'params.title', sources: [{ field: 'not_in_type', origin: 'manual', confidence: 1 }] },
+                { target: 'params.category', sources: [{ field: 'serial', origin: 'manual', confidence: 1 }] }
             ];
 
             const { payload, warnings } = compiler.compileForCreate(definition, context());
@@ -557,7 +557,7 @@ describe('AutomationCompilerService', () => {
         it('addresses the object id at the top of the object, not inside its fields', () => {
             const definition = outgoingDefinition();
             definition.fields = [...definition.fields, { name: '$public_id', label: 'DataGerry object ID', type: 'number' }];
-            definition.mapping = [{ source: '$public_id', target: 'params.title', origin: 'manual', confidence: 1 }];
+            definition.mapping = [{ target: 'params.title', sources: [{ field: '$public_id', origin: 'manual', confidence: 1 }] }];
 
             const { payload } = compiler.compileForCreate(definition, context());
 
@@ -573,7 +573,7 @@ describe('AutomationCompilerService', () => {
             // chose, and that type is known to the wizard rather than to the system being read.
             const definition = incomingDefinition();
             definition.fields = [{ name: '$type_id', label: 'DataGerry object type ID', type: 'number' }];
-            definition.mapping = [{ source: '$type_id', target: 'type_id', origin: 'manual', confidence: 1 }];
+            definition.mapping = [{ target: 'type_id', sources: [{ field: '$type_id', origin: 'manual', confidence: 1 }] }];
 
             const { payload } = compiler.compileForCreate(definition, context());
 
@@ -586,8 +586,8 @@ describe('AutomationCompilerService', () => {
         it('skips a DataGerry object value when DataGerry is not the side being read', () => {
             const definition = incomingDefinition();
             definition.mapping = [
-                { source: '$public_id', target: 'active', origin: 'manual', confidence: 1 },
-                { source: 'id', target: 'version', origin: 'manual', confidence: 1 }
+                { target: 'active', sources: [{ field: '$public_id', origin: 'manual', confidence: 1 }] },
+                { target: 'version', sources: [{ field: 'id', origin: 'manual', confidence: 1 }] }
             ];
 
             const { payload, warnings } = compiler.compileForCreate(definition, context());
@@ -602,13 +602,7 @@ describe('AutomationCompilerService', () => {
     describe('value adjustments', () => {
         function adjusted(script: string, enabled = true): AutomationDefinition {
             const definition = incomingDefinition();
-            definition.mapping = [{
-                source: 'id',
-                target: 'version',
-                origin: 'manual',
-                confidence: 1,
-                transform: { enabled, script }
-            }];
+            definition.mapping = [{ target: 'version', sources: [{ field: 'id', origin: 'manual', confidence: 1 }], transform: { enabled, script } }];
 
             return definition;
         }
@@ -653,7 +647,7 @@ describe('AutomationCompilerService', () => {
             definition.fields = [{ name: 'hostname', label: 'Hostname', type: 'text' }];
             definition.target.operation = 'update';
             definition.mapping = [
-                { source: 'hostname', target: 'params.title', origin: 'manual', confidence: 1 }
+                { target: 'params.title', sources: [{ field: 'hostname', origin: 'manual', confidence: 1 }] }
             ];
             definition.matching = { identifyBy: 'hostname', whenMissing, whenPresent: 'update' };
 
@@ -776,13 +770,7 @@ describe('AutomationCompilerService', () => {
         function adjustedConstant(script: string, enabled = true): AutomationDefinition {
             const definition = incomingDefinition();
             definition.fields = [{ name: '$type_name', label: 'DataGerry object type name', type: 'text' }];
-            definition.mapping = [{
-                source: '$type_name',
-                target: 'title',
-                origin: 'manual',
-                confidence: 1,
-                transform: { enabled, script }
-            }];
+            definition.mapping = [{ target: 'title', sources: [{ field: '$type_name', origin: 'manual', confidence: 1 }], transform: { enabled, script } }];
 
             return definition;
         }
@@ -843,7 +831,7 @@ describe('AutomationCompilerService', () => {
         it('still writes an unadjusted fixed value straight into the body', () => {
             const definition = incomingDefinition();
             definition.fields = [{ name: '$type_id', label: 'DataGerry object type ID', type: 'number' }];
-            definition.mapping = [{ source: '$type_id', target: 'type_id', origin: 'manual', confidence: 1 }];
+            definition.mapping = [{ target: 'type_id', sources: [{ field: '$type_id', origin: 'manual', confidence: 1 }] }];
 
             const { payload } = compiler.compileForCreate(definition, context());
 

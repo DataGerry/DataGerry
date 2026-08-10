@@ -602,7 +602,9 @@ export class AutomationCompilerService {
         bindings: OcFieldBinding[],
         warnings: string[]
     ): void {
-        const entry = definition.mapping.find(pair => pair.source === definition.matching.identifyBy);
+        const entry = definition.mapping.find(
+            pair => pair.sources.some(source => source.field === definition.matching.identifyBy)
+        );
         const filter = this.catalog.matchFilter(sides.targetConnector?.invoker, lookup);
 
         if (!entry?.target || !filter) {
@@ -712,8 +714,8 @@ export class AutomationCompilerService {
                 sourcePath,
                 targetPath,
                 writeMethod.color,
-                { source: definition.matching.identifyBy, target: writeId, origin: 'auto', confidence: 1 },
-                warnings
+                [{ kind: 'path', path: elementId }],
+                ''
             )
         };
     }
@@ -816,37 +818,23 @@ export class AutomationCompilerService {
         const bindings: OcFieldBinding[] = [];
 
         for (const entry of definition.mapping) {
-            if (!entry.target) {
+            if (!entry.target || entry.sources.length === 0) {
                 continue;
             }
 
-            const value = this.resolveSourceValue(definition, context, entry.source, warnings);
+            const resolved = entry.sources
+                .map(source => this.resolveSourceValue(definition, context, source.field, warnings))
+                .filter((value): value is SourceValue => !!value);
 
-            if (!value) {
+            if (resolved.length === 0) {
                 continue;
             }
 
-            if (value.kind === 'constant') {
-                this.bindConstant(entry, value.value, sides, targetMethod, bindings, warnings);
+            const binding = this.bindTarget(entry, resolved, arrayPath, sides, targetMethod, warnings);
 
-                continue;
+            if (binding) {
+                bindings.push(binding);
             }
-
-            const sourcePath = `body.$.${ocCollectionElementPath(arrayPath, value.path)}`;
-            const targetPath = `body.$.${entry.target}`;
-            const reference = ocFieldReference(
-                AutomationCompilerService.SOURCE_COLOR,
-                'response',
-                ocCollectionElementPath(arrayPath, value.path)
-            );
-
-            this.setBodyField(targetMethod.request, entry.target, reference);
-
-            bindings.push({
-                from: [{ color: AutomationCompilerService.SOURCE_COLOR, field: sourcePath, type: 'response' }],
-                to: [{ color: targetMethod.color, field: targetPath, type: 'request' }],
-                enhancement: this.buildEnhancement(sourcePath, targetPath, targetMethod.color, entry, warnings)
-            });
         }
 
         return bindings;
@@ -854,74 +842,89 @@ export class AutomationCompilerService {
 
 
     /**
-     * Wires a pair whose value is a fixed literal rather than something read from the source.
+     * Wires everything that feeds one field of the target system.
      *
-     * Without an adjustment the literal simply goes into the request body, which is what the
-     * reference payloads show. With one, the script has to run somewhere, and OpenCelium only runs
-     * scripts inside a fieldBinding - which insists on a `from` response field even when the script
-     * ignores it. So a field the read operation returns anyway is named as the source, the body
-     * carries the matching reference as it does for every other bound pair, and the script starts
-     * from the literal instead of from that field's value.
+     * A field binding names one target and carries a list of sources, which the script sees as
+     * VAR_0, VAR_1 and so on - so several fields combining into one is the shape the transport
+     * already has rather than something layered on top.
      *
-     * The borrowed field is never read: `value` is seeded with the literal and the script's result
-     * overwrites it. It exists only to give the binding a well-formed origin.
+     * Three cases produce different payloads. A single source read from the response with no script
+     * is the plain copy the reference payloads carry, and is emitted exactly as they do. Sources
+     * that are all fixed values with no script need no binding at all: the literal goes into the
+     * body. Everything else becomes a script that assembles the value from its parts.
      */
-    private bindConstant(
+    private bindTarget(
         entry: AutomationMappingEntry,
-        literal: string,
+        sources: SourceValue[],
+        arrayPath: string,
         sides: ResolvedSides,
         targetMethod: OcMethod,
-        bindings: OcFieldBinding[],
         warnings: string[]
-    ): void {
+    ): OcFieldBinding | null {
         const script = entry.transform?.enabled ? entry.transform.script.trim() : '';
-        const borrowed = script ? this.borrowedSourcePath(sides) : '';
+        const paths = sources.filter(source => source.kind === 'path');
+        const targetPath = `body.$.${entry.target}`;
 
         if (entry.transform?.enabled && !script) {
             warnings.push(
-                `The value adjustment for "${entry.source}" has no content, so the fixed value is sent `
-                + 'unchanged.'
+                `The value adjustment for "${entry.target}" has no content, so the value is `
+                + 'transferred unchanged.'
             );
         }
 
-        if (script && !borrowed) {
+        if (paths.length === 0 && !script) {
+            // Nothing to read and nothing to compute: the literal is the value.
+            this.setBodyField(targetMethod.request, entry.target, sources[0].kind === 'constant' ? sources[0].value : '');
+
+            return null;
+        }
+
+        // A script with no source to read still needs a binding, and a binding needs an origin.
+        // Any field the read operation returns will do; the script never looks at it.
+        const readable = paths.length > 0
+            ? paths.map(source => (source as { path: string }).path)
+            : [this.borrowedSourcePath(sides)].filter(Boolean);
+
+        if (readable.length === 0) {
             warnings.push(
-                `The value adjustment for "${entry.source}" needs a field the read operation returns, and `
-                + 'this operation describes none, so the fixed value is sent unchanged.'
+                `The value adjustment for "${entry.target}" needs a field the read operation returns, `
+                + 'and this operation describes none, so the value is sent unchanged.'
             );
+            this.setBodyField(targetMethod.request, entry.target, sources[0].kind === 'constant' ? sources[0].value : '');
+
+            return null;
         }
 
-        if (!script || !borrowed) {
-            this.setBodyField(targetMethod.request, entry.target, literal);
+        const elementPaths = readable.map(path => ocCollectionElementPath(arrayPath, path));
 
-            return;
-        }
-
-        const elementPath = ocCollectionElementPath(sides.source!.responseArrayPath, borrowed);
-        const sourcePath = `body.$.${elementPath}`;
-        const targetPath = `body.$.${entry.target}`;
-
+        // The body holds the reference of the first source; the script's result replaces it.
         this.setBodyField(
             targetMethod.request,
             entry.target,
-            ocFieldReference(AutomationCompilerService.SOURCE_COLOR, 'response', elementPath)
+            ocFieldReference(AutomationCompilerService.SOURCE_COLOR, 'response', elementPaths[0])
         );
 
-        bindings.push({
-            from: [{ color: AutomationCompilerService.SOURCE_COLOR, field: sourcePath, type: 'response' }],
-            to: [{ color: targetMethod.color, field: targetPath, type: 'request' }],
+        return {
+            from: elementPaths.map(path => ({
+                color: AutomationCompilerService.SOURCE_COLOR,
+                field: `body.$.${path}`,
+                type: 'response' as const
+            })),
+            to: [{ color: targetMethod.color, field: targetPath, type: 'request' as const }],
             enhancement: this.buildEnhancement(
-                sourcePath, targetPath, targetMethod.color, entry, warnings, literal
+                `body.$.${elementPaths[0]}`,
+                targetPath,
+                targetMethod.color,
+                sources,
+                script
             )
-        });
+        };
     }
 
 
     /**
-     * A response field of the read operation, used as the formal origin of a constant's binding.
-     *
-     * The first field the operation describes is taken rather than one of the mapped pairs, so the
-     * choice does not shift when the user changes the mapping.
+     * A response field of the read operation, used as the formal origin of a binding that reads
+     * nothing. See bindTarget.
      */
     private borrowedSourcePath(sides: ResolvedSides): string {
         return this.catalog.sourceItemFields(sides.source)[0]?.path ?? '';
@@ -929,34 +932,38 @@ export class AutomationCompilerService {
 
 
     /**
-     * The script OpenCelium runs for one pair.
+     * The script OpenCelium runs for one field.
      *
-     * Without a transformation this is the plain assignment the reference payloads carry. With one,
-     * the user's statements are wrapped so they operate on a variable named `value`: the wizard's
-     * vocabulary never mentions RESULT_VAR or VAR_0, and the wrapping keeps a mistyped script from
-     * reaching past its own pair.
-     *
-     * `literal` is set for a fixed value, whose script starts from that literal rather than from the
-     * response field the binding names.
+     * The plain copy is emitted verbatim as the reference payloads carry it. Anything else is
+     * wrapped so the user's statements work on names rather than on VAR_0: a single source is
+     * `value`, several are `value1`, `value2` in the order they were added, and `value` is what
+     * gets written. A fixed value among them is seeded as a literal, because it has no VAR to read.
      */
     private buildEnhancement(
         sourcePath: string,
         targetPath: string,
         targetColor: string,
-        entry: AutomationMappingEntry,
-        warnings: string[],
-        literal?: string
+        sources: SourceValue[],
+        script: string
     ): OcEnhancement {
-        const script = entry.transform?.enabled ? entry.transform.script.trim() : '';
+        const single = sources.length === 1;
+        let readIndex = 0;
 
-        if (literal === undefined && entry.transform?.enabled && !script) {
-            warnings.push(
-                `The value adjustment for "${entry.source}" has no content, so the value is transferred `
-                + 'unchanged.'
-            );
-        }
+        const seeds = sources.map(source => source.kind === 'constant'
+            ? JSON.stringify(source.value)
+            : `VAR_${readIndex++}`);
 
-        const seed = literal === undefined ? 'VAR_0' : JSON.stringify(literal);
+        const plainCopy = !script && single && sources[0].kind === 'path';
+        const names = single ? ['value'] : sources.map((_source, index) => `value${index + 1}`);
+
+        const body = plainCopy
+            ? 'RESULT_VAR = VAR_0;'
+            : [
+                ...names.map((name, index) => `var ${name} = ${seeds[index]};`),
+                ...(single ? [] : ['var value = value1;']),
+                ...(script ? [script] : []),
+                'RESULT_VAR = value;'
+            ].join('\n');
 
         return {
             name: '',
@@ -965,9 +972,7 @@ export class AutomationCompilerService {
             simpleCode: null,
             expertVar: `//var RESULT_VAR = ${targetColor}.(request).${targetPath};\n`
                 + `//var VAR_0 = ${AutomationCompilerService.SOURCE_COLOR}.(response).${sourcePath};`,
-            expertCode: script
-                ? `var value = ${seed};\n${script}\nRESULT_VAR = value;`
-                : 'RESULT_VAR = VAR_0;'
+            expertCode: body
         };
     }
 

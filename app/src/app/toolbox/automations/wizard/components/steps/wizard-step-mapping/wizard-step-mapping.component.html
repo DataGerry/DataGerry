@@ -3,7 +3,8 @@
     <div>
       <h5 class="wizard-section__title">1. Match the fields</h5>
       <p class="wizard-section__hint mb-0">
-        Matched automatically by name, label and known synonyms. Only correct what is left open.
+        Grouped by target field. Several source fields may feed the same one - they reach the script
+        as <code>value1</code>, <code>value2</code> in the order shown.
       </p>
     </div>
 
@@ -13,25 +14,22 @@
   </div>
 
   <div class="mapping-status">
-    <span class="mapping-status__pill mapping-status__pill--ok">{{ resolvedCount }} matched</span>
+    <span class="mapping-status__pill mapping-status__pill--ok">{{ rows.length }} target fields</span>
+
+    @if (combinedCount > 0) {
+      <span class="mapping-status__pill">{{ combinedCount }} combined</span>
+    }
 
     @if (adjustedCount > 0) {
       <span class="mapping-status__pill">{{ adjustedCount }} adjusted</span>
     }
 
-    @if (unresolvedCount > 0) {
-      <span class="mapping-status__pill mapping-status__pill--open">{{ unresolvedCount }} open</span>
-
-      <label class="mapping-status__filter">
-        <input type="checkbox" [(ngModel)]="showOnlyUnresolved">
-        <span>Show only open</span>
-      </label>
+    @if (spares.length > 0) {
+      <span class="mapping-status__pill mapping-status__pill--open">{{ spares.length }} unassigned</span>
     }
   </div>
 
-  @if (definition.mapping.length === 0) {
-    <p class="text-muted">Choose a target system and its action first.</p>
-  } @else if (targetFields.length === 0) {
+  @if (targetFields.length === 0) {
     <p class="text-muted">
       The chosen action offers no fields to write to. Pick a different action on the previous step.
     </p>
@@ -39,7 +37,7 @@
     @if (identifierMissing) {
       <div class="alert alert-warning mapping-identify-hint">
         <strong>Which field tells the systems it is the same object?</strong>
-        This automation looks the object up in the target system before it writes. Mark the pair that
+        This automation looks the object up in the target system before it writes. Mark the row that
         identifies it - only fields the target system can search by can be used.
       </div>
     }
@@ -47,10 +45,9 @@
     <table class="table mapping-table">
       <thead>
         <tr>
-          <th scope="col">Source field</th>
+          <th scope="col">Source fields</th>
           <th scope="col" class="mapping-table__arrow"></th>
           <th scope="col">Target field</th>
-          <th scope="col">Match</th>
           @if (matchingRelevant) {
             <th scope="col" class="mapping-table__identify">Identifies</th>
           }
@@ -58,15 +55,58 @@
         </tr>
       </thead>
       <tbody>
-        @for (entry of visibleMapping; track entry.source) {
-          <tr [class.is-unresolved]="!entry.target">
+        @for (row of rows; track row.target) {
+          <tr>
             <td>
-              <span class="mapping-table__source">{{ labelOf(entry.source) }}</span>
+              @for (source of row.sources; track source.field) {
+                <div class="mapping-source">
+                  @if (row.combined) {
+                    <code class="mapping-source__var">{{ source.variable }}</code>
+                  }
+                  <span class="mapping-source__name">{{ source.label }}</span>
 
-              @if (isFixedValue(entry.source)) {
-                <span class="mapping-table__fixed">
-                  fixed value: <code>{{ fixedValueOf(entry.source) || '-' }}</code>
-                </span>
+                  @if (source.fixed) {
+                    <span class="mapping-table__fixed">fixed: <code>{{ source.fixed }}</code></span>
+                  }
+
+                  <span class="mapping-source__tools">
+                    @if (row.combined) {
+                      <button
+                        type="button"
+                        class="btn btn-link btn-sm"
+                        title="Move up - decides value1 from value2"
+                        (click)="onMoveSource(row.target, source.field, -1)">
+                        <i class="fas fa-arrow-up"></i>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-link btn-sm"
+                        title="Move down"
+                        (click)="onMoveSource(row.target, source.field, 1)">
+                        <i class="fas fa-arrow-down"></i>
+                      </button>
+                    }
+                    <button
+                      type="button"
+                      class="btn btn-link btn-sm"
+                      title="Remove this source"
+                      (click)="onRemoveSource(row.target, source.field)">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </span>
+                </div>
+              }
+
+              @if (spares.length > 0) {
+                <app-form-select
+                  label=""
+                  placeholder="+ add source"
+                  [items]="spares"
+                  bindLabel="label"
+                  bindValue="name"
+                  [ngModel]="null"
+                  (ngModelChange)="onAddSource(row.target, $event)">
+                </app-form-select>
               }
             </td>
             <td class="mapping-table__arrow"><i class="fas fa-arrow-right"></i></td>
@@ -74,37 +114,28 @@
               <app-form-select
                 label=""
                 placeholder="Not mapped"
-                [items]="targetChoices(entry.source)"
+                [items]="targetChoices(row.target)"
                 bindLabel="label"
                 bindValue="path"
-                [ngModel]="entry.target"
-                (ngModelChange)="onTargetSelected(entry.source, $event)">
+                [ngModel]="row.target"
+                (ngModelChange)="onTargetChanged(row.target, $event)">
               </app-form-select>
-            </td>
-            <td>
-              @if (!entry.target) {
-                <span class="text-muted">-</span>
-              } @else if (entry.origin === 'manual') {
-                <span class="mapping-status__pill">manual</span>
-              } @else {
-                <span class="mapping-status__pill mapping-status__pill--ok">
-                  {{ (entry.confidence * 100) | number:'1.0-0' }}%
-                </span>
-              }
             </td>
             @if (matchingRelevant) {
               <td class="mapping-table__identify">
-                @if (canIdentify(entry)) {
+                @if (row.canIdentify) {
                   <label class="mapping-table__identify-choice">
                     <input
                       type="radio"
                       name="identifyBy"
-                      [checked]="isIdentifier(entry.source)"
-                      (click)="onIdentifyBy(entry.source)">
+                      [checked]="row.identifies"
+                      (click)="onIdentifyBy(row)">
                     <span class="visually-hidden">Identify the object by this field</span>
                   </label>
                 } @else {
-                  <span class="text-muted" title="The target system cannot search by this field">-</span>
+                  <span
+                    class="text-muted"
+                    title="Combined fields and fields the target system cannot search by are not usable here">-</span>
                 }
               </td>
             }
@@ -112,42 +143,42 @@
               <button
                 type="button"
                 class="btn btn-link btn-sm mapping-table__adjust"
-                [class.is-active]="hasActiveTransform(entry)"
-                [disabled]="!entry.target"
-                [attr.aria-expanded]="isExpanded(entry.source)"
-                [title]="hasActiveTransform(entry) ? 'Edit the value adjustment' : 'Adjust the value before sending'"
-                (click)="onToggleTransform(entry)">
+                [class.is-active]="hasActiveTransform(row.entry)"
+                [attr.aria-expanded]="isExpanded(row.target)"
+                [title]="hasActiveTransform(row.entry) ? 'Edit the value adjustment' : 'Adjust the value before sending'"
+                (click)="onToggleTransform(row.entry)">
                 <i class="fas fa-sliders me-1"></i>
-                {{ hasActiveTransform(entry) ? 'Adjusted' : 'Adjust' }}
+                {{ hasActiveTransform(row.entry) ? 'Adjusted' : 'Adjust' }}
               </button>
             </td>
           </tr>
 
-          @if (isExpanded(entry.source)) {
+          @if (isExpanded(row.target)) {
             <tr class="mapping-transform">
-              <td [attr.colspan]="matchingRelevant ? 6 : 5">
+              <td [attr.colspan]="matchingRelevant ? 5 : 4">
                 <div class="mapping-transform__head">
                   <div>
                     <strong>Adjust the value</strong>
-                    @if (isFixedValue(entry.source)) {
-                      <p class="mapping-transform__hint mb-0">
-                        Optional. <code>value</code> starts as the fixed value
-                        <code>{{ fixedValueOf(entry.source) || '-' }}</code>; change it and it is sent
-                        changed. Leave it alone and the fixed value is transferred as it is.
-                      </p>
-                    } @else {
-                      <p class="mapping-transform__hint mb-0">
+                    <p class="mapping-transform__hint mb-0">
+                      @if (row.combined) {
+                        The sources arrive as
+                        @for (source of row.sources; track source.field) {
+                          <code>{{ source.variable }}</code>
+                          <span class="text-muted">= {{ source.label }}</span>
+                        }
+                        — assign the result to <code>value</code>.
+                      } @else {
                         Optional. The value arrives in <code>value</code>; change it and it is sent
                         changed. Leave it alone and the value is transferred as it is.
-                      </p>
-                    }
+                      }
+                    </p>
                   </div>
 
                   <label class="mapping-transform__toggle">
                     <input
                       type="checkbox"
-                      [checked]="entry.transform?.enabled"
-                      (change)="onTransformEnabledChanged(entry, !entry.transform?.enabled)">
+                      [checked]="row.entry.transform?.enabled"
+                      (change)="onTransformEnabledChanged(row.entry, !row.entry.transform?.enabled)">
                     <span>Active</span>
                   </label>
                 </div>
@@ -156,27 +187,57 @@
                   class="form-control mapping-transform__editor"
                   rows="4"
                   spellcheck="false"
-                  placeholder="value = value.toUpperCase();"
-                  [ngModel]="entry.transform?.script"
-                  (ngModelChange)="onTransformScriptChanged(entry, $event)"></textarea>
+                  [attr.placeholder]="row.combined ? 'value = value1 + \' - \' + value2;' : 'value = value.toUpperCase();'"
+                  [ngModel]="row.entry.transform?.script"
+                  (ngModelChange)="onTransformScriptChanged(row.entry, $event)"></textarea>
 
                 <div class="mapping-transform__footer">
                   <span class="mapping-transform__examples">
                     Examples: <code>value = value.trim();</code>
                     <code>value = 'SRV-' + value;</code>
-                    <code>value = value ? 'yes' : 'no';</code>
                   </span>
 
-                  <button type="button" class="btn btn-link btn-sm" (click)="onRemoveTransform(entry)">
+                  <button type="button" class="btn btn-link btn-sm" (click)="onRemoveTransform(row.entry)">
                     <i class="fas fa-times me-1"></i> Remove adjustment
                   </button>
                 </div>
               </td>
             </tr>
           }
+        } @empty {
+          <tr>
+            <td [attr.colspan]="matchingRelevant ? 5 : 4" class="text-muted">
+              Nothing is mapped yet. Assign a field below, or let the assistant match automatically.
+            </td>
+          </tr>
         }
       </tbody>
     </table>
+
+    @if (spares.length > 0) {
+      <div class="mapping-spares">
+        <h6 class="mapping-spares__title">Not assigned yet</h6>
+        <p class="wizard-section__hint">
+          These fields are selected but do not reach the target system. Give each one a target field,
+          or leave it - nothing is sent for it.
+        </p>
+
+        @for (spare of spares; track spare.name) {
+          <div class="mapping-spares__row">
+            <span class="mapping-spares__name">{{ spare.label }}</span>
+            <app-form-select
+              label=""
+              placeholder="Choose a target field"
+              [items]="freeTargets"
+              bindLabel="label"
+              bindValue="path"
+              [ngModel]="null"
+              (ngModelChange)="onAssign(spare.name, $event)">
+            </app-form-select>
+          </div>
+        }
+      </div>
+    }
   }
 </section>
 

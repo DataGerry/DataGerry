@@ -215,19 +215,55 @@ export function requiresMatching(definition: AutomationDefinition): boolean {
 }
 
 
-export interface AutomationMappingEntry {
-    /** Field name on the source side of the automation. */
-    source: string;
-
-    /** Field path on the target side, as offered by the target catalog. */
-    target: string;
+/** One value feeding a target field. */
+export interface AutomationMappingSource {
+    /** Field name on the source side, or the key of a system field such as '$type_id'. */
+    field: string;
     origin: AutomationMappingOrigin;
 
-    /** Similarity score of an automatic suggestion, 0..1. Always 1 for manual entries. */
+    /** Similarity score of an automatic suggestion, 0..1. Always 1 for a manual choice. */
     confidence: number;
+}
+
+
+/**
+ * Everything that goes into one field of the target system.
+ *
+ * Keyed by the target rather than by the source, because that is what the transport is: an
+ * OpenCelium fieldBinding names one target and carries a list of sources, which the script sees as
+ * VAR_0, VAR_1 and so on. Several source fields combining into one target field - a title built
+ * from an inventory number and a location - is therefore the normal case rather than an extension.
+ */
+export interface AutomationMappingEntry {
+    /** Field path on the target side, as offered by the target catalog. Unique in the mapping. */
+    target: string;
+
+    /** In the order the script sees them. Never empty; an entry without sources is removed. */
+    sources: AutomationMappingSource[];
 
     /** Absent for the overwhelming majority of pairs, which move their value unchanged. */
     transform?: AutomationValueTransform;
+}
+
+
+/** The entry writing a target field, if any. */
+export function entryForTarget(
+    mapping: AutomationMappingEntry[],
+    target: string
+): AutomationMappingEntry | undefined {
+    return mapping.find(entry => entry.target === target);
+}
+
+
+/** Every source field the mapping uses, in no particular order. */
+export function mappedSources(mapping: AutomationMappingEntry[]): Set<string> {
+    return new Set(mapping.flatMap(entry => entry.sources.map(source => source.field)));
+}
+
+
+/** Whether a target field takes its value from more than one source. */
+export function isCombined(entry: AutomationMappingEntry): boolean {
+    return entry.sources.length > 1;
 }
 
 
@@ -420,6 +456,14 @@ export interface AutomationDefinition {
     fields: AutomationField[];
     target: AutomationTarget;
     mapping: AutomationMappingEntry[];
+
+    /**
+     * Source fields the user deliberately left unassigned.
+     *
+     * Without this a cleared field would be suggested again on the next pass, undoing the decision.
+     * Keyed by field name because an unassigned field has no target to be keyed by.
+     */
+    unmapped: string[];
     matching: AutomationMatching;
     conditions: AutomationConditionGroup;
     advanced: AutomationAdvancedSettings;
@@ -462,6 +506,7 @@ export function createEmptyAutomationDefinition(): AutomationDefinition {
             remoteObjectTypeId: ''
         },
         mapping: [],
+        unmapped: [],
         matching: defaultMatchingFor('create'),
         conditions: { combinator: 'and', negate: false, rules: [] },
         advanced: createDefaultAdvancedSettings(),
@@ -493,7 +538,8 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
         objectType: { ...base.objectType, ...(raw.objectType ?? {}) },
         fields: Array.isArray(raw.fields) ? raw.fields : base.fields,
         target: { ...base.target, ...(raw.target ?? {}) },
-        mapping: Array.isArray(raw.mapping) ? raw.mapping.map(normalizeMappingEntry) : base.mapping,
+        mapping: normalizeMapping(raw.mapping as unknown),
+        unmapped: Array.isArray(raw.unmapped) ? raw.unmapped : base.unmapped,
         matching: { ...defaultMatchingFor(raw.target?.operation ?? 'create'), ...(raw.matching ?? {}) },
         conditions: {
             ...base.conditions,
@@ -511,16 +557,72 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
  * A definition that predates transforms has none at all, and a hand-edited one could carry anything,
  * so the shape is established once here.
  */
-function normalizeMappingEntry(raw: AutomationMappingEntry): AutomationMappingEntry {
+function normalizeMappingEntry(raw: any): AutomationMappingEntry {
     const transform = raw?.transform;
+    const sources: AutomationMappingSource[] = Array.isArray(raw?.sources)
+        ? raw.sources
+            .filter((source: any) => typeof source?.field === 'string' && source.field)
+            .map((source: any) => ({
+                field: source.field,
+                origin: source.origin === 'manual' ? 'manual' : 'auto',
+                confidence: typeof source.confidence === 'number' ? source.confidence : 0
+            }))
+        : [];
 
-    if (!transform || typeof transform.script !== 'string') {
-        const { transform: _dropped, ...rest } = raw ?? ({} as AutomationMappingEntry);
+    const entry: AutomationMappingEntry = { target: raw.target, sources };
 
-        return rest as AutomationMappingEntry;
+    if (transform && typeof transform.script === 'string') {
+        entry.transform = { enabled: !!transform.enabled, script: transform.script };
     }
 
-    return { ...raw, transform: { enabled: !!transform.enabled, script: transform.script } };
+    return entry;
+}
+
+
+/**
+ * Reads a stored mapping, whichever shape it was written in.
+ *
+ * Up to now an entry was one source and one target, so several fields writing the same target could
+ * not be expressed and a cleared field was kept as an entry with an empty target. Both are folded
+ * into the current shape here: entries are grouped by their target, and the ones that named no
+ * target become the list of fields the user left alone.
+ */
+function normalizeMapping(raw: unknown): AutomationMappingEntry[] {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+
+    if (!(raw as any[]).some(entry => typeof entry?.source === 'string')) {
+        return (raw as any[])
+            .filter(entry => typeof entry?.target === 'string' && entry.target)
+            .map(normalizeMappingEntry)
+            .filter(entry => entry.sources.length > 0);
+    }
+
+    const byTarget = new Map<string, AutomationMappingEntry>();
+
+    for (const legacy of raw as any[]) {
+        if (!legacy?.target || typeof legacy.source !== 'string') {
+            continue;
+        }
+
+        const entry: AutomationMappingEntry = byTarget.get(legacy.target)
+            ?? { target: legacy.target, sources: [] };
+
+        entry.sources.push({
+            field: legacy.source,
+            origin: legacy.origin === 'manual' ? 'manual' : 'auto',
+            confidence: typeof legacy.confidence === 'number' ? legacy.confidence : 0
+        });
+
+        if (legacy.transform && typeof legacy.transform.script === 'string' && !entry.transform) {
+            entry.transform = { enabled: !!legacy.transform.enabled, script: legacy.transform.script };
+        }
+
+        byTarget.set(legacy.target, entry);
+    }
+
+    return [...byTarget.values()];
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
