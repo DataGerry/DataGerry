@@ -37,6 +37,7 @@ import {
     createEmptyAutomationDefinition,
     describeAutomation,
     findSystemField,
+    requiresMatching,
     systemFieldsFor
 } from '../../models/automation-definition.model';
 import {
@@ -118,6 +119,10 @@ export class AutomationWizardComponent implements OnInit {
     public sourceFields: AutomationField[] = [];
     public systemFields: AutomationSystemField[] = [];
     public readableDescription = '';
+
+    /** Target field names the lookup can search by, and whether a lookup happens at all. */
+    public matchableTargets: string[] = [];
+    public matchingRelevant = false;
 
     /** Compilation results, recomputed whenever the definition changes. */
     public validationErrors: string[] = [];
@@ -486,6 +491,7 @@ export class AutomationWizardComponent implements OnInit {
 
         this.systemFields = systemFieldsFor(this.definition.direction);
         this.readableDescription = describeAutomation(this.definition);
+        this.refreshMatching();
 
         const context = this.compileContext();
 
@@ -534,6 +540,28 @@ export class AutomationWizardComponent implements OnInit {
             this.targetFields,
             this.catalog.targetFields(operation),
             field => field.path
+        );
+    }
+
+
+    /**
+     * Works out whether the automation looks its objects up, and by which fields it could.
+     *
+     * Both follow from the chosen action and from what the target system's read operation can
+     * search by, so the mapping step never offers a marker that would not work.
+     */
+    private refreshMatching(): void {
+        this.matchingRelevant = requiresMatching(this.definition);
+
+        const targetInvoker = this.definition.direction === 'outgoing'
+            ? this.connectorOf(this.definition.target.connectorId)?.invoker
+            : this.internalConnector?.invoker;
+        const lookup = this.catalog.resolveOperation(targetInvoker, 'list');
+
+        this.matchableTargets = keepIfUnchanged(
+            this.matchableTargets,
+            this.catalog.matchFilter(targetInvoker, lookup)?.keys ?? [],
+            key => key
         );
     }
 

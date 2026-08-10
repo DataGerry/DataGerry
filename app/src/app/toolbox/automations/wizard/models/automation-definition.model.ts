@@ -152,6 +152,69 @@ export interface AutomationValueTransform {
 }
 
 
+/**
+ * What the automation does with a source object once it knows whether the target already holds it.
+ *
+ * 'skip' leaves it alone, 'error' aborts or reports according to the error handling setting, and
+ * the write outcomes name the operation to run.
+ */
+export type AutomationMatchOutcome = 'skip' | 'create' | 'update' | 'delete' | 'error';
+
+
+/**
+ * How the automation recognises that a source object and a target object are the same thing.
+ *
+ * Without this an automation can only ever add: it has no way of telling a new object from one it
+ * already wrote, so updating and deleting are impossible and creating produces duplicates on every
+ * run. The wizard therefore looks the object up in the target system first and branches on the
+ * answer, which is what the two `if` operators in the compiled connection do.
+ */
+export interface AutomationMatching {
+    /**
+     * Source field of the mapping pair that identifies the object, or '' for no matching at all.
+     *
+     * Deliberately one of the pairs the user already mapped rather than a separate choice: the pair
+     * exists on both sides by construction, and the target side is what the lookup filters on.
+     */
+    identifyBy: string;
+
+    /** What to do with a source object the target system does not hold. */
+    whenMissing: AutomationMatchOutcome;
+
+    /** What to do with one it already holds. */
+    whenPresent: AutomationMatchOutcome;
+}
+
+
+/** Whether an outcome writes anything, i.e. whether it needs a method of its own. */
+export function outcomeWrites(outcome: AutomationMatchOutcome): boolean {
+    return outcome === 'create' || outcome === 'update' || outcome === 'delete';
+}
+
+
+/**
+ * The matching a freshly chosen action implies.
+ *
+ * The action fixes one of the two branches - updating happens when the object is there, creating
+ * when it is not - and leaves the other for the user to decide. Defaulting the open branch to
+ * 'skip' keeps a newly configured automation from doing anything the user did not ask for.
+ */
+export function defaultMatchingFor(operation: AutomationOperation): AutomationMatching {
+    return {
+        identifyBy: '',
+        whenMissing: operation === 'create' ? 'create' : 'skip',
+        whenPresent: operation === 'create' ? 'skip' : operation
+    };
+}
+
+
+/** Whether the action can run at all without looking the object up first. */
+export function requiresMatching(definition: AutomationDefinition): boolean {
+    return definition.target.operation !== 'create'
+        || outcomeWrites(definition.matching.whenPresent);
+}
+
+
 export interface AutomationMappingEntry {
     /** Field name on the source side of the automation. */
     source: string;
@@ -350,6 +413,7 @@ export interface AutomationDefinition {
     fields: AutomationField[];
     target: AutomationTarget;
     mapping: AutomationMappingEntry[];
+    matching: AutomationMatching;
     conditions: AutomationConditionGroup;
     advanced: AutomationAdvancedSettings;
     active: boolean;
@@ -391,6 +455,7 @@ export function createEmptyAutomationDefinition(): AutomationDefinition {
             remoteObjectTypeId: ''
         },
         mapping: [],
+        matching: defaultMatchingFor('create'),
         conditions: { combinator: 'and', negate: false, rules: [] },
         advanced: createDefaultAdvancedSettings(),
         active: true
@@ -422,6 +487,7 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
         fields: Array.isArray(raw.fields) ? raw.fields : base.fields,
         target: { ...base.target, ...(raw.target ?? {}) },
         mapping: Array.isArray(raw.mapping) ? raw.mapping.map(normalizeMappingEntry) : base.mapping,
+        matching: { ...defaultMatchingFor(raw.target?.operation ?? 'create'), ...(raw.matching ?? {}) },
         conditions: {
             ...base.conditions,
             ...(raw.conditions ?? {}),
@@ -480,6 +546,33 @@ export function ruleNeedsValue(operator: AutomationRuleOperator): boolean {
  *
  * Deliberately free of technical terms - this is the text that tells a user what they built.
  */
+/**
+ * The lookup, in the same plain sentence the rest of the summary is written in.
+ *
+ * The branching is the part of an automation users are most likely to get wrong, so it is said out
+ * loud rather than left to be inferred from the technical view.
+ */
+function describeMatching(definition: AutomationDefinition): string {
+    const { identifyBy, whenMissing, whenPresent } = definition.matching;
+
+    if (!requiresMatching(definition) || !identifyBy) {
+        return '';
+    }
+
+    const known = definition.fields.find(field => field.name === identifyBy)?.label ?? identifyBy;
+    const outcome = (verb: AutomationMatchOutcome, present: boolean) => ({
+        skip: present ? 'it is left as it is' : 'the object is skipped',
+        create: 'it is created',
+        update: 'it is updated',
+        delete: 'it is deleted',
+        error: 'it is reported as an error'
+    }[verb]);
+
+    return ` Objects are recognised by ${known}: if it is already there, ${outcome(whenPresent, true)}`
+        + `; if not, ${outcome(whenMissing, false)}.`;
+}
+
+
 export function describeAutomation(definition: AutomationDefinition): string {
     const objectLabel = definition.objectType.label || 'objects';
     const targetLabel = definition.target.connectorTitle || 'the target system';
@@ -510,5 +603,5 @@ export function describeAutomation(definition: AutomationDefinition): string {
         ? `, limited to objects matching ${definition.conditions.rules.length} condition(s)`
         : '';
 
-    return `${triggerPart}, ${flow} using ${fieldPart}${conditionPart}.`;
+    return `${triggerPart}, ${flow} using ${fieldPart}${conditionPart}.${describeMatching(definition)}`;
 }

@@ -192,3 +192,21 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }
+
+/* The identification marker: one narrow column, the radio centred in it. */
+.mapping-table__identify {
+    width: 6rem;
+    text-align: center;
+}
+
+.mapping-table__identify-choice {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    cursor: pointer;
+}
+
+.mapping-identify-hint {
+    margin-bottom: 1rem;
+}

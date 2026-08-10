@@ -20,6 +20,7 @@ import {
     AutomationRuleOperator,
     AutomationTriggerType,
     isTriggerSupported,
+    requiresMatching,
     ruleNeedsValue
 } from './automation-definition.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -187,6 +188,7 @@ export function isGroupComplete(group: WizardGroup, definition: AutomationDefini
 
         case WizardGroup.MAPPING:
             return definition.mapping.some(entry => !!entry.target)
+                && (!requiresMatching(definition) || !!definition.matching.identifyBy)
                 && definition.conditions.rules.every(rule => !!rule.field
                     && (!ruleNeedsValue(rule.operator) || !!rule.value.trim()));
 

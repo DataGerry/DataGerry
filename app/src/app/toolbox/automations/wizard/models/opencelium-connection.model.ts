@@ -85,6 +85,21 @@ export const OC_SOURCE_INDEX = '0';
 export const OC_LOOP_INDEX = '1';
 export const OC_TARGET_INDEX = '1_0';
 
+/** How a lookup result is tested for a hit, as the capture spells it. */
+export const OC_IS_EMPTY = 'IsEmpty';
+export const OC_NOT_EMPTY = 'NotEmpty';
+
+/** The `for {%...%}`-style wrapping an operator expression uses around a field reference. */
+export function ocPresenceExpression(color: string, arrayPath: string, operator: string): string {
+    return `({%${color}.(response).body.$.${arrayPath}[*]%} ${operator})`;
+}
+
+
+/** The bare reference the rule tree stores beside that expression. */
+export function ocPresenceField(color: string, arrayPath: string): string {
+    return `${color}.(response).body.$.${arrayPath}[*]`;
+}
+
 /** Name the loop operator gives the element it is currently on. */
 export const OC_LOOP_ITERATOR = 'i';
 
@@ -136,7 +151,9 @@ export interface OcOperator {
 
     /** e.g. for {%#FFCFB5.(response).body.$.results[*]%} */
     expression: string;
-    iterator: string;
+
+    /** Null on an `if`, which walks nothing. */
+    iterator: string | null;
 
     /** Only sent when the automation restricts which objects take part. */
     condition?: string;
@@ -200,7 +217,7 @@ export interface OcUiGroup {
 
 export interface OcWorkflowNode {
     id: string;
-    type: 'start' | 'connector' | 'loop';
+    type: 'start' | 'connector' | 'loop' | 'if';
     position: { x: number; y: number };
 
     /** Mirrors the method's or operator's execution index; absent on the start node. */
@@ -337,6 +354,11 @@ export function ocMethodNodeId(position: number): string {
 
 export function ocLoopNodeId(position: number): string {
     return `loop-${position}`;
+}
+
+
+export function ocIfNodeId(position: number): string {
+    return `if-${position}`;
 }
 
 

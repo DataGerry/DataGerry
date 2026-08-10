@@ -73,6 +73,29 @@ function idoitInvoker(): any {
                 }
             },
             {
+                name: 'cmdb.object.update',
+                type: '',
+                request: {
+                    endpoint: '{url}',
+                    method: 'POST',
+                    header: { 'Content-Type': 'application/json' },
+                    body: {
+                        type: 'object',
+                        format: 'json',
+                        data: 'raw',
+                        fields: {
+                            method: 'cmdb.object.update',
+                            id: '1',
+                            params: { id: '', title: '', apikey: '{apikey}' }
+                        }
+                    }
+                },
+                response: {
+                    success: { status: '200', body: { fields: { result: { id: '' } } } },
+                    fail: { status: '200', body: null }
+                }
+            },
+            {
                 name: 'cmdb.object.create',
                 type: '',
                 request: {
@@ -588,6 +611,134 @@ describe('AutomationCompilerService', () => {
 
             expect(payload.connection.fieldBinding[0].enhancement.expertCode).toBe('RESULT_VAR = VAR_0;');
             expect(warnings.some(warning => warning.includes('no content'))).toBeTrue();
+        });
+    });
+
+    /* ------------------------------------------------- MATCHING ------------------------------------------------------ */
+
+    /*
+     * An automation that updates or deletes has to find the object in the target system first: it
+     * needs that system's own identifier, which nothing in DataGerry knows. The compiler therefore
+     * reads the target system, branches on whether it answered with anything, and hands the found
+     * identifier to the write.
+     */
+    describe('matching', () => {
+        /* DataGerry is read and i-doit written, which is where a lookup is actually needed. */
+        function updating(whenMissing: 'skip' | 'create' = 'skip'): AutomationDefinition {
+            const definition = incomingDefinition();
+            definition.direction = 'outgoing';
+            definition.fields = [{ name: 'hostname', label: 'Hostname', type: 'text' }];
+            definition.target.operation = 'update';
+            definition.mapping = [
+                { source: 'hostname', target: 'params.title', origin: 'manual', confidence: 1 }
+            ];
+            definition.matching = { identifyBy: 'hostname', whenMissing, whenPresent: 'update' };
+
+            return definition;
+        }
+
+
+        it('rejects an update that names no identifying field', () => {
+            const definition = updating();
+            definition.matching.identifyBy = '';
+
+            expect(compiler.validate(definition, context()))
+                .toContain(jasmine.stringContaining('identifies the object'));
+        });
+
+
+        it('reads the target system before it writes', () => {
+            const { payload } = compiler.compileForCreate(updating(), context());
+            const methods = payload.connection.fromConnector.methods;
+
+            expect(methods.map(method => method.name))
+                .toEqual(['GetObjects', 'cmdb.objects.read', 'cmdb.object.update']);
+            expect(methods[1].index).toBe('1_0');
+            expect(methods[2].index).toBe('1_1_0');
+        });
+
+
+        it('branches on whether the lookup answered with anything', () => {
+            const { payload } = compiler.compileForCreate(updating(), context());
+            const operators = payload.connection.fromConnector.operators;
+            const lookupColor = payload.connection.fromConnector.methods[1].color;
+
+            expect(operators.map(operator => operator.type)).toEqual(['loop', 'if']);
+            expect(operators[1].index).toBe('1_1');
+            expect(operators[1].expression)
+                .toBe(`(\{%${lookupColor}.(response).body.$.result[*]%\} NotEmpty)`);
+            expect(operators[1].iterator).toBeNull();
+        });
+
+
+        it('searches by the identifying pair, on the filter the read operation offers', () => {
+            const { payload } = compiler.compileForCreate(updating(), context());
+            const lookup = payload.connection.fromConnector.methods[1];
+
+            expect(lookup.request.body.fields.params.filter.title)
+                .toBe('#FFCFB5.(response).body.$.results[i].fields[0].value');
+        });
+
+
+        /* The one reference in the payload that reads another method's answer instead of the source. */
+        it('hands the found identifier to the write', () => {
+            const { payload } = compiler.compileForCreate(updating(), context());
+            const [, lookup, write] = payload.connection.fromConnector.methods;
+            const binding = payload.connection.fieldBinding
+                .find(entry => entry.to[0].field === 'body.$.params.id');
+
+            expect(write.request.body.fields.params.id)
+                .toBe(`${lookup.color}.(response).body.$.result[0].id`);
+            expect(binding?.from[0]).toEqual({
+                color: lookup.color,
+                field: 'body.$.result[0].id',
+                type: 'response'
+            });
+        });
+
+
+        it('adds a second branch when a missing object should be created', () => {
+            const { payload } = compiler.compileForCreate(updating('create'), context());
+            const operators = payload.connection.fromConnector.operators;
+            const methods = payload.connection.fromConnector.methods;
+
+            expect(operators.map(operator => operator.index)).toEqual(['1', '1_1', '1_2']);
+            expect(operators[1].expression).toContain('IsEmpty');
+            expect(operators[2].expression).toContain('NotEmpty');
+            expect(methods.map(method => method.index)).toEqual(['0', '1_0', '1_1_0', '1_2_0']);
+            expect(methods[2].name).toBe('cmdb.object.create');
+            expect(methods[3].name).toBe('cmdb.object.update');
+        });
+
+
+        it('reaches the second branch through the first one\'s miss', () => {
+            const { payload } = compiler.compileForCreate(updating('create'), context());
+            const edges = payload.connection.ui.workflowEdges;
+            const [firstIf, secondIf] = payload.connection.fromConnector.operators.slice(1);
+
+            expect(edges.find(edge => edge.target === secondIf.id))
+                .toEqual(jasmine.objectContaining({ source: firstIf.id, sourceHandle: 'false' }));
+            expect(edges.filter(edge => edge.sourceHandle === 'true').length).toBe(2);
+        });
+
+
+        it('draws the branches side by side, each with its method below it', () => {
+            const { payload } = compiler.compileForCreate(updating('create'), context());
+            const byId = new Map(payload.connection.ui.workflowNodes.map(node => [node.id, node.position]));
+            const [firstIf, secondIf] = payload.connection.fromConnector.operators.slice(1);
+
+            expect(byId.get(firstIf.id)!.y).toBe(byId.get(secondIf.id)!.y);
+            expect(byId.get(secondIf.id)!.x).toBeGreaterThan(byId.get(firstIf.id)!.x);
+            expect(byId.get('method-2')!.y).toBeGreaterThan(byId.get(firstIf.id)!.y);
+        });
+
+
+        it('leaves an automation that only adds without a lookup', () => {
+            const { payload } = compiler.compileForCreate(incomingDefinition(), context());
+
+            expect(payload.connection.fromConnector.methods.length).toBe(2);
+            expect(payload.connection.fromConnector.operators.map(operator => operator.type))
+                .toEqual(['loop']);
         });
     });
 

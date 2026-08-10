@@ -83,3 +83,30 @@
     </section>
   }
 }
+
+<section class="wizard-section">
+  <h5 class="wizard-section__title">3. Decide the other case</h5>
+  <p class="wizard-section__hint">
+    Before it writes, the automation looks the object up in the target system. Which field it
+    recognises the object by is set on the next step.
+  </p>
+
+  @if (openBranch === 'present') {
+    <p class="wizard-section__hint"><strong>The object already exists over there.</strong> Then:</p>
+  } @else {
+    <p class="wizard-section__hint"><strong>The object does not exist over there.</strong> Then:</p>
+  }
+
+  <div class="target-branch">
+    @for (choice of openBranchChoices; track choice.value) {
+      <label class="target-branch__choice" [class.is-selected]="openBranchValue === choice.value">
+        <input
+          type="radio"
+          name="openBranch"
+          [checked]="openBranchValue === choice.value"
+          (click)="onOpenBranchChanged(choice.value)">
+        <span>{{ choice.label }}</span>
+      </label>
+    }
+  </div>
+</section>

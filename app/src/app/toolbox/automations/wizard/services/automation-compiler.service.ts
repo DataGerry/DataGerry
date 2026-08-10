@@ -21,9 +21,12 @@ import {
     AutomationConditionGroup,
     AutomationDefinition,
     AutomationMappingEntry,
+    AutomationMatchOutcome,
     AutomationRuleOperator,
     findSystemField,
     isTriggerSupported,
+    outcomeWrites,
+    requiresMatching,
     systemFieldValue
 } from '../models/automation-definition.model';
 import {
@@ -45,14 +48,18 @@ import {
     ocEdgeId,
     ocFieldReference,
     ocLoopExpression,
+    ocIfNodeId,
     ocLoopNodeId,
     ocMethodNodeId,
+    ocPresenceExpression,
     OC_DEFAULT_CONNECTOR_ID,
     OC_DEFAULT_CONNECTOR_TITLE,
+    OC_IS_EMPTY,
     OC_LOOP_INDEX,
     OC_METHOD_COLORS,
     OC_SCHEDULER_ACTIVE,
     OC_SCHEDULER_INACTIVE,
+    OC_NOT_EMPTY,
     OC_SOURCE_INDEX,
     OC_TARGET_INDEX,
     OC_UI_LAYOUT
@@ -196,6 +203,15 @@ export class AutomationCompilerService {
             errors.push('Map at least one field to the target system.');
         }
 
+        // Without it the automation has no way of telling which object over there it means, so
+        // updating and deleting would act on nothing and creating would duplicate on every run.
+        if (requiresMatching(definition) && !definition.matching.identifyBy) {
+            errors.push(
+                'Mark the field that identifies the object in the target system, so the automation '
+                + 'can find the object it should act on.'
+            );
+        }
+
         return errors;
     }
 
@@ -276,29 +292,52 @@ export class AutomationCompilerService {
 
         this.collectResolutionWarnings(definition, sides, warnings);
 
+        const palette = OC_METHOD_COLORS;
         const sourceMethod = this.buildMethod(
             sides.source,
             sides.sourceConnector,
-            AutomationCompilerService.SOURCE_NODE,
+            ocMethodNodeId(0),
             OC_SOURCE_INDEX,
-            AutomationCompilerService.SOURCE_COLOR,
+            palette[0],
             AutomationCompilerService.SOURCE_LABEL
         );
 
         this.applyListFilter(definition, sides, sourceMethod, warnings);
         this.applyListLimit(definition, sides, sourceMethod);
 
-        const targetMethod = this.buildMethod(
-            sides.target,
-            sides.targetConnector,
-            AutomationCompilerService.TARGET_NODE,
-            OC_TARGET_INDEX,
-            AutomationCompilerService.TARGET_COLOR,
-            null
-        );
-
-        const bindings = this.buildFieldBindings(definition, context, sides, targetMethod, warnings);
         const loop = this.buildLoopOperator(sides.source.responseArrayPath);
+        const methods: OcMethod[] = [sourceMethod];
+        const operators: OcOperator[] = [loop];
+        const bindings: OcFieldBinding[] = [];
+        const graph: GraphNode[] = [
+            { id: AutomationCompilerService.START_NODE, kind: 'start', parent: '' },
+            { id: sourceMethod.id, kind: 'method', parent: AutomationCompilerService.START_NODE, method: sourceMethod },
+            { id: loop.id, kind: 'loop', parent: sourceMethod.id, operator: loop }
+        ];
+
+        const plan = this.planBranches(definition);
+
+        if (plan.length === 0) {
+            // No lookup: the single write hangs straight off the loop, which is what an automation
+            // that only ever adds looks like.
+            const writeMethod = this.buildMethod(
+                sides.target,
+                sides.targetConnector,
+                ocMethodNodeId(1),
+                OC_TARGET_INDEX,
+                palette[1],
+                null
+            );
+
+            methods.push(writeMethod);
+            bindings.push(...this.buildFieldBindings(definition, context, sides, writeMethod, warnings));
+            graph.push({ id: writeMethod.id, kind: 'method', parent: loop.id, method: writeMethod, below: true });
+        } else {
+            this.buildMatchedBranches(definition, context, sides, plan, {
+                palette, methods, operators, bindings, graph, loop, warnings
+            });
+        }
+
         let conditionTree: OcUiGroup = this.emptyConditionTree();
 
         if (definition.conditions.rules.length > 0) {
@@ -321,11 +360,320 @@ export class AutomationCompilerService {
             fromConnector: {
                 connectorId: OC_DEFAULT_CONNECTOR_ID,
                 title: OC_DEFAULT_CONNECTOR_TITLE,
-                methods: [sourceMethod, targetMethod],
-                operators: [loop]
+                methods,
+                operators
             },
             toConnector: null,
-            ui: this.buildUi(sourceMethod, targetMethod, loop, conditionTree, withEdgeData)
+            ui: this.buildUi(graph, conditionTree, withEdgeData)
+        };
+    }
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                       MATCHING                                                     */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+    /**
+     * The branches the automation needs, in the order they are laid out.
+     *
+     * An outcome that writes nothing needs neither an `if` nor a method, so a plain "update what is
+     * there, ignore the rest" produces a single branch rather than an empty second one.
+     */
+    private planBranches(definition: AutomationDefinition): PlannedBranch[] {
+        if (!requiresMatching(definition) || !definition.matching.identifyBy) {
+            return [];
+        }
+
+        const branches: PlannedBranch[] = [];
+        const { whenMissing, whenPresent } = definition.matching;
+
+        if (outcomeWrites(whenMissing)) {
+            branches.push({ presence: OC_IS_EMPTY, outcome: whenMissing });
+        }
+
+        if (outcomeWrites(whenPresent)) {
+            branches.push({ presence: OC_NOT_EMPTY, outcome: whenPresent });
+        }
+
+        return branches;
+    }
+
+
+    /**
+     * Builds the lookup and the branches that hang off it.
+     *
+     * The lookup asks the target system whether it already holds the object, filtered by the pair
+     * the user marked as identifying. Each branch is an `if` on that answer with its own write
+     * method below it; a second branch hangs off the first one's false exit, which is how the
+     * capture spells "otherwise".
+     */
+    private buildMatchedBranches(
+        definition: AutomationDefinition,
+        context: AutomationCompileContext,
+        sides: ResolvedSides,
+        plan: PlannedBranch[],
+        out: BranchBuildContext
+    ): void {
+        const { palette, methods, operators, bindings, graph, loop, warnings } = out;
+        const lookup = this.resolveLookup(sides, warnings);
+
+        if (!lookup) {
+            return;
+        }
+
+        const lookupMethod = this.buildMethod(
+            lookup,
+            sides.targetConnector,
+            ocMethodNodeId(methods.length),
+            `${loop.index}_0`,
+            palette[methods.length % palette.length],
+            null
+        );
+
+        methods.push(lookupMethod);
+        graph.push({
+            id: lookupMethod.id, kind: 'method', parent: loop.id, method: lookupMethod, below: true
+        });
+        this.bindLookupFilter(definition, context, sides, lookup, lookupMethod, bindings, warnings);
+
+        let parent = lookupMethod.id;
+
+        plan.forEach((branch, position) => {
+            const operation = this.resolveBranchOperation(sides, branch.outcome, warnings);
+
+            if (!operation) {
+                return;
+            }
+
+            const conditional = this.buildIfOperator(
+                ocIfNodeId(position),
+                `${loop.index}_${position + 1}`,
+                lookupMethod.color,
+                lookup.responseArrayPath,
+                branch.presence
+            );
+            const writeMethod = this.buildMethod(
+                operation,
+                sides.targetConnector,
+                ocMethodNodeId(methods.length),
+                `${conditional.index}_0`,
+                palette[methods.length % palette.length],
+                null
+            );
+
+            operators.push(conditional);
+            methods.push(writeMethod);
+            graph.push({
+                id: conditional.id,
+                kind: 'if',
+                parent,
+                operator: conditional,
+                // The first branch follows the lookup; every further one the previous branch's miss.
+                branch: position === 0 ? undefined : 'false'
+            });
+            graph.push({
+                id: writeMethod.id, kind: 'method', parent: conditional.id, method: writeMethod,
+                below: true, branch: 'true'
+            });
+
+            bindings.push(...this.buildBranchBindings(
+                definition, context, sides, branch, lookup, lookupMethod, writeMethod, warnings
+            ));
+
+            parent = conditional.id;
+        });
+    }
+
+
+    /** The operation that answers "do you already have this object". */
+    private resolveLookup(sides: ResolvedSides, warnings: string[]): ResolvedOperation | null {
+        const lookup = this.catalog.resolveOperation(sides.targetConnector?.invoker, 'list');
+
+        if (!lookup) {
+            warnings.push(
+                'The target system offers no operation for reading objects, so the automation cannot '
+                + 'check whether an object already exists. Nothing is written.'
+            );
+
+            return null;
+        }
+
+        if (!lookup.responseArrayPath) {
+            warnings.push(
+                `The read operation "${lookup.name}" does not answer with a list, so a hit cannot be `
+                + 'told from a miss. Nothing is written.'
+            );
+
+            return null;
+        }
+
+        return lookup;
+    }
+
+
+    private resolveBranchOperation(
+        sides: ResolvedSides,
+        outcome: AutomationMatchOutcome,
+        warnings: string[]
+    ): ResolvedOperation | null {
+        const operation = this.catalog.resolveOperation(
+            sides.targetConnector?.invoker,
+            outcome as 'create' | 'update' | 'delete'
+        );
+
+        if (!operation) {
+            warnings.push(`The target system offers no operation for "${outcome}", so that branch was skipped.`);
+        }
+
+        return operation;
+    }
+
+
+    private buildIfOperator(
+        id: string,
+        index: string,
+        lookupColor: string,
+        lookupArrayPath: string,
+        presence: string
+    ): OcOperator {
+        return {
+            id,
+            index,
+            type: 'if',
+            dataAggregator: null,
+            expression: ocPresenceExpression(lookupColor, lookupArrayPath, presence),
+            iterator: null
+        };
+    }
+
+
+    /**
+     * Tells the lookup which object to look for.
+     *
+     * The identifying pair names a field on both sides; its target name is what the lookup filters
+     * on, so `params.title` on the write becomes `params.filter.title` on the search.
+     */
+    private bindLookupFilter(
+        definition: AutomationDefinition,
+        context: AutomationCompileContext,
+        sides: ResolvedSides,
+        lookup: ResolvedOperation,
+        lookupMethod: OcMethod,
+        bindings: OcFieldBinding[],
+        warnings: string[]
+    ): void {
+        const entry = definition.mapping.find(pair => pair.source === definition.matching.identifyBy);
+        const filter = this.catalog.matchFilter(sides.targetConnector?.invoker, lookup);
+
+        if (!entry?.target || !filter) {
+            warnings.push(
+                'The target system\'s read operation takes no filter on an ordinary field, so the '
+                + 'automation cannot look an object up. Nothing is written.'
+            );
+
+            return;
+        }
+
+        const key = entry.target.slice(entry.target.lastIndexOf('.') + 1);
+
+        if (!filter.keys.includes(key)) {
+            warnings.push(
+                `The read operation cannot search by "${key}". It searches by `
+                + `${filter.keys.join(', ')} - identify the object by one of those instead.`
+            );
+
+            return;
+        }
+
+        bindings.push(...this.buildFieldBindings(
+            { ...definition, mapping: [{ ...entry, target: `${filter.basePath}.${key}` }] },
+            context,
+            sides,
+            lookupMethod,
+            warnings
+        ));
+    }
+
+
+    /**
+     * What a branch writes: the mapped fields, plus the identifier of the object that was found.
+     *
+     * A delete gets the identifier alone - the other fields have nowhere to go in a request that
+     * only names what to remove, and writing them would invent keys the operation does not have.
+     */
+    private buildBranchBindings(
+        definition: AutomationDefinition,
+        context: AutomationCompileContext,
+        sides: ResolvedSides,
+        branch: PlannedBranch,
+        lookup: ResolvedOperation,
+        lookupMethod: OcMethod,
+        writeMethod: OcMethod,
+        warnings: string[]
+    ): OcFieldBinding[] {
+        const bindings = branch.outcome === 'delete'
+            ? []
+            : this.buildFieldBindings(definition, context, sides, writeMethod, warnings);
+
+        if (branch.outcome === 'create') {
+            return bindings;
+        }
+
+        const idBinding = this.bindElementId(definition, lookup, lookupMethod, writeMethod, warnings);
+
+        return idBinding ? [idBinding, ...bindings] : bindings;
+    }
+
+
+    /**
+     * Hands the found object's identifier to the operation that acts on it.
+     *
+     * The only reference in the whole payload that reads another method's answer rather than the
+     * source, and the reason a lookup is needed at all.
+     */
+    private bindElementId(
+        definition: AutomationDefinition,
+        lookup: ResolvedOperation,
+        lookupMethod: OcMethod,
+        writeMethod: OcMethod,
+        warnings: string[]
+    ): OcFieldBinding | null {
+        const invoker = lookupMethod.connector.invokerName ? { name: lookupMethod.connector.invokerName } : null;
+        const elementId = this.catalog.elementIdPath(invoker, lookup);
+        const mapped = definition.mapping.find(entry => entry.target)?.target ?? '';
+        const writeId = this.catalog.writeIdPath(
+            { name: writeMethod.name, definition: { request: writeMethod.request }, responseArrayPath: '', verified: true },
+            mapped
+        );
+
+        if (!elementId || !writeId) {
+            warnings.push(
+                `The automation could not work out where "${writeMethod.name}" takes the identifier of `
+                + 'the object it acts on, so no identifier is passed. Set it in the technical view.'
+            );
+
+            return null;
+        }
+
+        // The lookup's answer is nobody's loop, so the first hit is meant rather than an iterator.
+        const sourcePath = `body.$.${ocCollectionElementPath(lookup.responseArrayPath, elementId, '0')}`;
+        const targetPath = `body.$.${writeId}`;
+
+        this.setBodyField(
+            writeMethod.request,
+            writeId,
+            ocFieldReference(lookupMethod.color, 'response', ocCollectionElementPath(lookup.responseArrayPath, elementId, '0'))
+        );
+
+        return {
+            from: [{ color: lookupMethod.color, field: sourcePath, type: 'response' }],
+            to: [{ color: writeMethod.color, field: targetPath, type: 'request' }],
+            enhancement: this.buildEnhancement(
+                sourcePath,
+                targetPath,
+                writeMethod.color,
+                { source: definition.matching.identifyBy, target: writeId, origin: 'auto', confidence: 1 },
+                warnings
+            )
         };
     }
 
@@ -455,8 +803,8 @@ export class AutomationCompilerService {
 
             bindings.push({
                 from: [{ color: AutomationCompilerService.SOURCE_COLOR, field: sourcePath, type: 'response' }],
-                to: [{ color: AutomationCompilerService.TARGET_COLOR, field: targetPath, type: 'request' }],
-                enhancement: this.buildEnhancement(sourcePath, targetPath, entry, warnings)
+                to: [{ color: targetMethod.color, field: targetPath, type: 'request' }],
+                enhancement: this.buildEnhancement(sourcePath, targetPath, targetMethod.color, entry, warnings)
             });
         }
 
@@ -520,8 +868,10 @@ export class AutomationCompilerService {
 
         bindings.push({
             from: [{ color: AutomationCompilerService.SOURCE_COLOR, field: sourcePath, type: 'response' }],
-            to: [{ color: AutomationCompilerService.TARGET_COLOR, field: targetPath, type: 'request' }],
-            enhancement: this.buildEnhancement(sourcePath, targetPath, entry, warnings, literal)
+            to: [{ color: targetMethod.color, field: targetPath, type: 'request' }],
+            enhancement: this.buildEnhancement(
+                sourcePath, targetPath, targetMethod.color, entry, warnings, literal
+            )
         });
     }
 
@@ -551,6 +901,7 @@ export class AutomationCompilerService {
     private buildEnhancement(
         sourcePath: string,
         targetPath: string,
+        targetColor: string,
         entry: AutomationMappingEntry,
         warnings: string[],
         literal?: string
@@ -571,7 +922,7 @@ export class AutomationCompilerService {
             description: '',
             language: 'js',
             simpleCode: null,
-            expertVar: `//var RESULT_VAR = ${AutomationCompilerService.TARGET_COLOR}.(request).${targetPath};\n`
+            expertVar: `//var RESULT_VAR = ${targetColor}.(request).${targetPath};\n`
                 + `//var VAR_0 = ${AutomationCompilerService.SOURCE_COLOR}.(response).${sourcePath};`,
             expertCode: script
                 ? `var value = ${seed};\n${script}\nRESULT_VAR = value;`
@@ -878,53 +1229,12 @@ export class AutomationCompilerService {
      * graph is sent twice - once fully as `workflowNodes`/`workflowEdges`, once reduced to positions
      * as `flowcharts`/`flowchartEdges` - which is what the captures show.
      */
-    private buildUi(
-        sourceMethod: OcMethod,
-        targetMethod: OcMethod,
-        loop: OcOperator,
-        conditionTree: OcUiGroup,
-        withEdgeData: boolean
-    ): OcUi {
-        const { startX, stepX, rowY, branchDy } = OC_UI_LAYOUT;
-        const loopX = startX + 2 * stepX;
-
-        const nodes: OcWorkflowNode[] = [
-            {
-                id: AutomationCompilerService.START_NODE,
-                type: 'start',
-                position: { x: startX, y: rowY },
-                data: { title: '', kind: 'start' },
-                draggable: true,
-                deletable: false
-            },
-            this.connectorNode(sourceMethod, { x: startX + stepX, y: rowY }),
-            {
-                id: loop.id,
-                type: 'loop',
-                position: { x: loopX, y: rowY },
-                index: loop.index,
-                data: {
-                    title: 'Loop',
-                    subtitle: loop.expression,
-                    kind: 'loop',
-                    conditionConfig: {
-                        operatorType: 'loop',
-                        tree: conditionTree,
-                        expression: loop.expression,
-                        iterator: loop.iterator
-                    }
-                }
-            },
-            // The written method runs inside the loop, so it drops below it instead of continuing
-            // the row - the loop's own column is kept.
-            this.connectorNode(targetMethod, { x: loopX, y: rowY + branchDy })
-        ];
-
-        const edges = [
-            this.edge(AutomationCompilerService.START_NODE, sourceMethod.id, undefined, 'left'),
-            this.edge(sourceMethod.id, loop.id, undefined, 'left'),
-            this.edge(loop.id, targetMethod.id, 'bottom', 'top')
-        ];
+    private buildUi(graph: GraphNode[], loopTree: OcUiGroup, withEdgeData: boolean): OcUi {
+        const positions = this.layout(graph);
+        const nodes = graph.map(node => this.workflowNode(node, positions.get(node.id)!, loopTree));
+        const edges = graph
+            .filter(node => node.parent)
+            .map(node => this.edge(node));
 
         return {
             viewport: { ...OC_UI_LAYOUT.viewport },
@@ -933,6 +1243,135 @@ export class AutomationCompilerService {
             flowcharts: nodes.map(node => this.flowchart(node)),
             flowchartEdges: edges
         };
+    }
+
+
+    /**
+     * Places the graph on the grid the captures use.
+     *
+     * A node continues its parent's row unless it runs inside it - a looped or conditional method
+     * drops a row instead, which is what `below` marks. Either way it moves one column right of the
+     * furthest node placed so far, so branches never land on top of each other.
+     */
+    private layout(graph: GraphNode[]): Map<string, { x: number; y: number }> {
+        const { startX, stepX, rowY, branchDy } = OC_UI_LAYOUT;
+        const positions = new Map<string, { x: number; y: number }>();
+        let rightmost = startX - stepX;
+
+        for (const node of graph) {
+            const parent = node.parent ? positions.get(node.parent) : null;
+
+            if (!parent) {
+                positions.set(node.id, { x: startX, y: rowY });
+                rightmost = startX;
+
+                continue;
+            }
+
+            const x = node.below ? parent.x : Math.max(parent.x + stepX, rightmost + stepX);
+            const y = node.below ? parent.y + branchDy : parent.y;
+
+            positions.set(node.id, { x, y });
+            rightmost = Math.max(rightmost, x);
+        }
+
+        return positions;
+    }
+
+
+    private workflowNode(
+        node: GraphNode,
+        position: { x: number; y: number },
+        loopTree: OcUiGroup
+    ): OcWorkflowNode {
+        if (node.kind === 'start') {
+            return {
+                id: node.id,
+                type: 'start',
+                position,
+                data: { title: '', kind: 'start' },
+                draggable: true,
+                deletable: false
+            };
+        }
+
+        if (node.kind === 'method') {
+            return { ...this.connectorNode(node.method!, position) };
+        }
+
+        const operator = node.operator!;
+
+        return {
+            id: operator.id,
+            type: node.kind,
+            position,
+            index: operator.index,
+            data: node.kind === 'loop'
+                ? {
+                    title: 'Loop',
+                    subtitle: operator.expression,
+                    kind: 'loop',
+                    conditionConfig: {
+                        operatorType: 'loop',
+                        tree: loopTree,
+                        expression: operator.expression,
+                        iterator: operator.iterator
+                    }
+                }
+                : {
+                    title: 'If',
+                    kind: 'if',
+                    conditionConfig: {
+                        operatorType: 'if',
+                        tree: this.presenceTree(operator),
+                        expression: operator.expression
+                    }
+                }
+        };
+    }
+
+
+    /** The rule-builder form of an `if`, restating its expression as a single presence rule. */
+    private presenceTree(operator: OcOperator): OcUiGroup {
+        const [, reference, presence] = /^\((?:\{%)(.*?)(?:%\})\s+(\w+)\)$/.exec(operator.expression)
+            ?? ['', '', ''];
+
+        return {
+            id: `${operator.id}-group`,
+            type: 'group',
+            properties: { not: false },
+            items: [{
+                id: `${operator.id}-rule`,
+                type: 'rule',
+                properties: { leftField: reference, operator: presence, rightField: '' }
+            }]
+        };
+    }
+
+
+    /**
+     * How a node hangs off its parent.
+     *
+     * A node that runs inside its parent enters from the top; one that follows it enters from the
+     * left. An `if` sends its hit down its `true` exit and everything else along `false`, which is
+     * how a second branch is reached.
+     */
+    private edge(node: GraphNode): OcFlowchartEdge {
+        const sourceHandle = node.branch ?? (node.below ? 'bottom' : undefined);
+        const edge: OcFlowchartEdge = {
+            id: '',
+            source: node.parent,
+            target: node.id,
+            targetHandle: node.below ? 'top' : 'left'
+        };
+
+        if (sourceHandle) {
+            edge.sourceHandle = sourceHandle;
+        }
+
+        edge.id = ocEdgeId(edge);
+
+        return edge;
     }
 
 
@@ -1001,24 +1440,6 @@ export class AutomationCompilerService {
                 autoEncode: true
             };
         });
-    }
-
-
-    private edge(
-        source: string,
-        target: string,
-        sourceHandle: string | undefined,
-        targetHandle: string
-    ): OcFlowchartEdge {
-        const edge: OcFlowchartEdge = { id: '', source, target, targetHandle };
-
-        if (sourceHandle) {
-            edge.sourceHandle = sourceHandle;
-        }
-
-        edge.id = ocEdgeId(edge);
-
-        return edge;
     }
 
 
@@ -1130,6 +1551,44 @@ export class AutomationCompilerService {
 type SourceValue =
     | { kind: 'path'; path: string }
     | { kind: 'constant'; value: string };
+
+
+/** One branch of the lookup: what to do, and which answer selects it. */
+interface PlannedBranch {
+    /** IsEmpty or NotEmpty - which side of the lookup's answer this branch is for. */
+    presence: string;
+    outcome: AutomationMatchOutcome;
+}
+
+
+/** A node of the workflow graph, from which both the ui block and its edges are derived. */
+interface GraphNode {
+    id: string;
+    kind: 'start' | 'method' | 'loop' | 'if';
+
+    /** Ui id of the node this one hangs off; empty on the start node. */
+    parent: string;
+    method?: OcMethod;
+    operator?: OcOperator;
+
+    /** True when the node runs inside its parent and is drawn a row below it. */
+    below?: boolean;
+
+    /** Which exit of an `if` parent leads here. */
+    branch?: 'true' | 'false';
+}
+
+
+/** Everything buildMatchedBranches appends to while it walks the plan. */
+interface BranchBuildContext {
+    palette: ReadonlyArray<string>;
+    methods: OcMethod[];
+    operators: OcOperator[];
+    bindings: OcFieldBinding[];
+    graph: GraphNode[];
+    loop: OcOperator;
+    warnings: string[];
+}
 
 
 /** The two operations and connectors an automation runs across. */

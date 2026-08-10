@@ -49,6 +49,10 @@ const ACCEPTED_DIFFERENCES: ReadonlyArray<AcceptedDifference> = [
     {
         matches: entry => entry.detail.includes('[i]') && entry.detail.includes('[0]'),
         reason: 'the capture addresses the looped collection as [0]; the compiler uses the iterator'
+    },
+    {
+        matches: entry => entry.path === 'description',
+        reason: 'the business model has gained fields since the capture, so its block differs'
     }
 ];
 
