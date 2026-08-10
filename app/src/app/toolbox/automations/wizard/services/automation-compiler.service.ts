@@ -303,7 +303,7 @@ export class AutomationCompilerService {
         );
 
         this.applyListFilter(definition, sides, sourceMethod, warnings);
-        this.applyListLimit(definition, sides, sourceMethod);
+        this.applyListLimit(definition, sides, sourceMethod, warnings);
 
         const loop = this.buildLoopOperator(sides.source.responseArrayPath);
         const methods: OcMethod[] = [sourceMethod];
@@ -1109,12 +1109,25 @@ export class AutomationCompilerService {
     private applyListLimit(
         definition: AutomationDefinition,
         sides: ResolvedSides,
-        sourceMethod: OcMethod
+        sourceMethod: OcMethod,
+        warnings: string[]
     ): void {
         const placement = findAdapter(sides.sourceConnector?.invoker?.name)?.listLimit;
         const batchSize = definition.advanced.batchSize;
 
         if (!placement || !batchSize || batchSize <= 0) {
+            return;
+        }
+
+        // An operation that pages sets its own page size, and writing ours over it would either
+        // fight the engine for the same parameter or cut the run short at one page. Where paging is
+        // declared the ceiling is not needed, so the setting is ignored and said to be ignored.
+        if (sides.source?.definition?.pagination) {
+            warnings.push(
+                `The read operation "${sides.source.name}" fetches every page by itself, so the limit `
+                + 'on objects per run does not apply and the whole object type is processed.'
+            );
+
             return;
         }
 

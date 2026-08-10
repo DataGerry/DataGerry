@@ -335,6 +335,28 @@ describe('AutomationCompilerService', () => {
         });
 
 
+        /*
+         * The two write the same parameter, so only one of them may. An operation that pages sets
+         * its own page size and fetches every page, which is what the setting was trying to
+         * approximate.
+         */
+        it('leaves the page size alone when the read operation pages by itself', () => {
+            const paging = context();
+            const objectsRead = paging.targetConnector.invoker.operations
+                .find((operation: any) => operation.name === 'cmdb.objects.read');
+            objectsRead.pagination = { rules: [] };
+
+            const definition = incomingDefinition();
+            definition.advanced.batchSize = 250;
+
+            const { payload, warnings } = compiler.compileForCreate(definition, paging);
+
+            expect(payload.connection.fromConnector.methods[0].request.body.fields.params.limit)
+                .toBe('');
+            expect(warnings.some(warning => warning.includes('fetches every page'))).toBeTrue();
+        });
+
+
         it('applies the batch size as the read operation page size', () => {
             const definition = incomingDefinition();
             definition.advanced.batchSize = 250;
