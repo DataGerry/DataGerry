@@ -43,7 +43,7 @@ describe('AutomationFieldMappingService', () => {
 
         expect(result[0].target).toBe('hostname');
         expect(result[0].matchedOn).toBe('name');
-        expect(result[0].confidence).toBe(1);
+        expect(result[0].sources[0].confidence).toBe(1);
     });
 
 
@@ -74,24 +74,22 @@ describe('AutomationFieldMappingService', () => {
     it('leaves a field unmapped rather than guessing badly', () => {
         const result = service.suggest([field('inventory_number')], [target('zzz_unrelated')]);
 
-        expect(result[0].target).toBe('');
-        expect(result[0].matchedOn).toBe('none');
-        expect(result[0].confidence).toBe(0);
+        // A field nothing matches produces no entry at all; there is no target to key it by.
+        expect(result).toEqual([]);
     });
 
 
     it('never maps two source fields onto the same target', () => {
         const result = service.suggest([field('title'), field('name')], [target('title')]);
 
-        expect(result[0].target).toBe('title');
-        expect(result[1].target).toBe('');
+        // The second field finds nothing left, so it produces no entry rather than an empty one.
+        expect(result.map(entry => entry.target)).toEqual(['title']);
     });
 
 
     it('keeps manual entries and their targets when filling gaps', () => {
         const existing = [
-            { source: 'hostname', target: 'custom_field', origin: 'manual' as const, confidence: 1 },
-            { source: 'serial', target: '', origin: 'auto' as const, confidence: 0 }
+            { target: 'custom_field', sources: [{ field: 'hostname', origin: 'manual' as const, confidence: 1 }] }
         ];
 
         const filled = service.fillGaps(
@@ -101,22 +99,23 @@ describe('AutomationFieldMappingService', () => {
         );
 
         expect(filled[0].target).toBe('custom_field');
-        expect(filled[0].origin).toBe('manual');
+        expect(filled[0].sources[0].origin).toBe('manual');
         expect(filled[1].target).toBe('serial');
     });
 
 
-    it('leaves a pair the user deliberately cleared alone', () => {
-        const existing = [{ source: 'serial', target: '', origin: 'manual' as const, confidence: 1 }];
+    /* A field the user took away must not come back on the next pass. */
+    it('leaves a field the user deliberately cleared alone', () => {
+        const filled = service.fillGaps([], [field('serial')], [target('serial')], ['serial']);
 
-        const filled = service.fillGaps(existing, [field('serial')], [target('serial')]);
-
-        expect(filled[0].target).toBe('');
+        expect(filled).toEqual([]);
     });
 
 
     it('adds an entry for a field picked after the mapping was made', () => {
-        const existing = [{ source: 'hostname', target: 'title', origin: 'manual' as const, confidence: 1 }];
+        const existing = [
+            { target: 'title', sources: [{ field: 'hostname', origin: 'manual' as const, confidence: 1 }] }
+        ];
 
         const filled = service.fillGaps(
             existing,
@@ -125,28 +124,29 @@ describe('AutomationFieldMappingService', () => {
         );
 
         expect(filled.length).toBe(2);
-        expect(filled[1].source).toBe('serial');
+        expect(filled[1].sources[0].field).toBe('serial');
         expect(filled[1].target).toBe('serial');
     });
 
 
     it('drops an entry whose field is no longer selected', () => {
         const existing = [
-            { source: 'hostname', target: 'title', origin: 'manual' as const, confidence: 1 },
-            { source: 'serial', target: 'serial', origin: 'manual' as const, confidence: 1 }
+            { target: 'title', sources: [{ field: 'hostname', origin: 'manual' as const, confidence: 1 }] },
+            { target: 'serial', sources: [{ field: 'serial', origin: 'manual' as const, confidence: 1 }] }
         ];
 
-        const filled = service.fillGaps(existing, [field('hostname')], [target('title')]);
+        const pruned = service.prune(existing, [field('hostname')], [target('title')]);
 
-        expect(filled.length).toBe(1);
-        expect(filled[0].source).toBe('hostname');
+        expect(pruned.length).toBe(1);
+        expect(pruned[0].sources[0].field).toBe('hostname');
     });
 
 
-    it('counts the entries that still need attention', () => {
-        expect(service.unresolvedCount([
-            { source: 'a', target: 'x', origin: 'auto', confidence: 1 },
-            { source: 'b', target: '', origin: 'auto', confidence: 0 }
-        ])).toBe(1);
+    it('names the fields that feed nothing', () => {
+        expect(service.unassigned(
+            [{ target: 'title', sources: [{ field: 'hostname', origin: 'auto', confidence: 1 }] }],
+            [field('hostname'), field('serial')]
+        )).toEqual(['serial']);
     });
+
 });

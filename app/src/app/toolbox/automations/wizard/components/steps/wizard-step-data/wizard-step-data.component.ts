@@ -21,6 +21,7 @@ import { CmdbType } from 'src/app/framework/models/cmdb-type';
 
 import {
     AutomationDefinition,
+    AutomationMappingEntry,
     AutomationDirection,
     AutomationField,
     AutomationSystemField,
@@ -29,6 +30,18 @@ import {
     toAutomationField
 } from '../../../models/automation-definition.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * Takes a source out of every target it fed, and drops the targets left with nothing.
+ *
+ * A field can feed several targets and a target can be fed by several fields, so removing one is
+ * not a matter of dropping a row.
+ */
+function dropSource(mapping: AutomationMappingEntry[], field: string): AutomationMappingEntry[] {
+    return mapping
+        .map(entry => ({ ...entry, sources: entry.sources.filter(source => source.field !== field) }))
+        .filter(entry => entry.sources.length > 0);
+}
 
 /**
  * Step group 2 - which data the automation works on.
@@ -119,7 +132,7 @@ export class WizardStepDataComponent {
     public removeField(field: AutomationField): void {
         this.definition.fields = this.definition.fields.filter(selected => selected.name !== field.name);
         // A removed field must not linger in the mapping.
-        this.definition.mapping = this.definition.mapping.filter(entry => entry.source !== field.name);
+        this.definition.mapping = dropSource(this.definition.mapping, field.name);
         this.emit();
     }
 
@@ -134,7 +147,7 @@ export class WizardStepDataComponent {
     public onToggleSystemField(field: AutomationSystemField): void {
         if (this.isSystemFieldSelected(field)) {
             this.definition.fields = this.definition.fields.filter(selected => selected.name !== field.key);
-            this.definition.mapping = this.definition.mapping.filter(entry => entry.source !== field.key);
+            this.definition.mapping = dropSource(this.definition.mapping, field.key);
             this.emit();
 
             return;

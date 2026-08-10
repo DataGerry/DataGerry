@@ -93,19 +93,20 @@ export class WizardStepReviewComponent {
     public get preview(): Array<{ source: string; target: string; value: string; adjusted: boolean }> {
         return this.definition.mapping
             .filter(entry => !!entry.target)
-            .map(entry => {
-                const systemField = findSystemField(entry.source);
+            .flatMap(entry => entry.sources.map(source => {
+                const systemField = findSystemField(source.field);
                 const value = systemField?.kind === 'constant'
                     ? systemFieldValue(systemField, this.definition)
-                    : this.sampleValues[entry.source] ?? '';
+                    : this.sampleValues[source.field] ?? '';
 
                 return {
-                    source: this.sourceFields.find(field => field.name === entry.source)?.label ?? entry.source,
+                    source: this.sourceFields.find(field => field.name === source.field)?.label
+                        ?? source.field,
                     target: entry.target,
                     value,
                     adjusted: hasActiveTransform(entry)
                 };
-            });
+            }));
     }
 
 

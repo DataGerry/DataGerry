@@ -37,6 +37,7 @@ import {
     createEmptyAutomationDefinition,
     describeAutomation,
     findSystemField,
+    mappedSources,
     requiresMatching,
     systemFieldsFor
 } from '../../models/automation-definition.model';
@@ -602,14 +603,26 @@ export class AutomationWizardComponent implements OnInit {
             return;
         }
 
-        this.definition.mapping = this.mapper.fillGaps(this.definition.mapping, sources, this.targetFields);
+        this.definition.mapping = this.mapper.fillGaps(
+            this.mapper.prune(this.definition.mapping, sources, this.targetFields),
+            sources,
+            this.targetFields,
+            this.definition.unmapped
+        );
     }
 
 
-    /** Whether the mapping already holds exactly these sources, in this order - fillGaps' output. */
+    /**
+     * Whether every offered source already feeds something, or was deliberately left alone.
+     *
+     * Cheap enough to run on every refresh, which is what keeps the fuzzy matching in fillGaps off
+     * the keystroke path.
+     */
     private mappingCovers(sources: AutomationField[]): boolean {
-        return this.definition.mapping.length === sources.length
-            && sources.every((field, index) => this.definition.mapping[index].source === field.name);
+        const used = mappedSources(this.definition.mapping);
+        const left = new Set(this.definition.unmapped);
+
+        return sources.every(field => used.has(field.name) || left.has(field.name));
     }
 
 

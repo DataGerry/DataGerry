@@ -17,7 +17,11 @@
 */
 import { Injectable } from '@angular/core';
 
-import { AutomationField, AutomationMappingEntry } from '../models/automation-definition.model';
+import {
+    AutomationField,
+    AutomationMappingEntry,
+    mappedSources
+} from '../models/automation-definition.model';
 import { TargetField } from '../models/target-catalog.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -59,74 +63,86 @@ export class AutomationFieldMappingService {
      */
     public suggest(sourceFields: AutomationField[], targetFields: TargetField[]): MappingSuggestion[] {
         const available = [...(targetFields ?? [])];
+        const suggestions: MappingSuggestion[] = [];
 
-        return (sourceFields ?? []).map(field => {
+        for (const field of sourceFields ?? []) {
             const hit = this.bestMatch(field, available);
 
             if (!hit) {
-                return {
-                    source: field.name,
-                    target: '',
-                    origin: 'auto' as const,
-                    confidence: 0,
-                    matchedOn: 'none' as const
-                };
+                continue;
             }
 
             available.splice(available.indexOf(hit.target), 1);
-
-            return {
-                source: field.name,
+            suggestions.push({
                 target: hit.target.path,
-                origin: 'auto' as const,
-                confidence: hit.confidence,
+                sources: [{ field: field.name, origin: 'auto', confidence: hit.confidence }],
                 matchedOn: hit.matchedOn
-            };
-        });
+            });
+        }
+
+        return suggestions;
     }
 
 
     /**
-     * Re-runs the suggestion for the source fields the user has not decided on.
+     * Suggests targets for the source fields nobody has decided on yet.
      *
-     * Anything the user touched is preserved untouched, and that includes a pair they deliberately
-     * left unmapped - re-suggesting a target the user just cleared would undo their decision on the
-     * next keystroke. Their targets stay reserved either way.
+     * Anything already mapped stays untouched, and so does a field the user deliberately left
+     * alone - re-suggesting one they just cleared would undo the decision on the next keystroke.
+     * Targets already written to are off the table, since a field takes one value.
      */
     public fillGaps(
         existing: AutomationMappingEntry[],
         sourceFields: AutomationField[],
-        targetFields: TargetField[]
+        targetFields: TargetField[],
+        unmapped: ReadonlyArray<string> = []
     ): AutomationMappingEntry[] {
-        const settled = (entry?: AutomationMappingEntry) => !!entry && (!!entry.target || entry.origin === 'manual');
+        const used = mappedSources(existing);
+        const left = new Set(unmapped);
+        const takenTargets = new Set(existing.map(entry => entry.target));
 
-        const taken = new Set(existing.filter(entry => entry.target).map(entry => entry.target));
-        const free = (targetFields ?? []).filter(field => !taken.has(field.path));
-        const bySource = new Map(existing.map(entry => [entry.source, entry]));
+        const gaps = (sourceFields ?? []).filter(
+            field => !used.has(field.name) && !left.has(field.name)
+        );
+        const free = (targetFields ?? []).filter(field => !takenTargets.has(field.path));
 
-        const gaps = (sourceFields ?? []).filter(field => !settled(bySource.get(field.name)));
-        const filled = new Map(this.suggest(gaps, free).map(entry => [entry.source, entry]));
+        if (gaps.length === 0) {
+            return existing;
+        }
 
-        return (sourceFields ?? []).map(field => {
-            const current = bySource.get(field.name);
+        const added = this.suggest(gaps, free)
+            .map(({ target, sources }) => ({ target, sources }));
 
-            if (settled(current)) {
-                return current!;
-            }
-
-            return filled.get(field.name) ?? {
-                source: field.name,
-                target: '',
-                origin: 'auto' as const,
-                confidence: 0
-            };
-        });
+        return added.length > 0 ? [...existing, ...added] : existing;
     }
 
 
-    /** How many entries of a mapping still need the user's attention. */
-    public unresolvedCount(mapping: AutomationMappingEntry[]): number {
-        return (mapping ?? []).filter(entry => !entry.target).length;
+    /** Drops the sources that are no longer offered, and the entries left without any. */
+    public prune(
+        existing: AutomationMappingEntry[],
+        sourceFields: AutomationField[],
+        targetFields: TargetField[]
+    ): AutomationMappingEntry[] {
+        const offered = new Set((sourceFields ?? []).map(field => field.name));
+        const targets = new Set((targetFields ?? []).map(field => field.path));
+
+        const kept = existing
+            .filter(entry => targets.has(entry.target))
+            .map(entry => ({ ...entry, sources: entry.sources.filter(source => offered.has(source.field)) }))
+            .filter(entry => entry.sources.length > 0);
+
+        const unchanged = kept.length === existing.length
+            && kept.every((entry, index) => entry.sources.length === existing[index].sources.length);
+
+        return unchanged ? existing : kept;
+    }
+
+
+    /** Source fields that are offered but do not feed anything yet. */
+    public unassigned(mapping: AutomationMappingEntry[], sourceFields: AutomationField[]): string[] {
+        const used = mappedSources(mapping ?? []);
+
+        return (sourceFields ?? []).map(field => field.name).filter(name => !used.has(name));
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */

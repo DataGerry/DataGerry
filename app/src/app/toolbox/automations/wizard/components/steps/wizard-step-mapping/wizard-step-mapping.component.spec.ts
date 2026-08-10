@@ -29,13 +29,16 @@ function target(path: string): TargetField {
 }
 
 
-function entry(source: string, mappedTo = ''): AutomationMappingEntry {
-    return { source, target: mappedTo, origin: 'auto', confidence: mappedTo ? 1 : 0 };
+function entry(targetPath: string, ...fields: string[]): AutomationMappingEntry {
+    return {
+        target: targetPath,
+        sources: fields.map(field => ({ field, origin: 'auto' as const, confidence: 1 }))
+    };
 }
 
 
 /** A component wired the way the wizard shell wires it, already through its first check. */
-function mountedComponent(mapping: AutomationMappingEntry[]): {
+function mounted(mapping: AutomationMappingEntry[], sources = ['hostname', 'serial', 'location']): {
     component: WizardStepMappingComponent;
     definition: AutomationDefinition;
 } {
@@ -45,12 +48,9 @@ function mountedComponent(mapping: AutomationMappingEntry[]): {
     definition.mapping = mapping;
 
     component.definition = definition;
-    component.sourceFields = mapping.map(item => ({
-        name: item.source,
-        label: item.source.toUpperCase(),
-        type: 'text'
-    }));
-    component.targetFields = [target('title'), target('description')];
+    component.sourceFields = sources.map(name => ({ name, label: name.toUpperCase(), type: 'text' }));
+    component.targetFields = [target('params.title'), target('params.sysid'), target('params.note')];
+    component.matchableTargets = ['title', 'sysid'];
     component.ngDoCheck();
 
     return { component, definition };
@@ -59,129 +59,164 @@ function mountedComponent(mapping: AutomationMappingEntry[]): {
 
 describe('WizardStepMappingComponent', () => {
 
+    describe('rows', () => {
+
+        it('shows one row per target field', () => {
+            const { component } = mounted([entry('params.title', 'hostname'), entry('params.note', 'serial')]);
+
+            expect(component.rows.map(row => row.target)).toEqual(['params.title', 'params.note']);
+        });
+
+
+        /* The whole point of keying by target: two fields feeding one is an ordinary row. */
+        it('names the sources of a combined field in the order the script sees them', () => {
+            const { component } = mounted([entry('params.sysid', 'serial', 'location')]);
+            const row = component.rows[0];
+
+            expect(row.combined).toBeTrue();
+            expect(row.sources.map(source => source.variable)).toEqual(['value1', 'value2']);
+            expect(row.sources.map(source => source.field)).toEqual(['serial', 'location']);
+        });
+
+
+        it('calls the single source of a plain copy just value', () => {
+            const { component } = mounted([entry('params.title', 'hostname')]);
+
+            expect(component.rows[0].combined).toBeFalse();
+            expect(component.rows[0].sources[0].variable).toBe('value');
+        });
+
+
+        it('lists the source fields that feed nothing', () => {
+            const { component } = mounted([entry('params.title', 'hostname')]);
+
+            expect(component.spares.map(field => field.name)).toEqual(['serial', 'location']);
+        });
+    });
+
+
+    describe('editing', () => {
+
+        it('adding a source turns a plain copy into a combination', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+
+            component.onAddSource('params.title', 'serial');
+
+            expect(definition.mapping[0].sources.map(source => source.field)).toEqual(['hostname', 'serial']);
+        });
+
+
+        it('moving a source is what decides value1 from value2', () => {
+            const { component, definition } = mounted([entry('params.sysid', 'serial', 'location')]);
+
+            component.onMoveSource('params.sysid', 'location', -1);
+
+            expect(definition.mapping[0].sources.map(source => source.field)).toEqual(['location', 'serial']);
+        });
+
+
+        it('removing the last source removes the row, not just the value', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+
+            component.onRemoveSource('params.title', 'hostname');
+
+            expect(definition.mapping).toEqual([]);
+        });
+
+
+        /* Otherwise the next suggestion would hand back the field the user just took away. */
+        it('remembers a source that was taken away', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+
+            component.onRemoveSource('params.title', 'hostname');
+
+            expect(definition.unmapped).toEqual(['hostname']);
+        });
+
+
+        it('assigning a spare to a free target opens a row', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+
+            component.onAssign('serial', 'params.note');
+
+            expect(definition.mapping[1]).toEqual(jasmine.objectContaining({ target: 'params.note' }));
+            expect(definition.mapping[1].sources[0].field).toBe('serial');
+        });
+
+
+        it('assigning a spare to a taken target joins it', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+
+            component.onAssign('serial', 'params.title');
+
+            expect(definition.mapping.length).toBe(1);
+            expect(definition.mapping[0].sources.map(source => source.field)).toEqual(['hostname', 'serial']);
+        });
+    });
+
+
     describe('target choices', () => {
 
-        it('offers every target field of the action', () => {
-            const { component } = mountedComponent([entry('hostname')]);
-
-            expect(component.targetChoices('hostname').map(choice => choice.path))
-                .toEqual(['title', 'description']);
-        });
-
-
         /*
-         * The dropdowns are bound into ng-select, which rebuilds its panel whenever it is handed a
-         * new items array. Building the choices in the template returned a fresh array on every
-         * change detection run, which locked the step up; this pins the caching that replaced it.
+         * Bound into ng-select, which rebuilds its panel whenever it is handed a new items array.
+         * Building them in the template returned a fresh array on every change detection run, which
+         * locked the step up; this pins the caching that replaced it.
          */
         it('returns the same array while nothing changes', () => {
-            const { component } = mountedComponent([entry('hostname'), entry('serial')]);
-            const first = component.targetChoices('hostname');
+            const { component } = mounted([entry('params.title', 'hostname')]);
+            const first = component.targetChoices('params.title');
 
             component.ngDoCheck();
             component.ngDoCheck();
 
-            expect(component.targetChoices('hostname')).toBe(first);
+            expect(component.targetChoices('params.title')).toBe(first);
         });
 
 
-        it('rebuilds once the mapping changed', () => {
-            const { component } = mountedComponent([entry('hostname'), entry('serial')]);
-            const before = component.targetChoices('serial');
-
-            component.onTargetSelected('hostname', 'title');
-            component.ngDoCheck();
-
-            expect(component.targetChoices('serial')).not.toBe(before);
-        });
-
-
-        it('rebuilds once the target fields changed', () => {
-            const { component } = mountedComponent([entry('hostname')]);
-            const before = component.targetChoices('hostname');
-
-            component.targetFields = [target('title')];
-            component.ngDoCheck();
-
-            expect(component.targetChoices('hostname')).not.toBe(before);
-            expect(component.targetChoices('hostname').map(choice => choice.path)).toEqual(['title']);
-        });
-
-
-        it('blocks a target another pair already writes to, naming the pair', () => {
-            const { component } = mountedComponent([entry('hostname', 'title'), entry('serial')]);
-            const blocked = component.targetChoices('serial').find(choice => choice.path === 'title');
+        it('blocks a target another row already writes to', () => {
+            const { component } = mounted([entry('params.title', 'hostname'), entry('params.note', 'serial')]);
+            const blocked = component.targetChoices('params.title').find(choice => choice.path === 'params.note');
 
             expect(blocked?.disabled).toBeTrue();
-            expect(blocked?.label).toContain('HOSTNAME');
         });
 
 
-        it('leaves a pair its own target selectable', () => {
-            const { component } = mountedComponent([entry('hostname', 'title'), entry('serial')]);
-            const own = component.targetChoices('hostname').find(choice => choice.path === 'title');
+        it('leaves a row its own target selectable', () => {
+            const { component } = mounted([entry('params.title', 'hostname')]);
+            const own = component.targetChoices('params.title').find(choice => choice.path === 'params.title');
 
             expect(own?.disabled).toBeFalse();
-            expect(own?.label).toBe('title');
-        });
-
-
-        it('answers with an empty list for a source it does not know', () => {
-            const { component } = mountedComponent([entry('hostname')]);
-
-            expect(component.targetChoices('unknown')).toEqual([]);
-            expect(component.targetChoices('unknown')).toBe(component.targetChoices('other'));
         });
     });
 
 
-    describe('visible rows', () => {
+    describe('identification', () => {
 
-        it('shows every pair by default, as the mapping array itself', () => {
-            const { component, definition } = mountedComponent([entry('hostname', 'title'), entry('serial')]);
+        it('offers the marker only where the lookup can search', () => {
+            const { component } = mounted([entry('params.title', 'hostname'), entry('params.note', 'serial')]);
 
-            expect(component.visibleMapping).toBe(definition.mapping);
+            expect(component.rows[0].canIdentify).toBeTrue();
+            expect(component.rows[1].canIdentify).toBeFalse();
         });
 
 
-        it('narrows to the open pairs when the filter is switched on', () => {
-            const { component } = mountedComponent([entry('hostname', 'title'), entry('serial')]);
+        /* A combined field has no single value to search by, so it cannot identify anything. */
+        it('refuses a combined field as the identifier', () => {
+            const { component } = mounted([entry('params.title', 'hostname', 'serial')]);
 
-            component.showOnlyUnresolved = true;
-            component.ngDoCheck();
-
-            expect(component.visibleMapping.map(row => row.source)).toEqual(['serial']);
+            expect(component.rows[0].canIdentify).toBeFalse();
         });
 
 
-        it('keeps the filtered rows stable while nothing changes', () => {
-            const { component } = mountedComponent([entry('hostname', 'title'), entry('serial')]);
+        it('marks and unmarks the identifying row', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
 
-            component.showOnlyUnresolved = true;
+            component.onIdentifyBy(component.rows[0]);
+            expect(definition.matching.identifyBy).toBe('hostname');
+
             component.ngDoCheck();
-
-            const rows = component.visibleMapping;
-            component.ngDoCheck();
-
-            expect(component.visibleMapping).toBe(rows);
-        });
-    });
-
-
-    describe('counts', () => {
-
-        it('separates matched, open and adjusted pairs', () => {
-            const { component, definition } = mountedComponent([
-                entry('hostname', 'title'),
-                entry('serial', 'description'),
-                entry('note')
-            ]);
-
-            definition.mapping[0].transform = { enabled: true, script: 'value = value.trim();' };
-
-            expect(component.resolvedCount).toBe(2);
-            expect(component.unresolvedCount).toBe(1);
-            expect(component.adjustedCount).toBe(1);
+            component.onIdentifyBy(component.rows[0]);
+            expect(definition.matching.identifyBy).toBe('');
         });
     });
 });

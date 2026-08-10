@@ -26,6 +26,7 @@ import {
     createEmptyTransform,
     findSystemField,
     hasActiveTransform,
+    mappedSources,
     ruleNeedsValue,
     systemFieldValue
 } from '../../../models/automation-definition.model';
@@ -38,18 +39,33 @@ interface TargetChoice {
     path: string;
     label: string;
 
-    /** True for a field another pair already writes to - shown, but not selectable twice. */
+    /** True for a field another entry already writes to - shown, but not selectable twice. */
     disabled: boolean;
 }
 
-/** Shared fallback, so a row without choices does not hand ng-select a new array on every check. */
+
+/** One target field as the table shows it, with its sources already named. */
+interface MappingRow {
+    entry: AutomationMappingEntry;
+    target: string;
+    sources: Array<{ field: string; label: string; variable: string; fixed: string }>;
+
+    /** True when the target takes more than one value, so the script has to combine them. */
+    combined: boolean;
+    identifies: boolean;
+    canIdentify: boolean;
+}
+
+/** Shared fallbacks, so a row does not hand ng-select a new array on every check. */
 const EMPTY_CHOICES: TargetChoice[] = [];
+const EMPTY_SOURCES: AutomationField[] = [];
 
 /**
- * Step group 4 - how source and target fields line up, and which objects take part.
+ * Step group 4 - which values end up in which field of the target system.
  *
- * Only fields the wizard could not match automatically need attention here. Conditions are built
- * visually; the user never writes an expression.
+ * Grouped by target rather than by source, because that is what a field binding is: one target and
+ * a list of sources, which the script sees in order as VAR_0, VAR_1. Two fields combining into one
+ * is therefore an ordinary row here rather than a special case.
  */
 @Component({
     selector: 'app-wizard-step-mapping',
@@ -63,12 +79,7 @@ export class WizardStepMappingComponent implements DoCheck {
     @Input() public sourceFields: AutomationField[] = [];
     @Input() public targetFields: TargetField[] = [];
 
-    /**
-     * Which target fields the lookup can search by, empty when the system offers no search.
-     *
-     * Only a pair whose target side is searchable can identify an object, so the marker is offered
-     * on those rows alone rather than letting the user pick one that cannot work.
-     */
+    /** Target field names the lookup can search by; empty when the system offers no search. */
     @Input() public matchableTargets: string[] = [];
 
     /** False for an automation that only ever adds, where nothing has to be recognised. */
@@ -76,146 +87,192 @@ export class WizardStepMappingComponent implements DoCheck {
 
     @Output() public definitionChange = new EventEmitter<AutomationDefinition>();
 
-    /** Asks the shell to re-run automatic matching for entries that are still empty. */
+    /** Asks the shell to suggest targets for whatever is still unassigned. */
     @Output() public autoMap = new EventEmitter<void>();
 
     public readonly operatorChoices = RULE_OPERATOR_CHOICES;
     public readonly ruleNeedsValue = ruleNeedsValue;
     public readonly hasActiveTransform = hasActiveTransform;
 
-    /** Hides pairs the wizard already resolved, so only the open ones remain. */
-    public showOnlyUnresolved = false;
-
-    /** Sources whose value adjustment is currently open, so the table stays compact by default. */
+    /** Targets whose value adjustment is open, so the table stays compact by default. */
     private expanded = new Set<string>();
 
-    /** Dropdown items per source, kept as one stable array each - see ngDoCheck(). */
-    private choicesBySource = new Map<string, TargetChoice[]>();
+    /** Derived view data, rebuilt only when an input actually changed - see ngDoCheck. */
+    public rows: MappingRow[] = [];
+    public spares: AutomationField[] = EMPTY_SOURCES;
+    private choices = new Map<string, TargetChoice[]>();
 
-    /** The rows the table renders, cached for the same reason as the choices. */
-    private rows: AutomationMappingEntry[] = [];
-
-    /** Inputs the caches were built from, compared by reference on every check. */
     private seenMapping: AutomationMappingEntry[] | null = null;
-    private seenTargetFields: TargetField[] | null = null;
-    private seenSourceFields: AutomationField[] | null = null;
-    private seenFilter = false;
+    private seenSources: AutomationField[] | null = null;
+    private seenTargets: TargetField[] | null = null;
+    private seenIdentifier = '';
 
     /* ------------------------------------------------- CHANGE TRACKING ---------------------------------------------- */
 
     /**
-     * Rebuilds the derived view data when, and only when, one of its inputs actually changed.
+     * Rebuilds the derived data when, and only when, one of its inputs changed.
      *
-     * Deriving it in the template instead looks tidier but is what made this step unusable: Angular
-     * re-evaluates a binding on every change detection run, so every dropdown received a freshly
-     * built array several times per second. ng-select treats a new `items` array as a new list and
-     * rebuilds its panel, which with one dropdown per mapped field is enough to lock up the page
-     * while the user is choosing a target.
-     *
-     * ngOnChanges cannot do this job here: the shell hands back the same definition object after
-     * every edit and only replaces the arrays inside it, so no input binding is ever seen to change.
+     * The shell hands the same definition object back after every edit and replaces the arrays
+     * inside it, so ngOnChanges never fires. Deriving in the template instead would rebuild every
+     * dropdown on every change detection run, which is what once made this step lock up.
      */
     public ngDoCheck(): void {
         const mapping = this.definition?.mapping ?? null;
 
+        const identifier = this.definition?.matching?.identifyBy ?? '';
+
         if (mapping === this.seenMapping
-            && this.targetFields === this.seenTargetFields
-            && this.sourceFields === this.seenSourceFields
-            && this.showOnlyUnresolved === this.seenFilter) {
+            && this.sourceFields === this.seenSources
+            && this.targetFields === this.seenTargets
+            && identifier === this.seenIdentifier) {
             return;
         }
 
-        const rebuildChoices = mapping !== this.seenMapping
-            || this.targetFields !== this.seenTargetFields
-            || this.sourceFields !== this.seenSourceFields;
-
         this.seenMapping = mapping;
-        this.seenTargetFields = this.targetFields;
-        this.seenSourceFields = this.sourceFields;
-        this.seenFilter = this.showOnlyUnresolved;
+        this.seenSources = this.sourceFields;
+        this.seenTargets = this.targetFields;
+        this.seenIdentifier = identifier;
+        this.rebuild();
+    }
 
-        if (rebuildChoices) {
-            this.rebuildChoices();
+
+    private rebuild(): void {
+        const mapping = this.definition?.mapping ?? [];
+        const used = mappedSources(mapping);
+        const taken = new Set(mapping.map(entry => entry.target));
+
+        this.rows = mapping.map(entry => this.toRow(entry));
+        this.spares = this.sourceFields.filter(field => !used.has(field.name));
+
+        this.choices = new Map(mapping.map(entry => [entry.target, this.targetFields.map(field => {
+            const blocked = taken.has(field.path) && field.path !== entry.target;
+
+            return {
+                path: field.path,
+                label: blocked ? `${field.path} - already in use` : field.path,
+                disabled: blocked
+            };
+        })]));
+    }
+
+
+    private toRow(entry: AutomationMappingEntry): MappingRow {
+        const combined = entry.sources.length > 1;
+
+        return {
+            entry,
+            target: entry.target,
+            combined,
+            identifies: !!this.definition.matching.identifyBy
+                && entry.sources.some(source => source.field === this.definition.matching.identifyBy),
+            canIdentify: !combined && this.matchableTargets.includes(this.leafOf(entry.target)),
+            sources: entry.sources.map((source, index) => ({
+                field: source.field,
+                label: this.labelOf(source.field),
+                variable: combined ? `value${index + 1}` : 'value',
+                fixed: this.fixedValueOf(source.field)
+            }))
+        };
+    }
+
+    /* ---------------------------------------------------- SOURCES --------------------------------------------------- */
+
+    /** Adds a source to a target, which turns a plain copy into a combination. */
+    public onAddSource(target: string, field: string): void {
+        if (!field) {
+            return;
         }
 
-        this.rebuildRows();
+        this.replace(target, entry => ({
+            ...entry,
+            sources: [...entry.sources, { field, origin: 'manual' as const, confidence: 1 }]
+        }));
+        this.definition.unmapped = this.definition.unmapped.filter(name => name !== field);
     }
 
 
-    /**
-     * Builds the target dropdown for every source in one pass.
-     *
-     * Which fields are taken is the same question for all rows, so it is answered once here rather
-     * than rebuilt per row as it was before.
-     */
-    private rebuildChoices(): void {
-        const mapping = this.definition?.mapping ?? [];
-        const owners = new Map(
-            mapping.filter(entry => entry.target).map(entry => [entry.target, entry.source])
-        );
+    public onRemoveSource(target: string, field: string): void {
+        const entry = this.definition.mapping.find(candidate => candidate.target === target);
 
-        this.choicesBySource = new Map(mapping.map(entry => [
-            entry.source,
-            this.targetFields.map(field => {
-                const owner = owners.get(field.path);
-                const takenByOther = owner !== undefined && owner !== entry.source;
+        if (!entry) {
+            return;
+        }
 
-                return {
-                    path: field.path,
-                    label: takenByOther ? `${field.path} - used by ${this.labelOf(owner!)}` : field.path,
-                    disabled: takenByOther
-                };
-            })
-        ]));
-    }
+        const sources = entry.sources.filter(source => source.field !== field);
 
+        // A target nobody writes to is not a row with a gap, it is no row.
+        this.definition.mapping = sources.length > 0
+            ? this.definition.mapping.map(candidate =>
+                candidate.target === target ? { ...candidate, sources } : candidate)
+            : this.definition.mapping.filter(candidate => candidate.target !== target);
 
-    private rebuildRows(): void {
-        const mapping = this.definition?.mapping ?? [];
+        if (!this.definition.unmapped.includes(field)) {
+            this.definition.unmapped = [...this.definition.unmapped, field];
+        }
 
-        this.rows = this.showOnlyUnresolved ? mapping.filter(entry => !entry.target) : mapping;
-    }
-
-    /* --------------------------------------------------- MAPPING ---------------------------------------------------- */
-
-    public onTargetSelected(source: string, target: string): void {
-        this.definition.mapping = this.definition.mapping.map(entry => entry.source === source
-            ? { ...entry, target: target ?? '', origin: 'manual' as const, confidence: 1 }
-            : entry
-        );
         this.emit();
     }
 
+
+    /** Moves a source within its target, which is what decides value1 from value2. */
+    public onMoveSource(target: string, field: string, by: number): void {
+        this.replace(target, entry => {
+            const sources = [...entry.sources];
+            const from = sources.findIndex(source => source.field === field);
+            const to = from + by;
+
+            if (from === -1 || to < 0 || to >= sources.length) {
+                return entry;
+            }
+
+            [sources[from], sources[to]] = [sources[to], sources[from]];
+
+            return { ...entry, sources };
+        });
+    }
+
+
+    /** Gives a source that had no target one, starting a new row or joining an existing one. */
+    public onAssign(field: string, target: string): void {
+        if (!target) {
+            return;
+        }
+
+        const existing = this.definition.mapping.find(entry => entry.target === target);
+
+        this.definition.mapping = existing
+            ? this.definition.mapping.map(entry => entry.target === target
+                ? { ...entry, sources: [...entry.sources, { field, origin: 'manual' as const, confidence: 1 }] }
+                : entry)
+            : [...this.definition.mapping, {
+                target,
+                sources: [{ field, origin: 'manual' as const, confidence: 1 }]
+            }];
+
+        this.definition.unmapped = this.definition.unmapped.filter(name => name !== field);
+        this.emit();
+    }
+
+
+    public onTargetChanged(previous: string, target: string): void {
+        if (!target || target === previous) {
+            return;
+        }
+
+        this.definition.mapping = this.definition.mapping.map(entry =>
+            entry.target === previous ? { ...entry, target } : entry
+        );
+        this.emit();
+    }
 
     /* ------------------------------------------------- IDENTIFICATION ----------------------------------------------- */
 
-    /**
-     * Marks the pair by which the automation recognises the object in the target system.
-     *
-     * Exactly one pair can carry it, so choosing another clears the previous one - identity is a
-     * single question, and two answers to it would leave the lookup ambiguous.
-     */
-    public onIdentifyBy(source: string): void {
+    public onIdentifyBy(row: MappingRow): void {
         this.definition.matching = {
             ...this.definition.matching,
-            identifyBy: this.definition.matching.identifyBy === source ? '' : source
+            identifyBy: row.identifies ? '' : (row.sources[0]?.field ?? '')
         };
         this.emit();
-    }
-
-
-    public isIdentifier(source: string): boolean {
-        return this.definition.matching.identifyBy === source;
-    }
-
-
-    /** Whether this pair could identify the object, i.e. whether the lookup can search by it. */
-    public canIdentify(entry: AutomationMappingEntry): boolean {
-        if (!entry.target || this.matchableTargets.length === 0) {
-            return false;
-        }
-
-        return this.matchableTargets.includes(entry.target.slice(entry.target.lastIndexOf('.') + 1));
     }
 
 
@@ -223,84 +280,48 @@ export class WizardStepMappingComponent implements DoCheck {
         return this.matchingRelevant && !this.definition.matching.identifyBy;
     }
 
-
-    public labelOf(source: string): string {
-        return this.sourceFields.find(field => field.name === source)?.label ?? source;
-    }
-
-
-    /**
-     * What a pair sends, when that is not a field of the source object.
-     *
-     * A fixed value - the chosen object type, say - has no counterpart to read, so showing the
-     * literal is the only way the user can tell what will arrive on the other side.
-     */
-    public fixedValueOf(source: string): string {
-        const systemField = findSystemField(source);
-
-        return systemField?.kind === 'constant' ? systemFieldValue(systemField, this.definition) : '';
-    }
-
-
-    public isFixedValue(source: string): boolean {
-        return findSystemField(source)?.kind === 'constant';
-    }
-
-
-    /**
-     * Every field the target action accepts.
-     *
-     * Fields another pair already writes to stay in the list but cannot be picked twice: hiding them
-     * outright made the dropdown shrink as the mapping filled up, which reads as fields going
-     * missing rather than as fields being in use.
-     *
-     * A lookup rather than a computation: the template binds this into ng-select, which must keep
-     * receiving the same array as long as nothing changed. rebuildChoices() fills the map.
-     */
-    public targetChoices(source: string): TargetChoice[] {
-        return this.choicesBySource.get(source) ?? EMPTY_CHOICES;
-    }
-
     /* ------------------------------------------------- VALUE ADJUSTMENT --------------------------------------------- */
 
-    public isExpanded(source: string): boolean {
-        return this.expanded.has(source);
+    public isExpanded(target: string): boolean {
+        return this.expanded.has(target);
     }
 
 
-    /** Opens the adjustment for a pair, starting an empty one the first time it is opened. */
     public onToggleTransform(entry: AutomationMappingEntry): void {
-        if (this.expanded.has(entry.source)) {
-            this.expanded.delete(entry.source);
+        if (this.expanded.has(entry.target)) {
+            this.expanded.delete(entry.target);
 
             return;
         }
 
-        this.expanded.add(entry.source);
+        this.expanded.add(entry.target);
 
         if (!entry.transform) {
-            this.patchEntry(entry.source, { transform: createEmptyTransform() });
+            this.replace(entry.target, current => ({ ...current, transform: createEmptyTransform() }));
         }
     }
 
 
     public onTransformScriptChanged(entry: AutomationMappingEntry, script: string): void {
-        this.patchEntry(entry.source, {
-            transform: { enabled: entry.transform?.enabled ?? true, script: script ?? '' }
-        });
+        this.replace(entry.target, current => ({
+            ...current,
+            transform: { enabled: current.transform?.enabled ?? true, script: script ?? '' }
+        }));
     }
 
 
     public onTransformEnabledChanged(entry: AutomationMappingEntry, enabled: boolean): void {
-        this.patchEntry(entry.source, { transform: { enabled, script: entry.transform?.script ?? '' } });
+        this.replace(entry.target, current => ({
+            ...current,
+            transform: { enabled, script: current.transform?.script ?? '' }
+        }));
     }
 
 
-    /** Removes the adjustment entirely, so the value is transferred as it is. */
     public onRemoveTransform(entry: AutomationMappingEntry): void {
-        this.expanded.delete(entry.source);
+        this.expanded.delete(entry.target);
         this.definition.mapping = this.definition.mapping.map(current => {
-            if (current.source !== entry.source) {
+            if (current.target !== entry.target) {
                 return current;
             }
 
@@ -308,14 +329,6 @@ export class WizardStepMappingComponent implements DoCheck {
 
             return rest;
         });
-        this.emit();
-    }
-
-
-    private patchEntry(source: string, patch: Partial<AutomationMappingEntry>): void {
-        this.definition.mapping = this.definition.mapping.map(entry =>
-            entry.source === source ? { ...entry, ...patch } : entry
-        );
         this.emit();
     }
 
@@ -348,7 +361,6 @@ export class WizardStepMappingComponent implements DoCheck {
 
 
     public onRuleOperatorChanged(index: number, operator: AutomationRuleOperator): void {
-        // Operators that compare against nothing must not keep a stale value.
         const value = ruleNeedsValue(operator) ? this.definition.conditions.rules[index].value : '';
         this.patchRule(index, { operator, value });
     }
@@ -358,33 +370,71 @@ export class WizardStepMappingComponent implements DoCheck {
         this.patchRule(index, { value: value ?? '' });
     }
 
+    /* ---------------------------------------------------- GETTERS --------------------------------------------------- */
 
-    private patchRule(index: number, patch: Partial<{ field: string; operator: AutomationRuleOperator; value: string }>): void {
+    public targetChoices(target: string): TargetChoice[] {
+        return this.choices.get(target) ?? EMPTY_CHOICES;
+    }
+
+
+    /** Targets nothing writes to yet, offered to a source that is still unassigned. */
+    public get freeTargets(): TargetChoice[] {
+        const taken = new Set(this.definition.mapping.map(entry => entry.target));
+
+        return this.targetFields
+            .filter(field => !taken.has(field.path))
+            .map(field => ({ path: field.path, label: field.path, disabled: false }));
+    }
+
+
+    public get combinedCount(): number {
+        return this.rows.filter(row => row.combined).length;
+    }
+
+
+    public get adjustedCount(): number {
+        return this.definition.mapping.filter(entry => hasActiveTransform(entry)).length;
+    }
+
+
+    public labelOf(field: string): string {
+        return this.sourceFields.find(candidate => candidate.name === field)?.label ?? field;
+    }
+
+    /* --------------------------------------------------- INTERNALS -------------------------------------------------- */
+
+    private replace(
+        target: string,
+        change: (entry: AutomationMappingEntry) => AutomationMappingEntry
+    ): void {
+        this.definition.mapping = this.definition.mapping.map(entry =>
+            entry.target === target ? change(entry) : entry
+        );
+        this.emit();
+    }
+
+
+    private patchRule(
+        index: number,
+        patch: Partial<{ field: string; operator: AutomationRuleOperator; value: string }>
+    ): void {
         this.definition.conditions.rules = this.definition.conditions.rules.map((rule, i) =>
             i === index ? { ...rule, ...patch } : rule
         );
         this.emit();
     }
 
-    /* ---------------------------------------------------- GETTERS --------------------------------------------------- */
 
-    public get visibleMapping(): AutomationDefinition['mapping'] {
-        return this.rows;
+    /** What a source sends when it is not read from anywhere - the chosen object type, say. */
+    private fixedValueOf(field: string): string {
+        const systemField = findSystemField(field);
+
+        return systemField?.kind === 'constant' ? systemFieldValue(systemField, this.definition) : '';
     }
 
 
-    public get unresolvedCount(): number {
-        return this.definition.mapping.filter(entry => !entry.target).length;
-    }
-
-
-    public get resolvedCount(): number {
-        return this.definition.mapping.filter(entry => !!entry.target).length;
-    }
-
-
-    public get adjustedCount(): number {
-        return this.definition.mapping.filter(entry => hasActiveTransform(entry)).length;
+    private leafOf(path: string): string {
+        return path.slice(path.lastIndexOf('.') + 1);
     }
 
 
