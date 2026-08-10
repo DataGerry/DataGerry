@@ -29,17 +29,37 @@ import { TargetCatalogService } from '../../src/app/toolbox/automations/wizard/s
  *
  * Keeping them listed rather than silently ignored means a new difference cannot hide behind them.
  */
-const ACCEPTED_CREATE_DIFFERENCES: ReadonlyArray<{ path: string; reason: string }> = [
+interface AcceptedDifference {
+    /** Reads a difference and says whether it is one of the known ones. */
+    matches: (entry: { path: string; detail: string }) => boolean;
+    reason: string;
+}
+
+
+/**
+ * Differences that are properties of the captures rather than compiler faults.
+ *
+ * The loop-iterator entry is the one to read twice: these captures address the iterated collection
+ * as `results[0]`, which reads the first source object on every pass instead of the one the loop is
+ * on. It looks correct against a single test object and silently repeats itself against real data.
+ * The lookup capture, taken later and corrected by hand, uses `results[i]`; the compiler follows it
+ * and deliberately does not reproduce what the older two carry.
+ */
+const ACCEPTED_DIFFERENCES: ReadonlyArray<AcceptedDifference> = [
     {
-        path: 'connection.title',
+        matches: entry => entry.detail.includes('[i]') && entry.detail.includes('[0]'),
+        reason: 'the capture addresses the looped collection as [0]; the compiler uses the iterator'
+    }
+];
+
+const ACCEPTED_CREATE_DIFFERENCES: ReadonlyArray<AcceptedDifference> = [
+    ...ACCEPTED_DIFFERENCES,
+    {
+        matches: entry => entry.path === 'connection.title' || entry.path === 'connection.name',
         reason: 'the create capture was taken from a differently named connection'
     },
     {
-        path: 'connection.name',
-        reason: 'same as connection.title'
-    },
-    {
-        path: 'connection.description',
+        matches: entry => entry.path === 'connection.description',
         reason: 'the create capture carries no description, so it holds no business model either'
     }
 ];
@@ -155,6 +175,33 @@ function connectorOf(method: any): any {
     };
 }
 
+/**
+ * Prints one comparison and returns how many differences were not accounted for.
+ *
+ * Accepted differences are printed with their reason rather than dropped, so a new difference
+ * cannot hide behind one that was already understood.
+ */
+function report(
+    label: string,
+    differences: Array<{ path: string; detail: string }>,
+    accepted: ReadonlyArray<AcceptedDifference>
+): number {
+    const unexpected = differences.filter(entry => !accepted.some(rule => rule.matches(entry)));
+
+    console.log(`${label}: ${differences.length} difference(s), ${unexpected.length} unexpected`);
+
+    differences
+        .filter(entry => !unexpected.includes(entry))
+        .forEach(entry => {
+            const reason = accepted.find(rule => rule.matches(entry))!.reason;
+            console.log(`  = ${entry.path} (${reason})`);
+        });
+
+    unexpected.forEach(entry => console.log(`  - ${entry.path}\n     ${entry.detail}`));
+
+    return unexpected.length;
+}
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 function main(): number {
@@ -223,22 +270,14 @@ function main(): number {
     let failures = 0;
 
     const updateDiff = diff(canonical(updated.payload), canonical(referenceUpdate));
-    console.log(`UPDATE (PUT /connections): ${updateDiff.length} difference(s)`);
-    updateDiff.forEach(entry => console.log(`  - ${entry.path}\n     ${entry.detail}`));
-    failures += updateDiff.length;
+    const unexpectedUpdate = report('UPDATE (PUT /connections)', updateDiff, ACCEPTED_DIFFERENCES);
+    failures += unexpectedUpdate;
 
     // The create capture is the same automation under a different name, and the scheduler half of
     // the request has no counterpart in it, so only the connection is compared.
+    console.log();
     const createDiff = diff(canonical({ connection: created.payload.connection }), canonical({ connection: referenceCreate }));
-    const unexpected = createDiff.filter(
-        entry => !ACCEPTED_CREATE_DIFFERENCES.some(accepted => accepted.path === entry.path)
-    );
-
-    console.log(`\nCREATE (POST /schedulers): ${createDiff.length} difference(s), `
-        + `${unexpected.length} unexpected`);
-    ACCEPTED_CREATE_DIFFERENCES.forEach(accepted => console.log(`  = ${accepted.path} (${accepted.reason})`));
-    unexpected.forEach(entry => console.log(`  - ${entry.path}\n     ${entry.detail}`));
-    failures += unexpected.length;
+    failures += report('CREATE (POST /schedulers)', createDiff, ACCEPTED_CREATE_DIFFERENCES);
 
     console.log(`\n${failures === 0 ? 'PASS' : `FAIL - ${failures} unexpected difference(s)`}`);
 

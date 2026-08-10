@@ -85,6 +85,9 @@ export const OC_SOURCE_INDEX = '0';
 export const OC_LOOP_INDEX = '1';
 export const OC_TARGET_INDEX = '1_0';
 
+/** Name the loop operator gives the element it is currently on. */
+export const OC_LOOP_ITERATOR = 'i';
+
 /** Scheduler status values OpenCelium expects (1 = active). */
 export const OC_SCHEDULER_ACTIVE = 1;
 export const OC_SCHEDULER_INACTIVE = 0;
@@ -305,19 +308,24 @@ export function ocLoopExpression(color: string, arrayPath: string): string {
 
 
 /**
- * The element path a field binding uses inside a looped collection.
+ * Which element of a collection a reference points at.
  *
- * The reference payloads address the element as `path[0]` in fieldBinding while the surrounding
- * loop iterates `path[*]`; OpenCelium substitutes the iterator at runtime. That asymmetry is
- * deliberate and reproduced here - keep it in this one function should it turn out to be
- * version dependent.
+ * A collection the loop iterates is addressed by the loop's iterator - `results[i]` - so every pass
+ * reads its own object. `results[0]` would read the first object on every pass, which is the shape
+ * the earliest captures carried and the reason an automation appeared to work on a single test
+ * object and repeat itself on real data. A collection nobody iterates, such as the answer to a
+ * lookup, is addressed by position instead: `result[0]` is the match that was found.
  */
-export function ocCollectionElementPath(arrayPath: string, field: string): string {
+export function ocCollectionElementPath(
+    arrayPath: string,
+    field: string,
+    element: string = OC_LOOP_ITERATOR
+): string {
     if (!arrayPath) {
         return field;
     }
 
-    return `${arrayPath}[0].${field}`;
+    return `${arrayPath}[${element}].${field}`;
 }
 
 
