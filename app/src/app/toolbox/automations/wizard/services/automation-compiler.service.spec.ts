@@ -284,7 +284,7 @@ describe('AutomationCompilerService', () => {
             const { payload } = compiler.compileForCreate(incomingDefinition(), context());
 
             expect(payload.connection.fromConnector.methods[1].request.body.fields.version)
-                .toBe('#FFCFB5.(response).body.$.result[0].id');
+                .toBe('#FFCFB5.(response).body.$.result[i].id');
         });
 
 
@@ -294,13 +294,13 @@ describe('AutomationCompilerService', () => {
 
             expect(binding.from[0]).toEqual({
                 color: '#FFCFB5',
-                field: 'body.$.result[0].id',
+                field: 'body.$.result[i].id',
                 type: 'response'
             });
             expect(binding.to[0]).toEqual({ color: '#C77E7E', field: 'body.$.version', type: 'request' });
             expect(binding.enhancement.expertCode).toBe('RESULT_VAR = VAR_0;');
             expect(binding.enhancement.expertVar).toContain('#C77E7E.(request).body.$.version');
-            expect(binding.enhancement.expertVar).toContain('#FFCFB5.(response).body.$.result[0].id');
+            expect(binding.enhancement.expertVar).toContain('#FFCFB5.(response).body.$.result[i].id');
         });
 
 
@@ -483,7 +483,7 @@ describe('AutomationCompilerService', () => {
 
             // 'serial' is the second field of the type, so it is fields[1].value.
             expect(payload.connection.fieldBinding[0].from[0].field)
-                .toBe('body.$.results[0].fields[1].value');
+                .toBe('body.$.results[i].fields[1].value');
         });
 
 
@@ -515,7 +515,7 @@ describe('AutomationCompilerService', () => {
 
             const { payload } = compiler.compileForCreate(definition, context());
 
-            expect(payload.connection.fieldBinding[0].from[0].field).toBe('body.$.results[0].public_id');
+            expect(payload.connection.fieldBinding[0].from[0].field).toBe('body.$.results[i].public_id');
         });
     });
 
@@ -631,7 +631,7 @@ describe('AutomationCompilerService', () => {
 
             expect(binding.from[0]).toEqual({
                 color: '#FFCFB5',
-                field: 'body.$.result[0].id',
+                field: 'body.$.result[i].id',
                 type: 'response'
             });
             expect(binding.to[0]).toEqual({ color: '#C77E7E', field: 'body.$.title', type: 'request' });
@@ -642,7 +642,7 @@ describe('AutomationCompilerService', () => {
             const { payload } = compiler.compileForCreate(adjustedConstant('value = value.trim();'), context());
 
             expect(payload.connection.fromConnector.methods[1].request.body.fields.title)
-                .toBe('#FFCFB5.(response).body.$.result[0].id');
+                .toBe('#FFCFB5.(response).body.$.result[i].id');
         });
 
 
