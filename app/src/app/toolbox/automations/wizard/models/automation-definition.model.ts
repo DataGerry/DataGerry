@@ -254,6 +254,13 @@ export interface AutomationAdvancedSettings {
     /** Maps onto the OpenCelium scheduler's debugMode. */
     loggingEnabled: boolean;
     parallelExecution: boolean;
+
+    /**
+     * Upper bound on how many objects one run reads, written as the read operation's page size.
+     *
+     * Not a chunk size: OpenCelium only fetches further pages when the invoker declares pagination,
+     * and DataGerry's does not. Whatever is beyond this number is simply never seen.
+     */
     batchSize: number;
     errorHandling: AutomationErrorHandling;
 }
