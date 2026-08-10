@@ -89,5 +89,22 @@ if (errors.length === 0) {
     warnings.forEach(w => console.log('  - ' + w));
 }
 
+// A second payload with a restriction, so the expression the engine has to parse can be
+// tried against a real installation rather than only against the operator catalogue.
+if (errors.length === 0) {
+    const restricted: AutomationDefinition = JSON.parse(JSON.stringify(definition));
+    restricted.name = 'Update Clients (mit Bedingung)';
+    restricted.conditions = {
+        combinator: 'and',
+        negate: false,
+        rules: [{ field: 'text-98758', operator: 'contains', value: 'srv' }]
+    };
+
+    const withCondition = compiler.compileForCreate(restricted, context);
+    const gate = withCondition.payload.connection.fromConnector.operators.find(o => o.index === '1_0');
+    console.log('\nBedingungs-Gate:', gate ? `${gate.index} ${gate.type}  ${gate.expression}` : 'keines erzeugt');
+    fs.writeFileSync(`${dir}/compiled-conditions.json`, JSON.stringify(withCondition.payload, null, 2));
+}
+
 console.log(`\n${failures === 0 ? 'ALLES AUFGELÖST' : `${failures} FEHLER`}`);
 process.exit(failures === 0 ? 0 : 1);
