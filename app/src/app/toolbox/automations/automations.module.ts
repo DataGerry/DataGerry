@@ -25,8 +25,8 @@ import { AutomationsComponent } from './automations.component';
 import { AutomationsListComponent } from './components/automations-list/automations-list.component';
 import { AutomationWizardComponent } from './wizard/components/automation-wizard/automation-wizard.component';
 import { WizardStepTriggerComponent } from './wizard/components/steps/wizard-step-trigger/wizard-step-trigger.component';
-import { WizardStepDataComponent } from './wizard/components/steps/wizard-step-data/wizard-step-data.component';
-import { WizardStepTargetComponent } from './wizard/components/steps/wizard-step-target/wizard-step-target.component';
+import { WizardStepLinkComponent } from './wizard/components/steps/wizard-step-link/wizard-step-link.component';
+import { WizardStepFlowComponent } from './wizard/components/steps/wizard-step-flow/wizard-step-flow.component';
 import { WizardStepMappingComponent } from './wizard/components/steps/wizard-step-mapping/wizard-step-mapping.component';
 import { WizardStepReviewComponent } from './wizard/components/steps/wizard-step-review/wizard-step-review.component';
 import { AutomationSummaryPanelComponent } from './wizard/components/automation-summary-panel/automation-summary-panel.component';
@@ -50,8 +50,8 @@ import { AutomationProgressListComponent } from './components/automation-progres
     AutomationsListComponent,
     AutomationWizardComponent,
     WizardStepTriggerComponent,
-    WizardStepDataComponent,
-    WizardStepTargetComponent,
+    WizardStepLinkComponent,
+    WizardStepFlowComponent,
     WizardStepMappingComponent,
     WizardStepReviewComponent,
     AutomationSummaryPanelComponent,

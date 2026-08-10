@@ -28,14 +28,16 @@ import {
 /**
  * The wizard's step structure.
  *
- * The concept describes eight logical steps; they are presented as five groups, so related choices
- * stay on one page as numbered sections. The mapping is fixed here so the stepper, the validation and
- * the summary panel all agree on it.
+ * Five groups, and which choices sit in which is not arbitrary. The two ends of an automation are
+ * one step because they are one decision - what is joined to what - and DataGerry's end carries its
+ * object type and fields there rather than in a step of its own, since the assistant builds that
+ * side itself. What the target system does then gets a step to be read, and the fields a step to be
+ * matched.
  */
 export enum WizardGroup {
     TRIGGER = 0,
-    DATA = 1,
-    TARGET = 2,
+    LINK = 1,
+    FLOW = 2,
     MAPPING = 3,
     REVIEW = 4
 }
@@ -62,23 +64,23 @@ export const WIZARD_GROUPS: ReadonlyArray<WizardGroupDescriptor> = [
         logicalSteps: ['Trigger']
     },
     {
-        group: WizardGroup.DATA,
-        title: 'Data',
-        subtitle: 'Which data should be used?',
-        icon: 'fas fa-database',
-        logicalSteps: ['Object type', 'Fields']
+        group: WizardGroup.LINK,
+        title: 'Connection',
+        subtitle: 'Which systems?',
+        icon: 'fas fa-share-nodes',
+        logicalSteps: ['Object type', 'Fields', 'Target system', 'Action']
     },
     {
-        group: WizardGroup.TARGET,
-        title: 'Target system',
-        subtitle: 'Where should it go?',
-        icon: 'fas fa-share-nodes',
-        logicalSteps: ['Target system', 'Action']
+        group: WizardGroup.FLOW,
+        title: 'Sequence',
+        subtitle: 'What happens there?',
+        icon: 'fas fa-list-ol',
+        logicalSteps: ['Lookup', 'Branches']
     },
     {
         group: WizardGroup.MAPPING,
         title: 'Assignment',
-        subtitle: 'How should fields be matched?',
+        subtitle: 'Which fields?',
         icon: 'fas fa-right-left',
         logicalSteps: ['Field mapping', 'Conditions']
     },
@@ -180,11 +182,16 @@ export function isGroupComplete(group: WizardGroup, definition: AutomationDefini
                 && isTriggerSupported(definition.trigger.type)
                 && (definition.trigger.type !== 'scheduled' || !!definition.trigger.cronExp.trim());
 
-        case WizardGroup.DATA:
-            return !!definition.objectType.typeId && definition.fields.length > 0;
+        // Both ends at once: the step holds both poles, so neither alone finishes it.
+        case WizardGroup.LINK:
+            return !!definition.objectType.typeId
+                && definition.fields.length > 0
+                && !!definition.target.connectorId
+                && !!definition.target.operation;
 
-        case WizardGroup.TARGET:
-            return !!definition.target.connectorId && !!definition.target.operation;
+        // Nothing to fill in - the sequence follows from the connection.
+        case WizardGroup.FLOW:
+            return true;
 
         case WizardGroup.MAPPING:
             return definition.mapping.some(entry => !!entry.target)

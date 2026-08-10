@@ -1,0 +1,191 @@
+$accent: #e94d18;
+$border: #e5e7eb;
+$muted: #6b7280;
+
+.poles {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+}
+
+// Below this the two ends read better stacked than squeezed.
+@media (max-width: 991.98px) {
+    .poles { grid-template-columns: minmax(0, 1fr); }
+}
+
+.poles__swap {
+    display: grid;
+    place-items: center;
+    padding-top: 2.25rem;
+}
+
+.poles__swap-btn {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    padding: 0;
+}
+
+.pole {
+    border: 1px solid $border;
+    border-radius: 8px;
+    padding: 0.875rem 1rem;
+    background: #fff;
+    min-width: 0;
+
+    // Which end is DataGerry is worth seeing at a glance, since it moves with the direction.
+    &--dg { border-top: 3px solid $accent; }
+    &--target { border-top: 3px solid #6c757d; }
+
+    &__head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+
+    &__role {
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $muted;
+    }
+
+    &__name {
+        font-size: 1.0625rem;
+        font-weight: 600;
+        margin-top: 0.1rem;
+        overflow-wrap: anywhere;
+    }
+
+    &__detail {
+        font-size: 0.8125rem;
+        color: $muted;
+        margin-top: 0.25rem;
+    }
+
+    &__body {
+        margin-top: 0.875rem;
+        padding-top: 0.875rem;
+        border-top: 1px solid #f1f3f5;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    &__fields-bar {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+        font-size: 0.75rem;
+        color: $muted;
+    }
+
+    // Dense on purpose: an object type can carry a lot of fields.
+    &__fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+        gap: 0 0.75rem;
+        max-height: 13rem;
+        overflow-y: auto;
+        border: 1px solid $border;
+        border-radius: 0.375rem;
+        padding: 0.25rem;
+    }
+
+    &__field-choice {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.3rem 0.4rem;
+        border-radius: 0.25rem;
+        font-size: 0.8125rem;
+        cursor: pointer;
+        min-width: 0;
+
+        &:hover { background: #f8f9fa; }
+    }
+
+    &__field-label { overflow-wrap: anywhere; }
+
+    &__field-type {
+        margin-left: auto;
+        font-size: 0.6875rem;
+        color: $muted;
+    }
+
+    &__actions,
+    &__branch {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    &__action {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font: inherit;
+        font-size: 0.8125rem;
+        padding: 0.4rem 0.7rem;
+        border: 1px solid $border;
+        border-radius: 0.375rem;
+        background: #fff;
+        cursor: pointer;
+
+        &.is-selected {
+            border-color: $accent;
+            background: rgba(233, 77, 24, 0.06);
+            color: $accent;
+        }
+
+        &:disabled { opacity: 0.5; cursor: not-allowed; }
+    }
+
+    &__branch-choice {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.4rem 0.7rem;
+        border: 1px solid $border;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        margin: 0;
+        font-size: 0.8125rem;
+
+        &.is-selected {
+            border-color: $accent;
+            background: rgba(233, 77, 24, 0.06);
+        }
+    }
+}
+
+.behind {
+    margin-top: 1rem;
+    border: 1px solid $border;
+    border-radius: 8px;
+
+    summary {
+        cursor: pointer;
+        padding: 0.6rem 0.85rem;
+        font-size: 0.8125rem;
+        color: $muted;
+    }
+
+    &__body { padding: 0 0.85rem 0.85rem; }
+
+    &__call {
+        font-size: 0.75rem;
+        background: #f8f9fa;
+        border: 1px solid #f1f3f5;
+        border-radius: 0.375rem;
+        padding: 0.6rem 0.7rem;
+        margin: 0 0 0.5rem;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+}

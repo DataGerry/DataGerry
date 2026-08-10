@@ -1,0 +1,231 @@
+<section class="wizard-section">
+  <h5 class="wizard-section__title">Which systems are joined?</h5>
+  <p class="wizard-section__hint">
+    An automation joins DataGerry with exactly one target system. DataGerry's own side needs no call
+    described - the object type and its fields are enough for the assistant to build it.
+  </p>
+
+  <div class="poles">
+    <div class="pole" [class.pole--dg]="isDataGerry('left')" [class.pole--target]="!isDataGerry('left')">
+      <ng-container *ngTemplateOutlet="poleBody; context: { $implicit: 'left' }"></ng-container>
+    </div>
+
+    <div class="poles__swap">
+      <button
+        type="button"
+        class="btn btn-secondary poles__swap-btn"
+        title="Reverse the direction"
+        aria-label="Reverse the direction"
+        (click)="onSwapDirection()">
+        <i class="fas fa-right-left"></i>
+      </button>
+    </div>
+
+    <div class="pole" [class.pole--dg]="isDataGerry('right')" [class.pole--target]="!isDataGerry('right')">
+      <ng-container *ngTemplateOutlet="poleBody; context: { $implicit: 'right' }"></ng-container>
+    </div>
+  </div>
+
+  <details class="behind">
+    <summary>
+      <strong>What happens on the DataGerry side</strong> — set by the assistant, nothing to configure
+    </summary>
+    <div class="behind__body">
+      <pre class="behind__call">{{ dataGerryCall }}</pre>
+      <p class="wizard-section__hint mb-0">
+        @if (definition.direction === 'outgoing') {
+          Reads the objects of the chosen type. The type filter comes from the object type above and
+          the pages are fetched by the engine.
+        } @else {
+          Creates or updates in DataGerry. Which fields the object type has is known, so the call is
+          built from them.
+        }
+      </p>
+    </div>
+  </details>
+</section>
+
+<!-- One template for both ends: which one it is follows from the direction, not from the markup. -->
+<ng-template #poleBody let-pole>
+  <div class="pole__head">
+    <div>
+      <div class="pole__role">{{ roleOf(pole) === 'source' ? 'Source' : 'Target' }}</div>
+      <div class="pole__name">
+        {{ isDataGerry(pole) ? 'DataGerry' : (definition.target.connectorTitle || 'No system chosen') }}
+      </div>
+
+      <div class="pole__detail">
+        @if (isDataGerry(pole)) {
+          @if (definition.objectType.typeId) {
+            Object type <strong>{{ definition.objectType.label }}</strong>
+            @if (roleOf(pole) === 'source') {
+              · {{ selectedCount }} of {{ availableFields.length }} fields
+            } @else {
+              · fields follow the mapping
+            }
+          } @else {
+            <span class="text-muted">No object type chosen yet</span>
+          }
+        } @else {
+          @if (definition.target.connectorId) {
+            Action <strong>{{ definition.target.operation }}</strong>
+            @if (definition.target.remoteObjectTypeId) {
+              · object type {{ definition.target.remoteObjectTypeId }}
+            }
+          } @else {
+            <span class="text-muted">Choose the system this writes to</span>
+          }
+        }
+      </div>
+    </div>
+
+    <button type="button" class="btn btn-secondary btn-sm" (click)="toggle(pole)">
+      {{ open === pole ? 'Done' : 'Edit' }}
+    </button>
+  </div>
+
+  @if (open === pole) {
+    <div class="pole__body">
+      @if (isDataGerry(pole)) {
+        <div class="pole__field">
+          <app-form-select
+            label="Object type"
+            placeholder="Choose an object type"
+            [items]="objectTypes"
+            bindLabel="label"
+            bindValue="public_id"
+            [ngModel]="definition.objectType.typeId"
+            (ngModelChange)="onSelectObjectType($event)">
+          </app-form-select>
+        </div>
+
+        @if (roleOf(pole) === 'source') {
+          @if (!definition.objectType.typeId) {
+            <p class="text-muted mb-0">Choose an object type to see its fields.</p>
+          } @else {
+            <div class="pole__fields-bar">
+              <span>Fields to transfer — {{ selectedCount }} chosen</span>
+              <span>
+                <button type="button" class="btn btn-link btn-sm" (click)="onSelectAll()">All</button>
+                <button type="button" class="btn btn-link btn-sm" (click)="onSelectNone()">None</button>
+              </span>
+            </div>
+
+            <input
+              type="text"
+              class="form-control form-control-sm pole__filter"
+              placeholder="Filter fields"
+              [(ngModel)]="fieldFilter">
+
+            <div class="pole__fields">
+              @for (field of filteredFields; track field.name) {
+                <label class="pole__field-choice">
+                  <input
+                    type="checkbox"
+                    [checked]="isFieldSelected(field)"
+                    (change)="onToggleField(field)">
+                  <span class="pole__field-label">{{ field.label }}</span>
+                  <code class="pole__field-type">{{ field.type }}</code>
+                </label>
+              } @empty {
+                <p class="text-muted mb-0">No field matches the filter.</p>
+              }
+            </div>
+
+            @if (systemFields.length > 0) {
+              <div class="pole__fields-bar">
+                <span>Values DataGerry knows besides the type's own fields</span>
+              </div>
+
+              <div class="pole__fields">
+                @for (field of systemFields; track field.key) {
+                  <label class="pole__field-choice" [title]="field.hint">
+                    <input
+                      type="checkbox"
+                      [checked]="isSystemFieldSelected(field)"
+                      (change)="onToggleSystemField(field)">
+                    <span class="pole__field-label">{{ field.label }}</span>
+                    @if (valuePreview(field)) {
+                      <code class="pole__field-type">{{ valuePreview(field) }}</code>
+                    }
+                  </label>
+                }
+              </div>
+            }
+          }
+        } @else {
+          <div class="alert alert-light mb-0">
+            <strong>The mapping chooses the fields.</strong>
+            Whatever is bound to a DataGerry field there gets written; the object type decides which
+            are available at all.
+          </div>
+        }
+      } @else {
+        <div class="pole__field">
+          <app-form-select
+            label="System"
+            placeholder="Choose a target system"
+            [items]="targetSystems"
+            bindLabel="displayName"
+            bindValue="connectorId"
+            [ngModel]="definition.target.connectorId"
+            (selectedItemChange)="onSelectSystem($event)">
+          </app-form-select>
+        </div>
+
+        @if (selectedSystem) {
+          <div>
+            <label class="form-label">Action</label>
+            <div class="pole__actions">
+              @for (choice of operationChoices; track choice.value) {
+                <button
+                  type="button"
+                  class="pole__action"
+                  [class.is-selected]="definition.target.operation === choice.value"
+                  [disabled]="!isOperationAvailable(choice.value)"
+                  [title]="isOperationAvailable(choice.value)
+                    ? choice.label
+                    : 'This system offers no operation for it'"
+                  (click)="onSelectOperation(choice.value)">
+                  <i [class]="choice.icon"></i>
+                  <span>{{ choice.label }}</span>
+                </button>
+              }
+            </div>
+          </div>
+
+          <div class="pole__field">
+            <app-form-input
+              label="Object type in the target system"
+              placeholder="e.g. 10"
+              [ngModel]="definition.target.remoteObjectTypeId"
+              (ngModelChange)="onRemoteTypeChanged($event)">
+            </app-form-input>
+          </div>
+
+          <div>
+            <label class="form-label">
+              @if (openBranch === 'present') {
+                The object already exists over there. Then:
+              } @else {
+                The object does not exist over there. Then:
+              }
+            </label>
+            <div class="pole__branch">
+              @for (choice of openBranchChoices; track choice.value) {
+                <label class="pole__branch-choice" [class.is-selected]="openBranchValue === choice.value">
+                  <input
+                    type="radio"
+                    name="openBranch"
+                    [checked]="openBranchValue === choice.value"
+                    (click)="onOpenBranchChanged(choice.value)">
+                  <span>{{ choice.label }}</span>
+                </label>
+              }
+            </div>
+          </div>
+        }
+      }
+    </div>
+  }
+</ng-template>
