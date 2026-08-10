@@ -27,28 +27,35 @@ import {
     systemFieldValue
 } from '../models/automation-definition.model';
 import {
-    OcArrow,
     OcConnection,
+    OcConnectorRef,
     OcCreateAutomationRequest,
     OcEnhancement,
     OcFieldBinding,
+    OcFlowchart,
+    OcFlowchartEdge,
     OcMethod,
     OcOperator,
     OcSchedulerPayload,
-    OcSvgItem,
+    OcUi,
     OcUiGroup,
-    OcUiRule,
+    OcWorkflowEdge,
+    OcWorkflowNode,
     ocCollectionElementPath,
-    ocEmptyError,
+    ocEdgeId,
     ocFieldReference,
     ocLoopExpression,
-    OC_EXPERT_TEMPLATE,
-    OC_FROM_CONNECTOR,
-    OC_LAYOUT,
+    ocLoopNodeId,
+    ocMethodNodeId,
+    OC_DEFAULT_CONNECTOR_ID,
+    OC_DEFAULT_CONNECTOR_TITLE,
+    OC_LOOP_INDEX,
     OC_METHOD_COLORS,
     OC_SCHEDULER_ACTIVE,
     OC_SCHEDULER_INACTIVE,
-    OC_TO_CONNECTOR
+    OC_SOURCE_INDEX,
+    OC_TARGET_INDEX,
+    OC_UI_LAYOUT
 } from '../models/opencelium-connection.model';
 import { findAdapter, ResolvedOperation } from '../models/target-catalog.model';
 import { TargetCatalogService } from './target-catalog.service';
@@ -89,9 +96,9 @@ export interface CompilationOutcome<T> {
  * Turns the business model into the OpenCelium connection payload.
  *
  * The structure produced here mirrors the two reference payloads captured from a running
- * installation, down to which keys appear on a method versus its svgItem entity. Where the
- * references give no example - the outgoing direction and user conditions - the compiler derives
- * the shape from the schema and says so through a warning rather than pretending certainty.
+ * installation, down to which keys a method carries and which its workflow node repeats. Where the
+ * references give no example - user conditions - the compiler derives the shape from the schema and
+ * says so through a warning rather than pretending certainty.
  */
 @Injectable({ providedIn: 'root' })
 export class AutomationCompilerService {
@@ -106,9 +113,13 @@ export class AutomationCompilerService {
 
     private static readonly SOURCE_COLOR = OC_METHOD_COLORS[0];
     private static readonly TARGET_COLOR = OC_METHOD_COLORS[1];
-    private static readonly SOURCE_INDEX = '0';
-    private static readonly TARGET_INDEX = '0_0';
     private static readonly LOOP_ITERATOR = 'i';
+
+    /** Node identities, shared between the connection body and its ui block. */
+    private static readonly SOURCE_NODE = ocMethodNodeId(0);
+    private static readonly TARGET_NODE = ocMethodNodeId(1);
+    private static readonly LOOP_NODE = ocLoopNodeId(0);
+    private static readonly START_NODE = 'start-1';
 
     /**
      * Display label of the read method, as the reference payloads carry it.
@@ -203,9 +214,7 @@ export class AutomationCompilerService {
         context: AutomationCompileContext
     ): CompilationOutcome<OcCreateAutomationRequest> {
         const warnings: string[] = [];
-        const connection = this.buildConnection(definition, context, warnings, false);
-
-        connection.id = 0;
+        const connection = this.buildConnection(definition, context, warnings, true);
 
         return {
             payload: { connection, scheduler: this.buildScheduler(definition) },
@@ -217,8 +226,8 @@ export class AutomationCompilerService {
     /**
      * Builds the body of PUT /rest/open_celium/connections/:id.
      *
-     * Here the connectors do carry their title and the connection repeats its id in both `id` and
-     * `connectionId`, again matching the reference update payload.
+     * The same connection as on create, with its id added. Credentials no longer need stripping:
+     * the connection carries no invoker definitions to strip them from.
      */
     public compileForUpdate(
         definition: AutomationDefinition,
@@ -226,39 +235,14 @@ export class AutomationCompilerService {
         connectionId: number
     ): CompilationOutcome<OcConnection> {
         const warnings: string[] = [];
-        const connection = this.buildConnection(definition, context, warnings, true);
+        const connection = this.buildConnection(definition, context, warnings, false);
 
-        connection.id = connectionId;
         connection.connectionId = connectionId;
-        this.stripInvokerCredentials(connection);
 
         return { payload: connection, warnings };
     }
 
 
-    /**
-     * Blanks the credential fields of every embedded invoker.
-     *
-     * The reference update payload sends invoker.data and invoker.auth as empty strings while the
-     * create payload carries the real values - credentials are established once with the connector
-     * and are not resent when a connection is edited.
-     */
-    private stripInvokerCredentials(connection: OcConnection): void {
-        const invokers = [
-            connection.fromConnector.invoker,
-            connection.toConnector.invoker,
-            ...connection.fromConnector.svgItems.map(item => item.entity?.invoker),
-            ...connection.toConnector.svgItems.map(item => item.entity?.invoker)
-        ];
-
-        invokers.filter(Boolean).forEach(invoker => {
-            invoker.data = '';
-            invoker.auth = '';
-        });
-    }
-
-
-    /** The scheduler half of an automation, derived entirely from trigger and advanced settings. */
     public buildScheduler(definition: AutomationDefinition): OcSchedulerPayload {
         return {
             title: definition.name,
@@ -272,11 +256,17 @@ export class AutomationCompilerService {
 /*                                                    CONNECTION                                                      */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+    /**
+     * Assembles the connection both endpoints send.
+     *
+     * `withEdgeData` is the one difference between them: the create capture carries an empty `data`
+     * object on every workflow edge, the update capture omits the key.
+     */
     private buildConnection(
         definition: AutomationDefinition,
         context: AutomationCompileContext,
         warnings: string[],
-        includeConnectorTitles: boolean
+        withEdgeData: boolean
     ): OcConnection {
         const sides = this.resolveSides(definition, context);
 
@@ -288,23 +278,28 @@ export class AutomationCompilerService {
 
         const sourceMethod = this.buildMethod(
             sides.source,
-            AutomationCompilerService.SOURCE_INDEX,
+            sides.sourceConnector,
+            AutomationCompilerService.SOURCE_NODE,
+            OC_SOURCE_INDEX,
             AutomationCompilerService.SOURCE_COLOR,
             AutomationCompilerService.SOURCE_LABEL
         );
 
         this.applyListFilter(definition, sides, sourceMethod, warnings);
         this.applyListLimit(definition, sides, sourceMethod);
+
         const targetMethod = this.buildMethod(
             sides.target,
-            AutomationCompilerService.TARGET_INDEX,
+            sides.targetConnector,
+            AutomationCompilerService.TARGET_NODE,
+            OC_TARGET_INDEX,
             AutomationCompilerService.TARGET_COLOR,
             null
         );
 
         const bindings = this.buildFieldBindings(definition, context, sides, targetMethod, warnings);
         const loop = this.buildLoopOperator(sides.source.responseArrayPath);
-        const uiGroups: OcUiGroup[] = [this.buildLoopUiGroup(loop)];
+        let conditionTree: OcUiGroup = this.emptyConditionTree();
 
         if (definition.conditions.rules.length > 0) {
             warnings.push(
@@ -315,117 +310,97 @@ export class AutomationCompilerService {
                 definition.conditions,
                 sides.source.responseArrayPath
             );
-            uiGroups.push(this.buildConditionUiGroup(this.uuid(), definition.conditions));
+            conditionTree = this.buildConditionUiGroup(this.uuid(), definition.conditions);
         }
 
         return {
             title: definition.name,
+            name: definition.name,
             description: definition.description,
-            fromConnector: this.buildConnectorSide(
-                sides.sourceConnector,
-                [sourceMethod],
-                [],
-                OC_FROM_CONNECTOR,
-                AutomationCompilerService.SOURCE_INDEX,
-                includeConnectorTitles
-            ),
-            toConnector: this.buildConnectorSide(
-                sides.targetConnector,
-                [targetMethod],
-                [loop],
-                OC_TO_CONNECTOR,
-                AutomationCompilerService.TARGET_INDEX,
-                includeConnectorTitles
-            ),
             fieldBinding: bindings,
-            categoryId: null,
-            ui: { operators: uiGroups },
-            id: 0,
-            template: OC_EXPERT_TEMPLATE,
-            readOnly: false
+            fromConnector: {
+                connectorId: OC_DEFAULT_CONNECTOR_ID,
+                title: OC_DEFAULT_CONNECTOR_TITLE,
+                methods: [sourceMethod, targetMethod],
+                operators: [loop]
+            },
+            toConnector: null,
+            ui: this.buildUi(sourceMethod, targetMethod, loop, conditionTree, withEdgeData)
         };
-    }
-
-
-    /**
-     * Assembles one side of the connection.
-     *
-     * `methods` entries carry an `error` block but no invoker, while their svgItem `entity`
-     * carries the invoker but no `error` - an asymmetry taken verbatim from the reference payloads.
-     */
-    private buildConnectorSide(
-        connector: any,
-        methods: OcMethod[],
-        operators: OcOperator[],
-        connectorType: string,
-        currentItemIndex: string,
-        includeTitle: boolean
-    ): any {
-        // Cloned so later post-processing - stripping credentials for the update payload - cannot
-        // reach back into the caller's connector objects.
-        const invoker = this.clone(connector.invoker);
-
-        const side: any = {
-            invoker,
-            connectorId: connector.connectorId,
-            methods,
-            icon: connector.icon ?? '',
-            operators
-        };
-
-        if (includeTitle) {
-            side.title = connector.title;
-        }
-
-        side.currentItemIndex = currentItemIndex;
-        side.svgItems = this.buildSvgItems(invoker, methods, operators, connectorType);
-        side.arrows = this.buildArrows(operators, connectorType);
-
-        return side;
     }
 
 
     /**
      * Builds one method entry.
      *
-     * The reference payloads omit `label` entirely on the target method rather than sending null,
-     * so the key is only added when there is a label to send.
+     * The captures omit `label` entirely on the target method rather than sending null, so the key
+     * is only added when there is a label to send. The invoker itself is no longer embedded - the
+     * method names its connector and OpenCelium looks the rest up.
      */
     private buildMethod(
         operation: ResolvedOperation,
+        connector: any,
+        id: string,
         index: string,
         color: string,
         label: string | null
     ): OcMethod {
         const method: any = {
+            id,
             name: operation.name,
-            request: this.clone(operation.definition.request),
-            response: this.clone(operation.definition.response),
+            index,
+            methodType: 'CONNECTOR',
             dataAggregator: null,
-            index
+            color,
+            connector: this.connectorRef(connector),
+            request: this.clone(operation.definition.request),
+            response: this.buildMethodResponse(id, operation)
         };
 
         if (label !== null) {
             method.label = label;
         }
 
-        method.color = color;
-        method.error = ocEmptyError();
-
         return method as OcMethod;
+    }
+
+
+    /** How a method points at its connector, in place of the invoker it used to carry. */
+    private connectorRef(connector: any): OcConnectorRef {
+        const ref: OcConnectorRef = {
+            connectorId: connector?.connectorId,
+            title: connector?.title ?? '',
+            // The captures spell "no icon" as null; the connector list uses an empty string for it.
+            icon: connector?.icon || null,
+            invokerName: connector?.invoker?.name ?? ''
+        };
+
+        // Passed through rather than invented: only a connector OpenCelium has tested carries it.
+        if (connector?.lastTestPassed !== undefined) {
+            ref.lastTestPassed = connector.lastTestPassed;
+        }
+
+        return ref;
+    }
+
+
+    /** The operation's response, tagged with the id the ui block refers to it by. */
+    private buildMethodResponse(methodId: string, operation: ResolvedOperation): any {
+        return {
+            responseId: `response-${methodId}`,
+            ...this.clone(operation.definition.response)
+        };
     }
 
 
     private buildLoopOperator(arrayPath: string): OcOperator {
         return {
-            index: AutomationCompilerService.SOURCE_INDEX,
+            id: AutomationCompilerService.LOOP_NODE,
+            index: OC_LOOP_INDEX,
             type: 'loop',
-            condition: null,
-            expression: ocLoopExpression(AutomationCompilerService.SOURCE_COLOR, arrayPath),
-            uiId: this.uuid(),
             dataAggregator: null,
-            iterator: AutomationCompilerService.LOOP_ITERATOR,
-            error: ocEmptyError()
+            expression: ocLoopExpression(AutomationCompilerService.SOURCE_COLOR, arrayPath),
+            iterator: AutomationCompilerService.LOOP_ITERATOR
         };
     }
 
@@ -658,8 +633,8 @@ export class AutomationCompilerService {
      * Positional path of a DataGerry object field.
      *
      * DataGerry's object endpoints answer with `fields: [{ name, value }, ...]` in the order the
-     * type declares them, so a business field is addressed by its index in that declaration. No
-     * reference payload covers the outgoing direction, so this derivation is reported as a warning.
+     * type declares them, so a business field is addressed by its index in that declaration. That
+     * makes the address depend on the type's field order, which is what the warning is about.
      */
     private resolveDataGerryFieldPath(
         context: AutomationCompileContext,
@@ -721,10 +696,6 @@ export class AutomationCompilerService {
 
         if (placement.endpointQuery) {
             this.appendEndpointQuery(sourceMethod.request, placement.endpointQuery, `{"type_id":${typeId}}`);
-            warnings.push(
-                'Filtering DataGerry by object type is applied as a query parameter. No reference '
-                + 'payload covers the outgoing direction, so run the test step before activating.'
-            );
 
             return;
         }
@@ -872,24 +843,9 @@ export class AutomationCompilerService {
     }
 
 
-    /**
-     * The rule-builder representation of the loop, mirroring the reference payload's ui.operators.
-     *
-     * leftField is the loop expression without its leading `for `, which is exactly what the
-     * reference stores.
-     */
-    private buildLoopUiGroup(loop: OcOperator): OcUiGroup {
-        const rule: OcUiRule = {
-            id: this.uuid(),
-            type: 'rule',
-            properties: {
-                operator: 'for',
-                leftField: loop.expression.replace(/^for\s+/, ''),
-                rightField: ''
-            }
-        };
-
-        return { id: loop.uiId, type: 'group', properties: { not: false }, items: [rule] };
+    /** An untouched condition tree - what the loop node carries when nothing restricts it. */
+    private emptyConditionTree(): OcUiGroup {
+        return { id: '0-group', type: 'group', properties: { not: false }, items: [] };
     }
 
 
@@ -911,112 +867,174 @@ export class AutomationCompilerService {
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
-/*                                                      SVG GRAPH                                                     */
+/*                                                    WORKFLOW GRAPH                                                  */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
     /**
-     * Rebuilds the visual graph OpenCelium stores alongside the executable definition.
+     * Rebuilds the graph OpenCelium's editor draws from.
      *
-     * Coordinates come from the reference payloads: the source method sits at the origin, the target
-     * loop top right with its method below it.
+     * It repeats what the methods and operators already say, in the shape the editor reads: a start
+     * node, the reading method, the loop, and the writing method hanging below the loop. The same
+     * graph is sent twice - once fully as `workflowNodes`/`workflowEdges`, once reduced to positions
+     * as `flowcharts`/`flowchartEdges` - which is what the captures show.
      */
-    private buildSvgItems(
-        invoker: any,
-        methods: OcMethod[],
-        operators: OcOperator[],
-        connectorType: string
-    ): OcSvgItem[] {
-        const items: OcSvgItem[] = [];
-        const isTarget = connectorType === OC_TO_CONNECTOR;
+    private buildUi(
+        sourceMethod: OcMethod,
+        targetMethod: OcMethod,
+        loop: OcOperator,
+        conditionTree: OcUiGroup,
+        withEdgeData: boolean
+    ): OcUi {
+        const { startX, stepX, rowY, branchDy } = OC_UI_LAYOUT;
+        const loopX = startX + 2 * stepX;
 
-        for (const operator of operators) {
-            items.push({
-                id: `${connectorType}_${operator.index}`,
-                type: operator.type,
-                label: '',
-                x: OC_LAYOUT.targetOperatorX,
-                y: OC_LAYOUT.targetOperatorY,
-                width: OC_LAYOUT.operatorWidth,
-                height: OC_LAYOUT.operatorHeight,
-                isDragged: false,
-                isDraggedForCopy: false,
-                isAvailableForDragging: false,
-                isSelectedAll: false,
-                connectorType,
-                invoker: null,
-                entity: this.operatorEntity(operator),
-                items: [],
-                arrows: []
-            });
-        }
+        const nodes: OcWorkflowNode[] = [
+            {
+                id: AutomationCompilerService.START_NODE,
+                type: 'start',
+                position: { x: startX, y: rowY },
+                data: { title: '', kind: 'start' },
+                draggable: true,
+                deletable: false
+            },
+            this.connectorNode(sourceMethod, { x: startX + stepX, y: rowY }),
+            {
+                id: loop.id,
+                type: 'loop',
+                position: { x: loopX, y: rowY },
+                index: loop.index,
+                data: {
+                    title: 'Loop',
+                    subtitle: loop.expression,
+                    kind: 'loop',
+                    conditionConfig: {
+                        operatorType: 'loop',
+                        tree: conditionTree,
+                        expression: loop.expression,
+                        iterator: loop.iterator
+                    }
+                }
+            },
+            // The written method runs inside the loop, so it drops below it instead of continuing
+            // the row - the loop's own column is kept.
+            this.connectorNode(targetMethod, { x: loopX, y: rowY + branchDy })
+        ];
 
-        for (const method of methods) {
-            items.push({
-                id: `${connectorType}_${method.index}`,
-                name: method.name,
-                x: isTarget ? OC_LAYOUT.targetMethodX : OC_LAYOUT.sourceMethodX,
-                y: isTarget ? OC_LAYOUT.targetMethodY : OC_LAYOUT.sourceMethodY,
-                width: OC_LAYOUT.methodWidth,
-                height: OC_LAYOUT.methodHeight,
-                isDragged: false,
-                isDraggedForCopy: false,
-                isAvailableForDragging: false,
-                isSelectedAll: false,
-                connectorType,
-                invoker: null,
-                entity: this.methodEntity(method, invoker)
-            });
-        }
+        const edges = [
+            this.edge(AutomationCompilerService.START_NODE, sourceMethod.id, undefined, 'left'),
+            this.edge(sourceMethod.id, loop.id, undefined, 'left'),
+            this.edge(loop.id, targetMethod.id, 'bottom', 'top')
+        ];
 
-        return items;
-    }
-
-
-    /** The svgItem entity of a method: the method plus its invoker, without the error block. */
-    private methodEntity(method: OcMethod, invoker: any): any {
-        const entity: any = {
-            name: method.name,
-            request: method.request,
-            response: method.response,
-            dataAggregator: null,
-            index: method.index
-        };
-
-        if (method.label !== undefined && method.label !== null) {
-            entity.label = method.label;
-        }
-
-        entity.color = method.color;
-        entity.invoker = invoker;
-
-        return entity;
-    }
-
-
-    /** The svgItem entity of an operator: the operator without its error block. */
-    private operatorEntity(operator: OcOperator): any {
         return {
-            index: operator.index,
-            type: operator.type,
-            condition: operator.condition,
-            expression: operator.expression,
-            uiId: operator.uiId,
-            dataAggregator: null,
-            iterator: operator.iterator
+            viewport: { ...OC_UI_LAYOUT.viewport },
+            workflowNodes: nodes,
+            workflowEdges: edges.map(edge => this.workflowEdge(edge, withEdgeData)),
+            flowcharts: nodes.map(node => this.flowchart(node)),
+            flowchartEdges: edges
         };
     }
 
 
-    /** Links each operator to the method it wraps. */
-    private buildArrows(operators: OcOperator[], connectorType: string): OcArrow[] {
-        if (operators.length === 0) {
+    private connectorNode(method: OcMethod, position: { x: number; y: number }): OcWorkflowNode {
+        return {
+            id: method.id,
+            type: 'connector',
+            position,
+            index: method.index,
+            data: {
+                title: method.connector.title,
+                subtitle: method.name,
+                kind: 'connector',
+                connector: method.connector,
+                methodConfig: this.methodConfig(method)
+            }
+        };
+    }
+
+
+    /**
+     * The method restated the way the editor's request form reads it.
+     *
+     * Same content as the method's own request and response, only flattened: the body's envelope
+     * becomes `bodyFormat`/`bodyData` and its fields become `body`.
+     */
+    private methodConfig(method: OcMethod): any {
+        const request = method.request ?? {};
+        const body = request.body ?? {};
+
+        return {
+            url: request.endpoint ?? '',
+            method: request.method ?? '',
+            headers: request.header ?? {},
+            bodyFormat: body.format ?? 'json',
+            bodyData: body.data ?? 'raw',
+            body: body.fields ?? {},
+            response: method.response,
+            name: method.name,
+            queryParams: this.queryParams(request.endpoint ?? '')
+        };
+    }
+
+
+    /**
+     * The endpoint's query string, restated as the editor's parameter rows.
+     *
+     * Values keep the encoding they carry in the endpoint: the row records what is sent, and
+     * decoding it here would make a re-encoded value differ from the endpoint it came from.
+     */
+    private queryParams(endpoint: string): any[] {
+        const query = endpoint.slice(endpoint.indexOf('?') + 1);
+
+        if (!endpoint.includes('?') || !query) {
             return [];
         }
 
-        return [{
-            from: `${connectorType}_${AutomationCompilerService.SOURCE_INDEX}`,
-            to: `${connectorType}_${AutomationCompilerService.TARGET_INDEX}`
-        }];
+        return query.split('&').filter(Boolean).map(pair => {
+            const separator = pair.indexOf('=');
+
+            return {
+                id: this.uuid(),
+                key: separator === -1 ? pair : pair.slice(0, separator),
+                value: separator === -1 ? '' : pair.slice(separator + 1),
+                enabled: true,
+                autoEncode: true
+            };
+        });
+    }
+
+
+    private edge(
+        source: string,
+        target: string,
+        sourceHandle: string | undefined,
+        targetHandle: string
+    ): OcFlowchartEdge {
+        const edge: OcFlowchartEdge = { id: '', source, target, targetHandle };
+
+        if (sourceHandle) {
+            edge.sourceHandle = sourceHandle;
+        }
+
+        edge.id = ocEdgeId(edge);
+
+        return edge;
+    }
+
+
+    private workflowEdge(edge: OcFlowchartEdge, withData: boolean): OcWorkflowEdge {
+        const full: OcWorkflowEdge = { ...edge, type: 'workflow-edge' };
+
+        if (withData) {
+            full.data = {};
+        }
+
+        return full;
+    }
+
+
+    private flowchart(node: OcWorkflowNode): OcFlowchart {
+        return { flowId: node.id, x: node.position.x, y: node.position.y };
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
