@@ -463,7 +463,7 @@ export class AutomationCompilerService {
             }
 
             if (value.kind === 'constant') {
-                this.setBodyField(targetMethod.request, entry.target, value.value);
+                this.bindConstant(entry, value.value, sides, targetMethod, bindings, warnings);
 
                 continue;
             }
@@ -490,27 +490,106 @@ export class AutomationCompilerService {
 
 
     /**
+     * Wires a pair whose value is a fixed literal rather than something read from the source.
+     *
+     * Without an adjustment the literal simply goes into the request body, which is what the
+     * reference payloads show. With one, the script has to run somewhere, and OpenCelium only runs
+     * scripts inside a fieldBinding - which insists on a `from` response field even when the script
+     * ignores it. So a field the read operation returns anyway is named as the source, the body
+     * carries the matching reference as it does for every other bound pair, and the script starts
+     * from the literal instead of from that field's value.
+     *
+     * The borrowed field is never read: `value` is seeded with the literal and the script's result
+     * overwrites it. It exists only to give the binding a well-formed origin.
+     */
+    private bindConstant(
+        entry: AutomationMappingEntry,
+        literal: string,
+        sides: ResolvedSides,
+        targetMethod: OcMethod,
+        bindings: OcFieldBinding[],
+        warnings: string[]
+    ): void {
+        const script = entry.transform?.enabled ? entry.transform.script.trim() : '';
+        const borrowed = script ? this.borrowedSourcePath(sides) : '';
+
+        if (entry.transform?.enabled && !script) {
+            warnings.push(
+                `The value adjustment for "${entry.source}" has no content, so the fixed value is sent `
+                + 'unchanged.'
+            );
+        }
+
+        if (script && !borrowed) {
+            warnings.push(
+                `The value adjustment for "${entry.source}" needs a field the read operation returns, and `
+                + 'this operation describes none, so the fixed value is sent unchanged.'
+            );
+        }
+
+        if (!script || !borrowed) {
+            this.setBodyField(targetMethod.request, entry.target, literal);
+
+            return;
+        }
+
+        const elementPath = ocCollectionElementPath(sides.source!.responseArrayPath, borrowed);
+        const sourcePath = `body.$.${elementPath}`;
+        const targetPath = `body.$.${entry.target}`;
+
+        this.setBodyField(
+            targetMethod.request,
+            entry.target,
+            ocFieldReference(AutomationCompilerService.SOURCE_COLOR, 'response', elementPath)
+        );
+
+        bindings.push({
+            from: [{ color: AutomationCompilerService.SOURCE_COLOR, field: sourcePath, type: 'response' }],
+            to: [{ color: AutomationCompilerService.TARGET_COLOR, field: targetPath, type: 'request' }],
+            enhancement: this.buildEnhancement(sourcePath, targetPath, entry, warnings, literal)
+        });
+    }
+
+
+    /**
+     * A response field of the read operation, used as the formal origin of a constant's binding.
+     *
+     * The first field the operation describes is taken rather than one of the mapped pairs, so the
+     * choice does not shift when the user changes the mapping.
+     */
+    private borrowedSourcePath(sides: ResolvedSides): string {
+        return this.catalog.sourceItemFields(sides.source)[0]?.path ?? '';
+    }
+
+
+    /**
      * The script OpenCelium runs for one pair.
      *
      * Without a transformation this is the plain assignment the reference payloads carry. With one,
      * the user's statements are wrapped so they operate on a variable named `value`: the wizard's
      * vocabulary never mentions RESULT_VAR or VAR_0, and the wrapping keeps a mistyped script from
      * reaching past its own pair.
+     *
+     * `literal` is set for a fixed value, whose script starts from that literal rather than from the
+     * response field the binding names.
      */
     private buildEnhancement(
         sourcePath: string,
         targetPath: string,
         entry: AutomationMappingEntry,
-        warnings: string[]
+        warnings: string[],
+        literal?: string
     ): OcEnhancement {
         const script = entry.transform?.enabled ? entry.transform.script.trim() : '';
 
-        if (entry.transform?.enabled && !script) {
+        if (literal === undefined && entry.transform?.enabled && !script) {
             warnings.push(
                 `The value adjustment for "${entry.source}" has no content, so the value is transferred `
                 + 'unchanged.'
             );
         }
+
+        const seed = literal === undefined ? 'VAR_0' : JSON.stringify(literal);
 
         return {
             name: '',
@@ -520,7 +599,7 @@ export class AutomationCompilerService {
             expertVar: `//var RESULT_VAR = ${AutomationCompilerService.TARGET_COLOR}.(request).${targetPath};\n`
                 + `//var VAR_0 = ${AutomationCompilerService.SOURCE_COLOR}.(response).${sourcePath};`,
             expertCode: script
-                ? `var value = VAR_0;\n${script}\nRESULT_VAR = value;`
+                ? `var value = ${seed};\n${script}\nRESULT_VAR = value;`
                 : 'RESULT_VAR = VAR_0;'
         };
     }

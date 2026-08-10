@@ -82,20 +82,17 @@
               }
             </td>
             <td class="mapping-table__actions">
-              <!-- Fixed values are already what they are; there is nothing to reshape. -->
-              @if (!isFixedValue(entry.source)) {
-                <button
-                  type="button"
-                  class="btn btn-link btn-sm mapping-table__adjust"
-                  [class.is-active]="hasActiveTransform(entry)"
-                  [disabled]="!entry.target"
-                  [attr.aria-expanded]="isExpanded(entry.source)"
-                  [title]="hasActiveTransform(entry) ? 'Edit the value adjustment' : 'Adjust the value before sending'"
-                  (click)="onToggleTransform(entry)">
-                  <i class="fas fa-sliders me-1"></i>
-                  {{ hasActiveTransform(entry) ? 'Adjusted' : 'Adjust' }}
-                </button>
-              }
+              <button
+                type="button"
+                class="btn btn-link btn-sm mapping-table__adjust"
+                [class.is-active]="hasActiveTransform(entry)"
+                [disabled]="!entry.target"
+                [attr.aria-expanded]="isExpanded(entry.source)"
+                [title]="hasActiveTransform(entry) ? 'Edit the value adjustment' : 'Adjust the value before sending'"
+                (click)="onToggleTransform(entry)">
+                <i class="fas fa-sliders me-1"></i>
+                {{ hasActiveTransform(entry) ? 'Adjusted' : 'Adjust' }}
+              </button>
             </td>
           </tr>
 
@@ -105,10 +102,18 @@
                 <div class="mapping-transform__head">
                   <div>
                     <strong>Adjust the value</strong>
-                    <p class="mapping-transform__hint mb-0">
-                      Optional. The value arrives in <code>value</code>; change it and it is sent
-                      changed. Leave it alone and the value is transferred as it is.
-                    </p>
+                    @if (isFixedValue(entry.source)) {
+                      <p class="mapping-transform__hint mb-0">
+                        Optional. <code>value</code> starts as the fixed value
+                        <code>{{ fixedValueOf(entry.source) || '-' }}</code>; change it and it is sent
+                        changed. Leave it alone and the fixed value is transferred as it is.
+                      </p>
+                    } @else {
+                      <p class="mapping-transform__hint mb-0">
+                        Optional. The value arrives in <code>value</code>; change it and it is sent
+                        changed. Leave it alone and the value is transferred as it is.
+                      </p>
+                    }
                   </div>
 
                   <label class="mapping-transform__toggle">
