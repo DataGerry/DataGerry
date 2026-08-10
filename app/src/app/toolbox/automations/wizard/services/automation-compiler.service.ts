@@ -213,6 +213,7 @@ export class AutomationCompilerService {
             );
         }
 
+
         return errors;
     }
 
@@ -1622,6 +1623,31 @@ export class AutomationCompilerService {
             warnings.push(
                 'Outgoing automations address DataGerry fields by their position in the object type. '
                 + 'Reordering the type\'s fields later requires saving this automation again.'
+            );
+        }
+
+        // The answer to "what if it is already there" cannot be honoured without something to
+        // recognise the object by, so the automation creates again on every run.
+        if (!definition.matching.identifyBy) {
+            warnings.push(
+                'Nothing identifies the object in the target system, so this automation cannot tell '
+                + 'a new object from one it already wrote and creates again on every run. Mark the '
+                + 'identifying field on the assignment step to change that.'
+            );
+        }
+
+        // The foreign system numbers its types itself, so DataGerry's id in its type field is a
+        // number from the wrong side - it looks right and points at some other type.
+        const remoteTypeTarget = definition.mapping.find(
+            entry => entry.target.endsWith('type') || entry.target.endsWith('type_id')
+        );
+
+        if (definition.direction === 'outgoing'
+            && remoteTypeTarget?.sources.some(source => source.field === '$type_id')) {
+            warnings.push(
+                `"${remoteTypeTarget.target}" is fed from DataGerry's own object type id. The target `
+                + 'system numbers its types itself - use "Target system object type" instead, which '
+                + 'sends the identifier given on the connection step.'
             );
         }
     }

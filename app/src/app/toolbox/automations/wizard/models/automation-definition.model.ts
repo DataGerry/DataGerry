@@ -383,6 +383,15 @@ export const DATAGERRY_SYSTEM_FIELDS: ReadonlyArray<AutomationSystemField> = [
         responsePath: 'last_edit_time'
     },
     {
+        key: '$remote_type_id',
+        label: 'Target system object type',
+        type: 'text',
+        hint: 'The type identifier of the target system, as given on the connection step. This is '
+            + 'what a foreign system wants in its own type field - its numbering is not DataGerry\'s.',
+        kind: 'constant',
+        fixedValue: definition => definition.target.remoteObjectTypeId
+    },
+    {
         key: '$type_id',
         label: 'DataGerry object type ID',
         type: 'number',
@@ -427,7 +436,15 @@ export function isSystemField(name: string): boolean {
  * its objects under the right type.
  */
 export function systemFieldsFor(direction: AutomationDirection): AutomationSystemField[] {
-    return DATAGERRY_SYSTEM_FIELDS.filter(field => direction === 'outgoing' || field.kind === 'constant');
+    return DATAGERRY_SYSTEM_FIELDS.filter(field => {
+        // The target system's own type is a value to send, so it belongs to the outgoing direction.
+        // Reading a foreign system, that identifier narrows the read instead and is not mapped.
+        if (field.key === '$remote_type_id') {
+            return direction === 'outgoing';
+        }
+
+        return direction === 'outgoing' || field.kind === 'constant';
+    });
 }
 
 

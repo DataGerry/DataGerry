@@ -328,7 +328,10 @@ export class AutomationWizardComponent implements OnInit {
     public onTargetChanged(): void {
         this.refreshTargetFields();
         this.refreshSourceFields();
-        this.definition.mapping = this.mapper.suggest(this.sourceFields, this.targetFields);
+        this.definition.mapping = this.mapper
+            .suggest(this.sourceFields, this.targetFields)
+            .map(suggestion => this.mapper.asEntry(suggestion));
+        this.definition.unmapped = [];
         this.refresh();
     }
 
