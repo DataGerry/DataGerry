@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, DoCheck, EventEmitter, Input, Output } from '@angular/core';
 
 import {
     AutomationDefinition,
@@ -42,6 +42,9 @@ interface TargetChoice {
     disabled: boolean;
 }
 
+/** Shared fallback, so a row without choices does not hand ng-select a new array on every check. */
+const EMPTY_CHOICES: TargetChoice[] = [];
+
 /**
  * Step group 4 - how source and target fields line up, and which objects take part.
  *
@@ -54,7 +57,7 @@ interface TargetChoice {
     styleUrls: ['./wizard-step-mapping.component.scss'],
     standalone: false
 })
-export class WizardStepMappingComponent {
+export class WizardStepMappingComponent implements DoCheck {
 
     @Input() public definition!: AutomationDefinition;
     @Input() public sourceFields: AutomationField[] = [];
@@ -74,6 +77,93 @@ export class WizardStepMappingComponent {
 
     /** Sources whose value adjustment is currently open, so the table stays compact by default. */
     private expanded = new Set<string>();
+
+    /** Dropdown items per source, kept as one stable array each - see ngDoCheck(). */
+    private choicesBySource = new Map<string, TargetChoice[]>();
+
+    /** The rows the table renders, cached for the same reason as the choices. */
+    private rows: AutomationMappingEntry[] = [];
+
+    /** Inputs the caches were built from, compared by reference on every check. */
+    private seenMapping: AutomationMappingEntry[] | null = null;
+    private seenTargetFields: TargetField[] | null = null;
+    private seenSourceFields: AutomationField[] | null = null;
+    private seenFilter = false;
+
+    /* ------------------------------------------------- CHANGE TRACKING ---------------------------------------------- */
+
+    /**
+     * Rebuilds the derived view data when, and only when, one of its inputs actually changed.
+     *
+     * Deriving it in the template instead looks tidier but is what made this step unusable: Angular
+     * re-evaluates a binding on every change detection run, so every dropdown received a freshly
+     * built array several times per second. ng-select treats a new `items` array as a new list and
+     * rebuilds its panel, which with one dropdown per mapped field is enough to lock up the page
+     * while the user is choosing a target.
+     *
+     * ngOnChanges cannot do this job here: the shell hands back the same definition object after
+     * every edit and only replaces the arrays inside it, so no input binding is ever seen to change.
+     */
+    public ngDoCheck(): void {
+        const mapping = this.definition?.mapping ?? null;
+
+        if (mapping === this.seenMapping
+            && this.targetFields === this.seenTargetFields
+            && this.sourceFields === this.seenSourceFields
+            && this.showOnlyUnresolved === this.seenFilter) {
+            return;
+        }
+
+        const rebuildChoices = mapping !== this.seenMapping
+            || this.targetFields !== this.seenTargetFields
+            || this.sourceFields !== this.seenSourceFields;
+
+        this.seenMapping = mapping;
+        this.seenTargetFields = this.targetFields;
+        this.seenSourceFields = this.sourceFields;
+        this.seenFilter = this.showOnlyUnresolved;
+
+        if (rebuildChoices) {
+            this.rebuildChoices();
+        }
+
+        this.rebuildRows();
+    }
+
+
+    /**
+     * Builds the target dropdown for every source in one pass.
+     *
+     * Which fields are taken is the same question for all rows, so it is answered once here rather
+     * than rebuilt per row as it was before.
+     */
+    private rebuildChoices(): void {
+        const mapping = this.definition?.mapping ?? [];
+        const owners = new Map(
+            mapping.filter(entry => entry.target).map(entry => [entry.target, entry.source])
+        );
+
+        this.choicesBySource = new Map(mapping.map(entry => [
+            entry.source,
+            this.targetFields.map(field => {
+                const owner = owners.get(field.path);
+                const takenByOther = owner !== undefined && owner !== entry.source;
+
+                return {
+                    path: field.path,
+                    label: takenByOther ? `${field.path} - used by ${this.labelOf(owner!)}` : field.path,
+                    disabled: takenByOther
+                };
+            })
+        ]));
+    }
+
+
+    private rebuildRows(): void {
+        const mapping = this.definition?.mapping ?? [];
+
+        this.rows = this.showOnlyUnresolved ? mapping.filter(entry => !entry.target) : mapping;
+    }
 
     /* --------------------------------------------------- MAPPING ---------------------------------------------------- */
 
@@ -115,23 +205,12 @@ export class WizardStepMappingComponent {
      * Fields another pair already writes to stay in the list but cannot be picked twice: hiding them
      * outright made the dropdown shrink as the mapping filled up, which reads as fields going
      * missing rather than as fields being in use.
+     *
+     * A lookup rather than a computation: the template binds this into ng-select, which must keep
+     * receiving the same array as long as nothing changed. rebuildChoices() fills the map.
      */
     public targetChoices(source: string): TargetChoice[] {
-        const takenBy = new Map(
-            this.definition.mapping
-                .filter(entry => entry.source !== source && entry.target)
-                .map(entry => [entry.target, entry.source])
-        );
-
-        return this.targetFields.map(field => {
-            const owner = takenBy.get(field.path);
-
-            return {
-                path: field.path,
-                label: owner ? `${field.path} - used by ${this.labelOf(owner)}` : field.path,
-                disabled: !!owner
-            };
-        });
+        return this.choicesBySource.get(source) ?? EMPTY_CHOICES;
     }
 
     /* ------------------------------------------------- VALUE ADJUSTMENT --------------------------------------------- */
@@ -242,9 +321,7 @@ export class WizardStepMappingComponent {
     /* ---------------------------------------------------- GETTERS --------------------------------------------------- */
 
     public get visibleMapping(): AutomationDefinition['mapping'] {
-        return this.showOnlyUnresolved
-            ? this.definition.mapping.filter(entry => !entry.target)
-            : this.definition.mapping;
+        return this.rows;
     }
 
 

@@ -90,6 +90,13 @@ export class AutomationWizardComponent implements OnInit {
     public readonly groups = WIZARD_GROUPS;
     public readonly isLoading$ = this.loaderService.isLoading$;
 
+    /** The stepper's model. Fixed for the lifetime of the wizard, so it is built once. */
+    public readonly steps: WizardStep[] = WIZARD_GROUPS.map(group => ({
+        title: group.title,
+        subtitle: group.subtitle,
+        icon: group.icon
+    }));
+
     public mode: 'create' | 'edit' = 'create';
     public currentGroup: WizardGroup = WizardGroup.TRIGGER;
     public definition: AutomationDefinition = createEmptyAutomationDefinition();
@@ -100,6 +107,17 @@ export class AutomationWizardComponent implements OnInit {
     public availableFields: AutomationField[] = [];
     public targetSystems: SelectableTargetSystem[] = [];
     public targetFields: TargetField[] = [];
+
+    /**
+     * State derived from the definition, recomputed in refresh() rather than read through getters.
+     *
+     * A getter is re-evaluated on every change detection run, and these all return fresh arrays and
+     * strings. Handed to a child as an input that means the child sees a changed input several times
+     * per second - which is what made the mapping step, with one dropdown per field, unusable.
+     */
+    public sourceFields: AutomationField[] = [];
+    public systemFields: AutomationSystemField[] = [];
+    public readableDescription = '';
 
     /** Compilation results, recomputed whenever the definition changes. */
     public validationErrors: string[] = [];
@@ -303,16 +321,18 @@ export class AutomationWizardComponent implements OnInit {
      */
     public onTargetChanged(): void {
         this.refreshTargetFields();
-        this.definition.mapping = this.mapper.suggest(this.sourceFieldsForMapping(), this.targetFields);
+        this.refreshSourceFields();
+        this.definition.mapping = this.mapper.suggest(this.sourceFields, this.targetFields);
         this.refresh();
     }
 
 
     /** Re-runs the suggestion for entries the user has not mapped by hand. */
     public onAutoMap(): void {
+        this.refreshSourceFields();
         this.definition.mapping = this.mapper.fillGaps(
             this.definition.mapping,
-            this.sourceFieldsForMapping(),
+            this.sourceFields,
             this.targetFields
         );
         this.refresh();
@@ -457,11 +477,15 @@ export class AutomationWizardComponent implements OnInit {
 
     /** Recomputes validation, warnings and the technical preview after every change. */
     private refresh(): void {
-        // Both derive from the definition, so they are rebuilt here rather than at each call site -
-        // a target list that only refreshed on the target step went stale as soon as the direction
-        // changed, and stayed empty altogether when an automation was reopened for editing.
+        // All of these derive from the definition, so they are rebuilt here rather than at each call
+        // site - a target list that only refreshed on the target step went stale as soon as the
+        // direction changed, and stayed empty altogether when an automation was reopened for editing.
         this.refreshTargetFields();
+        this.refreshSourceFields();
         this.reconcileMapping();
+
+        this.systemFields = systemFieldsFor(this.definition.direction);
+        this.readableDescription = describeAutomation(this.definition);
 
         const context = this.compileContext();
 
@@ -506,7 +530,21 @@ export class AutomationWizardComponent implements OnInit {
             this.definition.target.operation
         );
 
-        this.targetFields = this.catalog.targetFields(operation);
+        this.targetFields = keepIfUnchanged(
+            this.targetFields,
+            this.catalog.targetFields(operation),
+            field => field.path
+        );
+    }
+
+
+    /** Rebuilds the fields feeding the left-hand side of the mapping. */
+    private refreshSourceFields(): void {
+        this.sourceFields = keepIfUnchanged(
+            this.sourceFields,
+            this.sourceFieldsForMapping(),
+            field => `${field.name} ${field.label}`
+        );
     }
 
 
@@ -518,15 +556,32 @@ export class AutomationWizardComponent implements OnInit {
      * cleared one, a value adjustment - survives, because fillGaps only touches undecided pairs.
      */
     private reconcileMapping(): void {
-        const sources = this.sourceFieldsForMapping();
+        const sources = this.sourceFields;
 
         if (sources.length === 0) {
-            this.definition.mapping = [];
+            if (this.definition.mapping.length > 0) {
+                this.definition.mapping = [];
+            }
 
             return;
         }
 
+        // fillGaps() is the expensive half of a refresh - it fuzzy-matches every undecided pair - and
+        // refresh() runs on every keystroke. Nothing about the source side changes while someone
+        // types a condition value, so the whole reconciliation is skipped unless it has to happen.
+        // It also replaces the mapping array, which the mapping step uses to detect real changes.
+        if (this.mappingCovers(sources)) {
+            return;
+        }
+
         this.definition.mapping = this.mapper.fillGaps(this.definition.mapping, sources, this.targetFields);
+    }
+
+
+    /** Whether the mapping already holds exactly these sources, in this order - fillGaps' output. */
+    private mappingCovers(sources: AutomationField[]): boolean {
+        return this.definition.mapping.length === sources.length
+            && sources.every((field, index) => this.definition.mapping[index].source === field.name);
     }
 
 
@@ -593,15 +648,6 @@ export class AutomationWizardComponent implements OnInit {
 
     /* ---------------------------------------------------- GETTERS --------------------------------------------------- */
 
-    public get steps(): WizardStep[] {
-        return this.groups.map(group => ({
-            title: group.title,
-            subtitle: group.subtitle,
-            icon: group.icon
-        }));
-    }
-
-
     public get reachableGroup(): number {
         return furthestReachableGroup(this.definition);
     }
@@ -617,23 +663,26 @@ export class AutomationWizardComponent implements OnInit {
     }
 
 
-    public get readableDescription(): string {
-        return describeAutomation(this.definition);
-    }
-
-
-    public get sourceFields(): AutomationField[] {
-        return this.sourceFieldsForMapping();
-    }
-
-
-    /** The DataGerry values that can be mapped besides the object type's own fields. */
-    public get systemFields(): AutomationSystemField[] {
-        return systemFieldsFor(this.definition.direction);
-    }
-
-
     public get isCloudMode(): boolean {
         return environment.cloudMode;
     }
+}
+
+
+/**
+ * Returns the previous list when the new one describes the same thing.
+ *
+ * Recomputing produces an equal but distinct array, and handing that to a child component reads as
+ * a change - ng-select rebuilds its dropdown, the mapping step rebuilds its cached view data. Keying
+ * on the identifying part of each entry keeps those rebuilds tied to actual changes.
+ */
+function keepIfUnchanged<T>(previous: T[], next: T[], key: (item: T) => string): T[] {
+    if (previous === next) {
+        return previous;
+    }
+
+    const unchanged = previous.length === next.length
+        && next.every((item, index) => key(item) === key(previous[index]));
+
+    return unchanged ? previous : next;
 }
