@@ -80,3 +80,19 @@
     padding-bottom: 0.35rem;
   }
 }
+
+/* Explains a setting whose name alone would be read as "process in chunks of". */
+.review-advanced__hint {
+    margin: 6px 0 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--bs-secondary-color, #6c757d);
+}
+
+/* Explains a setting whose name alone would mislead. */
+.review-advanced__hint {
+    margin: 4px 0 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--bs-secondary-color, #6c757d);
+}

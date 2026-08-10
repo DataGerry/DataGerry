@@ -137,11 +137,15 @@
 
       <div class="review-advanced__field">
         <app-form-input
-          label="Batch size"
+          label="Objects per run (max.)"
           type="number"
           [ngModel]="definition.advanced.batchSize"
           (ngModelChange)="onAdvancedChanged('batchSize', +$event)">
         </app-form-input>
+        <p class="review-advanced__hint">
+          The read stops here. Objects beyond this number are not processed at all, so raise it if
+          the type holds more than this.
+        </p>
       </div>
 
       <div class="review-advanced__field">
