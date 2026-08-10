@@ -47,3 +47,43 @@ A consequence worth knowing: because the invoker is recovered from the very meth
 rebuild, this check confirms that the compiler is *self-consistent* with the capture. It cannot
 catch a mistake in how an invoker's own schema is read - that is what `target-catalog.service` and
 its specs cover.
+
+## Checking against a live OpenCelium
+
+`live-check.ts` answers a different question than the capture comparison: not "does the
+compiler still produce what it produced before", but "does what it produces resolve against
+the interface descriptions this installation actually has". It caught nothing the day it was
+written, which is the point — it is the check that would have caught a renamed operation or a
+filter that moved.
+
+It reads three files from a directory you point it at, so it needs no credentials of its own:
+
+```bash
+OC=http://<host>:<port>
+TOKEN=$(curl -s -D - -o /dev/null -X POST "$OC/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"<email>","password":"<password>"}' \
+  | grep -i '^authorization:' | sed 's/^[Aa]uthorization: //' | tr -d '\r')
+
+mkdir -p /tmp/oc && cd /tmp/oc
+for f in invoker/all connector/all; do
+  curl -s "$OC/$f" -H "Authorization: $TOKEN" -o "$(basename $(dirname $f))s.json"
+done
+```
+
+Then, from `app/`:
+
+```bash
+node_modules/esbuild/bin/esbuild tools/verify-automation-compiler/live-check.ts \
+  --bundle --platform=node --format=cjs \
+  --alias:@angular/core=tools/verify-automation-compiler/stub-angular-core.js \
+  --outfile=/tmp/oc/live.cjs --log-level=error
+DG_DATA_DIR=/tmp/oc node /tmp/oc/live.cjs
+```
+
+It prints one line per resolution step and exits non-zero if any of them failed. Drop a
+`connection<id>.json` into the same directory to compare the compiled payload against a
+connection built by hand in the OpenCelium editor - the index trees should match exactly.
+
+The credentials belong in the shell, not in a file next to this one, and the token is worth
+discarding when you are done.
