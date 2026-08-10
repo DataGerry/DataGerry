@@ -17,7 +17,12 @@
 */
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 
-import { AutomationDefinition, AutomationOperation } from '../../../models/automation-definition.model';
+import {
+    AutomationDefinition,
+    AutomationMatchOutcome,
+    AutomationOperation,
+    defaultMatchingFor
+} from '../../../models/automation-definition.model';
 import { AUTOMATION_OPERATION_CHOICES, findAdapter } from '../../../models/target-catalog.model';
 import { SelectableTargetSystem } from '../../../services/target-catalog.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -72,6 +77,12 @@ export class WizardStepTargetComponent {
         }
 
         this.definition.target.operation = operation;
+        // The action fixes one branch of the matching and leaves the other for the user, so a fresh
+        // pair of defaults replaces whatever the previous action implied.
+        this.definition.matching = {
+            ...defaultMatchingFor(operation),
+            identifyBy: this.definition.matching.identifyBy
+        };
         this.definitionChange.emit(this.definition);
         this.targetChange.emit();
     }
@@ -87,6 +98,51 @@ export class WizardStepTargetComponent {
 
     public isSelected(system: SelectableTargetSystem): boolean {
         return this.definition.target.connectorId === system.connectorId;
+    }
+
+
+    /* ------------------------------------------------- MATCHING ------------------------------------------------------ */
+
+    /**
+     * The open branch of the matching, i.e. the case the chosen action does not already answer.
+     *
+     * Creating answers "not there yet"; updating and deleting answer "already there". The other
+     * case is what the user still has to decide, and it is the same question either way: do
+     * something about it, or leave it alone.
+     */
+    public get openBranch(): 'missing' | 'present' {
+        return this.definition.target.operation === 'create' ? 'present' : 'missing';
+    }
+
+
+    public get openBranchChoices(): ReadonlyArray<{ value: AutomationMatchOutcome; label: string }> {
+        return this.openBranch === 'present'
+            ? [
+                { value: 'skip', label: 'Leave it as it is' },
+                { value: 'update', label: 'Update it' },
+                { value: 'error', label: 'Report it as an error' }
+            ]
+            : [
+                { value: 'skip', label: 'Skip the object' },
+                { value: 'create', label: 'Create it' },
+                { value: 'error', label: 'Report it as an error' }
+            ];
+    }
+
+
+    public get openBranchValue(): AutomationMatchOutcome {
+        return this.openBranch === 'present'
+            ? this.definition.matching.whenPresent
+            : this.definition.matching.whenMissing;
+    }
+
+
+    public onOpenBranchChanged(outcome: AutomationMatchOutcome): void {
+        this.definition.matching = this.openBranch === 'present'
+            ? { ...this.definition.matching, whenPresent: outcome }
+            : { ...this.definition.matching, whenMissing: outcome };
+        this.definitionChange.emit(this.definition);
+        this.targetChange.emit();
     }
 
 

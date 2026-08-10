@@ -63,6 +63,17 @@ export class WizardStepMappingComponent implements DoCheck {
     @Input() public sourceFields: AutomationField[] = [];
     @Input() public targetFields: TargetField[] = [];
 
+    /**
+     * Which target fields the lookup can search by, empty when the system offers no search.
+     *
+     * Only a pair whose target side is searchable can identify an object, so the marker is offered
+     * on those rows alone rather than letting the user pick one that cannot work.
+     */
+    @Input() public matchableTargets: string[] = [];
+
+    /** False for an automation that only ever adds, where nothing has to be recognised. */
+    @Input() public matchingRelevant = false;
+
     @Output() public definitionChange = new EventEmitter<AutomationDefinition>();
 
     /** Asks the shell to re-run automatic matching for entries that are still empty. */
@@ -173,6 +184,43 @@ export class WizardStepMappingComponent implements DoCheck {
             : entry
         );
         this.emit();
+    }
+
+
+    /* ------------------------------------------------- IDENTIFICATION ----------------------------------------------- */
+
+    /**
+     * Marks the pair by which the automation recognises the object in the target system.
+     *
+     * Exactly one pair can carry it, so choosing another clears the previous one - identity is a
+     * single question, and two answers to it would leave the lookup ambiguous.
+     */
+    public onIdentifyBy(source: string): void {
+        this.definition.matching = {
+            ...this.definition.matching,
+            identifyBy: this.definition.matching.identifyBy === source ? '' : source
+        };
+        this.emit();
+    }
+
+
+    public isIdentifier(source: string): boolean {
+        return this.definition.matching.identifyBy === source;
+    }
+
+
+    /** Whether this pair could identify the object, i.e. whether the lookup can search by it. */
+    public canIdentify(entry: AutomationMappingEntry): boolean {
+        if (!entry.target || this.matchableTargets.length === 0) {
+            return false;
+        }
+
+        return this.matchableTargets.includes(entry.target.slice(entry.target.lastIndexOf('.') + 1));
+    }
+
+
+    public get identifierMissing(): boolean {
+        return this.matchingRelevant && !this.definition.matching.identifyBy;
     }
 
 

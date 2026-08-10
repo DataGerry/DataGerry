@@ -36,6 +36,14 @@
       The chosen action offers no fields to write to. Pick a different action on the previous step.
     </p>
   } @else {
+    @if (identifierMissing) {
+      <div class="alert alert-warning mapping-identify-hint">
+        <strong>Which field tells the systems it is the same object?</strong>
+        This automation looks the object up in the target system before it writes. Mark the pair that
+        identifies it - only fields the target system can search by can be used.
+      </div>
+    }
+
     <table class="table mapping-table">
       <thead>
         <tr>
@@ -43,6 +51,9 @@
           <th scope="col" class="mapping-table__arrow"></th>
           <th scope="col">Target field</th>
           <th scope="col">Match</th>
+          @if (matchingRelevant) {
+            <th scope="col" class="mapping-table__identify">Identifies</th>
+          }
           <th scope="col" class="mapping-table__actions"></th>
         </tr>
       </thead>
@@ -81,6 +92,22 @@
                 </span>
               }
             </td>
+            @if (matchingRelevant) {
+              <td class="mapping-table__identify">
+                @if (canIdentify(entry)) {
+                  <label class="mapping-table__identify-choice">
+                    <input
+                      type="radio"
+                      name="identifyBy"
+                      [checked]="isIdentifier(entry.source)"
+                      (click)="onIdentifyBy(entry.source)">
+                    <span class="visually-hidden">Identify the object by this field</span>
+                  </label>
+                } @else {
+                  <span class="text-muted" title="The target system cannot search by this field">-</span>
+                }
+              </td>
+            }
             <td class="mapping-table__actions">
               <button
                 type="button"
@@ -98,7 +125,7 @@
 
           @if (isExpanded(entry.source)) {
             <tr class="mapping-transform">
-              <td colspan="5">
+              <td [attr.colspan]="matchingRelevant ? 6 : 5">
                 <div class="mapping-transform__head">
                   <div>
                     <strong>Adjust the value</strong>

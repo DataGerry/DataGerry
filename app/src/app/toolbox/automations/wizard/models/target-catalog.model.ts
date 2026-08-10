@@ -85,6 +85,18 @@ export interface TargetSystemAdapter {
     listFilter?: ListFilterPlacement;
 
     /**
+     * Where the read operation takes a filter on an ordinary field, used to look an object up.
+     *
+     * Distinct from listFilter, which narrows a read to an object type. This one answers "is this
+     * particular object already over there", which is what update and delete need before they can
+     * touch anything. Derived from the operation's own schema when no adapter says otherwise.
+     */
+    matchFilterPath?: string;
+
+    /** Field of a found element that carries its identifier, relative to the element. */
+    elementIdPath?: string;
+
+    /**
      * Where the read operation takes its page size, so the wizard's batch size setting has an
      * effect. Dotted path inside request.body.fields, or a query parameter name.
      */
@@ -156,6 +168,10 @@ export const KNOWN_TARGET_ADAPTERS: ReadonlyArray<TargetSystemAdapter> = [
         },
         // Taken from the reference payload: params.filter is pruned to type: ["10"].
         listFilter: { bodyPath: 'params.filter.type', asArray: true, pruneSiblings: true },
+        // From the lookup capture: the search filters on params.filter.<field> and the found
+        // element carries its identifier as `id`.
+        matchFilterPath: 'params.filter',
+        elementIdPath: 'id',
         listLimit: { bodyPath: 'params.limit' },
         remoteTypeLabel: 'i-doit object type ID'
     }

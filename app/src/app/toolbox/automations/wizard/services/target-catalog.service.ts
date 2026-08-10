@@ -29,6 +29,16 @@ import {
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** A target system the user can pick, derived from the configured connectors. */
+/** Where a read operation accepts a filter on an ordinary field, and which fields it accepts. */
+export interface MatchFilter {
+    /** Dotted path of the filter object inside request.body.fields. */
+    basePath: string;
+
+    /** Field names that can be filtered on. */
+    keys: string[];
+}
+
+
 export interface SelectableTargetSystem {
     connectorId: number;
     title: string;
@@ -170,6 +180,119 @@ export class TargetCatalogService {
         const item = Array.isArray(collection) ? collection[0] : null;
 
         return item && typeof item === 'object' ? this.flatten(item, '') : [];
+    }
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                       MATCHING                                                     */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+    /**
+     * Where a read operation takes a filter on an ordinary field, and which fields it accepts there.
+     *
+     * This is what decides whether a system can be updated or deleted into at all: without a way to
+     * ask "do you already have this object", there is no identifier to write against. The adapter
+     * may name the filter, and otherwise it is looked for in the operation's own request schema -
+     * an object called `filter`, whose keys are the fields that can be searched.
+     */
+    public matchFilter(invoker: any, operation: ResolvedOperation | null): MatchFilter | null {
+        const fields = operation?.definition?.request?.body?.fields;
+
+        if (!fields || typeof fields !== 'object') {
+            return null;
+        }
+
+        const declared = findAdapter(invoker?.name)?.matchFilterPath;
+        const basePath = declared ?? this.findFilterPath(fields, '');
+
+        if (!basePath) {
+            return null;
+        }
+
+        const node = this.at(fields, basePath);
+
+        if (!node || typeof node !== 'object' || Array.isArray(node)) {
+            return null;
+        }
+
+        // Only scalar keys are searchable; a nested object is a filter group, not a field.
+        const keys = Object.keys(node).filter(key => {
+            const value = node[key];
+
+            return value === null || typeof value !== 'object' || Array.isArray(value);
+        });
+
+        return keys.length > 0 ? { basePath, keys } : null;
+    }
+
+
+    /**
+     * Field of a found element that carries its identifier.
+     *
+     * The identifier is what a subsequent update or delete addresses the object by, so guessing it
+     * wrong is worse than not guessing: the well-known names are tried in order and anything else
+     * is left to the adapter.
+     */
+    public elementIdPath(invoker: any, operation: ResolvedOperation | null): string {
+        const declared = findAdapter(invoker?.name)?.elementIdPath;
+
+        if (declared) {
+            return declared;
+        }
+
+        const paths = this.sourceItemFields(operation).map(field => field.path);
+        const preferred = ['id', 'public_id', 'uuid', 'objectId', 'object_id'];
+
+        return preferred.find(name => paths.includes(name))
+            ?? paths.find(path => /(^|_|\.)id$/i.test(path))
+            ?? '';
+    }
+
+
+    /**
+     * Where a write operation takes the identifier of the object it acts on.
+     *
+     * Looked for beside the fields the mapping already writes rather than anywhere in the request:
+     * a JSON-RPC body carries an envelope `id` of its own, and addressing that one instead would
+     * produce a request that looks right and updates nothing.
+     */
+    public writeIdPath(operation: ResolvedOperation | null, mappedTargetPath: string): string {
+        const paths = this.targetFields(operation).map(field => field.path);
+        const parent = mappedTargetPath.includes('.')
+            ? mappedTargetPath.slice(0, mappedTargetPath.lastIndexOf('.'))
+            : '';
+        const beside = parent ? `${parent}.id` : 'id';
+
+        return paths.includes(beside) ? beside : (paths.includes('id') ? 'id' : '');
+    }
+
+
+    /** Walks a dotted path into a schema node. */
+    private at(node: any, dottedPath: string): any {
+        return dottedPath.split('.').reduce((current, key) => current?.[key], node);
+    }
+
+
+    /** The first object called `filter` in a request schema, as a dotted path. */
+    private findFilterPath(node: Record<string, any>, prefix: string): string {
+        for (const [key, value] of Object.entries(node)) {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                continue;
+            }
+
+            const path = prefix ? `${prefix}.${key}` : key;
+
+            if (this.normalize(key) === 'filter') {
+                return path;
+            }
+
+            const nested = this.findFilterPath(value, path);
+
+            if (nested) {
+                return nested;
+            }
+        }
+
+        return '';
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
