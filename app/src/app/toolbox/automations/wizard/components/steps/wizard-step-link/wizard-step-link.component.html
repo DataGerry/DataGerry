@@ -196,11 +196,12 @@
 
           <div class="pole__field">
             <app-form-input
-              label="Object type in the target system"
+              [label]="remoteTypeLabel"
               placeholder="e.g. 10"
               [ngModel]="definition.target.remoteObjectTypeId"
               (ngModelChange)="onRemoteTypeChanged($event)">
             </app-form-input>
+            <p class="wizard-section__hint mb-0">{{ remoteTypeHint }}</p>
           </div>
 
           <div>

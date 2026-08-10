@@ -110,10 +110,20 @@ export class AutomationFieldMappingService {
             return existing;
         }
 
-        const added = this.suggest(gaps, free)
-            .map(({ target, sources }) => ({ target, sources }));
+        const added = this.suggest(gaps, free).map(entry => this.asEntry(entry));
 
         return added.length > 0 ? [...existing, ...added] : existing;
+    }
+
+
+    /**
+     * A suggestion reduced to what belongs in the model.
+     *
+     * `matchedOn` explains a suggestion to whoever is looking at it; it is not part of the
+     * automation, and persisting it only bloats the description it is stored in.
+     */
+    public asEntry(suggestion: MappingSuggestion): AutomationMappingEntry {
+        return { target: suggestion.target, sources: suggestion.sources };
     }
 
 
