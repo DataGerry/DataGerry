@@ -344,7 +344,8 @@ describe('AutomationCompilerService', () => {
             const paging = context();
             const objectsRead = paging.targetConnector.invoker.operations
                 .find((operation: any) => operation.name === 'cmdb.objects.read');
-            objectsRead.pagination = { rules: [] };
+            // What the API actually exposes. The pagination block itself never reaches a client.
+            objectsRead.type = 'page';
 
             const definition = incomingDefinition();
             definition.advanced.batchSize = 250;
