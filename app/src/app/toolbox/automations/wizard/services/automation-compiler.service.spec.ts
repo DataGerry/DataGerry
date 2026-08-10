@@ -545,6 +545,93 @@ describe('AutomationCompilerService', () => {
         });
     });
 
+    /* ------------------------------------------ ADJUSTED FIXED VALUES ------------------------------------------------ */
+
+    /*
+     * A fixed value carries no source field, but OpenCelium only runs a script inside a fieldBinding
+     * and a fieldBinding insists on a `from`. The compiler therefore names a field the read operation
+     * returns anyway and seeds the script with the literal instead of that field's value.
+     */
+    describe('adjusted fixed values', () => {
+        function adjustedConstant(script: string, enabled = true): AutomationDefinition {
+            const definition = incomingDefinition();
+            definition.fields = [{ name: '$type_name', label: 'DataGerry object type name', type: 'text' }];
+            definition.mapping = [{
+                source: '$type_name',
+                target: 'title',
+                origin: 'manual',
+                confidence: 1,
+                transform: { enabled, script }
+            }];
+
+            return definition;
+        }
+
+
+        it('seeds the script with the literal rather than with the response field', () => {
+            const { payload } = compiler.compileForCreate(
+                adjustedConstant("value = value + '_idoit';"),
+                context()
+            );
+
+            expect(payload.connection.fieldBinding[0].enhancement.expertCode)
+                .toBe('var value = "hardware";\nvalue = value + \'_idoit\';\nRESULT_VAR = value;');
+        });
+
+
+        it('borrows the first field the read operation returns as the binding origin', () => {
+            const { payload } = compiler.compileForCreate(adjustedConstant('value = value.trim();'), context());
+            const binding = payload.connection.fieldBinding[0];
+
+            expect(binding.from[0]).toEqual({
+                color: '#FFCFB5',
+                field: 'body.$.result[0].id',
+                type: 'response'
+            });
+            expect(binding.to[0]).toEqual({ color: '#C77E7E', field: 'body.$.title', type: 'request' });
+        });
+
+
+        it('points the target request body at the borrowed field, as every bound pair does', () => {
+            const { payload } = compiler.compileForCreate(adjustedConstant('value = value.trim();'), context());
+
+            expect(payload.connection.toConnector.methods[0].request.body.fields.title)
+                .toBe('#FFCFB5.(response).body.$.result[0].id');
+        });
+
+
+        it('keeps sending the plain literal while the adjustment is switched off', () => {
+            const { payload } = compiler.compileForCreate(
+                adjustedConstant("value = value + '_idoit';", false),
+                context()
+            );
+
+            expect(payload.connection.toConnector.methods[0].request.body.fields.title).toBe('hardware');
+            expect(payload.connection.fieldBinding.length).toBe(0);
+        });
+
+
+        it('warns and falls back to the literal when the adjustment has no content', () => {
+            const { payload, warnings } = compiler.compileForCreate(adjustedConstant('  '), context());
+
+            expect(payload.connection.toConnector.methods[0].request.body.fields.title).toBe('hardware');
+            expect(payload.connection.fieldBinding.length).toBe(0);
+            expect(warnings.some(warning => warning.includes('no content'))).toBeTrue();
+        });
+
+
+        it('still writes an unadjusted fixed value straight into the body', () => {
+            const definition = incomingDefinition();
+            definition.fields = [{ name: '$type_id', label: 'DataGerry object type ID', type: 'number' }];
+            definition.mapping = [{ source: '$type_id', target: 'type_id', origin: 'manual', confidence: 1 }];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.toConnector.methods[0].request.body.fields.type_id).toBe('1');
+            expect(payload.connection.fieldBinding.length).toBe(0);
+        });
+    });
+
     /* -------------------------------------------------- CONDITIONS ---------------------------------------------------- */
 
     describe('conditions', () => {
