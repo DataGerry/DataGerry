@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <invoker type="RESTful">
-    <name>DataGerryCloud</name>
+    <name>DataGerry</name>
     <description>DATAGERRY is an Open Source CMDB &amp; Asset Management Tool, which completely leaves the definition of a data model to the user.</description>
-    <hint>This interface provides a basic auth and requires the x-api-key of the subscription. Read here the api documentation https://docs.datagerry.com/en/latest/rest_api/overview.html</hint>
+    <hint>This interface provides a basic auth. Read here the api documentation https://docs.datagerry.com/en/latest/rest_api/overview.html</hint>
     <requiredData>
         <item name="url" type="string" visibility="public"/>
         <item name="username" type="string" visibility="public"/>
         <item name="password" type="string" visibility="public"/>
-        <item name="x-api-key" type="string" visibility="public"/>
         <item name="token" type="string" visibility="private">Basic {username:password}</item>
     </requiredData>
     <authType>basic</authType>
@@ -24,7 +23,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -70,7 +68,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -143,7 +140,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -165,7 +161,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -211,7 +206,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -286,7 +280,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -308,7 +301,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -354,7 +346,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -378,7 +369,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -400,7 +390,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="boolean"/>
             </request>
@@ -443,6 +432,78 @@
                 </fail>
             </response>
         </operation>
+        <operation name="Get Object references" type="">
+            <request>
+                <method>GET</method>
+                <endpoint>{url}/rest/objects/references/{public_id}?limit=100&amp;page=1&amp;sort=public_id&amp;order=1</endpoint>
+                <header>
+                    <item name="Authorization" type="string">{token}</item>
+                    <item name="Content-Type" type="string">application/json</item>
+                </header>
+                <body/>
+            </request>
+            <response>
+                <success status="200">
+                    <header/>
+                    <body data="raw" format="json" type="object">
+                        <field name="results" type="array">
+                            <field name="public_id" type="integer"/>
+                            <field name="type_id" type="integer"/>
+                            <field name="version" type="string"/>
+                            <field name="ci_explorer_tooltip" type="string"/>
+                            <field name="author_id" type="integer"/>
+                            <field name="creation_time" type="object"/>
+                            <field name="last_edit_time" type="object"/>
+                            <field name="active" type="boolean"/>
+                            <field name="fields" type="array">
+                                <field name="name" type="string"/>
+                                <field name="value" type="string"/>
+                            </field>
+                            <field name="multi_data_sections" type="array">
+                                <field name="section_id" type="string"/>
+                                <field name="highest_id" type="integer"/>
+                                <field name="values" type="array">
+                                    <field name="multi_data_id" type="integer"/>
+                                    <field name="data" type="array">
+                                        <field name="name" type="string"/>
+                                        <field name="value" type="string"/>
+                                    </field>
+                                </field>
+                            </field>
+                        </field>
+                        <field name="count" type="integer"/>
+                        <field name="total" type="integer"/>
+                        <field name="parameters" type="object">
+                            <field name="limit" type="integer"/>
+                            <field name="sort" type="string"/>
+                            <field name="order" type="integer"/>
+                            <field name="page" type="integer"/>
+                            <field name="filter" type="object"/>
+                            <field name="optional" type="object"/>
+                            <field name="projection" type="object"/>
+                        </field>
+                        <field name="pager" type="object">
+                            <field name="page" type="integer"/>
+                            <field name="page_size" type="integer"/>
+                            <field name="total_pages" type="integer"/>
+                        </field>
+                        <field name="pagination" type="object">
+                            <field name="current" type="string"/>
+                            <field name="first" type="string"/>
+                            <field name="prev" type="string"/>
+                            <field name="next" type="string"/>
+                            <field name="last" type="string"/>
+                        </field>
+                        <field name="response_type" type="string"/>
+                        <field name="time" type="string"/>
+                    </body>
+                </success>
+                <fail status="500">
+                    <header/>
+                    <body/>
+                </fail>
+            </response>
+        </operation>
 
         <!--                                                                                                                   -->
         <!--                                                    OBJECTGROUPS                                                   -->
@@ -455,7 +516,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -494,7 +554,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -549,7 +608,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -581,7 +639,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -619,7 +676,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -656,7 +712,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -817,7 +872,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -933,7 +987,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1026,7 +1079,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -1186,7 +1238,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1279,7 +1330,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1306,7 +1356,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -1355,7 +1404,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1415,7 +1463,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1452,7 +1499,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -1500,7 +1546,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1542,7 +1587,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -1578,7 +1622,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1641,7 +1684,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1677,7 +1719,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -1731,7 +1772,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1758,7 +1798,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -1815,7 +1854,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1879,7 +1917,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -1920,7 +1957,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -1976,7 +2012,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2017,7 +2052,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2063,7 +2097,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -2100,7 +2133,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2154,7 +2186,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2185,7 +2216,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -2221,7 +2251,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2257,7 +2286,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -2300,7 +2328,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2357,7 +2384,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2391,7 +2417,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -2433,7 +2458,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2472,7 +2496,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -2509,7 +2532,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2563,7 +2585,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2594,7 +2615,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -2630,7 +2650,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2666,7 +2685,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -2761,7 +2779,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2844,7 +2861,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -2904,7 +2920,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -2998,7 +3013,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3063,7 +3077,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3112,7 +3125,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3172,7 +3184,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3209,7 +3220,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3257,7 +3267,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3299,7 +3308,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3336,7 +3344,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3391,7 +3398,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3421,7 +3427,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3459,7 +3464,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3494,7 +3498,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3539,7 +3542,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3598,7 +3600,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3632,7 +3633,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3678,7 +3678,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3712,7 +3711,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3751,7 +3749,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3784,7 +3781,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3837,7 +3833,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3865,7 +3860,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3899,7 +3893,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -3932,7 +3925,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -3975,7 +3967,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4033,7 +4024,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4066,7 +4056,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4103,6 +4092,38 @@
                 </fail>
             </response>
         </operation>
+        <operation name="Delete Location for Object" type="">
+            <request>
+                <method>DELETE</method>
+                <endpoint>{url}/rest/locations/{object_id}/object</endpoint>
+                <header>
+                    <item name="Authorization" type="string">{token}</item>
+                    <item name="Content-Type" type="string">application/json</item>
+                </header>
+                <body/>
+            </request>
+            <response>
+                <success status="200">
+                    <header/>
+                    <body data="raw" format="json" type="object">
+                        <field name="raw" type="object">
+                            <field name="public_id" type="integer"/>
+                            <field name="name" type="string"/>
+                            <field name="parent" type="integer"/>
+                            <field name="object_id" type="integer"/>
+                            <field name="type_id" type="integer"/>
+                            <field name="type_label" type="string"/>
+                            <field name="type_icon" type="string"/>
+                            <field name="type_selectable" type="boolean"/>
+                        </field>
+                    </body>
+                </success>
+                <fail status="500">
+                    <header/>
+                    <body/>
+                </fail>
+            </response>
+        </operation>
 
         <!--                                                                                                                   -->
         <!--                                                 EXTENDABLEOPTIONS                                                 -->
@@ -4115,7 +4136,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4152,7 +4172,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4206,7 +4225,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4237,7 +4255,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4273,7 +4290,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4309,7 +4325,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4348,7 +4363,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4403,7 +4417,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4435,7 +4448,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4473,7 +4485,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4505,7 +4516,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="array">
                     <field name="public_id" type="integer"/>
@@ -4542,7 +4552,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4579,7 +4588,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4633,7 +4641,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4664,7 +4671,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4700,7 +4706,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4736,7 +4741,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4773,7 +4777,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4827,7 +4830,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4858,7 +4860,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4894,7 +4895,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -4930,7 +4930,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -4973,7 +4972,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5030,7 +5028,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5064,7 +5061,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5106,7 +5102,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5140,7 +5135,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="array">
                     <field name="public_id" type="integer"/>
@@ -5179,7 +5173,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5214,7 +5207,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5267,7 +5259,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5297,7 +5288,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5331,7 +5321,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5366,7 +5355,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5405,7 +5393,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5462,7 +5449,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5511,7 +5497,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5571,7 +5556,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5608,7 +5592,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5656,7 +5639,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5698,7 +5680,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5737,7 +5718,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5792,7 +5772,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5824,7 +5803,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5862,7 +5840,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5899,7 +5876,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -5938,7 +5914,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -5993,7 +5968,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -6025,7 +5999,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -6063,7 +6036,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -6100,7 +6072,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -6149,7 +6120,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -6209,7 +6179,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -6246,7 +6215,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -6294,7 +6262,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -6336,7 +6303,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -6465,7 +6431,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -6565,7 +6530,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -6642,7 +6606,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -6770,7 +6733,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -6847,7 +6809,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -6925,7 +6886,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -6972,7 +6932,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -7031,7 +6990,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
@@ -7067,7 +7025,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body data="raw" format="json" type="object">
                     <field name="public_id" type="integer"/>
@@ -7113,7 +7070,6 @@
                 <header>
                     <item name="Authorization" type="string">{token}</item>
                     <item name="Content-Type" type="string">application/json</item>
-                    <item name="x-api-key" type="string">{x-api-key}</item>
                 </header>
                 <body/>
             </request>
