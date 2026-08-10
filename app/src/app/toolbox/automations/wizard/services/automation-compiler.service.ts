@@ -318,7 +318,7 @@ export class AutomationCompilerService {
         // A restriction on which objects take part is an `if` of its own inside the loop, not a
         // property of the loop: the loop's expression is the collection it walks, and the engine
         // reads nothing else. Everything the loop does then hangs off that gate instead.
-        const container = this.buildConditionGate(definition, sides, loop, operators, graph);
+        const container = this.buildConditionGate(definition, context, sides, loop, operators, graph, warnings);
         const plan = this.planBranches(definition);
 
         if (plan.length === 0) {
@@ -371,14 +371,18 @@ export class AutomationCompilerService {
      */
     private buildConditionGate(
         definition: AutomationDefinition,
+        context: AutomationCompileContext,
         sides: ResolvedSides,
         loop: OcOperator,
         operators: OcOperator[],
-        graph: GraphNode[]
+        graph: GraphNode[],
+        warnings: string[]
     ): { id: string; index: string } {
         const expression = this.buildConditionExpression(
-            definition.conditions,
-            sides.source!.responseArrayPath
+            definition,
+            context,
+            sides.source!.responseArrayPath,
+            warnings
         );
 
         if (!expression) {
@@ -1192,17 +1196,45 @@ export class AutomationCompilerService {
      * the engine's own RelationalOperator vocabulary; terms are parenthesised and joined with &&
      * or ||, exactly as its parser tests spell out.
      */
-    private buildConditionExpression(group: AutomationConditionGroup, arrayPath: string): string {
+    private buildConditionExpression(
+        definition: AutomationDefinition,
+        context: AutomationCompileContext,
+        arrayPath: string,
+        warnings: string[]
+    ): string {
+        const group = definition.conditions;
         const joiner = group.combinator === 'and' ? ' && ' : ' || ';
-        const parts = group.rules.map(rule => this.renderRule(
-            `{%${ocFieldReference(
-                AutomationCompilerService.SOURCE_COLOR,
-                'response',
-                ocCollectionElementPath(arrayPath, rule.field)
-            )}%}`,
-            rule.operator,
-            rule.value
-        ));
+        const parts: string[] = [];
+
+        for (const rule of group.rules) {
+            // The same resolution the mapping uses. A rule names a field the way the user knows it,
+            // and on the DataGerry side that is not where the value sits: business fields live in a
+            // positional `fields[n].value`, so using the name as a path restricts on nothing.
+            const value = this.resolveSourceValue(definition, context, rule.field, warnings);
+
+            if (!value) {
+                continue;
+            }
+
+            if (value.kind === 'constant') {
+                warnings.push(
+                    `The condition on "${rule.field}" compares a fixed value against itself, which is `
+                    + 'either always or never true, so it was left out.'
+                );
+
+                continue;
+            }
+
+            parts.push(this.renderRule(
+                `{%${ocFieldReference(
+                    AutomationCompilerService.SOURCE_COLOR,
+                    'response',
+                    ocCollectionElementPath(arrayPath, value.path)
+                )}%}`,
+                rule.operator,
+                rule.value
+            ));
+        }
 
         if (parts.length === 0) {
             return '';
