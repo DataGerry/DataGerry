@@ -1064,7 +1064,23 @@
             </response>
         </operation>
         <!--                                                   GET OBJECTS                                                   -->
-        <operation name="Get Objects" type="">
+        <operation name="Get Objects" type="page">
+            <!--
+                Reading objects a page at a time, so a workflow sees the whole type rather than
+                whatever fits in one response. `type="page"` is what switches this on: the executor
+                only looks at the block below when the operation is typed that way, and a pagination
+                block on an untyped operation is parsed and then ignored.
+
+                `size` is the element count DataGerry reports, and the engine keeps asking for the
+                next page until it has collected that many. `result` names the array to collect;
+                an empty page stops the loop regardless, so a wrong `total` cannot spin forever.
+            -->
+            <pagination>
+                <limit action="write" ref="request.url.$.limit">1000</limit>
+                <page action="increment" ref="request.url.$.page">1</page>
+                <result action="collect" ref="response.body.$.results"/>
+                <size action="read" ref="response.body.$.total"/>
+            </pagination>
             <request>
                 <method>GET</method>
                 <endpoint>{url}/rest/objects/</endpoint>
