@@ -239,10 +239,13 @@ describe('AutomationCompilerService', () => {
         it('reads the source and writes the target according to the direction', () => {
             const { payload } = compiler.compileForCreate(incomingDefinition(), context());
 
-            expect(payload.connection.fromConnector.connectorId).toBe(10);
+            // Both systems' methods share one list now; each names its own connector.
+            expect(payload.connection.fromConnector.connectorId).toBe(-1);
+            expect(payload.connection.toConnector).toBeNull();
             expect(payload.connection.fromConnector.methods[0].name).toBe('cmdb.objects.read');
-            expect(payload.connection.toConnector.connectorId).toBe(9);
-            expect(payload.connection.toConnector.methods[0].name).toBe('AddObject');
+            expect(payload.connection.fromConnector.methods[0].connector.connectorId).toBe(10);
+            expect(payload.connection.fromConnector.methods[1].name).toBe('AddObject');
+            expect(payload.connection.fromConnector.methods[1].connector.connectorId).toBe(9);
         });
 
 
@@ -251,8 +254,8 @@ describe('AutomationCompilerService', () => {
 
             expect(payload.connection.fromConnector.methods[0].color).toBe('#FFCFB5');
             expect(payload.connection.fromConnector.methods[0].index).toBe('0');
-            expect(payload.connection.toConnector.methods[0].color).toBe('#C77E7E');
-            expect(payload.connection.toConnector.methods[0].index).toBe('0_0');
+            expect(payload.connection.fromConnector.methods[1].color).toBe('#C77E7E');
+            expect(payload.connection.fromConnector.methods[1].index).toBe('1_0');
         });
 
 
@@ -260,25 +263,27 @@ describe('AutomationCompilerService', () => {
             const { payload } = compiler.compileForCreate(incomingDefinition(), context());
 
             expect(payload.connection.fromConnector.methods[0].label).toBe('GetObjects');
-            expect('label' in payload.connection.toConnector.methods[0]).toBeFalse();
+            expect('label' in payload.connection.fromConnector.methods[1]).toBeFalse();
         });
 
 
         it('wraps the target method in a loop over the source collection', () => {
             const { payload } = compiler.compileForCreate(incomingDefinition(), context());
-            const loop = payload.connection.toConnector.operators[0];
+            const loop = payload.connection.fromConnector.operators[0];
 
             expect(loop.type).toBe('loop');
             expect(loop.expression).toBe('for {%#FFCFB5.(response).body.$.result[*]%}');
             expect(loop.iterator).toBe('i');
-            expect(loop.condition).toBeNull();
+            expect(loop.index).toBe('1');
+            // Omitted rather than sent as null when nothing restricts the loop, as the captures show.
+            expect('condition' in loop).toBeFalse();
         });
 
 
         it('writes the source reference into the target request body', () => {
             const { payload } = compiler.compileForCreate(incomingDefinition(), context());
 
-            expect(payload.connection.toConnector.methods[0].request.body.fields.version)
+            expect(payload.connection.fromConnector.methods[1].request.body.fields.version)
                 .toBe('#FFCFB5.(response).body.$.result[0].id');
         });
 
@@ -317,35 +322,77 @@ describe('AutomationCompilerService', () => {
         });
 
 
-        it('omits the connector titles and sends id 0', () => {
+        it('carries no connection id and repeats the title as the name', () => {
             const { payload } = compiler.compileForCreate(incomingDefinition(), context());
 
-            expect('title' in payload.connection.fromConnector).toBeFalse();
-            expect('title' in payload.connection.toConnector).toBeFalse();
-            expect(payload.connection.id).toBe(0);
+            expect('connectionId' in payload.connection).toBeFalse();
+            expect(payload.connection.title).toBe('My Automation');
+            expect(payload.connection.name).toBe('My Automation');
         });
 
 
-        it('builds the visual graph with an arrow from the loop to the method', () => {
+        /*
+         * The invoker definitions used to travel inside the connection and made up most of its
+         * 300 KB. OpenCelium resolves them from the connector now, so sending them back would be
+         * both pointless and a way to resend credentials.
+         */
+        it('names the connector instead of embedding its invoker', () => {
             const { payload } = compiler.compileForCreate(incomingDefinition(), context());
+            const method = payload.connection.fromConnector.methods[0];
 
-            expect(payload.connection.fromConnector.svgItems[0].id).toBe('fromConnector_0');
-            expect(payload.connection.toConnector.svgItems[0].id).toBe('toConnector_0');
-            expect(payload.connection.toConnector.svgItems[1].id).toBe('toConnector_0_0');
-            expect(payload.connection.toConnector.arrows).toEqual([
-                { from: 'toConnector_0', to: 'toConnector_0_0' }
+            expect('invoker' in method).toBeFalse();
+            expect(method.connector).toEqual({
+                connectorId: 10,
+                title: 'i-doit Demo',
+                icon: null,
+                invokerName: 'i-doit'
+            });
+        });
+
+
+        it('builds the workflow graph the editor draws from', () => {
+            const { payload } = compiler.compileForCreate(incomingDefinition(), context());
+            const { workflowNodes, workflowEdges } = payload.connection.ui;
+
+            expect(workflowNodes.map(node => node.id))
+                .toEqual(['start-1', 'method-0', 'loop-0', 'method-1']);
+            expect(workflowNodes.map(node => node.type))
+                .toEqual(['start', 'connector', 'loop', 'connector']);
+            // The written method runs inside the loop, so it hangs below it instead of continuing.
+            expect(workflowNodes[3].position).toEqual({ x: 450, y: 348 });
+            expect(workflowEdges.map(edge => edge.id)).toEqual([
+                'edge-start-1-method-0-default-left',
+                'edge-method-0-loop-0-default-left',
+                'edge-loop-0-method-1-bottom-top'
             ]);
         });
 
 
-        it('gives a method svgItem the invoker but no error block, and the reverse for methods', () => {
+        it('repeats the graph as flowcharts and carries edge data only on create', () => {
             const { payload } = compiler.compileForCreate(incomingDefinition(), context());
-            const entity = payload.connection.fromConnector.svgItems[0].entity;
 
-            expect(entity.invoker).toBeTruthy();
-            expect('error' in entity).toBeFalse();
-            expect(payload.connection.fromConnector.methods[0].error).toEqual({ hasError: false, messages: [] });
-            expect('invoker' in payload.connection.fromConnector.methods[0]).toBeFalse();
+            expect(payload.connection.ui.flowcharts).toEqual([
+                { flowId: 'start-1', x: 120, y: 220 },
+                { flowId: 'method-0', x: 285, y: 220 },
+                { flowId: 'loop-0', x: 450, y: 220 },
+                { flowId: 'method-1', x: 450, y: 348 }
+            ]);
+            expect(payload.connection.ui.workflowEdges[0].data).toEqual({});
+            expect('data' in payload.connection.ui.flowchartEdges[0]).toBeFalse();
+        });
+
+
+        it('restates the method as the editor\'s request form reads it', () => {
+            const { payload } = compiler.compileForCreate(incomingDefinition(), context());
+            const config = payload.connection.ui.workflowNodes[1].data.methodConfig;
+            const request = payload.connection.fromConnector.methods[0].request;
+
+            expect(config.url).toBe(request.endpoint);
+            expect(config.method).toBe(request.method);
+            expect(config.body).toEqual(request.body.fields);
+            expect(config.bodyFormat).toBe('json');
+            expect(config.name).toBe('cmdb.objects.read');
+            expect(config.response.responseId).toBe('response-method-0');
         });
 
 
@@ -377,23 +424,22 @@ describe('AutomationCompilerService', () => {
     /* ---------------------------------------------------- UPDATE ----------------------------------------------------- */
 
     describe('compileForUpdate', () => {
-        it('carries the connector titles and repeats the connection id', () => {
+        it('sends the connection id and is otherwise the create payload', () => {
+            const created = compiler.compileForCreate(incomingDefinition(), context()).payload.connection;
             const { payload } = compiler.compileForUpdate(incomingDefinition(), context(), 16);
+            const { connectionId, ...rest } = payload;
 
-            expect(payload.fromConnector.title).toBe('i-doit Demo');
-            expect(payload.toConnector.title).toBe('DataGerryInternal');
-            expect(payload.id).toBe(16);
-            expect(payload.connectionId).toBe(16);
+            expect(connectionId).toBe(16);
+            // Only the edges' empty `data` separates the two bodies, as the captures show.
+            expect(JSON.stringify(rest.fromConnector)).toBe(JSON.stringify(created.fromConnector));
+            expect(rest.toConnector).toBeNull();
         });
 
 
-        it('does not resend the connector credentials', () => {
+        it('omits the edge data the create payload carries', () => {
             const { payload } = compiler.compileForUpdate(incomingDefinition(), context(), 16);
 
-            expect(payload.fromConnector.invoker.data).toBe('');
-            expect(payload.fromConnector.invoker.auth).toBe('');
-            expect(payload.toConnector.invoker.data).toBe('');
-            expect(payload.fromConnector.svgItems[0].entity.invoker.data).toBe('');
+            expect('data' in payload.ui.workflowEdges[0]).toBeFalse();
         });
 
 
@@ -426,9 +472,9 @@ describe('AutomationCompilerService', () => {
         it('reads DataGerry and writes the foreign system', () => {
             const { payload } = compiler.compileForCreate(outgoingDefinition(), context());
 
-            expect(payload.connection.fromConnector.connectorId).toBe(9);
             expect(payload.connection.fromConnector.methods[0].name).toBe('GetObjects');
-            expect(payload.connection.toConnector.connectorId).toBe(10);
+            expect(payload.connection.fromConnector.methods[0].connector.connectorId).toBe(9);
+            expect(payload.connection.fromConnector.methods[1].connector.connectorId).toBe(10);
         });
 
 
@@ -485,7 +531,7 @@ describe('AutomationCompilerService', () => {
 
             const { payload } = compiler.compileForCreate(definition, context());
 
-            expect(payload.connection.toConnector.methods[0].request.body.fields.type_id).toBe('1');
+            expect(payload.connection.fromConnector.methods[1].request.body.fields.type_id).toBe('1');
             // A literal is not read from anywhere, so it needs no binding.
             expect(payload.connection.fieldBinding.length).toBe(0);
         });
@@ -595,7 +641,7 @@ describe('AutomationCompilerService', () => {
         it('points the target request body at the borrowed field, as every bound pair does', () => {
             const { payload } = compiler.compileForCreate(adjustedConstant('value = value.trim();'), context());
 
-            expect(payload.connection.toConnector.methods[0].request.body.fields.title)
+            expect(payload.connection.fromConnector.methods[1].request.body.fields.title)
                 .toBe('#FFCFB5.(response).body.$.result[0].id');
         });
 
@@ -606,7 +652,7 @@ describe('AutomationCompilerService', () => {
                 context()
             );
 
-            expect(payload.connection.toConnector.methods[0].request.body.fields.title).toBe('hardware');
+            expect(payload.connection.fromConnector.methods[1].request.body.fields.title).toBe('hardware');
             expect(payload.connection.fieldBinding.length).toBe(0);
         });
 
@@ -614,7 +660,7 @@ describe('AutomationCompilerService', () => {
         it('warns and falls back to the literal when the adjustment has no content', () => {
             const { payload, warnings } = compiler.compileForCreate(adjustedConstant('  '), context());
 
-            expect(payload.connection.toConnector.methods[0].request.body.fields.title).toBe('hardware');
+            expect(payload.connection.fromConnector.methods[1].request.body.fields.title).toBe('hardware');
             expect(payload.connection.fieldBinding.length).toBe(0);
             expect(warnings.some(warning => warning.includes('no content'))).toBeTrue();
         });
@@ -627,7 +673,7 @@ describe('AutomationCompilerService', () => {
 
             const { payload } = compiler.compileForCreate(definition, context());
 
-            expect(payload.connection.toConnector.methods[0].request.body.fields.type_id).toBe('1');
+            expect(payload.connection.fromConnector.methods[1].request.body.fields.type_id).toBe('1');
             expect(payload.connection.fieldBinding.length).toBe(0);
         });
     });
@@ -647,12 +693,12 @@ describe('AutomationCompilerService', () => {
             };
 
             const { payload, warnings } = compiler.compileForCreate(definition, context());
-            const loop = payload.connection.toConnector.operators[0];
+            const loop = payload.connection.fromConnector.operators[0];
 
             expect(loop.condition).toContain('.includes("srv")');
             expect(loop.condition).toContain(' && ');
-            expect(payload.connection.ui.operators.length).toBe(2);
-            expect(payload.connection.ui.operators[1].items.length).toBe(2);
+            // The rule tree now rides along on the loop node instead of in a separate ui list.
+            expect(payload.connection.ui.workflowNodes[2].data.conditionConfig.tree.items.length).toBe(2);
             expect(warnings.some(warning => warning.includes('condition'))).toBeTrue();
         });
 
@@ -667,27 +713,22 @@ describe('AutomationCompilerService', () => {
 
             const { payload } = compiler.compileForCreate(definition, context());
 
-            expect(payload.connection.toConnector.operators[0].condition?.startsWith('!')).toBeTrue();
+            expect(payload.connection.fromConnector.operators[0].condition?.startsWith('!')).toBeTrue();
         });
     });
 
-    /* ------------------------------------------------- UI OPERATORS --------------------------------------------------- */
+    /* --------------------------------------------------- LOOP NODE ---------------------------------------------------- */
 
-    it('mirrors the loop as a rule-builder group', () => {
+    it('restates the loop on its node, with an untouched condition tree', () => {
         const { payload } = compiler.compileForCreate(incomingDefinition(), context());
-        const group = payload.connection.ui.operators[0];
+        const loopNode = payload.connection.ui.workflowNodes[2];
+        const loop = payload.connection.fromConnector.operators[0];
 
-        expect(group.id).toBe(payload.connection.toConnector.operators[0].uiId);
-        expect(group.items[0].properties.operator).toBe('for');
-        expect(group.items[0].properties.leftField).toBe('{%#FFCFB5.(response).body.$.result[*]%}');
-    });
-
-
-    it('marks the connection as an expert-mode, editable connection', () => {
-        const { payload } = compiler.compileForCreate(incomingDefinition(), context());
-
-        expect(payload.connection.template).toEqual({ mode: 'expert', templateId: -1, label: '' });
-        expect(payload.connection.readOnly).toBeFalse();
-        expect(payload.connection.categoryId).toBeNull();
+        expect(loopNode.id).toBe(loop.id);
+        expect(loopNode.index).toBe(loop.index);
+        expect(loopNode.data.conditionConfig.expression).toBe(loop.expression);
+        expect(loopNode.data.conditionConfig.iterator).toBe('i');
+        expect(loopNode.data.conditionConfig.tree)
+            .toEqual({ id: '0-group', type: 'group', properties: { not: false }, items: [] });
     });
 });

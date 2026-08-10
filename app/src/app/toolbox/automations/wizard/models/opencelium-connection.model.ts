@@ -26,9 +26,14 @@
  * OpenCelium's data model - the compiler produces it, the JSON preview renders it, nothing else
  * touches it.
  *
- * Note the two endpoints differ in shape:
- *   POST /rest/open_celium/schedulers      -> { connection, scheduler }, connectors carry no title
- *   PUT  /rest/open_celium/connections/:id -> the flat connection, connectors carry a title
+ * Both endpoints send the same connection; only the wrapping differs:
+ *   POST /rest/open_celium/schedulers      -> { connection, scheduler }
+ *   PUT  /rest/open_celium/connections/:id -> the flat connection, plus `connectionId`
+ *
+ * The connection itself no longer carries the connectors' invoker definitions. Methods name their
+ * connector, OpenCelium resolves the rest, and both systems' methods live in one list under
+ * `fromConnector` while `toConnector` stays null. That is why a payload that used to weigh 300 KB
+ * now weighs 20 KB.
  */
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -51,26 +56,34 @@ export const OC_METHOD_COLORS: ReadonlyArray<string> = [
     '#9AD0C2'
 ];
 
-/** Geometry of the connection graph, mirroring the reference payloads exactly. */
-export const OC_LAYOUT = {
-    methodWidth: 130,
-    methodHeight: 80,
-    operatorWidth: 60,
-    operatorHeight: 60,
-    sourceMethodX: 0,
-    sourceMethodY: 0,
-    targetOperatorX: 515,
-    targetOperatorY: 10,
-    targetMethodX: 480,
-    targetMethodY: 150
+/**
+ * Geometry of the workflow graph, mirroring the reference payloads exactly.
+ *
+ * The nodes sit on one row a fixed step apart; a method that runs inside a loop drops below the
+ * loop rather than continuing the row. OpenCelium lets the user rearrange this afterwards, so the
+ * numbers only have to produce a readable starting point.
+ */
+export const OC_UI_LAYOUT = {
+    viewport: { x: 80, y: -80, zoom: 1 },
+    startX: 120,
+    stepX: 165,
+    rowY: 220,
+    branchDy: 128
 } as const;
 
-/** Connector side identifiers used in svgItem ids and connectorType. */
-export const OC_FROM_CONNECTOR = 'fromConnector';
-export const OC_TO_CONNECTOR = 'toConnector';
+/**
+ * The single connector slot that now carries every method.
+ *
+ * OpenCelium stopped splitting a connection into a reading and a writing connector; the methods
+ * name their own connector instead, and this placeholder holds them all.
+ */
+export const OC_DEFAULT_CONNECTOR_ID = -1;
+export const OC_DEFAULT_CONNECTOR_TITLE = 'DEFAULT';
 
-/** The wizard always emits expert-mode connections; it does not use OpenCelium templates. */
-export const OC_EXPERT_TEMPLATE = { mode: 'expert', templateId: -1, label: '' } as const;
+/** Execution-tree positions: the source runs first, the loop wraps the target method. */
+export const OC_SOURCE_INDEX = '0';
+export const OC_LOOP_INDEX = '1';
+export const OC_TARGET_INDEX = '1_0';
 
 /** Scheduler status values OpenCelium expects (1 = active). */
 export const OC_SCHEDULER_ACTIVE = 1;
@@ -80,79 +93,58 @@ export const OC_SCHEDULER_INACTIVE = 0;
 /*                                                       SHAPES                                                       */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-export interface OcError {
-    hasError: boolean;
-    messages: string[];
+/** How a method names the connector it runs against, in place of the old embedded invoker. */
+export interface OcConnectorRef {
+    connectorId: number;
+    title: string;
+    icon: string | null;
+    invokerName: string;
+
+    /** Present on connectors OpenCelium has tested; passed through when it is. */
+    lastTestPassed?: boolean;
 }
 
 
 export interface OcMethod {
+    /** Node identity, shared with the ui block: 'method-0', 'method-1'. */
+    id: string;
     name: string;
+
+    /** Omitted rather than sent as null when the method has no label, as the captures show. */
+    label?: string;
+
+    /** Position in the execution tree: '0' for the source, '1_0' for a method inside the loop. */
+    index: string;
+    methodType: 'CONNECTOR';
+    dataAggregator: null;
+    color: string;
+    connector: OcConnectorRef;
     request: any;
     response: any;
-    dataAggregator: null;
-
-    /** Position in the execution tree: '0' for the source, '0_0' for a target method in a loop. */
-    index: string;
-    label: string | null;
-    color: string;
-    error: OcError;
 }
 
 
 export interface OcOperator {
+    /** Node identity, shared with the ui block: 'loop-0'. */
+    id: string;
     index: string;
     type: 'loop' | 'if';
-    condition: string | null;
-
-    /** e.g. for {%#FFCFB5.(response).body.$.result[*]%} */
-    expression: string;
-    uiId: string;
     dataAggregator: null;
+
+    /** e.g. for {%#FFCFB5.(response).body.$.results[*]%} */
+    expression: string;
     iterator: string;
-    error: OcError;
-}
 
-
-export interface OcSvgItem {
-    id: string;
-    name?: string;
-    type?: string;
-    label?: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    isDragged: boolean;
-    isDraggedForCopy: boolean;
-    isAvailableForDragging: boolean;
-    isSelectedAll: boolean;
-    connectorType: string;
-    invoker: null;
-    entity: any;
-    items?: OcSvgItem[];
-    arrows?: OcArrow[];
-}
-
-
-export interface OcArrow {
-    from: string;
-    to: string;
+    /** Only sent when the automation restricts which objects take part. */
+    condition?: string;
 }
 
 
 export interface OcConnectorSide {
-    invoker: any;
     connectorId: number;
+    title: string;
     methods: OcMethod[];
-    icon: string;
     operators: OcOperator[];
-
-    /** Only present on the PUT /connections payload, omitted on POST /schedulers. */
-    title?: string;
-    currentItemIndex: string;
-    svgItems: OcSvgItem[];
-    arrows: OcArrow[];
 }
 
 
@@ -203,17 +195,71 @@ export interface OcUiGroup {
 }
 
 
+export interface OcWorkflowNode {
+    id: string;
+    type: 'start' | 'connector' | 'loop';
+    position: { x: number; y: number };
+
+    /** Mirrors the method's or operator's execution index; absent on the start node. */
+    index?: string;
+    data: any;
+    draggable?: boolean;
+    deletable?: boolean;
+}
+
+
+export interface OcWorkflowEdge {
+    id: string;
+    source: string;
+    target: string;
+
+    /** Absent when the edge leaves the node's default side. */
+    sourceHandle?: string;
+    targetHandle: string;
+    type: 'workflow-edge';
+
+    /** The create capture carries an empty object here, the update capture omits the key. */
+    data?: Record<string, never>;
+}
+
+
+export interface OcFlowchart {
+    flowId: string;
+    x: number;
+    y: number;
+}
+
+
+export type OcFlowchartEdge = Omit<OcWorkflowEdge, 'type' | 'data'>;
+
+
+/**
+ * The workflow graph.
+ *
+ * `workflowNodes`/`workflowEdges` drive the editor; `flowcharts`/`flowchartEdges` repeat the same
+ * graph reduced to positions and links. Both are sent, as the captures show.
+ */
+export interface OcUi {
+    viewport: { x: number; y: number; zoom: number };
+    workflowNodes: OcWorkflowNode[];
+    workflowEdges: OcWorkflowEdge[];
+    flowcharts: OcFlowchart[];
+    flowchartEdges: OcFlowchartEdge[];
+}
+
+
 export interface OcConnection {
     title: string;
+
+    /** Repeats the title. OpenCelium sends both and rejects a connection that carries only one. */
+    name: string;
     description: string;
-    fromConnector: OcConnectorSide;
-    toConnector: OcConnectorSide;
     fieldBinding: OcFieldBinding[];
-    categoryId: number | null;
-    ui: { operators: OcUiGroup[] };
-    id: number;
-    template: typeof OC_EXPERT_TEMPLATE;
-    readOnly: boolean;
+    fromConnector: OcConnectorSide;
+
+    /** Always null: a connection no longer has a second connector side. */
+    toConnector: null;
+    ui: OcUi;
 
     /** Only present on the PUT /connections payload. */
     connectionId?: number;
@@ -275,6 +321,23 @@ export function ocCollectionElementPath(arrayPath: string, field: string): strin
 }
 
 
-export function ocEmptyError(): OcError {
-    return { hasError: false, messages: [] };
+/** Node and edge identities, shared between the connection body and its ui block. */
+export function ocMethodNodeId(position: number): string {
+    return `method-${position}`;
+}
+
+
+export function ocLoopNodeId(position: number): string {
+    return `loop-${position}`;
+}
+
+
+/**
+ * Edge identity, built from what the edge connects.
+ *
+ * The captures spell out the handles in the id - 'default' standing in for a source handle that is
+ * not set - so the same edge always gets the same id.
+ */
+export function ocEdgeId(edge: { source: string; target: string; sourceHandle?: string; targetHandle: string }): string {
+    return `edge-${edge.source}-${edge.target}-${edge.sourceHandle ?? 'default'}-${edge.targetHandle}`;
 }
