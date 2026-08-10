@@ -831,40 +831,112 @@ describe('AutomationCompilerService', () => {
 
     /* -------------------------------------------------- CONDITIONS ---------------------------------------------------- */
 
+    /*
+     * These used to compile to JavaScript - `.includes("srv")` and the like - written into the
+     * loop's `condition`. OpenCelium's engine reads neither: it evaluates `expression`, in its own
+     * language, and `condition` is a different shape it never looks at. So the restriction did
+     * nothing at all, quietly, on every automation that used one.
+     */
     describe('conditions', () => {
-        it('compiles rules into the loop condition and mirrors them in ui.operators', () => {
+        function restricted(rules: any[], combinator: 'and' | 'or' = 'and', negate = false): AutomationDefinition {
             const definition = incomingDefinition();
-            definition.conditions = {
-                combinator: 'and',
-                negate: false,
-                rules: [
-                    { field: 'title', operator: 'contains', value: 'srv' },
-                    { field: 'sysid', operator: 'is_not_empty', value: '' }
-                ]
-            };
+            definition.conditions = { combinator, negate, rules };
 
-            const { payload, warnings } = compiler.compileForCreate(definition, context());
-            const loop = payload.connection.fromConnector.operators[0];
+            return definition;
+        }
 
-            expect(loop.condition).toContain('.includes("srv")');
-            expect(loop.condition).toContain(' && ');
-            // The rule tree now rides along on the loop node instead of in a separate ui list.
-            expect(payload.connection.ui.workflowNodes[2].data.conditionConfig.tree.items.length).toBe(2);
-            expect(warnings.some(warning => warning.includes('condition'))).toBeTrue();
+
+        it('restricts the loop with an `if` of its own rather than a property of the loop', () => {
+            const { payload } = compiler.compileForCreate(
+                restricted([{ field: 'title', operator: 'equals', value: 'srv01' }]), context()
+            );
+            const [loop, gate] = payload.connection.fromConnector.operators;
+
+            expect(loop.type).toBe('loop');
+            expect(loop.expression).toBe('for {%#FFCFB5.(response).body.$.result[*]%}');
+            expect('condition' in loop).toBeFalse();
+
+            expect(gate.type).toBe('if');
+            expect(gate.index).toBe('1_0');
+            expect(gate.expression).toBe('({%#FFCFB5.(response).body.$.result[i].title%} = "srv01")');
+        });
+
+
+        it('moves everything the loop does inside that `if`', () => {
+            const plain = compiler.compileForCreate(incomingDefinition(), context()).payload;
+            const gated = compiler.compileForCreate(
+                restricted([{ field: 'title', operator: 'equals', value: 'x' }]), context()
+            ).payload;
+
+            expect(plain.connection.fromConnector.methods[1].index).toBe('1_0');
+            expect(gated.connection.fromConnector.methods[1].index).toBe('1_0_0');
+        });
+
+
+        it('joins rules with the engine\'s own combinators', () => {
+            const { payload } = compiler.compileForCreate(restricted([
+                { field: 'title', operator: 'contains', value: 'srv' },
+                { field: 'sysid', operator: 'is_not_empty', value: '' }
+            ]), context());
+            const gate = payload.connection.fromConnector.operators[1];
+
+            expect(gate.expression).toContain(' && ');
+            expect(gate.expression).toContain('Like "%srv%"');
+            expect(gate.expression).toContain('NotNull');
+        });
+
+
+        /* Contains works on lists in the engine and throws on a string, so text uses Like. */
+        it('maps a text comparison onto Like rather than Contains', () => {
+            const { payload } = compiler.compileForCreate(
+                restricted([{ field: 'title', operator: 'starts_with', value: 'SRV-' }]), context()
+            );
+
+            expect(payload.connection.fromConnector.operators[1].expression)
+                .toBe('({%#FFCFB5.(response).body.$.result[i].title%} Like "SRV-%")');
+        });
+
+
+        /* A field can be empty by being absent or by holding "", and the engine separates them. */
+        it('treats an absent value and an empty one as the same kind of empty', () => {
+            const { payload } = compiler.compileForCreate(
+                restricted([{ field: 'title', operator: 'is_empty', value: '' }]), context()
+            );
+
+            expect(payload.connection.fromConnector.operators[1].expression)
+                .toBe('(({%#FFCFB5.(response).body.$.result[i].title%} IsNull) '
+                    + '|| ({%#FFCFB5.(response).body.$.result[i].title%} = ""))');
         });
 
 
         it('negates the whole expression when the group is negated', () => {
-            const definition = incomingDefinition();
-            definition.conditions = {
-                combinator: 'or',
-                negate: true,
-                rules: [{ field: 'title', operator: 'equals', value: 'x' }]
-            };
+            const { payload } = compiler.compileForCreate(
+                restricted([{ field: 'title', operator: 'equals', value: 'x' }], 'or', true), context()
+            );
 
-            const { payload } = compiler.compileForCreate(definition, context());
+            expect(payload.connection.fromConnector.operators[1].expression.startsWith('!(')).toBeTrue();
+        });
 
-            expect(payload.connection.fromConnector.operators[0].condition?.startsWith('!')).toBeTrue();
+
+        it('carries the rules into the node the editor draws', () => {
+            const { payload } = compiler.compileForCreate(restricted([
+                { field: 'title', operator: 'contains', value: 'srv' },
+                { field: 'sysid', operator: 'is_not_empty', value: '' }
+            ]), context());
+            const gateNode = payload.connection.ui.workflowNodes
+                .find(node => node.id === payload.connection.fromConnector.operators[1].id);
+
+            expect(gateNode.data.conditionConfig.tree.items.length).toBe(2);
+            expect(gateNode.data.conditionConfig.expression)
+                .toBe(payload.connection.fromConnector.operators[1].expression);
+        });
+
+
+        it('leaves an unrestricted automation without a gate', () => {
+            const { payload } = compiler.compileForCreate(incomingDefinition(), context());
+
+            expect(payload.connection.fromConnector.operators.map(operator => operator.type))
+                .toEqual(['loop']);
         });
     });
 

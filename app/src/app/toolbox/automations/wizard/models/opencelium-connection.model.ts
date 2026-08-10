@@ -149,14 +149,17 @@ export interface OcOperator {
     type: 'loop' | 'if';
     dataAggregator: null;
 
-    /** e.g. for {%#FFCFB5.(response).body.$.results[*]%} */
+    /**
+     * What the operator does, in OpenCelium's expression language.
+     *
+     * The only field its engine reads: a loop walks `for {%...%}`, an `if` evaluates a condition.
+     * The `condition` field that used to sit beside this is a different shape entirely and nothing
+     * in the execution path looks at it, so nothing is written there.
+     */
     expression: string;
 
     /** Null on an `if`, which walks nothing. */
     iterator: string | null;
-
-    /** Only sent when the automation restricts which objects take part. */
-    condition?: string;
 }
 
 
@@ -357,7 +360,7 @@ export function ocLoopNodeId(position: number): string {
 }
 
 
-export function ocIfNodeId(position: number): string {
+export function ocIfNodeId(position: number | string): string {
     return `if-${position}`;
 }
 

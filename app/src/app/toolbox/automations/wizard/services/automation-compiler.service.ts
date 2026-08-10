@@ -315,6 +315,10 @@ export class AutomationCompilerService {
             { id: loop.id, kind: 'loop', parent: sourceMethod.id, operator: loop }
         ];
 
+        // A restriction on which objects take part is an `if` of its own inside the loop, not a
+        // property of the loop: the loop's expression is the collection it walks, and the engine
+        // reads nothing else. Everything the loop does then hangs off that gate instead.
+        const container = this.buildConditionGate(definition, sides, loop, operators, graph);
         const plan = this.planBranches(definition);
 
         if (plan.length === 0) {
@@ -324,32 +328,18 @@ export class AutomationCompilerService {
                 sides.target,
                 sides.targetConnector,
                 ocMethodNodeId(1),
-                OC_TARGET_INDEX,
+                `${container.index}_0`,
                 palette[1],
                 null
             );
 
             methods.push(writeMethod);
             bindings.push(...this.buildFieldBindings(definition, context, sides, writeMethod, warnings));
-            graph.push({ id: writeMethod.id, kind: 'method', parent: loop.id, method: writeMethod, below: true });
+            graph.push({ id: writeMethod.id, kind: 'method', parent: container.id, method: writeMethod, below: true });
         } else {
             this.buildMatchedBranches(definition, context, sides, plan, {
-                palette, methods, operators, bindings, graph, loop, warnings
+                palette, methods, operators, bindings, graph, container, warnings
             });
-        }
-
-        let conditionTree: OcUiGroup = this.emptyConditionTree();
-
-        if (definition.conditions.rules.length > 0) {
-            warnings.push(
-                'Conditions are compiled into the loop operator\'s condition. No reference payload '
-                + 'covers a populated condition yet, so run the test step before activating.'
-            );
-            loop.condition = this.buildConditionExpression(
-                definition.conditions,
-                sides.source.responseArrayPath
-            );
-            conditionTree = this.buildConditionUiGroup(this.uuid(), definition.conditions);
         }
 
         return {
@@ -364,13 +354,59 @@ export class AutomationCompilerService {
                 operators
             },
             toConnector: null,
-            ui: this.buildUi(graph, conditionTree, withEdgeData)
+            ui: this.buildUi(graph, withEdgeData)
         };
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                       MATCHING                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+    /**
+     * The `if` that restricts which objects take part, when the user asked for one.
+     *
+     * Returns whatever the loop's children should hang off: the gate when there is one, the loop
+     * itself otherwise. The rule tree is handed to the node rather than parsed back out of the
+     * expression, because a group of rules does not read back from a single string.
+     */
+    private buildConditionGate(
+        definition: AutomationDefinition,
+        sides: ResolvedSides,
+        loop: OcOperator,
+        operators: OcOperator[],
+        graph: GraphNode[]
+    ): { id: string; index: string } {
+        const expression = this.buildConditionExpression(
+            definition.conditions,
+            sides.source!.responseArrayPath
+        );
+
+        if (!expression) {
+            return { id: loop.id, index: loop.index };
+        }
+
+        const gate: OcOperator = {
+            id: ocIfNodeId('gate'),
+            index: `${loop.index}_0`,
+            type: 'if',
+            dataAggregator: null,
+            expression,
+            iterator: null
+        };
+
+        operators.push(gate);
+        graph.push({
+            id: gate.id,
+            kind: 'if',
+            parent: loop.id,
+            operator: gate,
+            below: true,
+            tree: this.buildConditionUiGroup(gate.id, definition.conditions)
+        });
+
+        return { id: gate.id, index: gate.index };
+    }
+
 
     /**
      * The branches the automation needs, in the order they are laid out.
@@ -413,7 +449,7 @@ export class AutomationCompilerService {
         plan: PlannedBranch[],
         out: BranchBuildContext
     ): void {
-        const { palette, methods, operators, bindings, graph, loop, warnings } = out;
+        const { palette, methods, operators, bindings, graph, container, warnings } = out;
         const lookup = this.resolveLookup(sides, warnings);
 
         if (!lookup) {
@@ -424,14 +460,14 @@ export class AutomationCompilerService {
             lookup,
             sides.targetConnector,
             ocMethodNodeId(methods.length),
-            `${loop.index}_0`,
+            `${container.index}_0`,
             palette[methods.length % palette.length],
             null
         );
 
         methods.push(lookupMethod);
         graph.push({
-            id: lookupMethod.id, kind: 'method', parent: loop.id, method: lookupMethod, below: true
+            id: lookupMethod.id, kind: 'method', parent: container.id, method: lookupMethod, below: true
         });
         this.bindLookupFilter(definition, context, sides, lookup, lookupMethod, bindings, warnings);
 
@@ -446,7 +482,7 @@ export class AutomationCompilerService {
 
             const conditional = this.buildIfOperator(
                 ocIfNodeId(position),
-                `${loop.index}_${position + 1}`,
+                `${container.index}_${position + 1}`,
                 lookupMethod.color,
                 lookup.responseArrayPath,
                 branch.presence
@@ -1148,48 +1184,72 @@ export class AutomationCompilerService {
      * Kept in one place because the condition syntax is derived from the operator schema rather than
      * from a reference payload; if OpenCelium expects something else, only this method changes.
      */
+    /**
+     * The user's conditions, in the language OpenCelium's expression parser reads.
+     *
+     * Not JavaScript, which is what this produced before and what nothing on the other side could
+     * evaluate. Operands are references wrapped in {%...%} or quoted literals; operators come from
+     * the engine's own RelationalOperator vocabulary; terms are parenthesised and joined with &&
+     * or ||, exactly as its parser tests spell out.
+     */
     private buildConditionExpression(group: AutomationConditionGroup, arrayPath: string): string {
         const joiner = group.combinator === 'and' ? ' && ' : ' || ';
-        const parts = group.rules.map(rule => {
-            const left = `{%${ocFieldReference(
+        const parts = group.rules.map(rule => this.renderRule(
+            `{%${ocFieldReference(
                 AutomationCompilerService.SOURCE_COLOR,
                 'response',
                 ocCollectionElementPath(arrayPath, rule.field)
-            )}%}`;
+            )}%}`,
+            rule.operator,
+            rule.value
+        ));
 
-            return this.renderRule(left, rule.operator, rule.value);
-        });
+        if (parts.length === 0) {
+            return '';
+        }
 
-        const expression = parts.length > 1 ? `(${parts.join(joiner)})` : parts.join(joiner);
+        const expression = parts.length > 1 ? `(${parts.join(joiner)})` : parts[0];
 
-        return group.negate ? `!${expression}` : expression;
+        return group.negate ? `!(${expression})` : expression;
     }
 
 
+    /**
+     * One rule as a parenthesised term.
+     *
+     * Two of the mappings are worth knowing about. A "contains" on text becomes `Like "%v%"` rather
+     * than `Contains`, because the engine's Contains works on a list and would throw on a string.
+     * And "is empty" becomes two terms, because a field can be empty by being absent or by holding
+     * an empty string, and the engine treats those as different things.
+     */
     private renderRule(left: string, operator: AutomationRuleOperator, value: string): string {
+        const text = `"${(value ?? '').replace(/"/g, '\\"')}"`;
+        const number = Number(value);
+        const numeric = Number.isFinite(number) ? String(number) : '0';
+
         switch (operator) {
             case 'equals':
-                return `${left} == "${value}"`;
+                return `(${left} = ${text})`;
             case 'not_equals':
-                return `${left} != "${value}"`;
+                return `(${left} != ${text})`;
             case 'contains':
-                return `${left}.includes("${value}")`;
+                return `(${left} Like "%${value}%")`;
             case 'not_contains':
-                return `!${left}.includes("${value}")`;
+                return `(${left} NotLike "%${value}%")`;
             case 'starts_with':
-                return `${left}.startsWith("${value}")`;
+                return `(${left} Like "${value}%")`;
             case 'ends_with':
-                return `${left}.endsWith("${value}")`;
+                return `(${left} Like "%${value}")`;
             case 'is_empty':
-                return `${left} == ""`;
+                return `((${left} IsNull) || (${left} = ""))`;
             case 'is_not_empty':
-                return `${left} != ""`;
+                return `((${left} NotNull) && (${left} != ""))`;
             case 'greater_than':
-                return `${left} > ${Number(value) || 0}`;
+                return `(${left} > ${numeric})`;
             case 'less_than':
-                return `${left} < ${Number(value) || 0}`;
+                return `(${left} < ${numeric})`;
             default:
-                return `${left} == "${value}"`;
+                return `(${left} = ${text})`;
         }
     }
 
@@ -1202,11 +1262,11 @@ export class AutomationCompilerService {
 
     private buildConditionUiGroup(uiId: string, group: AutomationConditionGroup): OcUiGroup {
         return {
-            id: uiId,
+            id: `${uiId}-group`,
             type: 'group',
             properties: { not: group.negate },
-            items: group.rules.map(rule => ({
-                id: this.uuid(),
+            items: group.rules.map((rule, position) => ({
+                id: `${uiId}-rule-${position}`,
                 type: 'rule' as const,
                 properties: {
                     operator: rule.operator,
@@ -1229,9 +1289,9 @@ export class AutomationCompilerService {
      * graph is sent twice - once fully as `workflowNodes`/`workflowEdges`, once reduced to positions
      * as `flowcharts`/`flowchartEdges` - which is what the captures show.
      */
-    private buildUi(graph: GraphNode[], loopTree: OcUiGroup, withEdgeData: boolean): OcUi {
+    private buildUi(graph: GraphNode[], withEdgeData: boolean): OcUi {
         const positions = this.layout(graph);
-        const nodes = graph.map(node => this.workflowNode(node, positions.get(node.id)!, loopTree));
+        const nodes = graph.map(node => this.workflowNode(node, positions.get(node.id)!));
         const edges = graph
             .filter(node => node.parent)
             .map(node => this.edge(node));
@@ -1279,11 +1339,7 @@ export class AutomationCompilerService {
     }
 
 
-    private workflowNode(
-        node: GraphNode,
-        position: { x: number; y: number },
-        loopTree: OcUiGroup
-    ): OcWorkflowNode {
+    private workflowNode(node: GraphNode, position: { x: number; y: number }): OcWorkflowNode {
         if (node.kind === 'start') {
             return {
                 id: node.id,
@@ -1313,7 +1369,7 @@ export class AutomationCompilerService {
                     kind: 'loop',
                     conditionConfig: {
                         operatorType: 'loop',
-                        tree: loopTree,
+                        tree: node.tree ?? this.emptyConditionTree(),
                         expression: operator.expression,
                         iterator: operator.iterator
                     }
@@ -1323,7 +1379,7 @@ export class AutomationCompilerService {
                     kind: 'if',
                     conditionConfig: {
                         operatorType: 'if',
-                        tree: this.presenceTree(operator),
+                        tree: node.tree ?? this.presenceTree(operator),
                         expression: operator.expression
                     }
                 }
@@ -1576,6 +1632,9 @@ interface GraphNode {
 
     /** Which exit of an `if` parent leads here. */
     branch?: 'true' | 'false';
+
+    /** Rule tree for an `if` whose expression does not read back as a single rule. */
+    tree?: OcUiGroup;
 }
 
 
@@ -1586,7 +1645,9 @@ interface BranchBuildContext {
     operators: OcOperator[];
     bindings: OcFieldBinding[];
     graph: GraphNode[];
-    loop: OcOperator;
+
+    /** What the loop's children hang off - the loop, or the gate that restricts it. */
+    container: { id: string; index: string };
     warnings: string[];
 }
 
