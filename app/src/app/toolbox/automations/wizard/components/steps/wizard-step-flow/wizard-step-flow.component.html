@@ -2,7 +2,7 @@
   <h5 class="wizard-section__title">What happens in {{ systemName }}</h5>
   <p class="wizard-section__hint">
     The calls as they will be made. Reading from and writing to DataGerry is built from the object
-    type and its fields, so it does not appear here. Open a step to see what it sends.
+    type and its fields, so it does not appear here.
   </p>
 
   @if (!connection) {
@@ -10,174 +10,207 @@
       Nothing to show yet — finish the connection, or resolve what the review step reports.
     </p>
   } @else {
-    <ol class="flow">
-      @for (step of steps; track step.id) {
-        <li>
+    <div class="panes">
+
+      <!-- ---------------------------------------------------------------- tree -->
+      <div class="panes__tree">
+        <ol class="tree">
+          @for (step of steps; track step.id) {
+            <li>
+              <button
+                type="button"
+                class="tree__row"
+                [class.is-selected]="isSelected(step)"
+                [attr.data-depth]="step.depth"
+                [attr.aria-current]="isSelected(step)"
+                (click)="select(step)">
+                <span class="tree__marker" [class.is-branch]="step.kind === 'if'">
+                  @if (step.kind === 'if') { ? } @else { {{ $index + 1 }} }
+                </span>
+
+                <span class="tree__main">
+                  <span class="tree__title">{{ step.title }}</span>
+                  <span class="tree__detail">{{ step.detail }}</span>
+                </span>
+
+                @if (isAdded(step)) {
+                  <span class="tree__tag" title="Added by hand">added</span>
+                } @else if (isChanged(step)) {
+                  <span class="tree__tag" title="Changed by hand">edited</span>
+                }
+              </button>
+            </li>
+          }
+        </ol>
+
+        @if (adding) {
+          <div class="tree__add">
+            <app-form-select
+              label=""
+              placeholder="Which call?"
+              [items]="targetOperations"
+              [ngModel]="null"
+              (ngModelChange)="onAddCall($event)">
+            </app-form-select>
+            <p class="wizard-section__hint mb-0">
+              Runs right after <strong>{{ selected?.title }}</strong>, inside the same branch.
+            </p>
+          </div>
+        } @else {
           <button
             type="button"
-            class="flow__row"
-            [class.is-open]="openStep === step.id"
-            [attr.data-depth]="step.depth"
-            [attr.aria-expanded]="openStep === step.id"
-            (click)="toggle(step)">
-            <span class="flow__marker" [class.is-branch]="step.kind === 'if'">
-              @if (step.kind === 'if') { ? } @else { {{ $index + 1 }} }
-            </span>
+            class="tree__addbtn"
+            [disabled]="targetOperations.length === 0 || selected?.kind !== 'call'"
+            [title]="selected?.kind === 'call'
+              ? 'Runs after the selected step'
+              : 'Select a call first — a step cannot follow a branch itself'"
+            (click)="startAdding()">
+            + Add a call in the target system
+          </button>
+        }
+      </div>
 
-            <span class="flow__main">
-              <span class="flow__title">{{ step.title }}</span>
-              <span class="flow__detail">
+      <!-- -------------------------------------------------------------- detail -->
+      <div class="panes__detail">
+        @if (selected; as step) {
+          <div class="detail__head">
+            <div>
+              <div class="detail__title">{{ step.title }}</div>
+              <div class="detail__sub">
                 {{ step.detail }}
                 @if (step.system) { · {{ step.system }} }
-              </span>
-            </span>
-
-            <span class="flow__index">
-              @if (isAdded(step)) {
-                <span class="flow__changed" title="Added by hand">added</span>
-              } @else if (isChanged(step)) {
-                <span class="flow__changed" title="Changed by hand">edited</span>
-              }
-              {{ step.index }}
-            </span>
-          </button>
-
-          @if (openStep === step.id) {
-            <div class="wire">
-              @if (step.kind === 'if') {
-                <div class="wire__block">
-                  <div class="wire__label">Condition</div>
-                  <pre class="wire__code">{{ step.expression }}</pre>
-                  <p class="wizard-section__hint mb-0">
-                    Everything set back below this line runs only when it holds.
-                  </p>
-                </div>
-              } @else {
-                <div class="wire__block">
-                  <div class="wire__label">Address</div>
-                  <div class="wire__url">
-                    <span class="wire__verb">{{ verbOf(step) }}</span>
-                    <input
-                      type="text"
-                      class="form-control form-control-sm wire__input"
-                      [value]="endpointOf(step)"
-                      (change)="onEditEndpoint(step, $any($event.target).value)">
-                  </div>
-                </div>
-
-                @if (headersOf(step).length > 0) {
-                  <div class="wire__block">
-                    <div class="wire__label">Headers</div>
-                    <table class="wire__table">
-                      @for (pair of headersOf(step); track pair.key) {
-                        <tr>
-                          <td class="wire__key">{{ pair.key }}</td>
-                          <td>
-                            <input
-                              type="text"
-                              class="form-control form-control-sm wire__input"
-                              [class.is-changed]="pair.changed"
-                              [value]="pair.value"
-                              (change)="onEdit(step, 'headers', pair.key, $any($event.target).value)">
-                          </td>
-                        </tr>
-                      }
-                    </table>
-                  </div>
-                }
-
-                @if (bodyOf(step).length > 0) {
-                  <div class="wire__block">
-                    <div class="wire__label">Body</div>
-                    <table class="wire__table">
-                      @for (pair of bodyOf(step); track pair.key) {
-                        <tr>
-                          <td class="wire__key">{{ pair.key }}</td>
-                          <td>
-                            @if (pair.bound || pair.reference) {
-                              <span
-                                class="wire__ref"
-                                title="Written by the field assignment - change it there">{{ pair.value }}</span>
-                            } @else {
-                              <input
-                                type="text"
-                                class="form-control form-control-sm wire__input"
-                                [class.is-changed]="pair.changed"
-                                [value]="pair.value"
-                                (change)="onEdit(step, 'body', pair.key, $any($event.target).value)">
-                            }
-                          </td>
-                        </tr>
-                      }
-                    </table>
-                    <p class="wizard-section__hint mb-0">
-                      Marked values come from the field assignment and are changed there. The rest
-                      can be edited here — a foreign API often wants something no field covers.
-                    </p>
-                  </div>
-                }
-              }
-
-              @if (isAdded(step) && idCandidatesOf(step).length > 0) {
-                <div class="wire__block">
-                  <div class="wire__label">Identifier of the object before it</div>
-                  <app-form-select
-                    label=""
-                    placeholder="Not used"
-                    [items]="idCandidatesOf(step)"
-                    [ngModel]="parentIdPathOf(step)"
-                    (ngModelChange)="onUseParentId(step, $event)">
-                  </app-form-select>
-                  <p class="wizard-section__hint mb-0">
-                    The object this call belongs to was created or found by the step before it, so
-                    until then it had no identifier to name.
-                  </p>
-                </div>
-              }
-
-              <div class="wire__foot">
-                @if (isAdded(step)) {
-                  <button type="button" class="btn btn-link btn-sm" (click)="onRemoveCall(step)">
-                    <i class="fas fa-times me-1"></i> Remove this call
-                  </button>
-                } @else if (isChanged(step)) {
-                  <button type="button" class="btn btn-link btn-sm" (click)="onResetCall(step)">
-                    <i class="fas fa-rotate-left me-1"></i> Undo the changes to this call
-                  </button>
-                }
-
-                @if (step.kind === 'call' && targetOperations.length > 0) {
-                  <button type="button" class="btn btn-link btn-sm" (click)="startAdding(step)">
-                    <i class="fas fa-plus me-1"></i> Add a call after this one
-                  </button>
-                }
+                · position {{ step.index }}
               </div>
+            </div>
 
-              @if (adding === step.index) {
-                <div class="wire__block">
-                  <div class="wire__label">Which call?</div>
-                  <app-form-select
-                    label=""
-                    placeholder="Choose an operation"
-                    [items]="targetOperations"
-                    [ngModel]="null"
-                    (ngModelChange)="onAddCall(step.index, $event)">
-                  </app-form-select>
-                  <p class="wizard-section__hint mb-0">
-                    It runs right after this step, inside the same branch — so only when this step
-                    runs at all.
-                  </p>
-                </div>
+            <div class="detail__tools">
+              @if (isAdded(step)) {
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  [disabled]="!canMove(step, -1)"
+                  title="Run it after the previous call instead"
+                  (click)="onMoveCall(step, -1)">
+                  <i class="fas fa-arrow-up"></i>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  [disabled]="!canMove(step, 1)"
+                  title="Run it after the next call instead"
+                  (click)="onMoveCall(step, 1)">
+                  <i class="fas fa-arrow-down"></i>
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" (click)="onRemoveCall(step)">
+                  <i class="fas fa-times me-1"></i> Remove
+                </button>
+              } @else if (isChanged(step)) {
+                <button type="button" class="btn btn-secondary btn-sm" (click)="onResetCall(step)">
+                  <i class="fas fa-rotate-left me-1"></i> Undo changes
+                </button>
               }
             </div>
-          }
-        </li>
-      }
-    </ol>
+          </div>
 
-    <p class="wizard-section__hint flow__note">
+          @if (step.kind === 'if') {
+            <div class="wire__block">
+              <div class="wire__label">Condition</div>
+              <pre class="wire__code">{{ step.expression }}</pre>
+              <p class="wizard-section__hint mb-0">
+                Everything set back below this row runs only when it holds. The condition follows
+                from the connection, so it is not edited here.
+              </p>
+            </div>
+          } @else {
+            <div class="wire__block">
+              <div class="wire__label">Address</div>
+              <div class="wire__url">
+                <span class="wire__verb">{{ verbOf(step) }}</span>
+                <input
+                  type="text"
+                  class="form-control form-control-sm wire__input"
+                  [value]="endpointOf(step)"
+                  (change)="onEditEndpoint(step, $any($event.target).value)">
+              </div>
+            </div>
+
+            @if (headersOf(step).length > 0) {
+              <div class="wire__block">
+                <div class="wire__label">Headers</div>
+                <table class="wire__table">
+                  @for (pair of headersOf(step); track pair.key) {
+                    <tr>
+                      <td class="wire__key">{{ pair.key }}</td>
+                      <td>
+                        <input
+                          type="text"
+                          class="form-control form-control-sm wire__input"
+                          [class.is-changed]="pair.changed"
+                          [value]="pair.value"
+                          (change)="onEdit(step, 'headers', pair.key, $any($event.target).value)">
+                      </td>
+                    </tr>
+                  }
+                </table>
+              </div>
+            }
+
+            @if (bodyOf(step).length > 0) {
+              <div class="wire__block">
+                <div class="wire__label">Body</div>
+                <table class="wire__table">
+                  @for (pair of bodyOf(step); track pair.key) {
+                    <tr>
+                      <td class="wire__key">{{ pair.key }}</td>
+                      <td>
+                        @if (pair.bound || pair.reference) {
+                          <span
+                            class="wire__ref"
+                            title="Written by the field assignment - change it there">{{ pair.value }}</span>
+                        } @else {
+                          <input
+                            type="text"
+                            class="form-control form-control-sm wire__input"
+                            [class.is-changed]="pair.changed"
+                            [value]="pair.value"
+                            (change)="onEdit(step, 'body', pair.key, $any($event.target).value)">
+                        }
+                      </td>
+                    </tr>
+                  }
+                </table>
+                <p class="wizard-section__hint mb-0">
+                  Marked values come from the field assignment and are changed there. The rest can be
+                  edited here — a foreign API often wants something no field covers.
+                </p>
+              </div>
+            }
+
+            @if (isAdded(step) && idCandidatesOf(step).length > 0) {
+              <div class="wire__block">
+                <div class="wire__label">Identifier of the object before it</div>
+                <app-form-select
+                  label=""
+                  placeholder="Not used"
+                  [items]="idCandidatesOf(step)"
+                  [ngModel]="parentIdPathOf(step)"
+                  (ngModelChange)="onUseParentId(step, $event)">
+                </app-form-select>
+                <p class="wizard-section__hint mb-0">
+                  The object this call belongs to was created or found by the step before it, so
+                  until then it had no identifier to name.
+                </p>
+              </div>
+            }
+          }
+        }
+      </div>
+    </div>
+
+    <p class="wizard-section__hint panes__note">
       Read, loop, look up, branch and write follow from the connection and the assignment, and are
-      rebuilt whenever those change. Calls you add and values you correct are kept as they are.
+      rebuilt whenever those change — so they cannot be moved or removed here. Calls you add and
+      values you correct are kept as they are.
     </p>
 
     @if (needsIdentifier) {

@@ -33,7 +33,9 @@
     </div>
   }
 
-  <div class="automation-wizard__body">
+  <!-- The sequence step needs the width: it carries a tree and the request beside it, and the
+       summary is of least use exactly there. -->
+  <div class="automation-wizard__body" [class.is-wide]="currentGroup === WizardGroup.FLOW">
 
     <div class="automation-wizard__main">
 
@@ -124,7 +126,7 @@
       </div>
     </div>
 
-    <aside class="automation-wizard__sidebar">
+    <aside class="automation-wizard__sidebar" [hidden]="currentGroup === WizardGroup.FLOW">
       <app-automation-summary-panel
         [definition]="definition"
         [readableDescription]="readableDescription">

@@ -2,47 +2,80 @@ $accent: #e94d18;
 $border: #e5e7eb;
 $muted: #6b7280;
 
-.flow {
-    list-style: none;
-    margin: 0;
-    padding: 0;
+// Tree beside the call it selects. The step gives the summary sidebar up for this room.
+.panes {
+    display: grid;
+    grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+@media (max-width: 991.98px) {
+    .panes { grid-template-columns: minmax(0, 1fr); }
+}
+
+.panes__tree {
     border: 1px solid $border;
     border-radius: 8px;
     overflow: hidden;
+}
+
+.panes__detail {
+    border: 1px solid $border;
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.panes__note { margin-top: 0.9rem; }
+
+/* ---------------------------------------------------------------------- tree */
+.tree {
+    list-style: none;
+    margin: 0;
+    padding: 0;
 
     > li + li { border-top: 1px solid #f1f3f5; }
 }
 
-.flow__row {
+.tree__row {
     display: grid;
-    grid-template-columns: 1.9rem minmax(0, 1fr) auto;
-    gap: 0.7rem;
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+    gap: 0.6rem;
     align-items: center;
     width: 100%;
-    padding: 0.6rem 0.8rem;
+    padding: 0.55rem 0.7rem;
     border: 0;
+    border-left: 3px solid transparent;
     background: #fff;
     font: inherit;
     text-align: left;
     cursor: pointer;
 
     &:hover { background: #f8f9fa; }
-    &.is-open { background: #f8f9fa; }
+
+    &.is-selected {
+        background: rgba(233, 77, 24, 0.05);
+        border-left-color: $accent;
+    }
 
     // A call inside a branch runs only when that branch is taken, so it is set back.
-    &[data-depth="1"] { padding-left: 2.4rem; }
-    &[data-depth="2"] { padding-left: 4rem; }
+    &[data-depth="1"] { padding-left: 1.9rem; }
+    &[data-depth="2"] { padding-left: 3.1rem; }
 }
 
-.flow__marker {
-    width: 1.9rem;
-    height: 1.9rem;
+.tree__marker {
+    width: 1.75rem;
+    height: 1.75rem;
     border-radius: 0.375rem;
     display: grid;
     place-items: center;
     background: rgba(233, 77, 24, 0.1);
     color: $accent;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     font-weight: 700;
 
     &.is-branch {
@@ -52,66 +85,113 @@ $muted: #6b7280;
     }
 }
 
-.flow__title {
+.tree__title {
     display: block;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
+    line-height: 1.3;
 }
 
-.flow__detail {
+.tree__detail {
     display: block;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     color: $muted;
     overflow-wrap: anywhere;
 }
 
-.flow__index {
-    font-size: 0.6875rem;
-    color: $muted;
-    font-variant-numeric: tabular-nums;
+.tree__tag {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.25rem;
+    background: rgba(233, 77, 24, 0.12);
+    color: #a63a11;
 }
 
-.flow__note { margin-top: 0.75rem; }
-
-// What the call actually sends. Machine type throughout, because all of it is literal.
-.wire {
-    padding: 0.25rem 0.8rem 0.9rem 2.4rem;
+.tree__addbtn {
+    width: 100%;
+    border: 0;
+    border-top: 1px dashed $border;
     background: #f8f9fa;
-    border-top: 1px solid $border;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+    padding: 0.55rem;
+    font: inherit;
+    font-size: 0.8125rem;
+    color: $muted;
+    cursor: pointer;
+
+    &:hover:not(:disabled) { color: $accent; }
+    &:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 
+.tree__add {
+    border-top: 1px dashed $border;
+    background: #f8f9fa;
+    padding: 0.7rem;
+}
+
+/* -------------------------------------------------------------------- detail */
+.detail__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #f1f3f5;
+}
+
+.detail__title {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.detail__sub {
+    font-size: 0.75rem;
+    color: $muted;
+    margin-top: 0.15rem;
+}
+
+.detail__tools {
+    display: flex;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+/* What the call actually sends. Machine type throughout, because all of it is literal. */
 .wire__label {
     font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: $muted;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.3rem;
 }
 
 .wire__url {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 0.5rem;
-    overflow-x: auto;
 }
 
 .wire__verb {
     font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 0.04em;
-    padding: 0.1rem 0.4rem;
+    padding: 0.15rem 0.4rem;
     border-radius: 0.25rem;
     background: rgba(233, 77, 24, 0.1);
     color: $accent;
+    flex-shrink: 0;
 }
 
 .wire__code {
     font-size: 0.75rem;
     margin: 0;
+    padding: 0.5rem 0.6rem;
+    background: #f8f9fa;
+    border: 1px solid #f1f3f5;
+    border-radius: 0.375rem;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
@@ -121,8 +201,8 @@ $muted: #6b7280;
     font-size: 0.75rem;
 
     td {
-        padding: 0.2rem 0.5rem 0.2rem 0;
-        vertical-align: top;
+        padding: 0.15rem 0.5rem 0.15rem 0;
+        vertical-align: middle;
         overflow-wrap: anywhere;
     }
 }
@@ -130,17 +210,7 @@ $muted: #6b7280;
 .wire__key {
     color: $muted;
     white-space: nowrap;
-}
-
-// A value taken from an earlier call, rather than written out here.
-.wire__ref {
-    font-family: var(--bs-font-monospace, monospace);
-    font-size: 0.6875rem;
-    padding: 0.1rem 0.35rem;
-    border-radius: 0.25rem;
-    background: rgba(233, 77, 24, 0.1);
-    color: #a63a11;
-    overflow-wrap: anywhere;
+    width: 1%;
 }
 
 .wire__input {
@@ -158,21 +228,13 @@ $muted: #6b7280;
 
 .wire__url .wire__input { flex: 1; }
 
-.flow__changed {
-    font-size: 0.625rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    padding: 0.05rem 0.3rem;
+// A value taken from an earlier call, rather than written out here.
+.wire__ref {
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.6875rem;
+    padding: 0.1rem 0.35rem;
     border-radius: 0.25rem;
-    background: rgba(233, 77, 24, 0.12);
+    background: rgba(233, 77, 24, 0.1);
     color: #a63a11;
-    margin-right: 0.35rem;
-}
-
-.wire__foot {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: center;
+    overflow-wrap: anywhere;
 }

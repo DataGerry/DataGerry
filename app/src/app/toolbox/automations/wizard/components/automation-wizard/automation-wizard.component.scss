@@ -37,6 +37,11 @@ $border: #e5e7eb;
     grid-template-columns: minmax(0, 1fr) 320px;
     gap: 1.25rem;
     align-items: start;
+
+    // One step gives the summary up for room: the sequence shows a tree and a request side by side.
+    &.is-wide {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   &__main {

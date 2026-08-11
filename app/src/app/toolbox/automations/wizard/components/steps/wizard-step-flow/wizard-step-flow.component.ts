@@ -90,8 +90,8 @@ export class WizardStepFlowComponent implements DoCheck {
     public steps: FlowStep[] = [];
     public openStep = '';
 
-    /** The step a new call is being placed after, or '' while nobody is adding one. */
-    public adding = '';
+    /** True while the operation for a new call is being chosen. */
+    public adding = false;
 
     private seenConnection: OcConnection | null = null;
 
@@ -105,9 +105,9 @@ export class WizardStepFlowComponent implements DoCheck {
         this.seenConnection = this.connection;
         this.steps = this.buildSteps();
 
-        // A step that no longer exists must not stay open on a row that is now something else.
+        // A row that no longer exists must not stay selected on one that is now something else.
         if (!this.steps.some(step => step.id === this.openStep)) {
-            this.openStep = '';
+            this.openStep = this.steps[0]?.id ?? '';
         }
     }
 
@@ -214,8 +214,14 @@ export class WizardStepFlowComponent implements DoCheck {
 
     /* ----------------------------------------------------- DETAIL --------------------------------------------------- */
 
-    public toggle(step: FlowStep): void {
-        this.openStep = this.openStep === step.id ? '' : step.id;
+    public select(step: FlowStep): void {
+        this.openStep = step.id;
+        this.adding = false;
+    }
+
+
+    public isSelected(step: FlowStep): boolean {
+        return this.selected?.id === step.id;
     }
 
 
@@ -292,8 +298,14 @@ export class WizardStepFlowComponent implements DoCheck {
 
     /* ------------------------------------------------- ADDED CALLS -------------------------------------------------- */
 
-    public startAdding(step: FlowStep): void {
-        this.adding = this.adding === step.index ? '' : step.index;
+    public startAdding(): void {
+        this.adding = !this.adding;
+    }
+
+
+    /** The row the detail pane shows, and the one a new call is placed after. */
+    public get selected(): FlowStep | undefined {
+        return this.steps.find(step => step.id === this.openStep) ?? this.steps[0];
     }
 
 
@@ -303,20 +315,56 @@ export class WizardStepFlowComponent implements DoCheck {
      * Placed by the step it follows rather than by an index, so a branch inserted above it later
      * does not move it somewhere it was never meant to run.
      */
-    public onAddCall(after: string, operation: string): void {
-        if (!operation) {
+    public onAddCall(operation: string): void {
+        const after = this.selected;
+
+        if (!operation || !after || after.kind !== 'call') {
             return;
         }
 
         const extra: AutomationExtraCall = {
-            id: `extra-${after}-${this.definition.extras.length + 1}`,
-            after,
+            id: `extra-${after.index}-${this.definition.extras.length + 1}`,
+            after: after.index,
             operation
         };
 
         this.definition.extras = [...this.definition.extras, extra];
-        this.adding = '';
+        this.adding = false;
         this.definitionChange.emit(this.definition);
+    }
+
+
+    /**
+     * Moves an added call to the step before or after the one it currently follows.
+     *
+     * Only added calls can move. The skeleton is rebuilt from the connection and the assignment on
+     * every change, so dragging one of its steps would have nowhere to be written down - which is
+     * why those rows offer nothing here rather than offering something that quietly does not stick.
+     */
+    public onMoveCall(step: FlowStep, by: number): void {
+        const extra = this.extraFor(step);
+        const anchors = this.steps.filter(candidate => candidate.kind === 'call' && !this.isAdded(candidate));
+        const at = anchors.findIndex(candidate => candidate.index === extra?.after);
+        const target = anchors[at + by];
+
+        if (!extra || at === -1 || !target) {
+            return;
+        }
+
+        this.definition.extras = this.definition.extras.map(candidate =>
+            candidate.id === extra.id ? { ...candidate, after: target.index } : candidate
+        );
+        this.definitionChange.emit(this.definition);
+    }
+
+
+    /** Whether an added call could move in that direction, so the button can say so. */
+    public canMove(step: FlowStep, by: number): boolean {
+        const extra = this.extraFor(step);
+        const anchors = this.steps.filter(candidate => candidate.kind === 'call' && !this.isAdded(candidate));
+        const at = anchors.findIndex(candidate => candidate.index === extra?.after);
+
+        return !!extra && at !== -1 && !!anchors[at + by];
     }
 
 
