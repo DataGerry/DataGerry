@@ -344,6 +344,8 @@ export class AutomationCompilerService {
             });
         }
 
+        this.applyOverrides(definition, methods, bindings, warnings);
+
         return {
             title: definition.name,
             name: definition.name,
@@ -358,6 +360,52 @@ export class AutomationCompilerService {
             toConnector: null,
             ui: this.buildUi(graph, withEdgeData)
         };
+    }
+
+    /**
+     * Applies the corrections the user made to the calls, last of everything.
+     *
+     * Last on purpose: whatever the assistant worked out, a person who went and changed a header
+     * meant it. The one exception is a field the mapping writes - OpenCelium replaces a bound field
+     * with its own reference when the connection is saved, so an override there would be dropped on
+     * the way in and look like the wizard lost it. Those are reported instead of applied.
+     */
+    private applyOverrides(
+        definition: AutomationDefinition,
+        methods: OcMethod[],
+        bindings: OcFieldBinding[],
+        warnings: string[]
+    ): void {
+        const bound = new Set(bindings.map(binding => binding.to[0].field.replace('body.$.', '')));
+
+        for (const method of methods) {
+            const override = definition.overrides[method.index];
+
+            if (!override) {
+                continue;
+            }
+
+            if (override.endpoint) {
+                method.request.endpoint = override.endpoint;
+            }
+
+            for (const [name, value] of Object.entries(override.headers ?? {})) {
+                method.request.header = { ...(method.request.header ?? {}), [name]: value };
+            }
+
+            for (const [path, value] of Object.entries(override.body ?? {})) {
+                if (bound.has(path)) {
+                    warnings.push(
+                        `"${path}" on ${method.name} is written by the field assignment, so the value `
+                        + 'entered by hand is not sent. Remove the assignment for it, or the change.'
+                    );
+
+                    continue;
+                }
+
+                this.setBodyField(method.request, path, value);
+            }
+        }
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */

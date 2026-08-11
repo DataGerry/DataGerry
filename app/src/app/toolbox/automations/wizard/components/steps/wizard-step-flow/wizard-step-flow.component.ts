@@ -15,9 +15,13 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, DoCheck, Input } from '@angular/core';
+import { Component, DoCheck, EventEmitter, Input, Output } from '@angular/core';
 
-import { AutomationDefinition, requiresMatching } from '../../../models/automation-definition.model';
+import {
+    AutomationCallOverride,
+    AutomationDefinition,
+    requiresMatching
+} from '../../../models/automation-definition.model';
 import { OcConnection, OcMethod, OcOperator } from '../../../models/opencelium-connection.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -28,6 +32,12 @@ export interface WirePair {
 
     /** True when the value is read from an earlier call rather than written out. */
     reference: boolean;
+
+    /** True when the field assignment writes this, which is why it cannot be edited here. */
+    bound: boolean;
+
+    /** True when this value was entered by hand rather than worked out. */
+    changed: boolean;
 }
 
 /** One line of the sequence. */
@@ -71,6 +81,8 @@ export class WizardStepFlowComponent implements DoCheck {
 
     /** Null while the definition does not compile, which is what the step then says. */
     @Input() public connection: OcConnection | null = null;
+
+    @Output() public definitionChange = new EventEmitter<AutomationDefinition>();
 
     public steps: FlowStep[] = [];
     public openStep = '';
@@ -202,13 +214,78 @@ export class WizardStepFlowComponent implements DoCheck {
 
 
     public headersOf(step: FlowStep): WirePair[] {
-        return pairsOf(step.method?.request?.header ?? {});
+        return pairsOf(step.method?.request?.header ?? {})
+            .map(pair => this.decorate(step, pair, 'headers'));
     }
 
 
     /** The request body flattened to one row per value, so a reference is visible at a glance. */
     public bodyOf(step: FlowStep): WirePair[] {
-        return pairsOf(step.method?.request?.body?.fields ?? {});
+        const bound = new Set(
+            (this.connection?.fieldBinding ?? [])
+                .filter(binding => binding.to[0].color === step.method?.color)
+                .map(binding => binding.to[0].field.replace('body.$.', ''))
+        );
+
+        return pairsOf(step.method?.request?.body?.fields ?? {})
+            .map(pair => ({ ...this.decorate(step, pair, 'body'), bound: bound.has(pair.key) }));
+    }
+
+
+    /** Marks a value as bound or hand-entered, which is what decides whether it can be edited. */
+    private decorate(step: FlowStep, pair: WirePair, part: 'headers' | 'body'): WirePair {
+        return {
+            ...pair,
+            changed: this.definition.overrides[step.index]?.[part]?.[pair.key] !== undefined
+        };
+    }
+
+    /* ----------------------------------------------------- EDITING -------------------------------------------------- */
+
+    /**
+     * Records a value entered by hand.
+     *
+     * Kept as a correction to the call rather than written into the call, because the call itself is
+     * rebuilt from the definition on every change - anything written into it directly would vanish
+     * on the next keystroke elsewhere.
+     */
+    public onEdit(step: FlowStep, part: 'headers' | 'body', key: string, value: string): void {
+        const current = this.definition.overrides[step.index] ?? {};
+        const section = { ...(current[part] ?? {}), [key]: value };
+
+        this.definition.overrides = {
+            ...this.definition.overrides,
+            [step.index]: { ...current, [part]: section }
+        };
+        this.definitionChange.emit(this.definition);
+    }
+
+
+    public onEditEndpoint(step: FlowStep, endpoint: string): void {
+        this.definition.overrides = {
+            ...this.definition.overrides,
+            [step.index]: { ...(this.definition.overrides[step.index] ?? {}), endpoint }
+        };
+        this.definitionChange.emit(this.definition);
+    }
+
+
+    /** Puts a call back the way the assistant built it. */
+    public onResetCall(step: FlowStep): void {
+        const { [step.index]: _dropped, ...rest } = this.definition.overrides;
+
+        this.definition.overrides = rest;
+        this.definitionChange.emit(this.definition);
+    }
+
+
+    public isChanged(step: FlowStep): boolean {
+        return !!this.definition.overrides[step.index];
+    }
+
+
+    public endpointOf(step: FlowStep): string {
+        return this.definition.overrides[step.index]?.endpoint ?? this.urlOf(step);
     }
 
 
@@ -267,7 +344,7 @@ function pairsOf(node: unknown, prefix = ''): WirePair[] {
     if (typeof node !== 'object') {
         const value = String(node);
 
-        return [{ key: prefix, value, reference: value.startsWith('#') }];
+        return [{ key: prefix, value, reference: value.startsWith('#'), bound: false, changed: false }];
     }
 
     if (Array.isArray(node)) {

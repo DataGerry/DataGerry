@@ -70,7 +70,8 @@
           @case (WizardGroup.FLOW) {
             <app-wizard-step-flow
               [definition]="definition"
-              [connection]="compiledConnection">
+              [connection]="compiledConnection"
+              (definitionChange)="onDefinitionChanged($event)">
             </app-wizard-step-flow>
           }
           @case (WizardGroup.MAPPING) {

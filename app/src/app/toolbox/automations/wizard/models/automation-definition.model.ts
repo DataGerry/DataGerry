@@ -267,6 +267,30 @@ export function isCombined(entry: AutomationMappingEntry): boolean {
 }
 
 
+/**
+ * Changes the user made to a call the assistant built.
+ *
+ * The sequence is derived from the rest of the definition, which is what keeps it honest: it cannot
+ * describe a call the payload does not carry. That leaves no room for a call of your own - but it
+ * leaves plenty for correcting one, and a foreign API often wants a header or a parameter no field
+ * mapping covers. Those corrections live here, keyed by the call's position in the execution tree,
+ * and the compiler applies them after everything else so they always win.
+ *
+ * A field the mapping writes is deliberately not overridable. OpenCelium rewrites a bound field on
+ * save, so an override there would be discarded on the way in and look like the wizard lost it.
+ */
+export interface AutomationCallOverride {
+    /** Replaces the operation's endpoint, so a query parameter can be added or removed. */
+    endpoint?: string;
+
+    /** Header values to set or replace, by header name. */
+    headers?: Record<string, string>;
+
+    /** Request body values to set, by dotted path inside the body's fields. */
+    body?: Record<string, string>;
+}
+
+
 export interface AutomationConditionRule {
     /** Source field the rule applies to. */
     field: string;
@@ -482,6 +506,13 @@ export interface AutomationDefinition {
      */
     unmapped: string[];
     matching: AutomationMatching;
+
+    /**
+     * Corrections to the calls the assistant built, keyed by execution index ('1_0', '1_2_0').
+     *
+     * Empty for an automation nobody had to correct, which is the normal case.
+     */
+    overrides: Record<string, AutomationCallOverride>;
     conditions: AutomationConditionGroup;
     advanced: AutomationAdvancedSettings;
     active: boolean;
@@ -525,6 +556,7 @@ export function createEmptyAutomationDefinition(): AutomationDefinition {
         mapping: [],
         unmapped: [],
         matching: defaultMatchingFor('create'),
+        overrides: {},
         conditions: { combinator: 'and', negate: false, rules: [] },
         advanced: createDefaultAdvancedSettings(),
         active: true
@@ -557,6 +589,7 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
         target: { ...base.target, ...(raw.target ?? {}) },
         mapping: normalizeMapping(raw.mapping as unknown),
         unmapped: Array.isArray(raw.unmapped) ? raw.unmapped : base.unmapped,
+        overrides: normalizeOverrides(raw.overrides),
         matching: { ...defaultMatchingFor(raw.target?.operation ?? 'create'), ...(raw.matching ?? {}) },
         conditions: {
             ...base.conditions,
@@ -593,6 +626,41 @@ function normalizeMappingEntry(raw: any): AutomationMappingEntry {
     }
 
     return entry;
+}
+
+
+/** Keeps only the three kinds of correction the compiler knows how to apply. */
+function normalizeOverrides(raw: unknown): Record<string, AutomationCallOverride> {
+    if (!raw || typeof raw !== 'object') {
+        return {};
+    }
+
+    const out: Record<string, AutomationCallOverride> = {};
+
+    for (const [index, value] of Object.entries(raw as Record<string, any>)) {
+        const override: AutomationCallOverride = {};
+
+        if (typeof value?.endpoint === 'string') {
+            override.endpoint = value.endpoint;
+        }
+
+        for (const part of ['headers', 'body'] as const) {
+            if (value?.[part] && typeof value[part] === 'object') {
+                const pairs = Object.entries(value[part])
+                    .filter(([, item]) => typeof item === 'string') as Array<[string, string]>;
+
+                if (pairs.length > 0) {
+                    override[part] = Object.fromEntries(pairs);
+                }
+            }
+        }
+
+        if (Object.keys(override).length > 0) {
+            out[index] = override;
+        }
+    }
+
+    return out;
 }
 
 

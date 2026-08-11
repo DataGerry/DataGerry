@@ -631,6 +631,64 @@ describe('AutomationCompilerService', () => {
         });
     });
 
+    /* ------------------------------------------------ CORRECTIONS ---------------------------------------------------- */
+
+    /*
+     * The sequence is derived, so a call cannot be added - but a foreign API often wants a header or
+     * a parameter no field mapping covers, and correcting one is what these carry.
+     */
+    describe('call corrections', () => {
+        it('replaces a header on the call it names', () => {
+            const definition = incomingDefinition();
+            definition.overrides = { '1_0': { headers: { 'X-Tenant': 'acme' } } };
+
+            const { payload } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.fromConnector.methods[1].request.header['X-Tenant']).toBe('acme');
+        });
+
+
+        it('replaces the endpoint', () => {
+            const definition = incomingDefinition();
+            definition.overrides = { '1_0': { endpoint: '{url}/v2' } };
+
+            const { payload } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.fromConnector.methods[1].request.endpoint).toBe('{url}/v2');
+        });
+
+
+        it('sets a body value the mapping does not write', () => {
+            const definition = incomingDefinition();
+            definition.overrides = { '1_0': { body: { 'params.category': 'hardware' } } };
+
+            const { payload } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.fromConnector.methods[1].request.body.fields.params.category)
+                .toBe('hardware');
+        });
+
+
+        /* OpenCelium rewrites a bound field on save, so an override there would be dropped. */
+        it('reports rather than applies a correction to a field the mapping writes', () => {
+            const definition = incomingDefinition();
+            definition.overrides = { '1_0': { body: { version: 'by hand' } } };
+
+            const { payload, warnings } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.fromConnector.methods[1].request.body.fields.version)
+                .not.toBe('by hand');
+            expect(warnings.some(warning => warning.includes('written by the field assignment'))).toBeTrue();
+        });
+
+
+        it('leaves a call nobody corrected alone', () => {
+            const { payload } = compiler.compileForCreate(incomingDefinition(), context());
+
+            expect(payload.connection.fromConnector.methods[1].request.header['X-Tenant']).toBeUndefined();
+        });
+    });
+
     /* ------------------------------------------------- MATCHING ------------------------------------------------------ */
 
     /*
