@@ -48,6 +48,7 @@ import {
     WIZARD_GROUPS,
     WIZARD_GROUP_COUNT
 } from '../../models/automation-wizard-step.model';
+import { OcConnection } from '../../models/opencelium-connection.model';
 import { ResolvedOperation, TargetField } from '../../models/target-catalog.model';
 import { AutomationCompilerService, AutomationCompileContext } from '../../services/automation-compiler.service';
 import { AutomationDefinitionCodecService } from '../../services/automation-definition-codec.service';
@@ -129,6 +130,12 @@ export class AutomationWizardComponent implements OnInit {
     public validationErrors: string[] = [];
     public compileWarnings: string[] = [];
     public compiledPreview = '';
+
+    /**
+     * The compiled connection itself, so the sequence step can show the calls rather than describe
+     * them. Null while the definition does not compile, which is what that step then says.
+     */
+    public compiledConnection: OcConnection | null = null;
 
     /** Sample values for the test step, keyed by DataGerry field name. */
     public sampleValues: Record<string, string> = {};
@@ -502,6 +509,7 @@ export class AutomationWizardComponent implements OnInit {
         if (!context) {
             this.validationErrors = ['The internal DataGerry connector or the target system is not available.'];
             this.compiledPreview = '';
+            this.compiledConnection = null;
 
             return;
         }
@@ -511,6 +519,7 @@ export class AutomationWizardComponent implements OnInit {
         if (this.validationErrors.length > 0) {
             this.compileWarnings = [];
             this.compiledPreview = '';
+            this.compiledConnection = null;
 
             return;
         }
@@ -521,6 +530,9 @@ export class AutomationWizardComponent implements OnInit {
 
         this.compileWarnings = compiled.warnings;
         this.compiledPreview = JSON.stringify(compiled.payload, null, 2);
+        this.compiledConnection = 'connection' in compiled.payload
+            ? compiled.payload.connection
+            : compiled.payload;
     }
 
 

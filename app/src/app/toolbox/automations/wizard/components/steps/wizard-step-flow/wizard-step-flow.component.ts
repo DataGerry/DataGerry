@@ -15,40 +15,49 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, DoCheck, Input } from '@angular/core';
 
-import {
-    AutomationDefinition,
-    AutomationMatchOutcome,
-    outcomeWrites,
-    requiresMatching
-} from '../../../models/automation-definition.model';
+import { AutomationDefinition, requiresMatching } from '../../../models/automation-definition.model';
+import { OcConnection, OcMethod, OcOperator } from '../../../models/opencelium-connection.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** One line of the sequence as it is shown. */
+/** One key/value pair of a request, as the table shows it. */
+export interface WirePair {
+    key: string;
+    value: string;
+
+    /** True when the value is read from an earlier call rather than written out. */
+    reference: boolean;
+}
+
+/** One line of the sequence. */
 export interface FlowStep {
-    kind: 'call' | 'branch';
+    id: string;
+    index: string;
+
+    /** How deep in the execution tree, which is what the indentation shows. */
+    depth: number;
+    kind: 'call' | 'loop' | 'if';
+
+    /** What the step is for, in the wizard's words. */
     title: string;
 
-    /** The operation, or the condition for a branch. */
+    /** The operation or the condition, in the target system's words. */
     detail: string;
-
-    /** What the step does with the data, short enough to sit at the end of the line. */
-    note: string;
-
-    /** True for the steps that run inside a branch, which are drawn set back. */
-    nested: boolean;
+    system: string;
+    method?: OcMethod;
+    expression?: string;
 }
 
 /**
- * Step group 3 - what happens in the target system.
+ * Step group 3 - what happens in the target system, as the calls that will actually be made.
  *
- * Only the target system's calls appear here. Reading from and writing to DataGerry is built from
- * the object type and its fields, so putting it in the sequence would add a step nobody can change
- * and bury the two or three that matter.
+ * Built from the compiled connection rather than described alongside it. Anything else would be a
+ * second account of the same thing, free to drift from the first - and the whole reason this screen
+ * exists is to be able to check what the assistant decided.
  *
- * Derived rather than stored, and read-only for now: the sequence follows from the action and the
- * matching, both chosen on the previous step. Editing it by hand is what this screen grows next.
+ * Reading from and writing to DataGerry is left out: it follows from the object type and its fields,
+ * so showing it would add a step nobody can act on and bury the ones that matter.
  */
 @Component({
     selector: 'app-wizard-step-flow',
@@ -56,106 +65,215 @@ export interface FlowStep {
     styleUrls: ['./wizard-step-flow.component.scss'],
     standalone: false
 })
-export class WizardStepFlowComponent {
+export class WizardStepFlowComponent implements DoCheck {
 
     @Input() public definition!: AutomationDefinition;
+
+    /** Null while the definition does not compile, which is what the step then says. */
+    @Input() public connection: OcConnection | null = null;
+
+    public steps: FlowStep[] = [];
+    public openStep = '';
+
+    private seenConnection: OcConnection | null = null;
+
+    /* ------------------------------------------------- CHANGE TRACKING ---------------------------------------------- */
+
+    public ngDoCheck(): void {
+        if (this.connection === this.seenConnection) {
+            return;
+        }
+
+        this.seenConnection = this.connection;
+        this.steps = this.buildSteps();
+
+        // A step that no longer exists must not stay open on a row that is now something else.
+        if (!this.steps.some(step => step.id === this.openStep)) {
+            this.openStep = '';
+        }
+    }
+
+
+    /**
+     * The compiled calls and operators as one sequence.
+     *
+     * Order and nesting both come from the execution index - '1_2_0' runs inside '1_2', which runs
+     * inside '1' - so the sequence shown is the sequence the engine walks.
+     */
+    private buildSteps(): FlowStep[] {
+        if (!this.connection) {
+            return [];
+        }
+
+        const source = this.connection.fromConnector.methods[0];
+        const entries: FlowStep[] = [];
+
+        for (const method of this.connection.fromConnector.methods) {
+            // The read on DataGerry's side is the one call the assistant owns entirely.
+            if (method === source && this.definition.direction === 'outgoing') {
+                continue;
+            }
+
+            entries.push({
+                id: method.id,
+                index: method.index,
+                depth: depthOf(method.index),
+                kind: 'call',
+                title: this.titleOf(method),
+                detail: method.name,
+                system: method.connector?.title ?? '',
+                method
+            });
+        }
+
+        for (const operator of this.connection.fromConnector.operators) {
+            if (operator.type === 'loop') {
+                continue;
+            }
+
+            entries.push({
+                id: operator.id,
+                index: operator.index,
+                depth: depthOf(operator.index),
+                kind: 'if',
+                title: this.titleOfOperator(operator),
+                detail: 'branch',
+                system: '',
+                expression: operator.expression
+            });
+        }
+
+        return entries.sort((left, right) => compareIndex(left.index, right.index));
+    }
+
+
+    /** What a call is for, said in the terms the wizard uses rather than the operation's name. */
+    private titleOf(method: OcMethod): string {
+        const system = method.connector?.title ?? 'the target system';
+        const name = method.name.toLowerCase();
+
+        if (this.isLookup(method)) {
+            return `Look the object up in ${system}`;
+        }
+
+        if (name.includes('create') || name.includes('add')) {
+            return `Create it in ${system}`;
+        }
+
+        if (name.includes('update') || name.includes('save')) {
+            return `Update it in ${system}`;
+        }
+
+        if (name.includes('delete') || name.includes('remove')) {
+            return `Delete it in ${system}`;
+        }
+
+        return `Call ${system}`;
+    }
+
+
+    private titleOfOperator(operator: OcOperator): string {
+        if (operator.expression.includes('IsEmpty')) {
+            return 'If it is not there';
+        }
+
+        if (operator.expression.includes('NotEmpty')) {
+            return 'If it is already there';
+        }
+
+        return 'Only for objects that match';
+    }
+
+
+    /** The lookup is the read that runs inside the loop before anything is written. */
+    private isLookup(method: OcMethod): boolean {
+        return method.index.split('_').length === 2 && method.request?.method !== undefined
+            && this.connection?.fromConnector.operators.some(operator => operator.type === 'if') === true
+            && method === this.connection?.fromConnector.methods.find(
+                candidate => candidate.index.split('_').length === 2
+            );
+    }
+
+    /* ----------------------------------------------------- DETAIL --------------------------------------------------- */
+
+    public toggle(step: FlowStep): void {
+        this.openStep = this.openStep === step.id ? '' : step.id;
+    }
+
+
+    public headersOf(step: FlowStep): WirePair[] {
+        return pairsOf(step.method?.request?.header ?? {});
+    }
+
+
+    /** The request body flattened to one row per value, so a reference is visible at a glance. */
+    public bodyOf(step: FlowStep): WirePair[] {
+        return pairsOf(step.method?.request?.body?.fields ?? {});
+    }
+
+
+    public urlOf(step: FlowStep): string {
+        return step.method?.request?.endpoint ?? '';
+    }
+
+
+    public verbOf(step: FlowStep): string {
+        return step.method?.request?.method ?? '';
+    }
+
+
+    /* ---------------------------------------------------- GETTERS --------------------------------------------------- */
 
     public get systemName(): string {
         return this.definition.target.connectorTitle || 'the target system';
     }
 
 
-    /** Mirrors what the compiler builds, so the two can be checked against each other. */
-    public get steps(): FlowStep[] {
-        if (!this.definition.target.connectorId) {
-            return [];
-        }
-
-        if (!requiresMatching(this.definition) || !this.definition.matching.identifyBy) {
-            return [{
-                kind: 'call',
-                title: `${this.titleFor(this.definition.target.operation)}`,
-                detail: this.definition.target.operation,
-                note: 'for every object of the type',
-                nested: false
-            }];
-        }
-
-        const steps: FlowStep[] = [{
-            kind: 'call',
-            title: `Look the object up in ${this.systemName}`,
-            detail: 'read, filtered',
-            note: `by ${this.identifyingLabel}`,
-            nested: false
-        }];
-
-        for (const branch of this.branches) {
-            steps.push({ kind: 'branch', title: branch.when, detail: branch.condition, note: '', nested: false });
-            steps.push({
-                kind: 'call',
-                title: branch.title,
-                detail: branch.outcome,
-                note: branch.note,
-                nested: true
-            });
-        }
-
-        return steps;
-    }
-
-
-    /** The branches that actually write, in the order the compiler lays them out. */
-    private get branches(): Array<{
-        when: string; condition: string; title: string; outcome: string; note: string;
-    }> {
-        const { whenMissing, whenPresent } = this.definition.matching;
-        const branches: Array<{
-            when: string; condition: string; title: string; outcome: string; note: string;
-        }> = [];
-
-        if (outcomeWrites(whenMissing)) {
-            branches.push({
-                when: 'If it is not there',
-                condition: 'the lookup found nothing',
-                title: this.titleFor(whenMissing),
-                outcome: whenMissing,
-                note: ''
-            });
-        }
-
-        if (outcomeWrites(whenPresent)) {
-            branches.push({
-                when: 'If it is already there',
-                condition: 'the lookup found something',
-                title: this.titleFor(whenPresent),
-                outcome: whenPresent,
-                note: 'with the identifier that was found'
-            });
-        }
-
-        return branches;
-    }
-
-
-    private titleFor(outcome: AutomationMatchOutcome): string {
-        return {
-            create: `Create it in ${this.systemName}`,
-            update: `Update it in ${this.systemName}`,
-            delete: `Delete it in ${this.systemName}`,
-            skip: 'Leave it alone',
-            error: 'Report it as an error'
-        }[outcome];
-    }
-
-
-    public get identifyingLabel(): string {
-        const field = this.definition.matching.identifyBy;
-
-        return this.definition.fields.find(candidate => candidate.name === field)?.label || field;
-    }
-
-
     public get needsIdentifier(): boolean {
         return requiresMatching(this.definition) && !this.definition.matching.identifyBy;
     }
+}
+
+
+/** How deep an execution index sits: '1_2_0' is two levels inside '1'. */
+function depthOf(index: string): number {
+    return Math.max(0, index.split('_').length - 2);
+}
+
+
+/** Orders execution indices the way the engine walks them, segment by segment. */
+function compareIndex(left: string, right: string): number {
+    const a = left.split('_').map(Number);
+    const b = right.split('_').map(Number);
+
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        const difference = (a[i] ?? -1) - (b[i] ?? -1);
+
+        if (difference !== 0) {
+            return difference;
+        }
+    }
+
+    return 0;
+}
+
+
+/** Flattens a request tree to dotted paths, which is how the mapping names them too. */
+function pairsOf(node: unknown, prefix = ''): WirePair[] {
+    if (node === null || node === undefined) {
+        return [];
+    }
+
+    if (typeof node !== 'object') {
+        const value = String(node);
+
+        return [{ key: prefix, value, reference: value.startsWith('#') }];
+    }
+
+    if (Array.isArray(node)) {
+        return node.flatMap((item, index) => pairsOf(item, `${prefix}[${index}]`));
+    }
+
+    return Object.entries(node as Record<string, unknown>)
+        .flatMap(([key, value]) => pairsOf(value, prefix ? `${prefix}.${key}` : key));
 }
