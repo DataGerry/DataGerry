@@ -18,8 +18,8 @@
 import { Component, DoCheck, EventEmitter, Input, Output } from '@angular/core';
 
 import {
-    AutomationCallOverride,
     AutomationDefinition,
+    AutomationExtraCall,
     requiresMatching
 } from '../../../models/automation-definition.model';
 import { OcConnection, OcMethod, OcOperator } from '../../../models/opencelium-connection.model';
@@ -84,8 +84,14 @@ export class WizardStepFlowComponent implements DoCheck {
 
     @Output() public definitionChange = new EventEmitter<AutomationDefinition>();
 
+    /** Operations the target system offers, for a call the user wants to add. */
+    @Input() public targetOperations: string[] = [];
+
     public steps: FlowStep[] = [];
     public openStep = '';
+
+    /** The step a new call is being placed after, or '' while nobody is adding one. */
+    public adding = '';
 
     private seenConnection: OcConnection | null = null;
 
@@ -281,6 +287,113 @@ export class WizardStepFlowComponent implements DoCheck {
 
     public isChanged(step: FlowStep): boolean {
         return !!this.definition.overrides[step.index];
+    }
+
+
+    /* ------------------------------------------------- ADDED CALLS -------------------------------------------------- */
+
+    public startAdding(step: FlowStep): void {
+        this.adding = this.adding === step.index ? '' : step.index;
+    }
+
+
+    /**
+     * Puts a call of the user's own after a step.
+     *
+     * Placed by the step it follows rather than by an index, so a branch inserted above it later
+     * does not move it somewhere it was never meant to run.
+     */
+    public onAddCall(after: string, operation: string): void {
+        if (!operation) {
+            return;
+        }
+
+        const extra: AutomationExtraCall = {
+            id: `extra-${after}-${this.definition.extras.length + 1}`,
+            after,
+            operation
+        };
+
+        this.definition.extras = [...this.definition.extras, extra];
+        this.adding = '';
+        this.definitionChange.emit(this.definition);
+    }
+
+
+    public onRemoveCall(step: FlowStep): void {
+        const extra = this.extraFor(step);
+
+        if (!extra) {
+            return;
+        }
+
+        const { [step.index]: _dropped, ...overrides } = this.definition.overrides;
+
+        this.definition.extras = this.definition.extras.filter(candidate => candidate.id !== extra.id);
+        this.definition.overrides = overrides;
+        this.definitionChange.emit(this.definition);
+    }
+
+
+    /** Whether the call was added by hand, which is what may be removed and re-pointed. */
+    public isAdded(step: FlowStep): boolean {
+        return !!this.extraFor(step);
+    }
+
+
+    /**
+     * Hands an added call the identifier of the object the step before it touched.
+     *
+     * The reason such a call exists at all: it belongs to an object that has only just been created
+     * or found, so until the call before it ran, that object had no id to name.
+     */
+    public onUseParentId(step: FlowStep, path: string): void {
+        const extra = this.extraFor(step);
+
+        if (!extra) {
+            return;
+        }
+
+        this.definition.extras = this.definition.extras.map(candidate =>
+            candidate.id === extra.id ? { ...candidate, parentIdPath: path || undefined } : candidate
+        );
+        this.definitionChange.emit(this.definition);
+    }
+
+
+    public parentIdPathOf(step: FlowStep): string {
+        return this.extraFor(step)?.parentIdPath ?? '';
+    }
+
+
+    /** Body paths of an added call, offered as the place its parent's identifier can go. */
+    public idCandidatesOf(step: FlowStep): string[] {
+        return this.bodyOf(step)
+            .filter(pair => !pair.reference)
+            .map(pair => pair.key);
+    }
+
+
+    private extraFor(step: FlowStep): AutomationExtraCall | undefined {
+        // An added call keeps no index of its own, so it is found by where it was placed.
+        return this.definition.extras.find(extra => this.indexOfExtra(extra) === step.index);
+    }
+
+
+    /**
+     * Where an added call ended up.
+     *
+     * The compiler numbers them after the skeleton, in the order they were added, beside the step
+     * they follow - repeating that here is what lets a row be traced back to its entry.
+     */
+    private indexOfExtra(extra: AutomationExtraCall): string {
+        const siblings = this.definition.extras.filter(candidate => candidate.after === extra.after);
+        const position = siblings.indexOf(extra);
+        const parts = extra.after.split('_');
+        const parent = parts.slice(0, -1).join('_');
+        const base = Number(parts[parts.length - 1]) + 1 + position;
+
+        return parent ? `${parent}_${base}` : String(base);
     }
 
 

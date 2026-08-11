@@ -291,6 +291,37 @@ export interface AutomationCallOverride {
 }
 
 
+/**
+ * A call the user added to the sequence.
+ *
+ * The skeleton - read, loop, look up, branch, write - stays derived, because that is what keeps it
+ * honest: it cannot show a call the payload does not carry, and it cannot fall behind a change made
+ * elsewhere. What it cannot do is grow. Anything a particular system needs beyond the skeleton
+ * lives here instead: an i-doit category written after the object, a notification, a second write.
+ *
+ * Placed by the step it follows rather than by an index of its own, so inserting a branch above it
+ * does not silently move it somewhere else.
+ */
+export interface AutomationExtraCall {
+    /** Stable across reordering, which is what edits and corrections are keyed by. */
+    id: string;
+
+    /** Execution index of the skeleton call this runs after, e.g. '1_2_0'. */
+    after: string;
+
+    /** Operation of the target system's invoker. */
+    operation: string;
+
+    /** Where the identifier of the object the previous call touched goes, if it needs it. */
+    parentIdPath?: string;
+
+    /** Request body values, by dotted path inside the body's fields. */
+    body?: Record<string, string>;
+    headers?: Record<string, string>;
+    endpoint?: string;
+}
+
+
 export interface AutomationConditionRule {
     /** Source field the rule applies to. */
     field: string;
@@ -513,6 +544,13 @@ export interface AutomationDefinition {
      * Empty for an automation nobody had to correct, which is the normal case.
      */
     overrides: Record<string, AutomationCallOverride>;
+
+    /**
+     * Calls added to the sequence, in the order they were added.
+     *
+     * Empty for an automation the skeleton covers, which is most of them.
+     */
+    extras: AutomationExtraCall[];
     conditions: AutomationConditionGroup;
     advanced: AutomationAdvancedSettings;
     active: boolean;
@@ -557,6 +595,7 @@ export function createEmptyAutomationDefinition(): AutomationDefinition {
         unmapped: [],
         matching: defaultMatchingFor('create'),
         overrides: {},
+        extras: [],
         conditions: { combinator: 'and', negate: false, rules: [] },
         advanced: createDefaultAdvancedSettings(),
         active: true
@@ -590,6 +629,9 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
         mapping: normalizeMapping(raw.mapping as unknown),
         unmapped: Array.isArray(raw.unmapped) ? raw.unmapped : base.unmapped,
         overrides: normalizeOverrides(raw.overrides),
+        extras: Array.isArray(raw.extras)
+            ? raw.extras.filter(extra => !!extra?.id && !!extra?.after && !!extra?.operation)
+            : [],
         matching: { ...defaultMatchingFor(raw.target?.operation ?? 'create'), ...(raw.matching ?? {}) },
         conditions: {
             ...base.conditions,

@@ -18,8 +18,10 @@
 import { Injectable } from '@angular/core';
 
 import {
+    AutomationCallOverride,
     AutomationConditionGroup,
     AutomationDefinition,
+    AutomationExtraCall,
     AutomationMappingEntry,
     AutomationMatchOutcome,
     AutomationRuleOperator,
@@ -344,7 +346,11 @@ export class AutomationCompilerService {
             });
         }
 
-        this.applyOverrides(definition, methods, bindings, warnings);
+        const fromExtras = this.appendExtras(definition, context, {
+            palette, methods, bindings, graph, warnings
+        });
+
+        this.applyOverrides({ ...definition.overrides, ...fromExtras }, methods, bindings, warnings);
 
         return {
             title: definition.name,
@@ -363,6 +369,181 @@ export class AutomationCompilerService {
     }
 
     /**
+     * Adds the calls the user put into the sequence, after the skeleton is complete.
+     *
+     * Each one hangs off the step it was placed after and inherits its position in the tree, so a
+     * category written after the object write runs inside the same branch and only when that branch
+     * is taken. The identifier of whatever the previous call touched is bound in where it is wanted,
+     * which is the whole reason such a call exists: it belongs to an object that has just been
+     * created or found, and until then that object has no id to name.
+     */
+    private appendExtras(
+        definition: AutomationDefinition,
+        context: AutomationCompileContext,
+        out: {
+            palette: ReadonlyArray<string>;
+            methods: OcMethod[];
+            bindings: OcFieldBinding[];
+            graph: GraphNode[];
+            warnings: string[];
+        }
+    ): Record<string, AutomationCallOverride> {
+        const values: Record<string, AutomationCallOverride> = {};
+
+        for (const extra of definition.extras) {
+            const anchor = out.methods.find(method => method.index === extra.after);
+
+            if (!anchor) {
+                out.warnings.push(
+                    `The added call "${extra.operation}" follows a step that no longer exists, so it `
+                    + 'was left out. Place it after another step or remove it.'
+                );
+
+                continue;
+            }
+
+            // The system the user chose, not the side that happens to be written: an added call is
+            // always a call to the foreign system, whichever direction the automation runs in.
+            const operation = this.operationByName(context.targetConnector?.invoker, extra.operation);
+
+            if (!operation) {
+                out.warnings.push(
+                    `The target system offers no operation "${extra.operation}", so that added call `
+                    + 'was left out.'
+                );
+
+                continue;
+            }
+
+            const method = this.buildMethod(
+                operation,
+                context.targetConnector,
+                ocMethodNodeId(out.methods.length),
+                this.nextSiblingIndex(anchor.index, out.methods),
+                out.palette[out.methods.length % out.palette.length],
+                null
+            );
+
+            out.methods.push(method);
+            out.graph.push({
+                id: method.id,
+                kind: 'method',
+                parent: anchor.id,
+                method,
+                // A call that follows another sits beside it, not inside it.
+                below: false
+            });
+
+            this.bindParentId(extra, anchor, method, out.bindings, out.warnings);
+
+            // Values the user typed reach it the same way a correction does - handed back rather
+            // than written into the definition, which the compiler must not touch.
+            values[method.index] = {
+                endpoint: extra.endpoint,
+                headers: extra.headers,
+                body: extra.body
+            };
+        }
+
+        return values;
+    }
+
+
+    /** The operation of that name, for a call the user chose rather than the wizard resolved. */
+    private operationByName(invoker: any, name: string): ResolvedOperation | null {
+        const match = (invoker?.operations ?? []).find((operation: any) => operation?.name === name);
+
+        return match ? { name: match.name, definition: match, responseArrayPath: '', verified: true } : null;
+    }
+
+
+    /** The next free position beside a step, so an added call runs after it rather than inside it. */
+    private nextSiblingIndex(anchor: string, methods: OcMethod[]): string {
+        const parts = anchor.split('_');
+        const parent = parts.slice(0, -1).join('_');
+        const taken = methods
+            .map(method => method.index)
+            .filter(index => index.startsWith(parent ? `${parent}_` : '') 
+                && index.split('_').length === parts.length)
+            .map(index => Number(index.split('_').pop()));
+
+        const next = Math.max(...taken, -1) + 1;
+
+        return parent ? `${parent}_${next}` : String(next);
+    }
+
+
+    /**
+     * Hands an added call the identifier of the object the previous call touched.
+     *
+     * A create answers with the new object's id, a lookup with the one it found - both under the
+     * response path the invoker declares, which is why this reads the anchor's own schema rather
+     * than assuming a name.
+     */
+    private bindParentId(
+        extra: AutomationExtraCall,
+        anchor: OcMethod,
+        method: OcMethod,
+        bindings: OcFieldBinding[],
+        warnings: string[]
+    ): void {
+        if (!extra.parentIdPath) {
+            return;
+        }
+
+        const idPath = this.responseIdPath(anchor);
+
+        if (!idPath) {
+            warnings.push(
+                `"${anchor.name}" does not say where it returns an identifier, so the added call `
+                + `"${extra.operation}" gets none. Enter the value by hand instead.`
+            );
+
+            return;
+        }
+
+        const sourcePath = `body.$.${idPath}`;
+        const targetPath = `body.$.${extra.parentIdPath}`;
+
+        this.setBodyField(
+            method.request,
+            extra.parentIdPath,
+            ocFieldReference(anchor.color, 'response', idPath)
+        );
+
+        bindings.push({
+            from: [{ color: anchor.color, field: sourcePath, type: 'response' }],
+            to: [{ color: method.color, field: targetPath, type: 'request' }],
+            enhancement: this.buildEnhancement(
+                sourcePath, targetPath, method.color, [{ kind: 'path', path: idPath }], ''
+            )
+        });
+    }
+
+
+    /** Where a call says it answers with an identifier, taken from its own response schema. */
+    private responseIdPath(method: OcMethod): string {
+        const fields = method.response?.success?.body?.fields;
+
+        if (!fields || typeof fields !== 'object') {
+            return '';
+        }
+
+        for (const [key, value] of Object.entries(fields as Record<string, any>)) {
+            if (value && typeof value === 'object' && !Array.isArray(value) && 'id' in value) {
+                return `${key}.id`;
+            }
+
+            if (key === 'id') {
+                return 'id';
+            }
+        }
+
+        return '';
+    }
+
+
+    /**
      * Applies the corrections the user made to the calls, last of everything.
      *
      * Last on purpose: whatever the assistant worked out, a person who went and changed a header
@@ -371,15 +552,21 @@ export class AutomationCompilerService {
      * the way in and look like the wizard lost it. Those are reported instead of applied.
      */
     private applyOverrides(
-        definition: AutomationDefinition,
+        overrides: Record<string, AutomationCallOverride>,
         methods: OcMethod[],
         bindings: OcFieldBinding[],
         warnings: string[]
     ): void {
-        const bound = new Set(bindings.map(binding => binding.to[0].field.replace('body.$.', '')));
+        // Per method: the same path can be bound on the call that writes the object and free on a
+        // call added after it, and blocking both would make the added one impossible to fill in.
+        const boundOn = (color: string) => new Set(
+            bindings
+                .filter(binding => binding.to[0].color === color)
+                .map(binding => binding.to[0].field.replace('body.$.', ''))
+        );
 
         for (const method of methods) {
-            const override = definition.overrides[method.index];
+            const override = overrides[method.index];
 
             if (!override) {
                 continue;
@@ -389,11 +576,13 @@ export class AutomationCompilerService {
                 method.request.endpoint = override.endpoint;
             }
 
-            for (const [name, value] of Object.entries(override.headers ?? {})) {
+            for (const [name, value] of Object.entries<string>(override.headers ?? {})) {
                 method.request.header = { ...(method.request.header ?? {}), [name]: value };
             }
 
-            for (const [path, value] of Object.entries(override.body ?? {})) {
+            const bound = boundOn(method.color);
+
+            for (const [path, value] of Object.entries<string>(override.body ?? {})) {
                 if (bound.has(path)) {
                     warnings.push(
                         `"${path}" on ${method.name} is written by the field assignment, so the value `

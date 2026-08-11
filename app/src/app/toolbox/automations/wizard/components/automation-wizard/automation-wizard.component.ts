@@ -126,6 +126,9 @@ export class AutomationWizardComponent implements OnInit {
     public matchableTargets: string[] = [];
     public matchingRelevant = false;
 
+    /** Operation names of the target system, for a call the user adds to the sequence. */
+    public targetOperations: string[] = [];
+
     /** Compilation results, recomputed whenever the definition changes. */
     public validationErrors: string[] = [];
     public compileWarnings: string[] = [];
@@ -573,6 +576,14 @@ export class AutomationWizardComponent implements OnInit {
             ? this.connectorOf(this.definition.target.connectorId)?.invoker
             : this.internalConnector?.invoker;
         const lookup = this.catalog.resolveOperation(targetInvoker, 'list');
+
+        this.targetOperations = keepIfUnchanged(
+            this.targetOperations,
+            (this.connectorOf(this.definition.target.connectorId)?.invoker?.operations ?? [])
+                .map((operation: any) => operation?.name)
+                .filter((name: string) => !!name),
+            name => name
+        );
 
         this.matchableTargets = keepIfUnchanged(
             this.matchableTargets,

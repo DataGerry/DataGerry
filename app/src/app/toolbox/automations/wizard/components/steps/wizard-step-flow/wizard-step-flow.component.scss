@@ -169,3 +169,10 @@ $muted: #6b7280;
     color: #a63a11;
     margin-right: 0.35rem;
 }
+
+.wire__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+}
