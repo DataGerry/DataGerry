@@ -43,31 +43,16 @@
           }
         </ol>
 
-        @if (adding) {
-          <div class="tree__add">
-            <app-form-select
-              label=""
-              placeholder="Which call?"
-              [items]="targetOperations"
-              [ngModel]="null"
-              (ngModelChange)="onAddCall($event)">
-            </app-form-select>
-            <p class="wizard-section__hint mb-0">
-              Runs right after <strong>{{ selected?.title }}</strong>, inside the same branch.
-            </p>
-          </div>
-        } @else {
-          <button
-            type="button"
-            class="tree__addbtn"
-            [disabled]="targetOperations.length === 0 || selected?.kind !== 'call'"
-            [title]="selected?.kind === 'call'
-              ? 'Runs after the selected step'
-              : 'Select a call first — a step cannot follow a branch itself'"
-            (click)="startAdding()">
-            + Add a call in the target system
-          </button>
-        }
+        <button
+          type="button"
+          class="tree__addbtn"
+          [disabled]="selected?.kind !== 'call'"
+          [title]="selected?.kind === 'call'
+            ? 'Runs after the selected step'
+            : 'Select a call first — a step cannot follow a condition itself'"
+          (click)="startAdding()">
+          + Add a step in the target system
+        </button>
       </div>
 
       <!-- -------------------------------------------------------------- detail -->
@@ -125,7 +110,18 @@
             <div class="wire__block">
               <div class="wire__label">Address</div>
               <div class="wire__url">
-                <span class="wire__verb">{{ verbOf(step) }}</span>
+                @if (isFreeRequest(step)) {
+                  <select
+                    class="form-select form-select-sm wire__verbpick"
+                    [value]="verbOf(step)"
+                    (change)="onEditVerb(step, $any($event.target).value)">
+                    @for (verb of verbChoices; track verb) {
+                      <option [value]="verb" [selected]="verb === verbOf(step)">{{ verb }}</option>
+                    }
+                  </select>
+                } @else {
+                  <span class="wire__verb">{{ verbOf(step) }}</span>
+                }
                 <input
                   type="text"
                   class="form-control form-control-sm wire__input"
@@ -206,6 +202,77 @@
         }
       </div>
     </div>
+
+    @if (adding) {
+      <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+        <div class="sheet__box">
+          <div class="sheet__head">
+            <div class="sheet__eyebrow">After {{ selected?.title }}</div>
+            <h5 class="sheet__title" id="sheet-title">
+              @if (adding === 'kind') {
+                What should the step do?
+              } @else {
+                Which call?
+              }
+            </h5>
+            <p class="sheet__lead">
+              @if (adding === 'kind') {
+                A step either makes a call, or governs what happens after it.
+              } @else {
+                Every operation the target system describes. Headers and body come from its
+                interface description.
+              }
+            </p>
+          </div>
+
+          @if (adding === 'kind') {
+            <div class="sheet__kinds">
+              @for (kind of kinds; track kind.key) {
+                <button
+                  type="button"
+                  class="kind"
+                  [disabled]="!kind.available"
+                  (click)="onChooseKind(kind.key)">
+                  <span class="kind__icon"><i [class]="kind.icon"></i></span>
+                  <span>
+                    <span class="kind__title">
+                      {{ kind.title }}
+                      @if (!kind.available) { <span class="kind__soon">not yet</span> }
+                    </span>
+                    <span class="kind__what">{{ kind.available ? kind.what : kind.why }}</span>
+                  </span>
+                </button>
+              }
+            </div>
+          } @else {
+            <div class="sheet__ops">
+              <input
+                type="text"
+                class="form-control form-control-sm"
+                placeholder="Filter operations"
+                [(ngModel)]="operationFilter">
+
+              <div class="sheet__oplist">
+                @for (operation of filteredOperations; track operation) {
+                  <button type="button" class="op" (click)="onAddCall(operation)">{{ operation }}</button>
+                } @empty {
+                  <p class="text-muted mb-0">No operation matches the filter.</p>
+                }
+              </div>
+            </div>
+          }
+
+          <div class="sheet__foot">
+            @if (adding === 'operation') {
+              <button type="button" class="btn btn-secondary btn-sm" (click)="adding = 'kind'">
+                ← Back
+              </button>
+            }
+            <button type="button" class="btn btn-secondary btn-sm" (click)="adding = ''">Cancel</button>
+          </div>
+        </div>
+      </div>
+    }
 
     <p class="wizard-section__hint panes__note">
       Read, loop, look up, branch and write follow from the connection and the assignment, and are

@@ -402,27 +402,29 @@ export class AutomationCompilerService {
                 continue;
             }
 
-            // The system the user chose, not the side that happens to be written: an added call is
-            // always a call to the foreign system, whichever direction the automation runs in.
-            const operation = this.operationByName(context.targetConnector?.invoker, extra.operation);
+            const index = this.nextSiblingIndex(anchor.index, out.methods);
+            const id = ocMethodNodeId(out.methods.length);
+            const color = out.palette[out.methods.length % out.palette.length];
+            let method: OcMethod;
 
-            if (!operation) {
-                out.warnings.push(
-                    `The target system offers no operation "${extra.operation}", so that added call `
-                    + 'was left out.'
-                );
+            if (extra.kind === 'http') {
+                method = this.buildFreeRequest(extra, id, index, color);
+            } else {
+                // The system the user chose, not the side that happens to be written: an added call
+                // through an invoker always goes to the foreign system, whichever way it runs.
+                const operation = this.operationByName(context.targetConnector?.invoker, extra.operation);
 
-                continue;
+                if (!operation) {
+                    out.warnings.push(
+                        `The target system offers no operation "${extra.operation}", so that added `
+                        + 'call was left out.'
+                    );
+
+                    continue;
+                }
+
+                method = this.buildMethod(operation, context.targetConnector, id, index, color, null);
             }
-
-            const method = this.buildMethod(
-                operation,
-                context.targetConnector,
-                ocMethodNodeId(out.methods.length),
-                this.nextSiblingIndex(anchor.index, out.methods),
-                out.palette[out.methods.length % out.palette.length],
-                null
-            );
 
             out.methods.push(method);
             out.graph.push({
@@ -446,6 +448,38 @@ export class AutomationCompilerService {
         }
 
         return values;
+    }
+
+
+    /**
+     * A request written out in full, with no invoker and no connector behind it.
+     *
+     * For an endpoint no invoker describes. The trade is spelled out where it is offered: an invoker
+     * is reusable, documents itself and knows its own response shape, and none of that comes with a
+     * request typed in by hand - including the response schema, which is why nothing downstream can
+     * read a value back out of one.
+     */
+    private buildFreeRequest(
+        extra: AutomationExtraCall,
+        id: string,
+        index: string,
+        color: string
+    ): OcMethod {
+        return {
+            id,
+            name: extra.endpoint || 'HTTP request',
+            index,
+            methodType: 'HTTP_REQUEST',
+            dataAggregator: null,
+            color,
+            request: {
+                endpoint: extra.endpoint ?? '',
+                method: extra.verb || 'POST',
+                header: { ...(extra.headers ?? {}) },
+                body: { type: 'object', format: 'json', data: 'raw', fields: {} }
+            },
+            response: { success: { status: '200', body: null }, fail: { status: '400', body: null } }
+        };
     }
 
 
@@ -1738,10 +1772,11 @@ export class AutomationCompilerService {
             position,
             index: method.index,
             data: {
-                title: method.connector.title,
+                // A free request has no connector to be named after, so it is named by its address.
+                title: method.connector?.title ?? method.request?.endpoint ?? 'HTTP request',
                 subtitle: method.name,
                 kind: 'connector',
-                connector: method.connector,
+                connector: method.connector ?? null,
                 methodConfig: this.methodConfig(method)
             }
         };

@@ -90,8 +90,60 @@ export class WizardStepFlowComponent implements DoCheck {
     public steps: FlowStep[] = [];
     public openStep = '';
 
-    /** True while the operation for a new call is being chosen. */
-    public adding = false;
+    /** Which stage of adding a call is open: the kinds, the operations, or nothing. */
+    public adding: '' | 'kind' | 'operation' = '';
+
+    /**
+     * What a step can be. Conditions and loops are shown but not offered yet: both are containers -
+     * things run inside them - and an added call names only the step it follows, so there is nowhere
+     * for a child to say which container it is in. Both would also need a condition builder, and an
+     * operator saved without an expression is rejected outright.
+     */
+    public readonly kinds: ReadonlyArray<{
+        key: 'operation' | 'http' | 'if' | 'loop';
+        title: string;
+        what: string;
+        icon: string;
+        available: boolean;
+        why?: string;
+    }> = [
+        {
+            key: 'operation',
+            title: 'Call a system that is described',
+            what: 'Pick an operation of the target system. Headers and body are filled in from its '
+                + 'interface description, and its answer can be read by later steps.',
+            icon: 'fas fa-diagram-project',
+            available: true
+        },
+        {
+            key: 'http',
+            title: 'Free HTTP request',
+            what: 'Give the method, address, headers and body yourself. For an endpoint no interface '
+                + 'description covers - it brings no response shape, so nothing can read a value '
+                + 'back out of it.',
+            icon: 'fas fa-arrow-up-right-from-square',
+            available: true
+        },
+        {
+            key: 'if',
+            title: 'Condition',
+            what: 'Splits the sequence; what follows runs only in the branch that holds.',
+            icon: 'fas fa-code-branch',
+            available: false,
+            why: 'Needs the sequence to hold nested steps, and a builder for the condition itself.'
+        },
+        {
+            key: 'loop',
+            title: 'Loop',
+            what: 'Repeats the steps inside it, once per entry of a list from an earlier answer.',
+            icon: 'fas fa-rotate',
+            available: false,
+            why: 'Needs the same nesting, plus a way to name the list it walks.'
+        }
+    ];
+
+    /** Filters the operation list, which is long enough on a real invoker to need it. */
+    public operationFilter = '';
 
     private seenConnection: OcConnection | null = null;
 
@@ -216,7 +268,7 @@ export class WizardStepFlowComponent implements DoCheck {
 
     public select(step: FlowStep): void {
         this.openStep = step.id;
-        this.adding = false;
+        this.adding = '';
     }
 
 
@@ -299,7 +351,30 @@ export class WizardStepFlowComponent implements DoCheck {
     /* ------------------------------------------------- ADDED CALLS -------------------------------------------------- */
 
     public startAdding(): void {
-        this.adding = !this.adding;
+        this.adding = this.adding ? '' : 'kind';
+        this.operationFilter = '';
+    }
+
+
+    public onChooseKind(key: 'operation' | 'http' | 'if' | 'loop'): void {
+        if (key === 'operation') {
+            this.adding = 'operation';
+
+            return;
+        }
+
+        if (key === 'http') {
+            this.addExtra({ kind: 'http', operation: '', verb: 'POST', endpoint: '' });
+        }
+    }
+
+
+    public get filteredOperations(): string[] {
+        const needle = this.operationFilter.trim().toLowerCase();
+
+        return needle
+            ? this.targetOperations.filter(name => name.toLowerCase().includes(needle))
+            : this.targetOperations;
     }
 
 
@@ -316,22 +391,50 @@ export class WizardStepFlowComponent implements DoCheck {
      * does not move it somewhere it was never meant to run.
      */
     public onAddCall(operation: string): void {
+        if (operation) {
+            this.addExtra({ kind: 'operation', operation });
+        }
+    }
+
+
+    private addExtra(partial: Omit<AutomationExtraCall, 'id' | 'after'>): void {
         const after = this.selected;
 
-        if (!operation || !after || after.kind !== 'call') {
+        if (!after || after.kind !== 'call') {
             return;
         }
 
-        const extra: AutomationExtraCall = {
+        this.definition.extras = [...this.definition.extras, {
+            ...partial,
             id: `extra-${after.index}-${this.definition.extras.length + 1}`,
-            after: after.index,
-            operation
-        };
-
-        this.definition.extras = [...this.definition.extras, extra];
-        this.adding = false;
+            after: after.index
+        }];
+        this.adding = '';
         this.definitionChange.emit(this.definition);
     }
+
+
+    /** The verb of a free request, which an operation brings with it instead. */
+    public onEditVerb(step: FlowStep, verb: string): void {
+        const extra = this.extraFor(step);
+
+        if (!extra) {
+            return;
+        }
+
+        this.definition.extras = this.definition.extras.map(candidate =>
+            candidate.id === extra.id ? { ...candidate, verb } : candidate
+        );
+        this.definitionChange.emit(this.definition);
+    }
+
+
+    public isFreeRequest(step: FlowStep): boolean {
+        return this.extraFor(step)?.kind === 'http';
+    }
+
+
+    public verbChoices = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 
     /**

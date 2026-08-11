@@ -309,8 +309,20 @@ export interface AutomationExtraCall {
     /** Execution index of the skeleton call this runs after, e.g. '1_2_0'. */
     after: string;
 
-    /** Operation of the target system's invoker. */
+    /**
+     * Whether the call goes through an invoker or is written out in full.
+     *
+     * An invoker is reusable and self-documenting and knows its own response shape, so it is the
+     * better answer whenever one exists. A free request is for the endpoint that has none - called
+     * once, or belonging to a service too small to describe.
+     */
+    kind: 'operation' | 'http';
+
+    /** Operation of the target system's invoker. Empty for a free request. */
     operation: string;
+
+    /** HTTP verb, for a free request only; an operation brings its own. */
+    verb?: string;
 
     /** Where the identifier of the object the previous call touched goes, if it needs it. */
     parentIdPath?: string;
@@ -629,9 +641,7 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
         mapping: normalizeMapping(raw.mapping as unknown),
         unmapped: Array.isArray(raw.unmapped) ? raw.unmapped : base.unmapped,
         overrides: normalizeOverrides(raw.overrides),
-        extras: Array.isArray(raw.extras)
-            ? raw.extras.filter(extra => !!extra?.id && !!extra?.after && !!extra?.operation)
-            : [],
+        extras: Array.isArray(raw.extras) ? raw.extras.filter(isUsableExtra).map(normalizeExtra) : [],
         matching: { ...defaultMatchingFor(raw.target?.operation ?? 'create'), ...(raw.matching ?? {}) },
         conditions: {
             ...base.conditions,
@@ -668,6 +678,18 @@ function normalizeMappingEntry(raw: any): AutomationMappingEntry {
     }
 
     return entry;
+}
+
+
+/** An added call the compiler can still place: it needs a step to follow and something to call. */
+function isUsableExtra(raw: any): boolean {
+    return !!raw?.id && !!raw?.after && (!!raw?.operation || raw?.kind === 'http');
+}
+
+
+/** Fills in the kind for calls stored before free requests existed. */
+function normalizeExtra(raw: any): AutomationExtraCall {
+    return { ...raw, kind: raw.kind === 'http' ? 'http' : 'operation' };
 }
 
 
