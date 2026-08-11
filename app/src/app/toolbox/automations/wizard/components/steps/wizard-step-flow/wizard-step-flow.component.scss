@@ -9,6 +9,8 @@ $muted: #6b7280;
     border: 1px solid $border;
     border-radius: 8px;
     overflow: hidden;
+
+    > li + li { border-top: 1px solid #f1f3f5; }
 }
 
 .flow__row {
@@ -16,17 +18,20 @@ $muted: #6b7280;
     grid-template-columns: 1.9rem minmax(0, 1fr) auto;
     gap: 0.7rem;
     align-items: center;
+    width: 100%;
     padding: 0.6rem 0.8rem;
-    border-top: 1px solid #f1f3f5;
+    border: 0;
     background: #fff;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
 
-    &:first-child { border-top: 0; }
+    &:hover { background: #f8f9fa; }
+    &.is-open { background: #f8f9fa; }
 
-    // A step inside a branch runs only when that branch is taken, so it is set back and shaded.
-    &.is-nested {
-        padding-left: 2.4rem;
-        background: #f8f9fa;
-    }
+    // A call inside a branch runs only when that branch is taken, so it is set back.
+    &[data-depth="1"] { padding-left: 2.4rem; }
+    &[data-depth="2"] { padding-left: 4rem; }
 }
 
 .flow__marker {
@@ -39,12 +44,12 @@ $muted: #6b7280;
     color: $accent;
     font-size: 0.75rem;
     font-weight: 700;
-}
 
-.is-branch .flow__marker {
-    background: #fff;
-    border: 1px dashed #ced4da;
-    color: $muted;
+    &.is-branch {
+        background: #fff;
+        border: 1px dashed #ced4da;
+        color: $muted;
+    }
 }
 
 .flow__title {
@@ -57,10 +62,83 @@ $muted: #6b7280;
     display: block;
     font-size: 0.75rem;
     color: $muted;
+    overflow-wrap: anywhere;
 }
 
-.flow__note {
+.flow__index {
     font-size: 0.6875rem;
     color: $muted;
-    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.flow__note { margin-top: 0.75rem; }
+
+// What the call actually sends. Machine type throughout, because all of it is literal.
+.wire {
+    padding: 0.25rem 0.8rem 0.9rem 2.4rem;
+    background: #f8f9fa;
+    border-top: 1px solid $border;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.wire__label {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: $muted;
+    margin-bottom: 0.25rem;
+}
+
+.wire__url {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    overflow-x: auto;
+}
+
+.wire__verb {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.25rem;
+    background: rgba(233, 77, 24, 0.1);
+    color: $accent;
+}
+
+.wire__code {
+    font-size: 0.75rem;
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.wire__table {
+    width: 100%;
+    font-size: 0.75rem;
+
+    td {
+        padding: 0.2rem 0.5rem 0.2rem 0;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+    }
+}
+
+.wire__key {
+    color: $muted;
+    white-space: nowrap;
+}
+
+// A value taken from an earlier call, rather than written out here.
+.wire__ref {
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.6875rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.25rem;
+    background: rgba(233, 77, 24, 0.1);
+    color: #a63a11;
+    overflow-wrap: anywhere;
 }

@@ -68,7 +68,10 @@
             </app-wizard-step-link>
           }
           @case (WizardGroup.FLOW) {
-            <app-wizard-step-flow [definition]="definition"></app-wizard-step-flow>
+            <app-wizard-step-flow
+              [definition]="definition"
+              [connection]="compiledConnection">
+            </app-wizard-step-flow>
           }
           @case (WizardGroup.MAPPING) {
             <app-wizard-step-mapping

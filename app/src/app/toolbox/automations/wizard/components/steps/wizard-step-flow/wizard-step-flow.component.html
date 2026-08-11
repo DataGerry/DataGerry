@@ -1,32 +1,109 @@
 <section class="wizard-section">
   <h5 class="wizard-section__title">What happens in {{ systemName }}</h5>
   <p class="wizard-section__hint">
-    Only the target system's calls. Reading from and writing to DataGerry is built from the object
-    type and its fields, so it does not appear as a step of its own.
+    The calls as they will be made. Reading from and writing to DataGerry is built from the object
+    type and its fields, so it does not appear here. Open a step to see what it sends.
   </p>
 
-  @if (steps.length === 0) {
-    <p class="text-muted">Choose a target system and an action first.</p>
+  @if (!connection) {
+    <p class="text-muted">
+      Nothing to show yet — finish the connection, or resolve what the review step reports.
+    </p>
   } @else {
     <ol class="flow">
-      @for (step of steps; track $index) {
-        <li class="flow__row" [class.is-nested]="step.nested" [class.is-branch]="step.kind === 'branch'">
-          <span class="flow__marker">
-            @if (step.kind === 'branch') { ? } @else { {{ $index + 1 }} }
-          </span>
+      @for (step of steps; track step.id) {
+        <li>
+          <button
+            type="button"
+            class="flow__row"
+            [class.is-open]="openStep === step.id"
+            [attr.data-depth]="step.depth"
+            [attr.aria-expanded]="openStep === step.id"
+            (click)="toggle(step)">
+            <span class="flow__marker" [class.is-branch]="step.kind === 'if'">
+              @if (step.kind === 'if') { ? } @else { {{ $index + 1 }} }
+            </span>
 
-          <span class="flow__main">
-            <span class="flow__title">{{ step.title }}</span>
-            <span class="flow__detail">{{ step.detail }}</span>
-          </span>
+            <span class="flow__main">
+              <span class="flow__title">{{ step.title }}</span>
+              <span class="flow__detail">
+                {{ step.detail }}
+                @if (step.system) { · {{ step.system }} }
+              </span>
+            </span>
 
-          <span class="flow__note">{{ step.note }}</span>
+            <span class="flow__index">{{ step.index }}</span>
+          </button>
+
+          @if (openStep === step.id) {
+            <div class="wire">
+              @if (step.kind === 'if') {
+                <div class="wire__block">
+                  <div class="wire__label">Condition</div>
+                  <pre class="wire__code">{{ step.expression }}</pre>
+                  <p class="wizard-section__hint mb-0">
+                    Everything set back below this line runs only when it holds.
+                  </p>
+                </div>
+              } @else {
+                <div class="wire__block">
+                  <div class="wire__label">Address</div>
+                  <div class="wire__url">
+                    <span class="wire__verb">{{ verbOf(step) }}</span>
+                    <code>{{ urlOf(step) }}</code>
+                  </div>
+                </div>
+
+                @if (headersOf(step).length > 0) {
+                  <div class="wire__block">
+                    <div class="wire__label">Headers</div>
+                    <table class="wire__table">
+                      @for (pair of headersOf(step); track pair.key) {
+                        <tr>
+                          <td class="wire__key">{{ pair.key }}</td>
+                          <td><code>{{ pair.value }}</code></td>
+                        </tr>
+                      }
+                    </table>
+                  </div>
+                }
+
+                @if (bodyOf(step).length > 0) {
+                  <div class="wire__block">
+                    <div class="wire__label">Body</div>
+                    <table class="wire__table">
+                      @for (pair of bodyOf(step); track pair.key) {
+                        <tr>
+                          <td class="wire__key">{{ pair.key }}</td>
+                          <td>
+                            @if (pair.reference) {
+                              <span class="wire__ref" title="Read from an earlier call">{{ pair.value }}</span>
+                            } @else {
+                              <code>{{ pair.value || '—' }}</code>
+                            }
+                          </td>
+                        </tr>
+                      }
+                    </table>
+                    <p class="wizard-section__hint mb-0">
+                      Marked values are read from an earlier call; the rest is sent as it stands.
+                    </p>
+                  </div>
+                }
+              }
+            </div>
+          }
         </li>
       }
     </ol>
 
+    <p class="wizard-section__hint flow__note">
+      The sequence follows from the connection and the assignment. Adding a call of your own is not
+      possible yet — there would be nowhere to keep it.
+    </p>
+
     @if (needsIdentifier) {
-      <div class="alert alert-warning mt-3">
+      <div class="alert alert-warning">
         <strong>The lookup has nothing to search by yet.</strong>
         Mark the field that identifies the object on the next step, otherwise this automation cannot
         tell a new object from one it already wrote.
