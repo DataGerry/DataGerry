@@ -15,10 +15,10 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { RackMountRow, RackSlotRow } from '../models/rack-overview.types';
+import { RackCapacity, RackFace, RackMountRow, RackViewSide } from '../models/rack-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Lowest slot a mount reaches: it is anchored at its start slot and extends downward. */
+/** Lowest slot a row reaches: it is anchored at its start slot and extends downward. */
 export function bottomSlotOf(mount: RackMountRow): number | null {
     if (mount.start_slot == null || mount.height == null) {
         return null;
@@ -28,7 +28,7 @@ export function bottomSlotOf(mount: RackMountRow): number | null {
 }
 
 
-/** True when the mount has usable geometry that stays inside the rack. */
+/** True when the row has usable geometry that stays inside the rack. */
 export function fitsRack(mount: RackMountRow, rackHeight: number): boolean {
     const bottom = bottomSlotOf(mount);
 
@@ -36,51 +36,85 @@ export function fitsRack(mount: RackMountRow, rackHeight: number): boolean {
 }
 
 
-/**
- * Builds the rows of one rack side, top slot first. A mount is emitted once at its anchor and spans
- * its height; the slots it covers below the anchor are consumed by that span and not emitted again.
- */
-export function buildSlotRows(mounts: RackMountRow[], rackHeight: number): RackSlotRow[] {
-    const anchors = new Map<number, RackMountRow>();
-    const covered = new Set<number>();
+/** Every slot the row covers, top down. Empty for a row without usable geometry. */
+export function slotsCovered(mount: RackMountRow): number[] {
+    const bottom = bottomSlotOf(mount);
 
-    for (const mount of mounts) {
-        if (!fitsRack(mount, rackHeight)) {
-            continue;
-        }
-
-        const top = mount.start_slot as number;
-        const bottom = bottomSlotOf(mount) as number;
-
-        anchors.set(top, mount);
-
-        for (let slot = bottom; slot <= top; slot++) {
-            covered.add(slot);
-        }
+    if (bottom === null) {
+        return [];
     }
 
-    const rows: RackSlotRow[] = [];
-
-    for (let slot = rackHeight; slot >= 1; slot--) {
-        const mount = anchors.get(slot);
-
-        if (mount) {
-            rows.push({ slot, span: mount.height as number, mount });
-            continue;
-        }
-
-        if (!covered.has(slot)) {
-            rows.push({ slot, span: 1, mount: null });
-        }
-    }
-
-    return rows;
+    return Array.from({ length: mount.height as number }, (_, index) => (mount.start_slot as number) - index);
 }
 
 
 /**
- * Mounts that claim slots outside the rack, which happens when the rack height was reduced below an
- * existing placement. They cannot be drawn in the grid, so they are listed separately.
+ * Assembles one elevation: the rows that can be drawn on it, the slots left open, and how full it is.
+ * Rows whose geometry falls outside the rack are left out here and reported separately.
+ */
+export function buildFace(
+    side: RackViewSide,
+    title: string,
+    mounts: RackMountRow[],
+    rackHeight: number
+): RackFace {
+    const units = mounts.filter(mount => fitsRack(mount, rackHeight));
+    const covered = new Set<number>();
+
+    units.forEach(mount => slotsCovered(mount).forEach(slot => covered.add(slot)));
+
+    const freeSlots: number[] = [];
+
+    for (let slot = rackHeight; slot >= 1; slot--) {
+        if (!covered.has(slot)) {
+            freeSlots.push(slot);
+        }
+    }
+
+    return { side, title, units, freeSlots, capacity: measureCapacity(covered, rackHeight) };
+}
+
+
+/**
+ * How full a face is. The largest gap is the longest run of consecutive free slots, which is what tells
+ * a user whether the free U can actually take anything - a mount needs them in one piece.
+ */
+export function measureCapacity(coveredSlots: Set<number>, rackHeight: number): RackCapacity {
+    const total = Math.max(rackHeight, 0);
+    let used = 0;
+    let run = 0;
+    let largestGap = 0;
+
+    for (let slot = 1; slot <= total; slot++) {
+        if (coveredSlots.has(slot)) {
+            used = used + 1;
+            run = 0;
+            continue;
+        }
+
+        run = run + 1;
+        largestGap = Math.max(largestGap, run);
+    }
+
+    return {
+        total,
+        used,
+        free: total - used,
+        percent: total ? Math.round((used / total) * 100) : 0,
+        largestGap
+    };
+}
+
+
+/** Descending U numbers of a rack, the order a ruler is read in. */
+export function buildSlotTicks(rackHeight: number): number[] {
+    return Array.from({ length: Math.max(rackHeight, 0) }, (_, index) => rackHeight - index);
+}
+
+
+/**
+ * Rows that claim slots outside the rack, which happens when the rack height was reduced below an
+ * existing placement. They cannot be drawn in the elevation, so they are listed separately.
  */
 export function collectOutOfRangeMounts(mounts: RackMountRow[], rackHeight: number): RackMountRow[] {
     return mounts.filter(mount => !fitsRack(mount, rackHeight));

@@ -1,0 +1,30 @@
+/* Rack › stage — the drawing/inspector split and the scrolling board the elevation is centred on. */
+
+.rack-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  gap: 1rem;
+  align-items: start;
+}
+
+.rack-board {
+  padding: 1.1rem 1rem;
+  background: $paper;
+  border: 1px solid $hairline;
+  border-radius: $radius-card;
+  box-shadow: $shadow-card;
+  overflow-x: auto;
+
+  /*
+   * The drawing is centred by `margin: auto` on a max-content row, not by `justify-content` on the
+   * scroll container: centring a flex container that overflows pushes its start out of reach, which
+   * clips the left rail instead of letting it scroll.
+   */
+  &__inner {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    width: max-content;
+    margin: 0 auto;
+  }
+}

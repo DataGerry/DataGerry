@@ -1,0 +1,154 @@
+/* Rack › rail — the LEFT and RIGHT cards beside the enclosure, for rows that carry no slot geometry. */
+
+.rack-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: none;
+  width: 9.15rem;
+  padding-top: var(--rack-cap);
+
+  &__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: $ink-4;
+  }
+
+  &__card {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    padding: 0.65rem 0.55rem;
+    background: $paper;
+    border: 1px solid $hairline;
+    border-left: 3px solid var(--rack-tone);
+    border-radius: 0.4rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    transition: box-shadow $ease, border-color $ease;
+
+    &:hover,
+    &:focus-within {
+      border-color: $ink-4;
+      box-shadow: $shadow-card;
+
+      .rack-rail__actions {
+        opacity: 1;
+        pointer-events: auto;
+      }
+    }
+  }
+
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.3rem;
+    height: 1.3rem;
+    border-radius: 0.3rem;
+    font-size: 0.7rem;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+
+  /* Truncated on one line; the full summary line is on the tooltip the template attaches. */
+  &__name {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: $ink;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    /* Only a mount opens an object, so only that name reads as a link. */
+    &:is(button):hover {
+      color: $primary;
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      border-radius: 0.2rem;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+  }
+
+  /* One line, always: a type name plus a position wraps into a ragged block otherwise. */
+  &__sub {
+    font-size: 0.65rem;
+    line-height: 1.4;
+    color: $ink-4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * Out of flow on purpose. In flow, an invisible action cluster still reserves its width and eats
+   * the room the name needs, which is what truncated these cards after a few characters. The paper
+   * shadow fades the text out underneath it while it is showing.
+   */
+  &__actions {
+    position: absolute;
+    top: 50%;
+    right: 0.35rem;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 0.15rem;
+    background: $paper;
+    box-shadow: -0.5rem 0 0.5rem 0.15rem $paper;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity $ease;
+  }
+
+  &__empty {
+    margin: 0;
+    font-size: 0.75rem;
+    color: $ink-4;
+  }
+
+  &__add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.45rem;
+    border: 1px dashed $hairline;
+    border-radius: $radius-sm;
+    background: transparent;
+    color: $ink-4;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: border-color $ease, color $ease, background $ease;
+
+    i {
+      font-size: 0.65rem;
+    }
+
+    &:hover {
+      border-color: rgba($primary, 0.45);
+      background: rgba($primary, 0.06);
+      color: $primary;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+  }
+}

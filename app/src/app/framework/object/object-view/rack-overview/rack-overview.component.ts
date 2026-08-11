@@ -37,23 +37,33 @@ import { RackMountModalComponent } from './components/rack-mount-modal/rack-moun
 import {
     RackArea,
     RackAreaGroup,
+    RackFace,
     RackHeader,
     RackMountKind,
     RackMountRow,
     RackOccupantLegendEntry,
     RackOverviewResponse,
-    RackSlotRow,
+    RackViewMode,
     RackViewSide,
     kindOf,
     toDayString
 } from './models/rack-overview.types';
 import { RackOverviewService } from './services/rack-overview.service';
-import { buildSlotRows, collectOutOfRangeMounts, sortByPosition } from './utils/rack-layout.util';
+import {
+    buildFace,
+    buildSlotTicks,
+    collectOutOfRangeMounts,
+    fitsRack,
+    sortByPosition
+} from './utils/rack-layout.util';
 import { RACK_KIND_ICONS, RACK_KIND_LABELS, accentTint, safeAccent, safeIcon } from './utils/rack-visual.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Opacity of the type colour filling the row of a mounted object. */
-const ROW_TINT_ALPHA = 0.22;
+/** Opacity of the row colour behind an icon chip or a side card. */
+const TONE_TINT_ALPHA = 0.14;
+
+/** Row 1 of the elevation grid is the cabinet cap, so U numbering starts on row 2. */
+const FIRST_SLOT_ROW = 2;
 
 
 @Component({
@@ -80,21 +90,38 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
 
     public rack: RackHeader | null = null;
     public totalMounts = 0;
-    public activeSide: RackViewSide = RackArea.FRONT;
-    public slotRows: RackSlotRow[] = [];
-    public outOfRangeMounts: RackMountRow[] = [];
-    public positionAreaGroups: RackAreaGroup[] = [];
     public occupantsLegend: RackOccupantLegendEntry[] = [];
     public hasError = false;
+
+    public viewMode: RackViewMode = 'split';
+    /**
+     * Shorter rows, on by default: a full-height rack is taller than a screen at the comfortable
+     * height, and seeing the whole elevation at once matters more than the plate detail.
+     */
+    public isCompact = true;
+    public frontFace: RackFace | null = null;
+    public rearFace: RackFace | null = null;
+    /** Both faces in drawing order, so the capacity meters iterate a stable array. */
+    public faces: RackFace[] = [];
+    /** The rows that hold both faces at once; drawn in each cabinet and linked across the ruler. */
+    public bridges: RackMountRow[] = [];
+    public outOfRangeMounts: RackMountRow[] = [];
+    public sideRails: RackAreaGroup[] = [];
+    public unassignedGroup: RackAreaGroup | null = null;
+    public slotTicks: number[] = [];
+    /** The grid's row track list: the cap, one track per U, then the plinth. */
+    public rowTemplate = '';
+    public selectedMount: RackMountRow | null = null;
 
     private overview: RackOverviewResponse | null = null;
     private readonly destroy$ = new Subject<void>();
 
-/* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+    /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnChanges(changes: SimpleChanges): void {
         if (changes['publicId'] && this.publicId != null) {
-            this.activeSide = RackArea.FRONT;
+            this.viewMode = 'split';
+            this.selectedMount = null;
             this.loadOverview();
         }
     }
@@ -104,36 +131,51 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         this.destroy$.complete();
     }
 
-/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+    /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
-    public onSideChange(side: RackViewSide): void {
-        if (side === this.activeSide) {
+    public onViewChange(mode: RackViewMode): void {
+        if (mode === this.viewMode) {
             return;
         }
 
-        this.activeSide = side;
-        this.buildActiveSide();
+        this.viewMode = mode;
         this.changesRef.markForCheck();
     }
 
-    public onMountObject(): void {
-        this.openMountModal(null, this.activeSide, null);
+    public onToggleCompact(): void {
+        this.isCompact = !this.isCompact;
+        this.changesRef.markForCheck();
     }
 
-    /** Filling the clicked slot, pre-filled with that slot as the anchor. */
-    public onFreeSlotClick(row: RackSlotRow): void {
-        if (row.mount) {
-            return;
-        }
+    public onAddToRack(): void {
+        this.openMountModal(null, this.defaultSide, null);
+    }
 
-        this.openMountModal(null, this.activeSide, row.slot);
+    /** Adding straight into one of the areas without slot geometry. */
+    public onAddToArea(area: RackArea): void {
+        this.openMountModal(null, area, null);
+    }
+
+    /** Filling the clicked slot on the clicked face, pre-filled with that slot as the anchor. */
+    public onFreeSlotClick(side: RackViewSide, slot: number): void {
+        this.openMountModal(null, side, slot);
+    }
+
+    public onSelectMount(mount: RackMountRow): void {
+        this.selectedMount = this.isSelected(mount) ? null : mount;
+        this.changesRef.markForCheck();
+    }
+
+    public onClearSelection(): void {
+        this.selectedMount = null;
+        this.changesRef.markForCheck();
     }
 
     public onEditMount(mount: RackMountRow): void {
         this.openMountModal(mount, mount.area, mount.start_slot);
     }
 
-    /** Frees the slots but keeps the object in the rack, so it can be placed again later. */
+    /** Frees the slots but keeps the row in the rack, so it can be placed again later. */
     public onUnplaceMount(mount: RackMountRow): void {
         this.loaderService.show();
 
@@ -167,7 +209,24 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         this.router.navigate([`/framework/object/view/${objectId}`]);
     }
 
-/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    /** The face a single-face view is showing, and the face a new row defaults to in a split view. */
+    public get defaultSide(): RackViewSide {
+        return this.viewMode === 'rear' ? RackArea.BACK : RackArea.FRONT;
+    }
+
+    public get shownFace(): RackFace | null {
+        return this.viewMode === 'rear' ? this.rearFace : this.frontFace;
+    }
+
+    /**
+     * The face the capacity read-out describes. Occupancy is per face - a slot can be free at the back
+     * while the front holds it - so the numbers always name the face they belong to.
+     */
+    public get statsFace(): RackFace | null {
+        return this.shownFace;
+    }
 
     /** A mount is named by its object, an occupant by its own label and otherwise by its kind. */
     public labelOf(mount: RackMountRow): string {
@@ -182,12 +241,25 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         return kindOf(mount) === RackMountKind.MOUNT;
     }
 
+    public isSelected(mount: RackMountRow | null): boolean {
+        return !!mount && this.selectedMount?.mount_id === mount.mount_id;
+    }
+
     public kindTitleOf(mount: RackMountRow): string {
         return RACK_KIND_LABELS[kindOf(mount)];
     }
 
     public kindTitle(kind: RackMountKind): string {
         return RACK_KIND_LABELS[kind];
+    }
+
+    public kindIcon(kind: RackMountKind): string {
+        return RACK_KIND_ICONS[kind];
+    }
+
+    /** What a row is, in one word: its type for a mount, its kind for an occupant. */
+    public typeNameOf(mount: RackMountRow): string {
+        return this.isMount(mount) ? mount.type_label || 'Object' : this.kindTitleOf(mount);
     }
 
     /** The label of a mount is already the object, so it only adds something to a named occupant. */
@@ -218,36 +290,45 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         return mount?.area === RackArea.FULL_DEPTH;
     }
 
-    /** A row is exactly as tall as the U it covers, which is what makes the grid read as a rack. */
-    public heightOf(row: RackSlotRow): string {
-        return `calc(var(--rack-u) * ${row.span})`;
+    /** The U range a row covers, written the way a rack is read: the anchor first. */
+    public slotRangeOf(mount: RackMountRow): string {
+        if (mount.start_slot == null || mount.height == null) {
+            return '';
+        }
+
+        const bottom = mount.start_slot - mount.height + 1;
+
+        return mount.height > 1 ? `U${mount.start_slot}–U${bottom}` : `U${mount.start_slot}`;
     }
 
-    /**
-     * The U numbers this row covers, top down. The rulers are drawn from the rows themselves rather
-     * than from a separate list of slots, so the two can never drift apart.
-     */
-    public ticksOf(row: RackSlotRow): number[] {
-        return Array.from({ length: row.span }, (_, index) => row.slot - index);
+    /** Grid placement of a row: it starts at its anchor slot and spans its height. */
+    public gridRowOf(mount: RackMountRow): string {
+        const rackHeight = this.rack?.height ?? 0;
+        const start = rackHeight - (mount.start_slot as number) + FIRST_SLOT_ROW;
+
+        return `${start} / span ${mount.height}`;
     }
 
-    public accentOf(mount: RackMountRow): string {
+    public gridRowOfSlot(slot: number): string {
+        const rackHeight = this.rack?.height ?? 0;
+
+        return `${rackHeight - slot + FIRST_SLOT_ROW}`;
+    }
+
+    /** The row colour: its type for a mount, its own colour for a reservation, neutral otherwise. */
+    public toneOf(mount: RackMountRow): string {
         return safeAccent(this.colorSourceOf(mount));
     }
 
-    public accentTintOf(mount: RackMountRow): string {
-        return accentTint(this.colorSourceOf(mount), ROW_TINT_ALPHA);
-    }
-
-    public kindIcon(kind: RackMountKind): string {
-        return RACK_KIND_ICONS[kind];
+    public toneTintOf(mount: RackMountRow): string {
+        return accentTint(this.colorSourceOf(mount), TONE_TINT_ALPHA);
     }
 
     public iconOf(mount: RackMountRow): string {
         return this.isMount(mount) ? safeIcon(mount.type_icon) : RACK_KIND_ICONS[kindOf(mount)];
     }
 
-/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private loadOverview(): void {
         this.loaderService.show();
@@ -275,29 +356,57 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         this.occupantsLegend = response?.occupants_legend ?? [];
         this.hasError = false;
 
-        this.positionAreaGroups = [
+        this.sideRails = [
             { area: RackArea.LEFT, title: 'Left side', mounts: sortByPosition(this.mountsOf(RackArea.LEFT)) },
-            { area: RackArea.RIGHT, title: 'Right side', mounts: sortByPosition(this.mountsOf(RackArea.RIGHT)) },
-            {
-                area: RackArea.UNASSIGNED,
-                title: 'Assigned, not placed',
-                mounts: sortByPosition(this.mountsOf(RackArea.UNASSIGNED))
-            }
+            { area: RackArea.RIGHT, title: 'Right side', mounts: sortByPosition(this.mountsOf(RackArea.RIGHT)) }
         ];
 
-        this.buildActiveSide();
+        this.unassignedGroup = {
+            area: RackArea.UNASSIGNED,
+            title: 'In the rack, not placed',
+            mounts: sortByPosition(this.mountsOf(RackArea.UNASSIGNED))
+        };
+
+        this.buildElevations();
+        this.restoreSelection();
     }
 
     /**
-     * A side shows its own mounts plus every FULL_DEPTH one: those occupy the same slots in the front
-     * and the rear, and the backend reports them once instead of duplicating them into both buckets.
+     * Both faces are assembled up front, so switching the view is a template change rather than a
+     * rebuild. A FULL_DEPTH row holds the same slots front and back, and the backend reports it once,
+     * so it is handed to both faces.
      */
-    private buildActiveSide(): void {
+    private buildElevations(): void {
         const rackHeight = this.rack?.height ?? 0;
-        const mounts = [...this.mountsOf(this.activeSide), ...this.mountsOf(RackArea.FULL_DEPTH)];
+        const fullDepth = this.mountsOf(RackArea.FULL_DEPTH);
+        const front = [...this.mountsOf(RackArea.FRONT), ...fullDepth];
+        const rear = [...this.mountsOf(RackArea.BACK), ...fullDepth];
 
-        this.slotRows = buildSlotRows(mounts, rackHeight);
-        this.outOfRangeMounts = collectOutOfRangeMounts(mounts, rackHeight);
+        this.frontFace = buildFace(RackArea.FRONT, 'Front', front, rackHeight);
+        this.rearFace = buildFace(RackArea.BACK, 'Rear', rear, rackHeight);
+        this.faces = [this.frontFace, this.rearFace];
+        this.bridges = fullDepth.filter(mount => fitsRack(mount, rackHeight));
+        this.slotTicks = buildSlotTicks(rackHeight);
+
+        // repeat() needs a positive count, so a rack without a height falls back to a single track.
+        this.rowTemplate = rackHeight > 0
+            ? `var(--rack-cap) repeat(${rackHeight}, var(--rack-u)) var(--rack-plinth)`
+            : 'var(--rack-cap) minmax(6rem, auto) var(--rack-plinth)';
+
+        this.outOfRangeMounts = collectOutOfRangeMounts([...front, ...this.mountsOf(RackArea.BACK)], rackHeight);
+    }
+
+    /** A reload replaces every row object, so the selection is matched again by its mount id. */
+    private restoreSelection(): void {
+        if (!this.selectedMount) {
+            return;
+        }
+
+        const mountId = this.selectedMount.mount_id;
+        const areas = this.overview?.areas;
+        const rows = areas ? Object.values(areas).reduce<RackMountRow[]>((all, bucket) => [...all, ...bucket], []) : [];
+
+        this.selectedMount = rows.find(row => row.mount_id === mountId) ?? null;
     }
 
     private mountsOf(area: RackArea): RackMountRow[] {
@@ -343,7 +452,10 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
             .deleteMount(this.publicId, mount.mount_id)
             .pipe(takeUntil(this.destroy$), finalize(() => this.loaderService.hide()))
             .subscribe({
-                next: () => this.loadOverview(),
+                next: () => {
+                    this.selectedMount = null;
+                    this.loadOverview();
+                },
                 error: (err) => this.toastService.error(err?.error?.message)
             });
     }

@@ -1,0 +1,52 @@
+/* Rack › density — compact mode: retunes the geometry and trims plate detail that stops reading. */
+
+.rack-view--compact {
+  --rack-u: 1.0rem;
+  --rack-cap: 1.3rem;
+  --rack-plinth: 0.6rem;
+
+  .rack-unit {
+    gap: 0.25rem;
+
+    /* Louvres, the full-depth tag and the ear screws stop reading at this height. */
+    &__vent,
+    &__tag,
+    &::before,
+    &::after {
+      display: none;
+    }
+
+    &__icon {
+      width: 0.9rem;
+      margin-left: 0.4rem;
+      font-size: 0.6rem;
+    }
+
+    &__name {
+      flex: 1 1 auto;
+      font-size: 0.66rem;
+    }
+
+    &__spec {
+      gap: 0.25rem;
+      font-size: 0.55rem;
+    }
+
+    &__led {
+      width: 4px;
+      height: 4px;
+    }
+  }
+
+  .rack-tick {
+    font-size: 0.58rem;
+  }
+
+  .rack-bay__hint {
+    font-size: 0.58rem;
+  }
+
+  .rack-link span {
+    font-size: 0.52rem;
+  }
+}

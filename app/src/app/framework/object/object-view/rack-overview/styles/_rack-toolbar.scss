@@ -1,0 +1,74 @@
+/* Rack › toolbar — the action row above the stage: the front/rear/split switch and the density toggle. */
+
+.rack-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+
+  &__spacer {
+    flex: 1 1 auto;
+  }
+}
+
+.rack-switch {
+  display: inline-flex;
+  padding: 0.2rem;
+  gap: 0.15rem;
+  background: $sunk;
+  border: 1px solid $hairline;
+  border-radius: 999px;
+
+  &__option {
+    padding: 0.3rem 0.9rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: $ink-3;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: background $ease, color $ease, box-shadow $ease;
+
+    &:hover {
+      color: $ink;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    &--active,
+    &--active:hover {
+      background: $paper;
+      color: $primary;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+    }
+  }
+}
+
+.rack-density {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid $hairline;
+  border-radius: $radius-sm;
+  background: $paper;
+  color: $ink-2;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: border-color $ease, color $ease, background $ease;
+
+  &:hover {
+    border-color: $ink-4;
+    color: $ink;
+  }
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+  }
+
+  &--on {
+    background: $sunk;
+    color: $ink;
+  }
+}

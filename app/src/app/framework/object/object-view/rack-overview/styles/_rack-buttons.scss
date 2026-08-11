@@ -1,0 +1,60 @@
+/* Rack › buttons — the compact icon and ghost controls shared by the rail, inspector and tray. */
+
+.rack-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: rgba(15, 23, 42, 0.05);
+  color: $ink-3;
+  font-size: 0.65rem;
+  transition: background $ease, color $ease;
+
+  &:hover {
+    background: rgba(15, 23, 42, 0.1);
+    color: $ink;
+  }
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+  }
+
+  &--danger:hover {
+    background: rgba($dg-error-message-color, 0.12);
+    color: $dg-error-message-color;
+  }
+}
+
+.rack-ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid $hairline;
+  border-radius: 0.3rem;
+  background: $paper;
+  color: $ink-2;
+  font-size: 0.72rem;
+  font-weight: 600;
+  transition: border-color $ease, background $ease, color $ease;
+
+  i {
+    font-size: 0.6rem;
+  }
+
+  &:hover {
+    border-color: rgba($primary, 0.45);
+    background: rgba($primary, 0.06);
+    color: $primary;
+  }
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+  }
+}

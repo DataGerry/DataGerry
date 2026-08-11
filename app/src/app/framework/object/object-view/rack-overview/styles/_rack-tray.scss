@@ -1,0 +1,136 @@
+/* Rack › tray — the staging area below the board for rows that are not mounted anywhere yet. */
+
+.rack-tray {
+  padding: 0.8rem 1rem;
+  background: $paper;
+  border: 1px solid $hairline;
+  border-radius: $radius-card;
+  box-shadow: $shadow-card;
+
+  &__head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid $hairline-soft;
+
+    h4 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: $ink-2;
+    }
+
+    p {
+      margin: 0;
+      font-size: 0.8rem;
+      color: $ink-3;
+    }
+  }
+
+  &__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.3rem;
+    height: 1.3rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: rgba($primary, 0.1);
+    color: $primary;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  &__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0.7rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: 22rem;
+    padding: 0.4rem 0.5rem;
+    background: $sunk;
+    border: 1px solid $hairline;
+    border-left: 2px solid var(--rack-tone);
+    border-radius: $radius-sm;
+    transition: background $ease, border-color $ease;
+
+    &:hover {
+      background: $paper;
+      border-color: $ink-4;
+    }
+  }
+
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.45rem;
+    height: 1.45rem;
+    border-radius: 0.3rem;
+    font-size: 0.68rem;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+  }
+
+  &__name {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: $ink;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &:is(button):hover {
+      color: $primary;
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      border-radius: 0.2rem;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+  }
+
+  &__sub {
+    font-size: 0.72rem;
+    color: $ink-4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: 0.25rem;
+  }
+
+  &__empty {
+    margin: 0.7rem 0 0;
+    font-size: 0.8rem;
+    color: $ink-4;
+  }
+}

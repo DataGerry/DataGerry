@@ -53,7 +53,7 @@ export class RackOverviewService {
 
     private readonly jsonHeaders = new HttpHeaders({ 'Content-Type': 'application/json' });
 
-/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     public getOverview(rackId: number): Observable<RackOverviewResponse> {
         return this.api
@@ -185,7 +185,7 @@ export class RackOverviewService {
             .pipe(map(response => response?.body as APIDeleteSingleResponse<RackMountRow>));
     }
 
-/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private requestOptions() {
         return {

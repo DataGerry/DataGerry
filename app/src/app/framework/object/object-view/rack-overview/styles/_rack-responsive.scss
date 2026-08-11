@@ -1,0 +1,29 @@
+/* Rack › responsive — breakpoint overrides. Imported last: these rely on source order to win. */
+
+@media (max-width: 1399.98px) {
+  .rack-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rack-inspector {
+    position: static;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .rack-view {
+    --rack-u: 1.5rem;
+    --rack-face: 14rem;
+  }
+
+  .rack-board {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .rack-rail {
+    width: 100%;
+    max-width: 24rem;
+    padding-top: 0;
+  }
+}

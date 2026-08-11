@@ -230,13 +230,32 @@ export interface RackMountValidationResponse {
 
 
 /**
- * One rendered row of a rack side: either the top slot of a mount, spanning its height, or a single
- * free slot. Slots covered by a mount below its anchor are not emitted.
+ * Which elevations are drawn. `split` shows both faces beside one shared U ruler, the other two show a
+ * single face with a ruler on each of its posts.
  */
-export interface RackSlotRow {
-    slot: number;
-    span: number;
-    mount: RackMountRow | null;
+export type RackViewMode = 'split' | 'front' | 'rear';
+
+
+/** How full one face of the rack is. The largest gap is what says whether the free U are usable. */
+export interface RackCapacity {
+    total: number;
+    used: number;
+    free: number;
+    percent: number;
+    largestGap: number;
+}
+
+
+/**
+ * One drawn elevation: the rows holding slots on that face, the slots still open, and how full it is.
+ * A FULL_DEPTH row belongs to both faces and is therefore part of both.
+ */
+export interface RackFace {
+    side: RackViewSide;
+    title: string;
+    units: RackMountRow[];
+    freeSlots: number[];
+    capacity: RackCapacity;
 }
 
 
