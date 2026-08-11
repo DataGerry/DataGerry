@@ -45,6 +45,7 @@ import {
     RackMountRow,
     RackOccupantLegendEntry,
     RackOverviewResponse,
+    RackTypeLegendEntry,
     RackViewMode,
     RackViewSide,
     kindOf,
@@ -56,7 +57,8 @@ import {
     buildSlotTicks,
     collectOutOfRangeMounts,
     fitsRack,
-    sortByPosition
+    sortByPosition,
+    sortTypeLegend
 } from './utils/rack-layout.util';
 import { RACK_KIND_ICONS, RACK_KIND_LABELS, accentTint, safeAccent, safeIcon } from './utils/rack-visual.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -66,6 +68,12 @@ const TONE_TINT_ALPHA = 0.14;
 
 /** Row 1 of the elevation grid is the cabinet cap, so U numbering starts on row 2. */
 const FIRST_SLOT_ROW = 2;
+
+/**
+ * How many type entries the legend shows before it has to be expanded. A rack may hold dozens of types,
+ * and the key must not grow taller than the drawing it explains.
+ */
+const LEGEND_TYPE_LIMIT = 6;
 
 
 @Component({
@@ -97,7 +105,10 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
 
     public rack: RackHeader | null = null;
     public totalMounts = 0;
+    public typesLegend: RackTypeLegendEntry[] = [];
     public occupantsLegend: RackOccupantLegendEntry[] = [];
+    /** Only the first types are keyed until the user asks for the rest. */
+    public isLegendExpanded = false;
     public hasError = false;
 
     public viewMode: RackViewMode = 'split';
@@ -129,6 +140,7 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         if (changes['publicId'] && this.publicId != null) {
             this.viewMode = 'split';
             this.selectedMount = null;
+            this.isLegendExpanded = false;
             this.loadOverview();
         }
     }
@@ -151,6 +163,11 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
 
     public onToggleCompact(): void {
         this.isCompact = !this.isCompact;
+        this.changesRef.markForCheck();
+    }
+
+    public onToggleLegend(): void {
+        this.isLegendExpanded = !this.isLegendExpanded;
         this.changesRef.markForCheck();
     }
 
@@ -241,6 +258,31 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
      */
     public get statsFace(): RackFace | null {
         return this.shownFace;
+    }
+
+    public get hasLegend(): boolean {
+        return this.typesLegend.length > 0 || this.occupantsLegend.length > 0;
+    }
+
+    public get visibleTypesLegend(): RackTypeLegendEntry[] {
+        return this.isLegendExpanded ? this.typesLegend : this.typesLegend.slice(0, LEGEND_TYPE_LIMIT);
+    }
+
+    public get hiddenTypesCount(): number {
+        return Math.max(this.typesLegend.length - LEGEND_TYPE_LIMIT, 0);
+    }
+
+    /** The legend keys the drawing, so a type entry reads its colour and icon the same way a row does. */
+    public typeTone(entry: RackTypeLegendEntry): string {
+        return safeAccent(entry.type_color);
+    }
+
+    public typeTint(entry: RackTypeLegendEntry): string {
+        return accentTint(entry.type_color, TONE_TINT_ALPHA);
+    }
+
+    public typeIcon(entry: RackTypeLegendEntry): string {
+        return safeIcon(entry.type_icon);
     }
 
     /** A mount is named by its object, an occupant by its own label and otherwise by its kind. */
@@ -368,6 +410,7 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         this.overview = response;
         this.rack = response?.rack ?? null;
         this.totalMounts = response?.total_mounts ?? 0;
+        this.typesLegend = sortTypeLegend(response?.types_legend ?? []);
         this.occupantsLegend = response?.occupants_legend ?? [];
         this.hasError = false;
 

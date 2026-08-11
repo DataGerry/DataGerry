@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { RackCapacity, RackFace, RackMountRow, RackViewSide } from '../models/rack-overview.types';
+import { RackCapacity, RackFace, RackMountRow, RackTypeLegendEntry, RackViewSide } from '../models/rack-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Lowest slot a row reaches: it is anchored at its start slot and extends downward. */
@@ -124,4 +124,14 @@ export function collectOutOfRangeMounts(mounts: RackMountRow[], rackHeight: numb
 /** Areas without slot geometry are ordered by their explicit position. */
 export function sortByPosition(mounts: RackMountRow[]): RackMountRow[] {
     return [...mounts].sort((first, second) => (first.position ?? 0) - (second.position ?? 0));
+}
+
+
+/**
+ * The type legend, heaviest type first. A rack with many types is trimmed to its first entries, so the
+ * order decides what a user sees without expanding it.
+ */
+export function sortTypeLegend(entries: RackTypeLegendEntry[]): RackTypeLegendEntry[] {
+    return [...entries].sort((first, second) =>
+        second.count - first.count || (first.type_label ?? '').localeCompare(second.type_label ?? ''));
 }

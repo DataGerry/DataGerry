@@ -130,10 +130,21 @@ export interface RackOccupantLegendEntry {
 }
 
 
+/** One object type present in the rack, with the colour and icon its rows are drawn with. */
+export interface RackTypeLegendEntry {
+    type_id: number;
+    type_label: string;
+    type_icon: string | null;
+    type_color: string | null;
+    count: number;
+}
+
+
 export interface RackOverviewResponse {
     rack: RackHeader;
     areas: RackAreaBuckets;
     total_mounts: number;
+    types_legend: RackTypeLegendEntry[];
     occupants_legend: RackOccupantLegendEntry[];
 }
 

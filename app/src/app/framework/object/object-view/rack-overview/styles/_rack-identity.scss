@@ -42,29 +42,6 @@
     color: $ink-2;
     font-variant-numeric: tabular-nums;
   }
-
-  /* What the reservations and blockers of this rack hold, beside the rack's own summary. */
-  &__legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    margin: 0.15rem 0 0;
-    padding: 0;
-    list-style: none;
-    font-size: 0.8rem;
-    color: $ink-3;
-
-    li {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-    }
-
-    b {
-      color: $ink-2;
-      font-weight: 600;
-    }
-  }
 }
 
 .rack-stats {

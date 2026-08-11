@@ -4,8 +4,9 @@
  *   rack-tokens ....... palette, radii, shadows, easing. Must stay first; the rest read from it.
  *   rack-shell ........ the root element and the --rack-* geometry the whole drawing is measured in
  *   rack-density ...... compact mode
- *   rack-identity ..... header card: name, summary, legend, capacity read-outs
+ *   rack-identity ..... header card: name, summary, capacity read-outs
  *   rack-toolbar ...... view switch and density toggle
+ *   rack-legend ....... the key to the drawing: types in the rack and what the occupants hold
  *   rack-stage ........ drawing/inspector split and the scrolling board
  *   rack-rail ......... the LEFT and RIGHT cards beside the enclosure
  *   rack-grid ......... the shared U grid and the columns each view uses
@@ -25,6 +26,7 @@
 @import "./styles/rack-density";
 @import "./styles/rack-identity";
 @import "./styles/rack-toolbar";
+@import "./styles/rack-legend";
 @import "./styles/rack-stage";
 @import "./styles/rack-rail";
 @import "./styles/rack-grid";

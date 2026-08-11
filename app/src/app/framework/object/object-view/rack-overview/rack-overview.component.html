@@ -14,17 +14,6 @@
         <span class="rack-view__dot"></span> {{ rack.notes }}
         }
       </p>
-
-      @if (occupantsLegend.length) {
-      <ul class="rack-ident__legend">
-        @for (entry of occupantsLegend; track entry.kind) {
-        <li>
-          <i [class]="kindIcon(entry.kind)" aria-hidden="true"></i>
-          {{ kindTitle(entry.kind) }} <b>{{ entry.count }}</b> &middot; {{ entry.slots }}U held
-        </li>
-        }
-      </ul>
-      }
     </div>
 
     @if (statsFace; as face) {
@@ -81,6 +70,49 @@
       bootstrapClass="btn-primary btn-sm" (clicked)="onAddToRack()">
     </app-button>
   </div>
+
+  <!-- ------------------------------------------- LEGEND --------------------------------------------- -->
+  <!--
+    The key to the drawing, so it sits directly above it. A rack may hold many types, so only the
+    heaviest ones are keyed until the user asks for the rest, and the open list scrolls in place
+    rather than pushing the elevation off the screen.
+  -->
+  @if (hasLegend) {
+  <div class="rack-legend">
+    <span class="rack-legend__title" id="rack-legend-title">Legend</span>
+
+    <ul id="rack-legend-list" class="rack-legend__list" [class.rack-legend__list--open]="isLegendExpanded"
+      aria-labelledby="rack-legend-title">
+      @for (entry of visibleTypesLegend; track entry.type_id) {
+      <li class="rack-legend__item">
+        <span class="rack-legend__chip" [style.color]="typeTone(entry)" [style.background]="typeTint(entry)">
+          <i [class]="typeIcon(entry)" aria-hidden="true"></i>
+        </span>
+        <span class="rack-legend__text" [ngbTooltip]="entry.type_label" container="body">{{ entry.type_label }}</span>
+        <span class="rack-legend__count">{{ entry.count }}</span>
+      </li>
+      }
+
+      @for (entry of occupantsLegend; track entry.kind) {
+      <li class="rack-legend__item rack-legend__item--occupant">
+        <span class="rack-legend__chip">
+          <i [class]="kindIcon(entry.kind)" aria-hidden="true"></i>
+        </span>
+        <span class="rack-legend__text">{{ kindTitle(entry.kind) }}</span>
+        <span class="rack-legend__count">{{ entry.count }}</span>
+        <span class="rack-legend__held">{{ entry.slots }}U held</span>
+      </li>
+      }
+    </ul>
+
+    @if (hiddenTypesCount) {
+    <button type="button" class="rack-legend__more" [attr.aria-expanded]="isLegendExpanded"
+      aria-controls="rack-legend-list" (click)="onToggleLegend()">
+      {{ isLegendExpanded ? 'Show less' : '+' + hiddenTypesCount + ' more' }}
+    </button>
+    }
+  </div>
+  }
 
   <!-- ------------------------------------------- STAGE ---------------------------------------------- -->
   <div class="rack-stage">
