@@ -707,6 +707,7 @@ describe('AutomationCompilerService', () => {
             definition.extras = [{
                 id: 'extra-1',
                 after: '1_0',
+                kind: 'operation',
                 operation: 'cmdb.object.update',
                 ...extra
             }];
@@ -757,6 +758,31 @@ describe('AutomationCompilerService', () => {
             const { warnings } = compiler.compileForCreate(withExtra({ after: '9_9' }), context());
 
             expect(warnings.some(warning => warning.includes('no longer exists'))).toBeTrue();
+        });
+
+
+        /*
+         * For an endpoint no invoker describes. It carries no response schema, which is the trade
+         * the wizard states where it offers one.
+         */
+        it('writes a free request out in full, with no connector behind it', () => {
+            const definition = withExtra({
+                kind: 'http',
+                operation: '',
+                verb: 'PUT',
+                endpoint: 'https://monitor.example/api/hosts',
+                headers: { Authorization: 'Bearer x' }
+            });
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const added = payload.connection.fromConnector.methods
+                .find(method => method.methodType === 'HTTP_REQUEST');
+
+            expect(added).toBeTruthy();
+            expect(added?.request.method).toBe('PUT');
+            expect(added?.request.endpoint).toBe('https://monitor.example/api/hosts');
+            expect(added?.request.header.Authorization).toBe('Bearer x');
+            expect(added?.connector).toBeUndefined();
         });
 
 

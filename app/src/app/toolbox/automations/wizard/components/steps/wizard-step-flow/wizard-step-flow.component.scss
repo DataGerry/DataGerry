@@ -238,3 +238,135 @@ $muted: #6b7280;
     color: #a63a11;
     overflow-wrap: anywhere;
 }
+
+/* ---------------------------------------------------------------------- sheet */
+// Full width on purpose: an operation name like cmdb.object_type_categories does not fit a
+// dropdown, which is what this replaced.
+.sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 1055;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(33, 37, 41, 0.4);
+}
+
+.sheet__box {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    width: min(34rem, 100%);
+    max-height: min(34rem, 90vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.sheet__head {
+    padding: 1rem 1.1rem 0.75rem;
+    border-bottom: 1px solid #f1f3f5;
+}
+
+.sheet__eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: $muted;
+}
+
+.sheet__title { margin: 0.2rem 0 0; font-size: 1.0625rem; font-weight: 600; }
+.sheet__lead { margin: 0.3rem 0 0; font-size: 0.8125rem; color: $muted; }
+
+.sheet__kinds,
+.sheet__ops {
+    padding: 0.9rem 1.1rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.kind {
+    display: grid;
+    grid-template-columns: 2.1rem minmax(0, 1fr);
+    gap: 0.75rem;
+    text-align: left;
+    font: inherit;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid $border;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+
+    &:hover:not(:disabled) { border-color: $accent; }
+
+    &:disabled {
+        cursor: not-allowed;
+        background: #f8f9fa;
+        color: $muted;
+    }
+}
+
+.kind__icon {
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 0.375rem;
+    background: #f1f3f5;
+    color: $muted;
+}
+
+.kind__title { display: block; font-size: 0.875rem; font-weight: 560; }
+.kind__what { display: block; font-size: 0.75rem; color: $muted; margin-top: 0.1rem; }
+
+.kind__soon {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.25rem;
+    background: #e9ecef;
+    color: $muted;
+    margin-left: 0.35rem;
+    vertical-align: 0.1em;
+}
+
+.sheet__oplist {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    overflow-y: auto;
+}
+
+.op {
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.8125rem;
+    text-align: left;
+    padding: 0.4rem 0.5rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background: none;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+
+    &:hover { background: rgba(233, 77, 24, 0.06); color: #a63a11; }
+}
+
+.sheet__foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0 1.1rem 1rem;
+}
+
+.wire__verbpick {
+    width: auto;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    padding: 0.15rem 1.4rem 0.15rem 0.4rem;
+    flex-shrink: 0;
+}

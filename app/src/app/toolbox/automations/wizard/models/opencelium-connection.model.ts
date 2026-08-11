@@ -142,10 +142,16 @@ export interface OcMethod {
 
     /** Position in the execution tree: '0' for the source, '1_0' for a method inside the loop. */
     index: string;
-    methodType: 'CONNECTOR';
+    /**
+     * CONNECTOR calls an operation of a connector's invoker; HTTP_REQUEST is a request written out
+     * in full, with no invoker and no connector behind it. The values are a frozen contract.
+     */
+    methodType: 'CONNECTOR' | 'HTTP_REQUEST';
     dataAggregator: null;
     color: string;
-    connector: OcConnectorRef;
+
+    /** Absent on a free request, which belongs to no connector. */
+    connector?: OcConnectorRef;
     request: any;
     response: any;
 }
