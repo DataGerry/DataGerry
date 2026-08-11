@@ -142,3 +142,30 @@ $muted: #6b7280;
     color: #a63a11;
     overflow-wrap: anywhere;
 }
+
+.wire__input {
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.75rem;
+    padding: 0.15rem 0.4rem;
+    min-width: 0;
+
+    // A value someone typed is worth telling apart from one the assistant worked out.
+    &.is-changed {
+        border-color: $accent;
+        background: rgba(233, 77, 24, 0.04);
+    }
+}
+
+.wire__url .wire__input { flex: 1; }
+
+.flow__changed {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.25rem;
+    background: rgba(233, 77, 24, 0.12);
+    color: #a63a11;
+    margin-right: 0.35rem;
+}

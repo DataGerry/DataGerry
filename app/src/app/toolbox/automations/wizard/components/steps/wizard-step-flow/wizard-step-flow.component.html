@@ -32,7 +32,12 @@
               </span>
             </span>
 
-            <span class="flow__index">{{ step.index }}</span>
+            <span class="flow__index">
+              @if (isChanged(step)) {
+                <span class="flow__changed" title="Changed by hand">edited</span>
+              }
+              {{ step.index }}
+            </span>
           </button>
 
           @if (openStep === step.id) {
@@ -50,7 +55,11 @@
                   <div class="wire__label">Address</div>
                   <div class="wire__url">
                     <span class="wire__verb">{{ verbOf(step) }}</span>
-                    <code>{{ urlOf(step) }}</code>
+                    <input
+                      type="text"
+                      class="form-control form-control-sm wire__input"
+                      [value]="endpointOf(step)"
+                      (change)="onEditEndpoint(step, $any($event.target).value)">
                   </div>
                 </div>
 
@@ -61,7 +70,14 @@
                       @for (pair of headersOf(step); track pair.key) {
                         <tr>
                           <td class="wire__key">{{ pair.key }}</td>
-                          <td><code>{{ pair.value }}</code></td>
+                          <td>
+                            <input
+                              type="text"
+                              class="form-control form-control-sm wire__input"
+                              [class.is-changed]="pair.changed"
+                              [value]="pair.value"
+                              (change)="onEdit(step, 'headers', pair.key, $any($event.target).value)">
+                          </td>
                         </tr>
                       }
                     </table>
@@ -76,20 +92,36 @@
                         <tr>
                           <td class="wire__key">{{ pair.key }}</td>
                           <td>
-                            @if (pair.reference) {
-                              <span class="wire__ref" title="Read from an earlier call">{{ pair.value }}</span>
+                            @if (pair.bound || pair.reference) {
+                              <span
+                                class="wire__ref"
+                                title="Written by the field assignment - change it there">{{ pair.value }}</span>
                             } @else {
-                              <code>{{ pair.value || '—' }}</code>
+                              <input
+                                type="text"
+                                class="form-control form-control-sm wire__input"
+                                [class.is-changed]="pair.changed"
+                                [value]="pair.value"
+                                (change)="onEdit(step, 'body', pair.key, $any($event.target).value)">
                             }
                           </td>
                         </tr>
                       }
                     </table>
                     <p class="wizard-section__hint mb-0">
-                      Marked values are read from an earlier call; the rest is sent as it stands.
+                      Marked values come from the field assignment and are changed there. The rest
+                      can be edited here — a foreign API often wants something no field covers.
                     </p>
                   </div>
                 }
+              }
+
+              @if (isChanged(step)) {
+                <div>
+                  <button type="button" class="btn btn-link btn-sm" (click)="onResetCall(step)">
+                    <i class="fas fa-rotate-left me-1"></i> Undo the changes to this call
+                  </button>
+                </div>
               }
             </div>
           }
@@ -98,8 +130,9 @@
     </ol>
 
     <p class="wizard-section__hint flow__note">
-      The sequence follows from the connection and the assignment. Adding a call of your own is not
-      possible yet — there would be nowhere to keep it.
+      The sequence itself follows from the connection and the assignment, so a call of your own
+      cannot be added yet. What each call sends can be corrected here, and a correction outlasts
+      every later change to the rest of the automation.
     </p>
 
     @if (needsIdentifier) {
