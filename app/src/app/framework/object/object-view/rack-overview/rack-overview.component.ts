@@ -32,9 +32,11 @@ import { Subject, finalize, takeUntil } from 'rxjs';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 import { RackMountModalComponent } from './components/rack-mount-modal/rack-mount-modal.component';
 import {
+    RACK_EDIT_RIGHT,
     RackArea,
     RackAreaGroup,
     RackFace,
@@ -81,12 +83,17 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     private readonly deleteModalService = inject(DeleteModalService);
     private readonly modalService = inject(NgbModal);
     private readonly router = inject(Router);
+    private readonly permissionService = inject(PermissionService);
     private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
 
     public readonly AREAS = RackArea;
     public readonly isLoading$ = this.loaderService.isLoading$;
+
+    /** `*permissionLink` only hides the controls, so every write path re-checks the right before it acts. */
+    public readonly canEdit = this.permissionService.hasRight(RACK_EDIT_RIGHT)
+        || this.permissionService.hasExtendedRight(RACK_EDIT_RIGHT);
 
     public rack: RackHeader | null = null;
     public totalMounts = 0;
@@ -177,6 +184,10 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
 
     /** Frees the slots but keeps the row in the rack, so it can be placed again later. */
     public onUnplaceMount(mount: RackMountRow): void {
+        if (!this.canEdit) {
+            return;
+        }
+
         this.loaderService.show();
 
         this.rackOverviewService
@@ -189,6 +200,10 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     }
 
     public onRemoveMount(mount: RackMountRow): void {
+        if (!this.canEdit) {
+            return;
+        }
+
         this.deleteModalService.confirmDelete({
             title: 'Remove from rack',
             itemType: this.kindTitleOf(mount),
@@ -414,6 +429,10 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     }
 
     private openMountModal(mount: RackMountRow | null, presetArea: RackArea, presetStartSlot: number | null): void {
+        if (!this.canEdit) {
+            return;
+        }
+
         const modalRef = this.modalService.open(RackMountModalComponent, {
             size: 'lg',
             windowClass: 'dg-modal-window',

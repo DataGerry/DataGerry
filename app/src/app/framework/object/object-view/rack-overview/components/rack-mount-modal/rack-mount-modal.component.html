@@ -81,7 +81,7 @@
   </app-button>
 
   <app-button dgModalFooter bootstrapClass="btn-primary" [label]="isEditMode ? 'Save' : 'Add'"
-    [disabled]="form.invalid" (clicked)="onSubmit()">
+    [disabled]="form.invalid || !canEdit" (clicked)="onSubmit()">
   </app-button>
 </dg-modal>
 

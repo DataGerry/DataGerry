@@ -16,6 +16,13 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+/**
+ * Every rack write route is guarded by the EDIT right - no rack route uses `rack.add` or `rack.delete` -
+ * so the frontend gates each rack action with the same one.
+ */
+export const RACK_EDIT_RIGHT = 'base.framework.rack.edit';
+
+
 export enum RackArea {
     FRONT = 'FRONT',
     BACK = 'BACK',
