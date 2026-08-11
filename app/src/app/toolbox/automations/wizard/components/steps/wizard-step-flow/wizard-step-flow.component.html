@@ -33,7 +33,9 @@
             </span>
 
             <span class="flow__index">
-              @if (isChanged(step)) {
+              @if (isAdded(step)) {
+                <span class="flow__changed" title="Added by hand">added</span>
+              } @else if (isChanged(step)) {
                 <span class="flow__changed" title="Changed by hand">edited</span>
               }
               {{ step.index }}
@@ -116,11 +118,55 @@
                 }
               }
 
-              @if (isChanged(step)) {
-                <div>
+              @if (isAdded(step) && idCandidatesOf(step).length > 0) {
+                <div class="wire__block">
+                  <div class="wire__label">Identifier of the object before it</div>
+                  <app-form-select
+                    label=""
+                    placeholder="Not used"
+                    [items]="idCandidatesOf(step)"
+                    [ngModel]="parentIdPathOf(step)"
+                    (ngModelChange)="onUseParentId(step, $event)">
+                  </app-form-select>
+                  <p class="wizard-section__hint mb-0">
+                    The object this call belongs to was created or found by the step before it, so
+                    until then it had no identifier to name.
+                  </p>
+                </div>
+              }
+
+              <div class="wire__foot">
+                @if (isAdded(step)) {
+                  <button type="button" class="btn btn-link btn-sm" (click)="onRemoveCall(step)">
+                    <i class="fas fa-times me-1"></i> Remove this call
+                  </button>
+                } @else if (isChanged(step)) {
                   <button type="button" class="btn btn-link btn-sm" (click)="onResetCall(step)">
                     <i class="fas fa-rotate-left me-1"></i> Undo the changes to this call
                   </button>
+                }
+
+                @if (step.kind === 'call' && targetOperations.length > 0) {
+                  <button type="button" class="btn btn-link btn-sm" (click)="startAdding(step)">
+                    <i class="fas fa-plus me-1"></i> Add a call after this one
+                  </button>
+                }
+              </div>
+
+              @if (adding === step.index) {
+                <div class="wire__block">
+                  <div class="wire__label">Which call?</div>
+                  <app-form-select
+                    label=""
+                    placeholder="Choose an operation"
+                    [items]="targetOperations"
+                    [ngModel]="null"
+                    (ngModelChange)="onAddCall(step.index, $event)">
+                  </app-form-select>
+                  <p class="wizard-section__hint mb-0">
+                    It runs right after this step, inside the same branch — so only when this step
+                    runs at all.
+                  </p>
                 </div>
               }
             </div>
@@ -130,9 +176,8 @@
     </ol>
 
     <p class="wizard-section__hint flow__note">
-      The sequence itself follows from the connection and the assignment, so a call of your own
-      cannot be added yet. What each call sends can be corrected here, and a correction outlasts
-      every later change to the rest of the automation.
+      Read, loop, look up, branch and write follow from the connection and the assignment, and are
+      rebuilt whenever those change. Calls you add and values you correct are kept as they are.
     </p>
 
     @if (needsIdentifier) {

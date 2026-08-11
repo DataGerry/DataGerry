@@ -71,6 +71,7 @@
             <app-wizard-step-flow
               [definition]="definition"
               [connection]="compiledConnection"
+              [targetOperations]="targetOperations"
               (definitionChange)="onDefinitionChanged($event)">
             </app-wizard-step-flow>
           }

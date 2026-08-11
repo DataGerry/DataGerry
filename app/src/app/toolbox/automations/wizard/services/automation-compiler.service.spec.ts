@@ -689,6 +689,87 @@ describe('AutomationCompilerService', () => {
         });
     });
 
+    /* ------------------------------------------------- ADDED CALLS ---------------------------------------------------- */
+
+    /*
+     * The skeleton is derived and cannot grow, which is the point of it. A system that needs more
+     * than the skeleton - i-doit writes an object's data into categories of its own - gets it here.
+     */
+    describe('added calls', () => {
+        /* Outgoing, so the added call and the step it follows are both on the foreign system. */
+        function withExtra(extra: Partial<AutomationDefinition['extras'][number]> = {}): AutomationDefinition {
+            const definition = incomingDefinition();
+            definition.direction = 'outgoing';
+            definition.fields = [{ name: 'hostname', label: 'Hostname', type: 'text' }];
+            definition.mapping = [
+                { target: 'params.title', sources: [{ field: 'hostname', origin: 'manual', confidence: 1 }] }
+            ];
+            definition.extras = [{
+                id: 'extra-1',
+                after: '1_0',
+                operation: 'cmdb.object.update',
+                ...extra
+            }];
+
+            return definition;
+        }
+
+
+        it('runs beside the step it follows, not inside it', () => {
+            const { payload } = compiler.compileForCreate(withExtra(), context());
+            const added = payload.connection.fromConnector.methods
+                .find(method => method.name === 'cmdb.object.update');
+
+            expect(added?.index).toBe('1_1');
+        });
+
+
+        it('hands it the identifier of the object the step before it touched', () => {
+            const { payload } = compiler.compileForCreate(
+                withExtra({ parentIdPath: 'params.id' }),
+                context()
+            );
+            const anchor = payload.connection.fromConnector.methods[1];
+            const added = payload.connection.fromConnector.methods
+                .find(method => method.name === 'cmdb.object.update');
+            const binding = payload.connection.fieldBinding
+                .find(entry => entry.to[0].field === 'body.$.params.id');
+
+            expect(added?.request.body.fields.params.id).toContain(anchor.color);
+            expect(binding?.from[0].color).toBe(anchor.color);
+        });
+
+
+        it('carries the values entered for it', () => {
+            const { payload } = compiler.compileForCreate(
+                withExtra({ body: { 'params.title': 'by hand' } }),
+                context()
+            );
+            const added = payload.connection.fromConnector.methods
+                .find(method => method.name === 'cmdb.object.update');
+
+            expect(added?.request.body.fields.params.title).toBe('by hand');
+        });
+
+
+        /* Removing a branch can leave one behind; saying so beats compiling it somewhere else. */
+        it('reports a call whose step is gone', () => {
+            const { warnings } = compiler.compileForCreate(withExtra({ after: '9_9' }), context());
+
+            expect(warnings.some(warning => warning.includes('no longer exists'))).toBeTrue();
+        });
+
+
+        it('reports an operation the system does not have', () => {
+            const { warnings } = compiler.compileForCreate(
+                withExtra({ operation: 'cmdb.nonsense' }),
+                context()
+            );
+
+            expect(warnings.some(warning => warning.includes('offers no operation'))).toBeTrue();
+        });
+    });
+
     /* ------------------------------------------------- MATCHING ------------------------------------------------------ */
 
     /*
