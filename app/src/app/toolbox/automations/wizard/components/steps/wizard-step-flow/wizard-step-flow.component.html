@@ -24,8 +24,17 @@
                 [attr.data-depth]="step.depth"
                 [attr.aria-current]="isSelected(step)"
                 (click)="select(step)">
-                <span class="tree__marker" [class.is-branch]="step.kind === 'if'">
-                  @if (step.kind === 'if') { ? } @else { {{ $index + 1 }} }
+                <span
+                  class="tree__marker"
+                  [class.is-branch]="step.kind === 'if'"
+                  [class.is-loop]="step.kind === 'loop'">
+                  @if (step.kind === 'if') {
+                    ?
+                  } @else if (step.kind === 'loop') {
+                    <i class="fas fa-rotate"></i>
+                  } @else {
+                    {{ $index + 1 }}
+                  }
                 </span>
 
                 <span class="tree__main">
@@ -47,8 +56,8 @@
           type="button"
           class="tree__addbtn"
           [disabled]="!selected"
-          [title]="selected?.kind === 'if'
-            ? 'Runs inside the selected condition'
+          [title]="selected?.kind === 'if' || selected?.kind === 'loop'
+            ? 'Runs inside the selected step'
             : 'Runs after the selected step'"
           (click)="startAdding()">
           + Add a step in the target system
@@ -69,7 +78,7 @@
             </div>
 
             <div class="detail__tools">
-              @if (isAddedCondition(step)) {
+              @if (isAddedCondition(step) || isAddedLoop(step)) {
                 <button type="button" class="btn btn-secondary btn-sm" (click)="onRemoveCall(step)">
                   <i class="fas fa-times me-1"></i> Remove
                 </button>
@@ -101,7 +110,21 @@
             </div>
           </div>
 
-          @if (step.kind === 'if') {
+          @if (step.kind === 'loop') {
+            <div class="wire__block">
+              <div class="wire__label">Walks</div>
+              <pre class="wire__code">{{ step.expression }}</pre>
+              @if (isAddedLoop(step)) {
+                <button type="button" class="btn btn-secondary btn-sm mt-2" (click)="onEditLoop(step)">
+                  <i class="fas fa-pen me-1"></i> Change the list
+                </button>
+                <p class="wizard-section__hint mb-0 mt-2">
+                  Everything placed after this step runs once per entry. The entry it is on is
+                  offered as a value there, under <code>[{{ iteratorOf(step) }}]</code>.
+                </p>
+              }
+            </div>
+          } @else if (step.kind === 'if') {
             <div class="wire__block">
               <div class="wire__label">Condition</div>
               <pre class="wire__code">{{ step.expression }}</pre>
@@ -335,6 +358,8 @@
                 What should the step do?
               } @else if (adding === 'condition') {
                 What does it compare?
+              } @else if (adding === 'loop') {
+                Which list?
               } @else {
                 Which call?
               }
@@ -345,6 +370,9 @@
               } @else if (adding === 'condition') {
                 A value from a step that has already run, against a value you give or another the
                 sequence holds. Everything placed after this step then runs only when it holds.
+              } @else if (adding === 'loop') {
+                A list an earlier answer holds. Everything placed after this step then runs once per
+                entry — and reads the entry the loop is on rather than the whole list.
               } @else {
                 Every operation the target system describes. Headers and body come from its
                 interface description.
@@ -352,7 +380,23 @@
             </p>
           </div>
 
-          @if (adding === 'condition') {
+          @if (adding === 'loop') {
+            <div class="cond">
+              <label class="cond__label" for="loop-list">List</label>
+              <select class="form-select form-select-sm" id="loop-list" [(ngModel)]="loopList">
+                <option value="" disabled>Pick a list from an earlier answer</option>
+                @for (source of listSources; track source.reference) {
+                  <option [value]="source.reference">{{ source.group }} · {{ source.label }}</option>
+                }
+              </select>
+
+              @if (!listSources.length) {
+                <p class="text-muted mb-0">
+                  No answer before this step holds a list, so there is nothing to walk yet.
+                </p>
+              }
+            </div>
+          } @else if (adding === 'condition') {
             <div class="cond">
               <label class="cond__label" for="cond-left">Value</label>
               <select class="form-select form-select-sm" id="cond-left" [(ngModel)]="condition.left">
@@ -458,6 +502,15 @@
                 [disabled]="!condition.left"
                 (click)="onSaveCondition()">
                 {{ editing ? 'Save' : 'Add the condition' }}
+              </button>
+            }
+            @if (adding === 'loop') {
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                [disabled]="!loopList"
+                (click)="onSaveLoop()">
+                {{ editing ? 'Save' : 'Add the loop' }}
               </button>
             }
           </div>

@@ -855,6 +855,81 @@ describe('AutomationCompilerService', () => {
         });
 
 
+        /*
+         * A loop of the user's own, over a list some earlier answer holds. Its entries get a name
+         * of their own - 'i' belongs to the loop over the objects being synchronised.
+         */
+        it('walks a list of its own and runs what follows once per entry', () => {
+            const definition = withExtra({
+                id: 'extra-loop',
+                kind: 'loop',
+                operation: '',
+                loop: { list: '#C77E7E.(response).body.$.result.interfaces[*]', iterator: 'j' }
+            });
+
+            definition.extras = [...definition.extras, {
+                id: 'extra-inside',
+                after: 'extra-loop',
+                kind: 'operation',
+                operation: 'cmdb.object.update'
+            }];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const loop = payload.connection.fromConnector.operators
+                .find(entry => entry.id === 'loop-extra-loop');
+            const inside = payload.connection.fromConnector.methods
+                .find(method => method.id === 'method-extra-inside');
+
+            expect(loop.type).toBe('loop');
+            expect(loop.index).toBe('1_1');
+            expect(loop.iterator).toBe('j');
+            expect(loop.expression).toBe('for {%#C77E7E.(response).body.$.result.interfaces[*]%}');
+
+            expect(inside.index).toBe('1_1_0');
+        });
+
+
+        /* The editor rebuilds a loop's expression from its rule tree, so the tree has to hold one. */
+        it('gives every loop the rule the editor draws it from', () => {
+            const definition = withExtra({
+                id: 'extra-loop',
+                kind: 'loop',
+                operation: '',
+                loop: { list: '#C77E7E.(response).body.$.result.interfaces[*]', iterator: 'j' }
+            });
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const nodes = payload.connection.ui.workflowNodes.filter(node => node.type === 'loop');
+
+            for (const node of nodes) {
+                const rule = node.data.conditionConfig.tree.items[0];
+
+                expect(rule.properties.operator).toBe('for');
+                expect(rule.properties.leftField).toContain('[*]');
+                expect(node.data.conditionConfig.expression).toContain(rule.properties.leftField);
+            }
+
+            // The one every automation has, and the one that was added.
+            expect(nodes.length).toBe(2);
+        });
+
+
+        it('reports a loop that walks nothing', () => {
+            const definition = withExtra({
+                id: 'extra-loop',
+                kind: 'loop',
+                operation: '',
+                loop: { list: '', iterator: 'j' }
+            });
+
+            const { payload, warnings } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.fromConnector.operators.some(entry => entry.id === 'loop-extra-loop'))
+                .toBeFalse();
+            expect(warnings.some(warning => warning.includes('names no list'))).toBeTrue();
+        });
+
+
         /* Removing a branch can leave one behind; saying so beats compiling it somewhere else. */
         it('reports a call whose step is gone', () => {
             const { warnings } = compiler.compileForCreate(withExtra({ after: '9_9' }), context());
@@ -1276,7 +1351,13 @@ describe('AutomationCompilerService', () => {
 
     /* --------------------------------------------------- LOOP NODE ---------------------------------------------------- */
 
-    it('restates the loop on its node, with an untouched condition tree', () => {
+    /*
+     * The tree is the form the editor draws the loop in and rebuilds its expression from, so it
+     * carries the `for` rule rather than nothing. The two oldest captures leave it empty; the later
+     * capture of a connection holding a loop and three conditions carries the rule, and an empty
+     * tree would come back from the editor walking nothing.
+     */
+    it('restates the loop on its node, as the rule the editor draws it from', () => {
         const { payload } = compiler.compileForCreate(incomingDefinition(), context());
         const loopNode = payload.connection.ui.workflowNodes[2];
         const loop = payload.connection.fromConnector.operators[0];
@@ -1285,7 +1366,15 @@ describe('AutomationCompilerService', () => {
         expect(loopNode.index).toBe(loop.index);
         expect(loopNode.data.conditionConfig.expression).toBe(loop.expression);
         expect(loopNode.data.conditionConfig.iterator).toBe('i');
-        expect(loopNode.data.conditionConfig.tree)
-            .toEqual({ id: '0-group', type: 'group', properties: { not: false }, items: [] });
+        expect(loopNode.data.conditionConfig.tree).toEqual({
+            id: `${loop.id}-group`,
+            type: 'group',
+            properties: { not: false },
+            items: [{
+                id: `${loop.id}-rule`,
+                type: 'rule',
+                properties: { operator: 'for', leftField: '#FFCFB5.(response).body.$.result[*]' }
+            }]
+        });
     });
 });

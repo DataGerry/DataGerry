@@ -53,6 +53,15 @@ const ACCEPTED_DIFFERENCES: ReadonlyArray<AcceptedDifference> = [
     {
         matches: entry => entry.path === 'description',
         reason: 'the business model has gained fields since the capture, so its block differs'
+    },
+    {
+        // These two captures leave the loop's rule tree empty while carrying its expression; the
+        // later capture of a connection holding a loop and three conditions
+        // (OpenCelium_Connection_Update_With_IF_AND_LOOP.json) carries the `for` rule that expression
+        // is drawn from. The editor rebuilds the expression out of that tree, so an empty one comes
+        // back walking nothing - the compiler follows the later capture.
+        matches: entry => /ui\.workflowNodes\.\d+\.data\.conditionConfig\.tree/.test(entry.path),
+        reason: 'the capture leaves the loop rule tree empty; the compiler writes the `for` rule'
     }
 ];
 

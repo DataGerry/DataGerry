@@ -55,6 +55,7 @@ import {
     ocLoopNodeId,
     ocMethodNodeId,
     ocPresenceExpression,
+    ocPresenceField,
     ocSystemNodeId,
     OC_DEFAULT_CONNECTOR_ID,
     OC_DEFAULT_CONNECTOR_TITLE,
@@ -62,6 +63,7 @@ import {
     OC_FREE_REQUEST_TITLE,
     OC_IS_EMPTY,
     OC_LOOP_INDEX,
+    OC_LOOP_ITERATOR,
     OC_METHOD_COLORS,
     OC_SCHEDULER_ACTIVE,
     OC_SCHEDULER_INACTIVE,
@@ -320,7 +322,16 @@ export class AutomationCompilerService {
         const graph: GraphNode[] = [
             { id: AutomationCompilerService.START_NODE, kind: 'start', parent: '' },
             { id: sourceMethod.id, kind: 'method', parent: AutomationCompilerService.START_NODE, method: sourceMethod },
-            { id: loop.id, kind: 'loop', parent: sourceMethod.id, operator: loop }
+            {
+                id: loop.id,
+                kind: 'loop',
+                parent: sourceMethod.id,
+                operator: loop,
+                tree: this.loopTree(loop.id, ocPresenceField(
+                    AutomationCompilerService.SOURCE_COLOR,
+                    sides.source.responseArrayPath
+                ))
+            }
         ];
 
         // A restriction on which objects take part is an `if` of its own inside the loop, not a
@@ -414,15 +425,17 @@ export class AutomationCompilerService {
 
             // Everything placed after a condition runs inside it - that is what putting it there
             // means - so it takes a position below rather than beside.
-            const index = anchor.branch
+            const index = anchor.contains
                 ? this.nextChildIndex(anchor.index, out)
                 : this.nextSiblingIndex(anchor.index, out);
 
-            if (extra.kind === 'if') {
-                const gate = this.appendConditionStep(extra, anchor, index, out);
+            if (extra.kind === 'if' || extra.kind === 'loop') {
+                const container = extra.kind === 'if'
+                    ? this.appendConditionStep(extra, anchor, index, out)
+                    : this.appendLoopStep(extra, anchor, index, out);
 
-                if (gate) {
-                    placed.set(extra.id, gate);
+                if (container) {
+                    placed.set(extra.id, container);
                 }
 
                 continue;
@@ -461,8 +474,8 @@ export class AutomationCompilerService {
                 method,
                 // A call that follows another sits beside it; one inside a condition drops below it
                 // and hangs off the exit that was taken.
-                below: !!anchor.branch,
-                branch: anchor.branch
+                below: !!anchor.contains,
+                branch: anchor.contains === 'if' ? 'true' : undefined
             });
 
             if (anchor.method) {
@@ -543,11 +556,11 @@ export class AutomationCompilerService {
             return { id: method.id, index: method.index, method };
         }
 
-        const operator = out.operators.find(
-            candidate => candidate.index === extra.after && candidate.type === 'if'
-        );
+        const operator = out.operators.find(candidate => candidate.index === extra.after);
 
-        return operator ? { id: operator.id, index: operator.index, branch: 'true' } : null;
+        return operator
+            ? { id: operator.id, index: operator.index, contains: operator.type }
+            : null;
     }
 
 
@@ -592,13 +605,84 @@ export class AutomationCompilerService {
             operator,
             // A condition after a call is its sibling and enters from the left; one after another
             // condition runs inside it and drops below, which is what the captured nesting shows.
-            below: !!anchor.branch,
-            branch: anchor.branch,
+            below: !!anchor.contains,
+            branch: anchor.contains === 'if' ? 'true' : undefined,
             tree: rendered.tree
         });
 
         // Everything placed after a condition runs inside it, down its `true` exit.
-        return { id: operator.id, index: operator.index, branch: 'true' };
+        return { id: operator.id, index: operator.index, contains: 'if' };
+    }
+
+
+    /**
+     * A loop of the user's own: something in an answer holds a list, and each entry gets the same
+     * treatment.
+     *
+     * The list is picked; the iterator is not. Every reference into a list carries the name of the
+     * loop that walks it, so two loops sharing one would read each other's entry - the wizard hands
+     * the name out for that reason, and the sequence is where it comes from.
+     */
+    private appendLoopStep(
+        extra: AutomationExtraCall,
+        anchor: Anchor,
+        index: string,
+        out: { operators: OcOperator[]; graph: GraphNode[]; warnings: string[] }
+    ): Anchor | null {
+        const list = extra.loop?.list?.trim();
+
+        if (!list) {
+            out.warnings.push(
+                'A loop in the sequence names no list, so it and everything placed after it were '
+                + 'left out. Pick the list it should walk, or remove it.'
+            );
+
+            return null;
+        }
+
+        const id = ocLoopNodeId(extra.id);
+        const operator: OcOperator = {
+            id,
+            index,
+            type: 'loop',
+            dataAggregator: null,
+            expression: `for {%${list}%}`,
+            iterator: extra.loop!.iterator || OC_LOOP_ITERATOR
+        };
+
+        out.operators.push(operator);
+        out.graph.push({
+            id,
+            kind: 'loop',
+            parent: anchor.id,
+            operator,
+            below: !!anchor.contains,
+            branch: anchor.contains === 'if' ? 'true' : undefined,
+            tree: this.loopTree(id, list)
+        });
+
+        // Everything placed after a loop runs inside it, once per entry.
+        return { id, index, contains: 'loop' };
+    }
+
+
+    /**
+     * The rule-builder form of a loop: one rule, `for` over the list it walks.
+     *
+     * The editor rebuilds the expression out of this tree, so a loop saved with an empty one comes
+     * back walking nothing - which is what the captured loops show it should hold instead.
+     */
+    private loopTree(uiId: string, list: string): OcUiGroup {
+        return {
+            id: `${uiId}-group`,
+            type: 'group',
+            properties: { not: false },
+            items: [{
+                id: `${uiId}-rule`,
+                type: 'rule',
+                properties: { operator: 'for', leftField: list }
+            }]
+        };
     }
 
 
@@ -2202,14 +2286,17 @@ type SourceValue =
 /**
  * A step an added one hangs off, and how it hangs off it.
  *
- * `branch` is set when the anchor is a condition: what follows a condition runs inside it, one
- * level further into the execution tree and down the exit that was taken.
+ * `contains` is set when the anchor is a condition or a loop: what follows one of those runs
+ * inside it, one level further into the execution tree - and out of a condition down the exit that
+ * was taken, out of a loop along its body.
  */
 interface Anchor {
     id: string;
     index: string;
     method?: OcMethod;
-    branch?: 'true';
+
+    /** Set when the anchor is a container: what follows it runs inside it rather than beside it. */
+    contains?: 'if' | 'loop';
 }
 
 

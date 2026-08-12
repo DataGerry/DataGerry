@@ -316,13 +316,16 @@ export interface AutomationExtraCall {
      * better answer whenever one exists. A free request is for the endpoint that has none - called
      * once, or belonging to a service too small to describe.
      */
-    kind: 'operation' | 'http' | 'if';
+    kind: 'operation' | 'http' | 'if' | 'loop';
 
     /** Operation of the target system's invoker. Empty for a free request. */
     operation: string;
 
     /** What an 'if' tests. Everything placed after it then runs only when it holds. */
     condition?: AutomationCallCondition;
+
+    /** What a 'loop' walks. Everything placed after it then runs once per entry. */
+    loop?: AutomationCallLoop;
 
     /** HTTP verb, for a free request only; an operation brings its own. */
     verb?: string;
@@ -354,6 +357,20 @@ export interface AutomationCallCondition {
 
     /** Empty on an operator that compares against nothing. */
     right: string;
+}
+
+
+/**
+ * What a loop in the sequence walks.
+ *
+ * The list is a reference to a collection in an answer that has already been given, ending in the
+ * `[*]` that says "every entry": `#FFCFB5.(response).body.$.results[*]`. The iterator is the name
+ * the entry of the current pass goes by, and every reference into that list uses it - which is why
+ * two loops must not share one, and why the wizard hands the name out rather than asking for it.
+ */
+export interface AutomationCallLoop {
+    list: string;
+    iterator: string;
 }
 
 
@@ -662,7 +679,7 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
         fields: Array.isArray(raw.fields) ? raw.fields : base.fields,
         target: { ...base.target, ...(raw.target ?? {}) },
         mapping: normalizeMapping(raw.mapping as unknown),
-        unmapped: Array.isArray(raw.unmapped) ? raw.unmapped : base.unmapped,
+        unmapped: Array.isArray(raw.unmapped) ? raw.unmapped : legacyUnmapped(raw.mapping as unknown),
         overrides: normalizeOverrides(raw.overrides),
         extras: Array.isArray(raw.extras) ? raw.extras.filter(isUsableExtra).map(normalizeExtra) : [],
         matching: { ...defaultMatchingFor(raw.target?.operation ?? 'create'), ...(raw.matching ?? {}) },
@@ -720,15 +737,19 @@ function isUsableExtra(raw: any): boolean {
         return true;
     }
 
-    return raw.kind === 'if' ? !!raw.condition?.left : !!raw.operation;
+    if (raw.kind === 'if') {
+        return !!raw.condition?.left;
+    }
+
+    return raw.kind === 'loop' ? !!raw.loop?.list : !!raw.operation;
 }
 
 
-/** Fills in the kind for steps stored before free requests and conditions existed. */
+/** Fills in the kind for steps stored before free requests, conditions and loops existed. */
 function normalizeExtra(raw: any): AutomationExtraCall {
-    const kind = raw.kind === 'http' || raw.kind === 'if' ? raw.kind : 'operation';
+    const known = ['http', 'if', 'loop'].includes(raw.kind) ? raw.kind : 'operation';
 
-    return { ...raw, kind };
+    return { ...raw, kind: known };
 }
 
 
@@ -811,6 +832,24 @@ function normalizeMapping(raw: unknown): AutomationMappingEntry[] {
     }
 
     return [...byTarget.values()];
+}
+
+/**
+ * The fields a stored mapping shows were deliberately left alone.
+ *
+ * The older shape had no list for them: a field the user cleared stayed in the mapping as an entry
+ * naming a source and no target. Read back as nothing at all, those fields would be suggested a
+ * target again the moment the automation is reopened - which is the wizard undoing a decision
+ * somebody made on purpose.
+ */
+function legacyUnmapped(raw: unknown): string[] {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+
+    return (raw as any[])
+        .filter(entry => typeof entry?.source === 'string' && entry.source && !entry.target)
+        .map(entry => entry.source as string);
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */

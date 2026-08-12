@@ -87,3 +87,32 @@ connection built by hand in the OpenCelium editor - the index trees should match
 
 The credentials belong in the shell, not in a file next to this one, and the token is worth
 discarding when you are done.
+
+## Checking that OpenCelium accepts what is produced
+
+A third question, and the one neither check above can answer: the capture comparison asks whether
+the compiler still produces what it produced before, `live-check` whether that resolves against an
+installation's interface descriptions - and only OpenCelium can say whether it takes the payload.
+
+Which matters for the parts no capture covers. A shape derived from a captured connection is
+checked by construction; a shape that had to be worked out - a free HTTP request, a condition of
+the user's own, a loop over a list an answer holds - is checked by nothing until it is saved.
+
+`live-save.ts` compiles an automation holding one of each, creates it, reads it back, prints the
+execution tree that came home, and deletes it. Nothing is executed: acceptance is the question, and
+running an automation would write into the target system.
+
+```bash
+node_modules/esbuild/bin/esbuild tools/verify-automation-compiler/live-save.ts \
+  --bundle --platform=node --format=cjs \
+  --alias:@angular/core=tools/verify-automation-compiler/stub-angular-core.js \
+  --outfile=/tmp/oc/live-save.cjs --log-level=error
+OC_BASE=$OC OC_TOKEN="$TOKEN" DG_DATA_DIR=/tmp/oc node /tmp/oc/live-save.cjs
+```
+
+`OC_DRY=1` writes the payload to `$DG_DATA_DIR/live-save-payload.json` and sends nothing, which is
+what to reach for when a server rejects one.
+
+It talks to OpenCelium directly - `POST /connection`, not the `/rest/open_celium/schedulers` the
+wizard uses, which is DataGerry's own path in front of it. Only the connection half is sent; the
+scheduler beside it decides when an automation runs, and this is about what it would run.

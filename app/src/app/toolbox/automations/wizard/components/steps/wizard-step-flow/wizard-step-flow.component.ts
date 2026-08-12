@@ -31,6 +31,7 @@ import {
     OcOperator,
     ocFieldReference,
     ocIfNodeId,
+    ocLoopNodeId,
     ocMethodNodeId,
     ocSystemNodeId,
     OC_FREE_REQUEST,
@@ -63,6 +64,9 @@ export interface ValueSource {
     group: string;
     label: string;
     reference: string;
+
+    /** True for a collection - what a loop walks, rather than what a request is given. */
+    isList?: boolean;
 }
 
 /** One line of the sequence. */
@@ -115,8 +119,11 @@ export class WizardStepFlowComponent implements DoCheck {
     public steps: FlowStep[] = [];
     public openStep = '';
 
-    /** Which stage of adding a step is open: the kinds, the operations, a condition, or nothing. */
-    public adding: '' | 'kind' | 'operation' | 'condition' = '';
+    /** Which stage of adding a step is open: the kinds, the operations, a container, or nothing. */
+    public adding: '' | 'kind' | 'operation' | 'condition' | 'loop' = '';
+
+    /** The list a loop being added should walk. */
+    public loopList = '';
 
     /** The condition being built, and the entry it belongs to while one is being changed. */
     public condition: AutomationCallCondition = { left: '', operator: '=', right: '' };
@@ -144,11 +151,8 @@ export class WizardStepFlowComponent implements DoCheck {
     ];
 
     /**
-     * What a step can be.
-     *
-     * A loop is still missing: it would have to name the list it walks and give its iterator a name
-     * the steps inside it can use, and nothing in the sequence says which of an answer's lists is
-     * the one meant.
+     * What a step can be: a call of either sort, or one of the two containers that govern what runs
+     * after them.
      */
     public readonly kinds: ReadonlyArray<{
         key: 'operation' | 'http' | 'if' | 'loop';
@@ -186,10 +190,10 @@ export class WizardStepFlowComponent implements DoCheck {
         {
             key: 'loop',
             title: 'Loop',
-            what: 'Repeats the steps inside it, once per entry of a list from an earlier answer.',
+            what: 'Walks a list from an earlier answer. Everything placed after it runs once per '
+                + 'entry, and can read the entry the loop is on.',
             icon: 'fas fa-rotate',
-            available: false,
-            why: 'Needs the same nesting, plus a way to name the list it walks.'
+            available: true
         }
     ];
 
@@ -301,7 +305,10 @@ export class WizardStepFlowComponent implements DoCheck {
         }
 
         for (const operator of this.connection.fromConnector.operators) {
-            if (operator.type === 'loop') {
+            // The loop over the objects being synchronised is the automation itself, not a step in
+            // it: it follows from the object type, there is nothing to decide about it, and showing
+            // it would bury the steps that can be acted on.
+            if (operator.type === 'loop' && !operator.id.startsWith('loop-extra-')) {
                 continue;
             }
 
@@ -309,7 +316,7 @@ export class WizardStepFlowComponent implements DoCheck {
                 id: operator.id,
                 index: operator.index,
                 depth: depthOf(operator.index),
-                kind: 'if',
+                kind: operator.type,
                 title: this.titleOfOperator(operator),
                 detail: summarize(operator.expression),
                 system: '',
@@ -347,6 +354,10 @@ export class WizardStepFlowComponent implements DoCheck {
 
 
     private titleOfOperator(operator: OcOperator): string {
+        if (operator.type === 'loop') {
+            return 'For every entry';
+        }
+
         if (operator.id.startsWith('if-extra-')) {
             return 'Only when it holds';
         }
@@ -551,9 +562,9 @@ export class WizardStepFlowComponent implements DoCheck {
         const needle = this.pickFilter.trim().toLowerCase();
 
         return needle
-            ? this.valueSources.filter(source =>
+            ? this.plainSources.filter(source =>
                 `${source.group} ${source.label}`.toLowerCase().includes(needle))
-            : this.valueSources;
+            : this.plainSources;
     }
 
 
@@ -561,7 +572,7 @@ export class WizardStepFlowComponent implements DoCheck {
     public get sourceGroups(): Array<{ name: string; items: ValueSource[] }> {
         const groups: Array<{ name: string; items: ValueSource[] }> = [];
 
-        for (const source of this.valueSources) {
+        for (const source of this.plainSources) {
             const group = groups.find(candidate => candidate.name === source.group);
 
             if (group) {
@@ -601,7 +612,7 @@ export class WizardStepFlowComponent implements DoCheck {
         }
 
         const methods = this.connection.fromConnector.methods;
-        const iterated = this.loopArrayPath();
+        const loops = this.enclosingLoops(step.index);
         const sources: ValueSource[] = [];
 
         for (const method of methods) {
@@ -613,16 +624,17 @@ export class WizardStepFlowComponent implements DoCheck {
                 ? `${method.connector.title} · ${method.name}`
                 : method.name;
 
-            for (const path of leafPaths(method.response?.success?.body?.fields, iterated)) {
+            for (const entry of schemaPaths(method.response?.success?.body?.fields, loops)) {
                 sources.push({
                     group,
-                    label: path,
-                    reference: ocFieldReference(method.color, 'response', path)
+                    label: entry.path,
+                    reference: ocFieldReference(method.color, 'response', entry.path),
+                    isList: entry.isList
                 });
             }
         }
 
-        return [...this.dataGerryFieldSources(methods[0], iterated), ...sources];
+        return [...this.dataGerryFieldSources(methods[0], loops), ...sources];
     }
 
 
@@ -632,8 +644,13 @@ export class WizardStepFlowComponent implements DoCheck {
      * Only when DataGerry is the side being read - when it is being written, its fields are where
      * values go, not somewhere they come from, and the mapping step is what fills them.
      */
-    private dataGerryFieldSources(source: OcMethod | undefined, iterated: string): ValueSource[] {
-        if (!source || this.definition.direction !== 'outgoing') {
+    private dataGerryFieldSources(
+        source: OcMethod | undefined,
+        loops: ReadonlyArray<{ path: string; iterator: string }>
+    ): ValueSource[] {
+        const objects = loops[0];
+
+        if (!source || !objects || this.definition.direction !== 'outgoing') {
             return [];
         }
 
@@ -643,17 +660,28 @@ export class WizardStepFlowComponent implements DoCheck {
             reference: ocFieldReference(
                 source.color,
                 'response',
-                `${iterated}[${OC_LOOP_ITERATOR}].fields[${position}].value`
+                `${objects.path}[${objects.iterator}].fields[${position}].value`
             )
         }));
     }
 
 
-    /** Which list the loop walks, read back out of its own expression. */
-    private loopArrayPath(): string {
-        const loop = this.connection?.fromConnector.operators.find(operator => operator.type === 'loop');
-
-        return /body\.\$\.(.+?)\[\*\]/.exec(loop?.expression ?? '')?.[1] ?? '';
+    /**
+     * The loops a step runs inside, outermost first.
+     *
+     * Read back out of the operators rather than tracked alongside them: an execution index says
+     * which loops wrap a step - everything under '1' runs inside the loop at '1' - and each loop's
+     * own expression says which list it walks and what it calls an entry.
+     */
+    private enclosingLoops(index: string): Array<{ path: string; iterator: string }> {
+        return (this.connection?.fromConnector.operators ?? [])
+            .filter(operator => operator.type === 'loop' && index.startsWith(`${operator.index}_`))
+            .sort((left, right) => compareIndex(left.index, right.index))
+            .map(operator => ({
+                path: /body\.\$\.(.+?)\[\*\]/.exec(operator.expression)?.[1] ?? '',
+                iterator: operator.iterator || OC_LOOP_ITERATOR
+            }))
+            .filter(loop => !!loop.path);
     }
 
 
@@ -687,9 +715,17 @@ export class WizardStepFlowComponent implements DoCheck {
         }
 
         if (key === 'if') {
-            this.condition = { left: this.valueSources[0]?.reference ?? '', operator: '=', right: '' };
+            this.condition = { left: this.firstValue?.reference ?? '', operator: '=', right: '' };
             this.editing = '';
             this.adding = 'condition';
+
+            return;
+        }
+
+        if (key === 'loop') {
+            this.loopList = this.listSources[0]?.reference ?? '';
+            this.editing = '';
+            this.adding = 'loop';
 
             return;
         }
@@ -727,6 +763,90 @@ export class WizardStepFlowComponent implements DoCheck {
         }
 
         this.addExtra({ kind: 'if', operation: '', condition });
+    }
+
+
+    /**
+     * Puts the loop being built into the sequence, or back into the step it came from.
+     *
+     * The name for an entry is handed out rather than asked for: every reference into a list carries
+     * the name of the loop walking it, so two loops sharing one would read each other's entry.
+     */
+    public onSaveLoop(): void {
+        if (!this.loopList) {
+            return;
+        }
+
+        if (this.editing) {
+            const id = this.editing;
+
+            this.definition.extras = this.definition.extras.map(candidate =>
+                candidate.id === id
+                    ? { ...candidate, loop: { list: this.loopList, iterator: candidate.loop?.iterator ?? 'j' } }
+                    : candidate
+            );
+            this.adding = '';
+            this.editing = '';
+            this.definitionChange.emit(this.definition);
+
+            return;
+        }
+
+        this.addExtra({
+            kind: 'loop',
+            operation: '',
+            loop: { list: this.loopList, iterator: this.freeIterator() }
+        });
+    }
+
+
+    /** Opens the list of an added loop for a second look. */
+    public onEditLoop(step: FlowStep): void {
+        const extra = this.extraFor(step);
+
+        if (!extra) {
+            return;
+        }
+
+        this.loopList = extra.loop?.list ?? '';
+        this.editing = extra.id;
+        this.adding = 'loop';
+    }
+
+
+    /**
+     * A name for the loop's entry that no other loop is using.
+     *
+     * 'i' belongs to the loop over the objects being synchronised, which every automation has, so
+     * the ones the user adds start after it.
+     */
+    private freeIterator(): string {
+        const taken = new Set([
+            OC_LOOP_ITERATOR,
+            ...(this.connection?.fromConnector.operators ?? [])
+                .filter(operator => operator.type === 'loop')
+                .map(operator => operator.iterator ?? ''),
+            ...this.definition.extras.map(extra => extra.loop?.iterator ?? '')
+        ]);
+
+        return 'jklmnopqrstuvwxyz'.split('').find(name => !taken.has(name)) ?? 'z';
+    }
+
+
+    /** The collections on offer, which is what a loop can be pointed at. */
+    public get listSources(): ValueSource[] {
+        return this.valueSources.filter(source => source.isList);
+    }
+
+
+    /** The values on offer - everything that is not a collection. */
+    public get plainSources(): ValueSource[] {
+        return this.valueSources.filter(source => !source.isList);
+    }
+
+
+    private get firstValue(): ValueSource | undefined {
+        return this.plainSources[0];
     }
 
 
@@ -870,9 +990,20 @@ export class WizardStepFlowComponent implements DoCheck {
     }
 
 
-    /** Whether the step is a condition of the user's own, which is the one that can be changed. */
+    /** Whether the step is a container of the user's own, which is the one that can be changed. */
     public isAddedCondition(step: FlowStep): boolean {
         return step.kind === 'if' && this.extraFor(step)?.kind === 'if';
+    }
+
+
+    public isAddedLoop(step: FlowStep): boolean {
+        return step.kind === 'loop' && this.extraFor(step)?.kind === 'loop';
+    }
+
+
+    /** What the loop calls the entry it is on, which is what the steps inside it read. */
+    public iteratorOf(step: FlowStep): string {
+        return this.extraFor(step)?.loop?.iterator ?? '';
     }
 
 
@@ -997,6 +1128,10 @@ function nodeIdOf(extra: AutomationExtraCall): string {
         return ocIfNodeId(extra.id);
     }
 
+    if (extra.kind === 'loop') {
+        return ocLoopNodeId(extra.id);
+    }
+
     return extra.kind === 'http' ? ocSystemNodeId(extra.id) : ocMethodNodeId(extra.id);
 }
 
@@ -1005,27 +1140,38 @@ function nodeIdOf(extra: AutomationExtraCall): string {
  * Flattens a response schema to the paths a reference can point at.
  *
  * A schema describes a list by one sample element, so a list becomes one set of paths rather than
- * one per entry. Which entry those paths mean is the whole question: the list the loop walks is
- * addressed by the iterator, so a reference into it reads the object of the current pass, and every
- * other list by its first entry - which is what a lookup's answer is.
+ * one per entry. Which entry those paths mean is the whole question. A list some loop walks is
+ * addressed by that loop's iterator, so a reference into it reads the entry of the current pass;
+ * every other list is addressed by its first entry, which is what a lookup's answer is. The list
+ * itself is offered too, as `[*]` - that is the one thing a new loop can be pointed at.
  */
-function leafPaths(node: unknown, iterated: string, prefix = ''): string[] {
+function schemaPaths(
+    node: unknown,
+    loops: ReadonlyArray<{ path: string; iterator: string }>,
+    prefix = ''
+): Array<{ path: string; isList?: boolean }> {
     if (node === null || node === undefined || prefix.split('.').length > 6) {
         return [];
     }
 
     if (Array.isArray(node)) {
-        const element = prefix === iterated ? OC_LOOP_ITERATOR : '0';
+        // Whichever loop walks this collection names its entries; anything unwalked is read at its
+        // first entry. The loops' own paths already carry the iterators of the loops around them,
+        // which is why matching on the prefix works at any depth.
+        const element = loops.find(loop => loop.path === prefix)?.iterator ?? '0';
+        const list = { path: `${prefix}[*]`, isList: true };
 
-        return node.length === 0 ? [prefix] : leafPaths(node[0], iterated, `${prefix}[${element}]`);
+        return node.length === 0
+            ? [list]
+            : [list, ...schemaPaths(node[0], loops, `${prefix}[${element}]`)];
     }
 
     if (typeof node !== 'object') {
-        return prefix ? [prefix] : [];
+        return prefix ? [{ path: prefix }] : [];
     }
 
     return Object.entries(node as Record<string, unknown>)
-        .flatMap(([key, value]) => leafPaths(value, iterated, prefix ? `${prefix}.${key}` : key));
+        .flatMap(([key, value]) => schemaPaths(value, loops, prefix ? `${prefix}.${key}` : key));
 }
 
 
