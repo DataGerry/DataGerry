@@ -1,51 +1,7 @@
-<section class="rack-view" [class.rack-view--compact]="isCompact">
+<section class="rack-view rack-view--compact" [style.--rack-zoom]="zoomLabel" dgFullscreen #fullscreen="dgFullscreen"
+  (fullscreenChange)="onFullscreenChange($event)">
 
   @if (rack) {
-  <!-- ------------------------------------------- IDENTITY ------------------------------------------- -->
-  <header class="rack-ident">
-    <div class="rack-ident__who">
-      <h3 class="rack-ident__name">{{ rack.display_name }}</h3>
-      <p class="rack-ident__meta">
-        <span class="rack-ident__figure">{{ rack.height }}U</span>
-        @if (rack.number) {
-        <span class="rack-view__dot"></span> Rack no. <b>{{ rack.number }}</b>
-        }
-        @if (rack.notes) {
-        <span class="rack-view__dot"></span> {{ rack.notes }}
-        }
-      </p>
-    </div>
-
-    @if (statsFace; as face) {
-    <dl class="rack-stats">
-      <div class="rack-stat">
-        <dt>Occupied</dt>
-        <dd>{{ face.capacity.used }}<small>/{{ face.capacity.total }}U</small></dd>
-        <span class="rack-stat__meter" role="img"
-          [attr.aria-label]="face.title + ' ' + face.capacity.percent + '% occupied'">
-          <span [style.width.%]="face.capacity.percent"></span>
-        </span>
-        <span class="rack-stat__note">{{ face.title | lowercase }} face</span>
-      </div>
-
-      <div class="rack-stat">
-        <dt>Entries</dt>
-        <dd>{{ totalMounts }}<small> total</small></dd>
-      </div>
-
-      <div class="rack-stat">
-        <dt>Free</dt>
-        <dd>{{ face.capacity.free }}<small>U</small></dd>
-      </div>
-
-      <div class="rack-stat">
-        <dt>Largest gap</dt>
-        <dd>{{ face.capacity.largestGap }}<small>U</small></dd>
-      </div>
-    </dl>
-    }
-  </header>
-
   <!-- ------------------------------------------- TOOLBAR -------------------------------------------- -->
   <div class="rack-toolbar">
     <div class="rack-switch" role="group" aria-label="Which face to show">
@@ -59,9 +15,27 @@
         [attr.aria-pressed]="viewMode === 'rear'" (click)="onViewChange('rear')">Rear</button>
     </div>
 
-    <button type="button" class="rack-density" [class.rack-density--on]="isCompact" [attr.aria-pressed]="isCompact"
-      (click)="onToggleCompact()">
-      {{ isCompact ? 'Comfortable' : 'Compact' }}
+    <!-- Scales the elevation only. The read-out doubles as the reset back to 100%. -->
+    <div class="rack-zoom" role="group" aria-label="Zoom the elevation">
+      <button type="button" class="rack-tool" title="Zoom out" aria-label="Zoom out" [disabled]="!canZoomOut"
+        (click)="onZoomOut()">
+        <i class="fas fa-search-minus" aria-hidden="true"></i>
+      </button>
+
+      <button type="button" class="rack-zoom__level" title="Reset zoom" aria-label="Reset the zoom to 100%"
+        [disabled]="isDefaultZoom" (click)="onResetZoom()">{{ zoomLabel }}</button>
+
+      <button type="button" class="rack-tool" title="Zoom in" aria-label="Zoom in" [disabled]="!canZoomIn"
+        (click)="onZoomIn()">
+        <i class="fas fa-search-plus" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <button type="button" class="rack-tool" [class.rack-tool--on]="isFullscreen" [attr.aria-pressed]="isFullscreen"
+      [title]="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'"
+      [attr.aria-label]="isFullscreen ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
+      (click)="fullscreen.toggle()">
+      <i [class]="isFullscreen ? 'fas fa-compress' : 'fas fa-expand'" aria-hidden="true"></i>
     </button>
 
     <span class="rack-toolbar__spacer"></span>
@@ -88,7 +62,7 @@
         <span class="rack-legend__chip" [style.color]="typeTone(entry)" [style.background]="typeTint(entry)">
           <i [class]="typeIcon(entry)" aria-hidden="true"></i>
         </span>
-        <span class="rack-legend__text" [ngbTooltip]="entry.type_label" container="body">{{ entry.type_label }}</span>
+        <span class="rack-legend__text" [ngbTooltip]="entry.type_label" [container]="tooltipContainer">{{ entry.type_label }}</span>
         <span class="rack-legend__count">{{ entry.count }}</span>
       </li>
       }
@@ -134,12 +108,12 @@
               <!-- The name is cut to one line; the tooltip carries the whole label. -->
               <span class="rack-rail__text">
                 @if (isMount(mount)) {
-                <button type="button" class="rack-rail__name" [ngbTooltip]="labelOf(mount)" container="body"
+                <button type="button" class="rack-rail__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer"
                   (click)="onOpenObject(mount.object_id)">
                   {{ labelOf(mount) }}
                 </button>
                 } @else {
-                <span class="rack-rail__name" [ngbTooltip]="labelOf(mount)" container="body">
+                <span class="rack-rail__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer">
                   {{ labelOf(mount) }}
                 </span>
                 }
@@ -195,7 +169,7 @@
           <!-- Open bays. Always drawn; only the action inside them needs the edit right. -->
           @for (slot of face.freeSlots; track slot) {
           <div class="rack-bay rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"
-            [style.grid-row]="gridRowOfSlot(slot)">
+            [class.rack-bay--major]="isMajorSlot(slot)" [style.grid-row]="gridRowOfSlot(slot)">
             <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-bay__add"
               [attr.aria-label]="'Fill slot U' + slot + ' on the ' + face.title.toLowerCase()"
               (click)="onFreeSlotClick(face.side, slot)">
@@ -214,7 +188,7 @@
             (click)="onSelectMount(mount)">
             <span class="rack-unit__icon"><i [class]="iconOf(mount)" aria-hidden="true"></i></span>
             <!-- A faceplate is only as wide as its U; the tooltip carries the name it cannot fit. -->
-            <span class="rack-unit__name" [ngbTooltip]="labelOf(mount)" container="body">
+            <span class="rack-unit__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer">
               {{ labelOf(mount) }}
             </span>
             <span class="rack-unit__vent" aria-hidden="true"></span>
@@ -258,9 +232,9 @@
 
           <!-- The U ruler. Between the cabinets when split, on both posts of a single face. -->
           @for (tick of slotTicks; track tick) {
-          <span class="rack-tick" [class.rack-tick--major]="tick % 5 === 0 || tick === 1"
+          <span class="rack-tick" [class.rack-tick--major]="isMajorSlot(tick)"
             [style.grid-row]="gridRowOfSlot(tick)">{{ tick }}</span>
-          <span class="rack-tick rack-tick--mirror" [class.rack-tick--major]="tick % 5 === 0 || tick === 1"
+          <span class="rack-tick rack-tick--mirror" [class.rack-tick--major]="isMajorSlot(tick)"
             [style.grid-row]="gridRowOfSlot(tick)" aria-hidden="true">{{ tick }}</span>
           }
 
@@ -357,7 +331,7 @@
       } @else {
       <p class="rack-inspector__empty">
         <i class="fas fa-mouse-pointer" aria-hidden="true"></i>
-        Select a row in the elevation to see its placement and act on it.
+        Select an object in the rack to view its details.
       </p>
       }
     </aside>
@@ -404,12 +378,12 @@
 
         <span class="rack-tray__text">
           @if (isMount(mount)) {
-          <button type="button" class="rack-tray__name" [ngbTooltip]="labelOf(mount)" container="body"
+          <button type="button" class="rack-tray__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer"
             (click)="onOpenObject(mount.object_id)">
             {{ labelOf(mount) }}
           </button>
           } @else {
-          <span class="rack-tray__name" [ngbTooltip]="labelOf(mount)" container="body">
+          <span class="rack-tray__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer">
             {{ labelOf(mount) }}
           </span>
           }
@@ -447,7 +421,8 @@
     </div>
   </div>
   }
-</section>
 
-<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
-</app-loading-popup>
+  <!-- Inside the view on purpose: a fullscreen element hides everything outside itself. -->
+  <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
+  </app-loading-popup>
+</section>

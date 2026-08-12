@@ -22,6 +22,9 @@
  */
 export const RACK_EDIT_RIGHT = 'base.framework.rack.edit';
 
+/** Guards every rack read route, and with it the rack tab of the object view. */
+export const RACK_VIEW_RIGHT = 'base.framework.rack.view';
+
 
 export enum RackArea {
     FRONT = 'FRONT',

@@ -1,9 +1,18 @@
 /* Rack › bay — a free slot inside the cavity and the mount affordance it exposes on hover. */
 
+/*
+ * The U divisions. They are what makes an empty cavity readable as slots rather than as a hole, so
+ * they carry a rhythm: a hairline on every U, and a heavier line on every fifth - the same fives the
+ * ruler numbers, so a free run can be counted without tracing across to the numbers.
+ */
 .rack-bay {
   display: flex;
   margin: 0 calc(var(--rack-jamb) + var(--rack-post));
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+
+  &--major {
+    border-bottom-color: rgba(255, 255, 255, 0.2);
+  }
 
   &__add {
     display: flex;

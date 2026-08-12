@@ -1,5 +1,5 @@
 <div class="card">
-  <!-- Single-level tab strip: Attributes + one tab per relation + add button -->
+  <!-- Single-level tab strip: Attributes + host tabs + one tab per relation + add button -->
   <div class="card-header" style="overflow-x: auto; white-space: nowrap;">
     <ul class="nav nav-tabs card-header-tabs">
       <li class="nav-item d-inline-block">
@@ -8,6 +8,18 @@
           Attributes
         </button>
       </li>
+
+      @for (hostTab of hostTabs(); track hostTab.key()) {
+        <li class="nav-item d-inline-block">
+          <button type="button" class="nav-link" [class.active]="activeKey() === hostTab.key()"
+            (click)="selectTab(hostTab.key())">
+            @if (hostTab.icon()) {
+              <i [class]="hostTab.icon()" class="me-1"></i>
+            }
+            {{ hostTab.label() }}
+          </button>
+        </li>
+      }
 
       @for (tab of tabs(); track tabKey(tab)) {
         <li class="nav-item d-inline-block">
@@ -36,6 +48,13 @@
     <div [hidden]="!isAttributesActive()">
       <ng-content></ng-content>
     </div>
+
+    <!-- Host-contributed tabs, also kept mounted once rendered. -->
+    @for (hostTab of hostTabs(); track hostTab.key()) {
+      <div [hidden]="activeKey() !== hostTab.key()">
+        <ng-container [ngTemplateOutlet]="hostTab.template"></ng-container>
+      </div>
+    }
 
     @if (activeTab(); as tab) {
       <cmdb-object-relation-tab-content

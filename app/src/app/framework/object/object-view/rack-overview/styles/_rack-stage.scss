@@ -20,11 +20,16 @@
    * scroll container: centring a flex container that overflows pushes its start out of reach, which
    * clips the left rail instead of letting it scroll.
    */
+  /*
+   * Zoom, not a transform: it resizes the layout box, so the board keeps scrolling and centring the
+   * drawing at any factor. A browser without it simply draws the elevation at its natural size.
+   */
   &__inner {
     display: flex;
     align-items: flex-start;
     gap: 1rem;
     width: max-content;
     margin: 0 auto;
+    zoom: var(--rack-zoom, 100%);
   }
 }

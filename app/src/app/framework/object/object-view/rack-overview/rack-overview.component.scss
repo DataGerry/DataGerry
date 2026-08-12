@@ -3,9 +3,8 @@
  *
  *   rack-tokens ....... palette, radii, shadows, easing. Must stay first; the rest read from it.
  *   rack-shell ........ the root element and the --rack-* geometry the whole drawing is measured in
- *   rack-density ...... compact mode
- *   rack-identity ..... header card: name, summary, capacity read-outs
- *   rack-toolbar ...... view switch and density toggle
+ *   rack-density ...... the compact geometry the elevation is drawn at
+ *   rack-toolbar ...... view switch, zoom and fullscreen controls
  *   rack-legend ....... the key to the drawing: types in the rack and what the occupants hold
  *   rack-stage ........ drawing/inspector split and the scrolling board
  *   rack-rail ......... the LEFT and RIGHT cards beside the enclosure
@@ -18,13 +17,13 @@
  *   rack-buttons ...... the icon and ghost controls shared across the view
  *   rack-callout ...... inline notices
  *   rack-tray ......... the staging area for unmounted rows
+ *   rack-fullscreen ... the page-filling layout: only the elevation scrolls
  *   rack-responsive ... breakpoint overrides. Must stay last; it wins on source order.
  */
 
 @import "./styles/rack-tokens";
 @import "./styles/rack-shell";
 @import "./styles/rack-density";
-@import "./styles/rack-identity";
 @import "./styles/rack-toolbar";
 @import "./styles/rack-legend";
 @import "./styles/rack-stage";
@@ -38,4 +37,5 @@
 @import "./styles/rack-buttons";
 @import "./styles/rack-callout";
 @import "./styles/rack-tray";
+@import "./styles/rack-fullscreen";
 @import "./styles/rack-responsive";

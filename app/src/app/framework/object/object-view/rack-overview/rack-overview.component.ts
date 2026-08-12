@@ -30,6 +30,7 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { Subject, finalize, takeUntil } from 'rxjs';
 
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
@@ -75,6 +76,15 @@ const FIRST_SLOT_ROW = 2;
  */
 const LEGEND_TYPE_LIMIT = 6;
 
+/**
+ * Zoom bounds for the drawing, in percent. The range leans on shrinking: a rack is taller than the
+ * screen far more often than it is too small to read.
+ */
+const ZOOM_MIN = 80;
+const ZOOM_MAX = 150;
+const ZOOM_STEP = 10;
+const ZOOM_DEFAULT = 100;
+
 
 @Component({
     selector: 'cmdb-rack-overview',
@@ -89,6 +99,7 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
     private readonly deleteModalService = inject(DeleteModalService);
+    private readonly fullscreenModalService = inject(FullscreenModalService);
     private readonly modalService = inject(NgbModal);
     private readonly router = inject(Router);
     private readonly permissionService = inject(PermissionService);
@@ -104,7 +115,6 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         || this.permissionService.hasExtendedRight(RACK_EDIT_RIGHT);
 
     public rack: RackHeader | null = null;
-    public totalMounts = 0;
     public typesLegend: RackTypeLegendEntry[] = [];
     public occupantsLegend: RackOccupantLegendEntry[] = [];
     /** Only the first types are keyed until the user asks for the rest. */
@@ -112,11 +122,9 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     public hasError = false;
 
     public viewMode: RackViewMode = 'split';
-    /**
-     * Shorter rows, on by default: a full-height rack is taller than a screen at the comfortable
-     * height, and seeing the whole elevation at once matters more than the plate detail.
-     */
-    public isCompact = true;
+    /** Scales the drawing only; the toolbar, the legend and the inspector keep their own size. */
+    public zoomPercent = ZOOM_DEFAULT;
+    public isFullscreen = false;
     public frontFace: RackFace | null = null;
     public rearFace: RackFace | null = null;
     /** Both faces in drawing order, so the capacity meters iterate a stable array. */
@@ -161,8 +169,21 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         this.changesRef.markForCheck();
     }
 
-    public onToggleCompact(): void {
-        this.isCompact = !this.isCompact;
+    public onZoomIn(): void {
+        this.setZoom(this.zoomPercent + ZOOM_STEP);
+    }
+
+    public onZoomOut(): void {
+        this.setZoom(this.zoomPercent - ZOOM_STEP);
+    }
+
+    public onResetZoom(): void {
+        this.setZoom(ZOOM_DEFAULT);
+    }
+
+    /** Driven by the directive, so leaving fullscreen with Escape keeps the button in step. */
+    public onFullscreenChange(isFullscreen: boolean): void {
+        this.isFullscreen = isFullscreen;
         this.changesRef.markForCheck();
     }
 
@@ -252,12 +273,29 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         return this.viewMode === 'rear' ? this.rearFace : this.frontFace;
     }
 
+    /** Also the value the board is zoomed by, so the read-out and the drawing cannot drift apart. */
+    public get zoomLabel(): string {
+        return `${this.zoomPercent}%`;
+    }
+
+    public get canZoomIn(): boolean {
+        return this.zoomPercent < ZOOM_MAX;
+    }
+
+    public get canZoomOut(): boolean {
+        return this.zoomPercent > ZOOM_MIN;
+    }
+
+    public get isDefaultZoom(): boolean {
+        return this.zoomPercent === ZOOM_DEFAULT;
+    }
+
     /**
-     * The face the capacity read-out describes. Occupancy is per face - a slot can be free at the back
-     * while the front holds it - so the numbers always name the face they belong to.
+     * A fullscreen element is the only thing painted, so a tooltip parked on the body would never be
+     * seen. While fullscreen is open they render next to their trigger instead.
      */
-    public get statsFace(): RackFace | null {
-        return this.shownFace;
+    public get tooltipContainer(): string | null {
+        return this.isFullscreen ? null : 'body';
     }
 
     public get hasLegend(): boolean {
@@ -372,6 +410,11 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
         return `${rackHeight - slot + FIRST_SLOT_ROW}`;
     }
 
+    /** A rack is counted in fives, so every fifth U is drawn heavier - on the ruler and in the cavity. */
+    public isMajorSlot(slot: number): boolean {
+        return slot % 5 === 0 || slot === 1;
+    }
+
     /** The row colour: its type for a mount, its own colour for a reservation, neutral otherwise. */
     public toneOf(mount: RackMountRow): string {
         return safeAccent(this.colorSourceOf(mount));
@@ -386,6 +429,17 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     }
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private setZoom(percent: number): void {
+        const next = Math.min(Math.max(percent, ZOOM_MIN), ZOOM_MAX);
+
+        if (next === this.zoomPercent) {
+            return;
+        }
+
+        this.zoomPercent = next;
+        this.changesRef.markForCheck();
+    }
 
     private loadOverview(): void {
         this.loaderService.show();
@@ -409,7 +463,6 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
     private applyOverview(response: RackOverviewResponse): void {
         this.overview = response;
         this.rack = response?.rack ?? null;
-        this.totalMounts = response?.total_mounts ?? 0;
         this.typesLegend = sortTypeLegend(response?.types_legend ?? []);
         this.occupantsLegend = response?.occupants_legend ?? [];
         this.hasError = false;
@@ -476,7 +529,9 @@ export class RackOverviewComponent implements OnChanges, OnDestroy {
             return;
         }
 
-        const modalRef = this.modalService.open(RackMountModalComponent, {
+        // Opened through the fullscreen service: a modal parked on the body is not painted over a
+        // fullscreen element, so it has to be hosted inside the rack view while that is open.
+        const modalRef = this.fullscreenModalService.open(this.modalService, RackMountModalComponent, {
             size: 'lg',
             windowClass: 'dg-modal-window',
             backdropClass: 'dg-modal-window-backdrop'

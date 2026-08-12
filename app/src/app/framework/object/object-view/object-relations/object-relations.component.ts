@@ -22,6 +22,7 @@ import {
   OnDestroy,
   SimpleChanges,
   computed,
+  contentChildren,
   inject,
   input,
   signal
@@ -42,6 +43,7 @@ import {
   ObjectRelationTab,
   objectRelationTabKey
 } from 'src/app/framework/models/object-relation.model';
+import { ObjectTabDirective } from './object-tab.directive';
 
 interface RelationSelection {
   relation: ExtendedRelation;
@@ -57,10 +59,10 @@ const ATTRIBUTES_KEY = 'attributes';
 
 /**
  * Orchestrates the object-relations panel: it owns the single tab strip
- * (Attributes tab is projected via <ng-content>, relation tabs come from
- * `GET /object_relations/tabs/<object_id>`), delegates a tab's paginated
- * table to the tab-content child, and coordinates the create/edit/copy/delete
- * dialogs.
+ * (Attributes is projected via <ng-content>, the host may contribute further
+ * tabs with `cmdbObjectTab`, relation tabs come from
+ * `GET /object_relations/tabs/<object_id>`), delegates a tab's paginated table
+ * to the tab-content child, and coordinates the create/edit/copy/delete dialogs.
  */
 @Component({
   selector: 'cmdb-object-relations',
@@ -78,16 +80,24 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
 
   /* --------------------------------------------------- PUBLIC STATE --------------------------------------------------- */
 
+  /** Tabs the host contributes; their content is rendered beside the relation tables. */
+  public readonly hostTabs = contentChildren(ObjectTabDirective);
+
   public readonly tabs = signal<ObjectRelationTab[]>([]);
   public readonly activeKey = signal<string>(ATTRIBUTES_KEY);
 
-  public readonly isAttributesActive = computed(() => this.activeKey() === ATTRIBUTES_KEY);
   public readonly activeTab = computed<ObjectRelationTab | null>(() => {
     const key = this.activeKey();
-    if (key === ATTRIBUTES_KEY) {
+    if (key === ATTRIBUTES_KEY || this.isHostTab(key)) {
       return null;
     }
     return this.tabs().find((tab) => objectRelationTabKey(tab) === key) ?? null;
+  });
+
+  /** A key that matches nothing left falls back here, so the body is never blank. */
+  public readonly isAttributesActive = computed(() => {
+    const key = this.activeKey();
+    return key === ATTRIBUTES_KEY || (!this.isHostTab(key) && !this.activeTab());
   });
 
   public readonly showSelectModal = signal(false);
@@ -258,6 +268,10 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
 
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
+  private isHostTab(key: string): boolean {
+    return this.hostTabs().some((tab) => tab.key() === key);
+  }
+
   /**
    * Opens the role dialog for an existing tab. Only the relation definition is
    * fetched on demand; parent/child ids are reconstructed from the role and the
@@ -324,7 +338,8 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
           }
 
           const activeKey = this.activeKey();
-          if (activeKey !== ATTRIBUTES_KEY && !tabs.some((tab) => objectRelationTabKey(tab) === activeKey)) {
+          const isProjectedTab = activeKey === ATTRIBUTES_KEY || this.isHostTab(activeKey);
+          if (!isProjectedTab && !tabs.some((tab) => objectRelationTabKey(tab) === activeKey)) {
             this.activeKey.set(ATTRIBUTES_KEY);
           }
         },
