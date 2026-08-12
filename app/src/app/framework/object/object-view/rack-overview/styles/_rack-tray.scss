@@ -1,7 +1,13 @@
-/* Rack › tray — the staging area below the board for rows that are not mounted anywhere yet. */
+/*
+ * Rack › tray — the staging card in the side column, for rows that are in the rack but hold no slot.
+ * It sits in a narrow column beside the drawing, so its rows are stacked and the list is what scrolls.
+ */
 
 .rack-tray {
-  padding: 0.8rem 1rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.8rem 0.9rem;
   background: $paper;
   border: 1px solid $hairline;
   border-radius: $radius-card;
@@ -11,6 +17,7 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
+    flex: none;
     gap: 0.5rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid $hairline-soft;
@@ -22,9 +29,11 @@
       color: $ink-2;
     }
 
+    /* Its own line: the column is too narrow to carry the title and the explanation side by side. */
     p {
+      flex: 1 0 100%;
       margin: 0;
-      font-size: 0.8rem;
+      font-size: 0.72rem;
       color: $ink-3;
     }
   }
@@ -43,20 +52,34 @@
     font-weight: 700;
   }
 
+  /*
+   * The card keeps its head in place however many rows are waiting; only the rows scroll. The
+   * padding is pulled back out with a matching negative margin so a focus ring on a row is not
+   * clipped by the scroll container while the rows still line up with the head above them.
+   */
   &__list {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    margin: 0.7rem 0 0;
-    padding: 0;
+    flex-direction: column;
+    gap: 0.4rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: var(--rack-tray-max, 20rem);
+    margin: 0.6rem -0.2rem 0;
+    padding: 0 0.2rem;
+    overflow-y: auto;
     list-style: none;
+
+    &:focus-visible {
+      outline: 0;
+      border-radius: $radius-sm;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
   }
 
   &__item {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    max-width: 22rem;
     padding: 0.4rem 0.5rem;
     background: $sunk;
     border: 1px solid $hairline;
@@ -84,6 +107,7 @@
   &__text {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
     min-width: 0;
     line-height: 1.3;
   }
@@ -124,13 +148,14 @@
   &__actions {
     display: flex;
     align-items: center;
+    flex: none;
     gap: 0.25rem;
     margin-left: 0.25rem;
   }
 
   &__empty {
     margin: 0.7rem 0 0;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: $ink-4;
   }
 }

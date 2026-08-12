@@ -62,7 +62,8 @@
         <span class="rack-legend__chip" [style.color]="typeTone(entry)" [style.background]="typeTint(entry)">
           <i [class]="typeIcon(entry)" aria-hidden="true"></i>
         </span>
-        <span class="rack-legend__text" [ngbTooltip]="entry.type_label" [container]="tooltipContainer">{{ entry.type_label }}</span>
+        <span class="rack-legend__text" [ngbTooltip]="entry.type_label" [container]="tooltipContainer">{{
+          entry.type_label }}</span>
         <span class="rack-legend__count">{{ entry.count }}</span>
       </li>
       }
@@ -108,8 +109,8 @@
               <!-- The name is cut to one line; the tooltip carries the whole label. -->
               <span class="rack-rail__text">
                 @if (isMount(mount)) {
-                <button type="button" class="rack-rail__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer"
-                  (click)="onOpenObject(mount.object_id)">
+                <button type="button" class="rack-rail__name" [ngbTooltip]="labelOf(mount)"
+                  [container]="tooltipContainer" (click)="onOpenObject(mount.object_id)">
                   {{ labelOf(mount) }}
                 </button>
                 } @else {
@@ -232,8 +233,8 @@
 
           <!-- The U ruler. Between the cabinets when split, on both posts of a single face. -->
           @for (tick of slotTicks; track tick) {
-          <span class="rack-tick" [class.rack-tick--major]="isMajorSlot(tick)"
-            [style.grid-row]="gridRowOfSlot(tick)">{{ tick }}</span>
+          <span class="rack-tick" [class.rack-tick--major]="isMajorSlot(tick)" [style.grid-row]="gridRowOfSlot(tick)">{{
+            tick }}</span>
           <span class="rack-tick rack-tick--mirror" [class.rack-tick--major]="isMajorSlot(tick)"
             [style.grid-row]="gridRowOfSlot(tick)" aria-hidden="true">{{ tick }}</span>
           }
@@ -247,92 +248,154 @@
       </div>
     </div>
 
-    <!-- ------------------------------------------ INSPECTOR ---------------------------------------- -->
-    <aside class="rack-inspector" aria-live="polite">
-      @if (selectedMount; as mount) {
-      <div class="rack-inspector__head">
-        <span class="rack-inspector__icon" [style.--rack-tone]="toneOf(mount)">
-          <i [class]="iconOf(mount)" aria-hidden="true"></i>
-        </span>
+    <!-- ------------------------------------------ SIDE COLUMN ------------------------------------- -->
+    <!--
+      Two cards, always both: the row selected in the drawing, and the rows that are in the rack but
+      hold no slot. Placing one is a pick-then-place move, so the tray has to stay in reach of the
+      elevation rather than sit below it, where a tall rack pushes it off the screen.
+    -->
+    <aside class="rack-side" aria-label="Selected row and unplaced entries">
+      <section class="rack-inspector" aria-live="polite">
+        @if (selectedMount; as mount) {
+        <div class="rack-inspector__head">
+          <span class="rack-inspector__icon" [style.--rack-tone]="toneOf(mount)">
+            <i [class]="iconOf(mount)" aria-hidden="true"></i>
+          </span>
 
-        <span class="rack-inspector__title">
-          <strong>{{ labelOf(mount) }}</strong>
-          <span>{{ typeNameOf(mount) }}@if (mount.object_id !== null) { &middot; #{{ mount.object_id }} }</span>
-        </span>
+          <span class="rack-inspector__title">
+            <strong>{{ labelOf(mount) }}</strong>
+            <span>{{ typeNameOf(mount) }}@if (mount.object_id !== null) { &middot; #{{ mount.object_id }} }</span>
+          </span>
 
-        <button type="button" class="rack-icon-btn" aria-label="Clear selection" (click)="onClearSelection()">
-          <i class="fas fa-times" aria-hidden="true"></i>
-        </button>
-      </div>
-
-      <div class="rack-inspector__body">
-        <dl class="rack-placement">
-          <div>
-            <dt>Face</dt>
-            <dd>{{ isFullDepth(mount) ? 'Both' : (mount.area === AREAS.FRONT ? 'Front' : 'Rear') }}</dd>
-          </div>
-          <div>
-            <dt>Anchor</dt>
-            <dd>U{{ mount.start_slot }}</dd>
-          </div>
-          <div>
-            <dt>Height</dt>
-            <dd>{{ mount.height }}U</dd>
-          </div>
-        </dl>
-
-        <dl class="rack-rows">
-          <div class="rack-rows__row">
-            <dt>Occupies</dt>
-            <dd>{{ slotRangeOf(mount) }}</dd>
-          </div>
-
-          @if (secondaryLabelOf(mount); as extraLabel) {
-          <div class="rack-rows__row">
-            <dt>Label</dt>
-            <dd>{{ extraLabel }}</dd>
-          </div>
-          }
-
-          @if (periodOf(mount); as period) {
-          <div class="rack-rows__row">
-            <dt>Booked</dt>
-            <dd>{{ period }}</dd>
-          </div>
-          }
-
-          <div class="rack-rows__row">
-            <dt>Mount ID</dt>
-            <dd>#{{ mount.mount_id }}</dd>
-          </div>
-        </dl>
-
-        <div class="rack-inspector__actions" *permissionLink="['base.framework.rack.edit']">
-          <app-button label="Move" icon="fas fa-sliders-h" bootstrapClass="btn-sm btn-outline-secondary"
-            [ariaLabel]="'Edit the placement of ' + labelOf(mount)" (clicked)="onEditMount(mount)">
-          </app-button>
-
-          <app-button label="Unplace" icon="fas fa-eject" bootstrapClass="btn-sm btn-outline-secondary"
-            title="Free the slots but keep it in the rack" [ariaLabel]="'Unplace ' + labelOf(mount)"
-            (clicked)="onUnplaceMount(mount)">
-          </app-button>
-
-          <app-button label="Remove from rack" bootstrapClass="btn-sm btn-outline-danger"
-            [ariaLabel]="'Remove ' + labelOf(mount) + ' from the rack'" (clicked)="onRemoveMount(mount)">
-          </app-button>
+          <button type="button" class="rack-icon-btn" aria-label="Clear selection" (click)="onClearSelection()">
+            <i class="fas fa-times" aria-hidden="true"></i>
+          </button>
         </div>
 
-        @if (isMount(mount)) {
-        <app-button label="Open object" icon="fas fa-external-link-alt" bootstrapClass="btn-sm btn-outline-primary"
-          (clicked)="onOpenObject(mount.object_id)">
-        </app-button>
+        <div class="rack-inspector__body">
+          <dl class="rack-placement">
+            <div>
+              <dt>Face</dt>
+              <dd>{{ isFullDepth(mount) ? 'Both' : (mount.area === AREAS.FRONT ? 'Front' : 'Rear') }}</dd>
+            </div>
+            <div>
+              <dt>Anchor</dt>
+              <dd>U{{ mount.start_slot }}</dd>
+            </div>
+            <div>
+              <dt>Height</dt>
+              <dd>{{ mount.height }}U</dd>
+            </div>
+          </dl>
+
+          <dl class="rack-rows">
+            <div class="rack-rows__row">
+              <dt>Occupies</dt>
+              <dd>{{ slotRangeOf(mount) }}</dd>
+            </div>
+
+            @if (secondaryLabelOf(mount); as extraLabel) {
+            <div class="rack-rows__row">
+              <dt>Label</dt>
+              <dd>{{ extraLabel }}</dd>
+            </div>
+            }
+
+            @if (periodOf(mount); as period) {
+            <div class="rack-rows__row">
+              <dt>Booked</dt>
+              <dd>{{ period }}</dd>
+            </div>
+            }
+
+            <div class="rack-rows__row">
+              <dt>Mount ID</dt>
+              <dd>#{{ mount.mount_id }}</dd>
+            </div>
+          </dl>
+
+          <div class="rack-inspector__actions" *permissionLink="['base.framework.rack.edit']">
+            <app-button label="Move" icon="fas fa-sliders-h" bootstrapClass="btn-sm btn-outline-secondary"
+              [ariaLabel]="'Edit the placement of ' + labelOf(mount)" (clicked)="onEditMount(mount)">
+            </app-button>
+
+            <app-button label="Unplace" icon="fas fa-eject" bootstrapClass="btn-sm btn-outline-secondary"
+              title="Free the slots but keep it in the rack" [ariaLabel]="'Unplace ' + labelOf(mount)"
+              (clicked)="onUnplaceMount(mount)">
+            </app-button>
+
+            <app-button label="Remove from rack" bootstrapClass="btn-sm btn-outline-danger"
+              [ariaLabel]="'Remove ' + labelOf(mount) + ' from the rack'" (clicked)="onRemoveMount(mount)">
+            </app-button>
+          </div>
+
+          @if (isMount(mount)) {
+          <app-button label="Open object" icon="fas fa-external-link-alt" bootstrapClass="btn-sm btn-outline-primary"
+            (clicked)="onOpenObject(mount.object_id)">
+          </app-button>
+          }
+        </div>
+        } @else {
+        <p class="rack-inspector__empty">
+          <i class="fas fa-mouse-pointer" aria-hidden="true"></i>
+          Select an object in the rack to view its details.
+        </p>
         }
-      </div>
-      } @else {
-      <p class="rack-inspector__empty">
-        <i class="fas fa-mouse-pointer" aria-hidden="true"></i>
-        Select an object in the rack to view its details.
-      </p>
+      </section>
+
+      <!-- ------------------------------------------ STAGING TRAY ------------------------------------- -->
+      @if (unassignedGroup; as tray) {
+      <section class="rack-tray">
+        <div class="rack-tray__head">
+          <h4>{{ tray.title }}</h4>
+          <span class="rack-tray__count">{{ tray.mounts.length }}</span>
+          <p>Entries without a slot &mdash; give them a place to put them on a face.</p>
+        </div>
+
+        @if (tray.mounts.length) {
+        <!-- Focusable because it scrolls: without the edit right a row can hold nothing tabbable. -->
+        <ul class="rack-tray__list" tabindex="0" [attr.aria-label]="tray.title">
+          @for (mount of tray.mounts; track mount.mount_id) {
+          <li class="rack-tray__item" [style.--rack-tone]="toneOf(mount)">
+            <span class="rack-tray__icon" [style.color]="toneOf(mount)" [style.background]="toneTintOf(mount)">
+              <i [class]="iconOf(mount)" aria-hidden="true"></i>
+            </span>
+
+            <span class="rack-tray__text">
+              @if (isMount(mount)) {
+              <button type="button" class="rack-tray__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer"
+                (click)="onOpenObject(mount.object_id)">
+                {{ labelOf(mount) }}
+              </button>
+              } @else {
+              <span class="rack-tray__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer">
+                {{ labelOf(mount) }}
+              </span>
+              }
+              <span class="rack-tray__sub">
+                {{ typeNameOf(mount) }}
+                @if (mount.height) { &middot; {{ mount.height }}U hint }
+                @if (periodOf(mount); as period) { &middot; {{ period }} }
+              </span>
+            </span>
+
+            <span class="rack-tray__actions" *permissionLink="['base.framework.rack.edit']">
+              <button type="button" class="rack-ghost-btn" [attr.aria-label]="'Place ' + labelOf(mount)"
+                (click)="onEditMount(mount)">
+                <i class="fas fa-arrow-right" aria-hidden="true"></i> Place
+              </button>
+              <button type="button" class="rack-icon-btn rack-icon-btn--danger"
+                [attr.aria-label]="'Remove ' + labelOf(mount) + ' from the rack'" (click)="onRemoveMount(mount)">
+                <i class="fas fa-times" aria-hidden="true"></i>
+              </button>
+            </span>
+          </li>
+          }
+        </ul>
+        } @else {
+        <p class="rack-tray__empty">Every entry in this rack has a place.</p>
+        }
+      </section>
       }
     </aside>
   </div>
@@ -359,59 +422,6 @@
   </div>
   }
 
-  <!-- ------------------------------------------ STAGING TRAY ------------------------------------- -->
-  @if (unassignedGroup; as tray) {
-  <section class="rack-tray">
-    <div class="rack-tray__head">
-      <h4>{{ tray.title }}</h4>
-      <span class="rack-tray__count">{{ tray.mounts.length }}</span>
-      <p>Entries without a slot &mdash; give them a place to put them on a face.</p>
-    </div>
-
-    @if (tray.mounts.length) {
-    <ul class="rack-tray__list">
-      @for (mount of tray.mounts; track mount.mount_id) {
-      <li class="rack-tray__item" [style.--rack-tone]="toneOf(mount)">
-        <span class="rack-tray__icon" [style.color]="toneOf(mount)" [style.background]="toneTintOf(mount)">
-          <i [class]="iconOf(mount)" aria-hidden="true"></i>
-        </span>
-
-        <span class="rack-tray__text">
-          @if (isMount(mount)) {
-          <button type="button" class="rack-tray__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer"
-            (click)="onOpenObject(mount.object_id)">
-            {{ labelOf(mount) }}
-          </button>
-          } @else {
-          <span class="rack-tray__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer">
-            {{ labelOf(mount) }}
-          </span>
-          }
-          <span class="rack-tray__sub">
-            {{ typeNameOf(mount) }}
-            @if (mount.height) { &middot; {{ mount.height }}U hint }
-            @if (periodOf(mount); as period) { &middot; {{ period }} }
-          </span>
-        </span>
-
-        <span class="rack-tray__actions" *permissionLink="['base.framework.rack.edit']">
-          <button type="button" class="rack-ghost-btn" [attr.aria-label]="'Place ' + labelOf(mount)"
-            (click)="onEditMount(mount)">
-            <i class="fas fa-arrow-right" aria-hidden="true"></i> Place
-          </button>
-          <button type="button" class="rack-icon-btn rack-icon-btn--danger"
-            [attr.aria-label]="'Remove ' + labelOf(mount) + ' from the rack'" (click)="onRemoveMount(mount)">
-            <i class="fas fa-times" aria-hidden="true"></i>
-          </button>
-        </span>
-      </li>
-      }
-    </ul>
-    } @else {
-    <p class="rack-tray__empty">Every entry in this rack has a place.</p>
-    }
-  </section>
-  }
   } @else if (hasError) {
   <div class="rack-callout rack-callout--error" role="alert">
     <i class="fas fa-plug" aria-hidden="true"></i>

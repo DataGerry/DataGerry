@@ -1,0 +1,33 @@
+/*
+ * Rack › side — the column beside the drawing. It holds two cards at once: what is selected in the
+ * rack, and what is in the rack without a place yet. The selected row takes only the height it needs,
+ * so whatever is left of the sticky column belongs to the staging tray.
+ */
+
+/* What the column keeps clear of the viewport edge, above and below. */
+$rack-side-inset: 1.25rem;
+
+.rack-side {
+  /*
+   * The application navbar is fixed, so it is not part of what a sticky element can see: parked at
+   * the plain viewport top the head of the column would sit behind it, and the foot below the fold.
+   */
+  position: sticky;
+  top: calc(#{$navbar-height} + #{$rack-side-inset});
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  max-height: calc(100vh - #{$navbar-height} - #{$rack-side-inset} * 2);
+
+  .rack-inspector {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .rack-tray {
+    flex: 0 1 auto;
+    min-height: 0;
+  }
+}

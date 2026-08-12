@@ -1,8 +1,6 @@
 /* Rack › inspector — the side panel for the selected row: header, placement figures, detail rows. */
 
 .rack-inspector {
-  position: sticky;
-  top: 1.25rem;
   background: $paper;
   border: 1px solid $hairline;
   border-radius: $radius-card;
@@ -68,19 +66,19 @@
     gap: 0.35rem;
   }
 
+  /* One line, not a panel: with nothing selected the height belongs to the card below it. */
   &__empty {
     display: flex;
-    flex-direction: column;
     align-items: center;
     gap: 0.5rem;
     margin: 0;
-    padding: 2.25rem 1.25rem;
-    text-align: center;
-    font-size: 0.8rem;
+    padding: 0.85rem 0.9rem;
+    font-size: 0.78rem;
     color: $ink-3;
 
     i {
-      font-size: 1.1rem;
+      flex: none;
+      font-size: 0.9rem;
       color: $ink-4;
     }
   }

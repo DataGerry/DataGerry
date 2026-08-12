@@ -6,7 +6,8 @@
  *   rack-density ...... the compact geometry the elevation is drawn at
  *   rack-toolbar ...... view switch, zoom and fullscreen controls
  *   rack-legend ....... the key to the drawing: types in the rack and what the occupants hold
- *   rack-stage ........ drawing/inspector split and the scrolling board
+ *   rack-stage ........ drawing/side-column split and the scrolling board
+ *   rack-side ......... the column beside the drawing and how its two cards share the height
  *   rack-rail ......... the LEFT and RIGHT cards beside the enclosure
  *   rack-grid ......... the shared U grid and the columns each view uses
  *   rack-cabinet ...... the steel enclosure: shell, cap, cavity, posts, plinth
@@ -16,7 +17,7 @@
  *   rack-inspector .... the side panel for the selected row
  *   rack-buttons ...... the icon and ghost controls shared across the view
  *   rack-callout ...... inline notices
- *   rack-tray ......... the staging area for unmounted rows
+ *   rack-tray ......... the staging card for rows in the rack that hold no slot
  *   rack-fullscreen ... the page-filling layout: only the elevation scrolls
  *   rack-responsive ... breakpoint overrides. Must stay last; it wins on source order.
  */
@@ -27,6 +28,7 @@
 @import "./styles/rack-toolbar";
 @import "./styles/rack-legend";
 @import "./styles/rack-stage";
+@import "./styles/rack-side";
 @import "./styles/rack-rail";
 @import "./styles/rack-grid";
 @import "./styles/rack-cabinet";

@@ -1,8 +1,8 @@
-/* Rack › stage — the drawing/inspector split and the scrolling board the elevation is centred on. */
+/* Rack › stage — the drawing/side-column split and the scrolling board the elevation is centred on. */
 
 .rack-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 18rem;
+  grid-template-columns: minmax(0, 1fr) 20rem;
   gap: 1rem;
   align-items: start;
 }
