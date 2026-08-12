@@ -54,8 +54,11 @@ import {
     ocLoopNodeId,
     ocMethodNodeId,
     ocPresenceExpression,
+    ocSystemNodeId,
     OC_DEFAULT_CONNECTOR_ID,
     OC_DEFAULT_CONNECTOR_TITLE,
+    OC_FREE_REQUEST,
+    OC_FREE_REQUEST_TITLE,
     OC_IS_EMPTY,
     OC_LOOP_INDEX,
     OC_METHOD_COLORS,
@@ -408,7 +411,7 @@ export class AutomationCompilerService {
             let method: OcMethod;
 
             if (extra.kind === 'http') {
-                method = this.buildFreeRequest(extra, id, index, color);
+                method = this.buildFreeRequest(extra, ocSystemNodeId(out.methods.length), index, color);
             } else {
                 // The system the user chose, not the side that happens to be written: an added call
                 // through an invoker always goes to the foreign system, whichever way it runs.
@@ -465,20 +468,30 @@ export class AutomationCompilerService {
         index: string,
         color: string
     ): OcMethod {
+        const envelope = () => ({ type: 'object', format: 'json', data: 'raw', fields: {} });
+        const verb = extra.verb || 'POST';
+
         return {
             id,
-            name: extra.endpoint || 'HTTP request',
+            // Named after the verb, as the capture shows - the address is already in the request.
+            name: verb,
             index,
-            methodType: 'HTTP_REQUEST',
+            methodType: OC_FREE_REQUEST,
             dataAggregator: null,
             color,
+            // Explicitly null rather than absent: the capture carries the key.
+            connector: null as any,
             request: {
                 endpoint: extra.endpoint ?? '',
-                method: extra.verb || 'POST',
+                method: verb,
                 header: { ...(extra.headers ?? {}) },
-                body: { type: 'object', format: 'json', data: 'raw', fields: {} }
+                body: envelope()
             },
-            response: { success: { status: '200', body: null }, fail: { status: '400', body: null } }
+            response: {
+                name: 'response',
+                success: { status: '200', header: {}, body: envelope() },
+                fail: { status: '500', header: {}, body: envelope() }
+            }
         };
     }
 
@@ -1686,7 +1699,7 @@ export class AutomationCompilerService {
         }
 
         if (node.kind === 'method') {
-            return { ...this.connectorNode(node.method!, position) };
+            return this.connectorNode(node.method!, position);
         }
 
         const operator = node.operator!;
@@ -1765,20 +1778,35 @@ export class AutomationCompilerService {
     }
 
 
+    /**
+     * The node the editor draws for a call.
+     *
+     * A request with no connector behind it is a different kind of node, not a connector node with
+     * the connector left out: the editor types it 'system', titles it after the request rather than
+     * after a system that does not exist, and carries no connector on it at all.
+     */
     private connectorNode(method: OcMethod, position: { x: number; y: number }): OcWorkflowNode {
+        const free = method.methodType === OC_FREE_REQUEST;
+
         return {
             id: method.id,
-            type: 'connector',
+            type: free ? 'system' : 'connector',
             position,
             index: method.index,
-            data: {
-                // A free request has no connector to be named after, so it is named by its address.
-                title: method.connector?.title ?? method.request?.endpoint ?? 'HTTP request',
-                subtitle: method.name,
-                kind: 'connector',
-                connector: method.connector ?? null,
-                methodConfig: this.methodConfig(method)
-            }
+            data: free
+                ? {
+                    title: OC_FREE_REQUEST_TITLE,
+                    subtitle: method.name,
+                    kind: 'system',
+                    methodConfig: this.methodConfig(method)
+                }
+                : {
+                    title: method.connector!.title,
+                    subtitle: method.name,
+                    kind: 'connector',
+                    connector: method.connector,
+                    methodConfig: this.methodConfig(method)
+                }
         };
     }
 

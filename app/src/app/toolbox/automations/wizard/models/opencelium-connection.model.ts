@@ -85,6 +85,10 @@ export const OC_SOURCE_INDEX = '0';
 export const OC_LOOP_INDEX = '1';
 export const OC_TARGET_INDEX = '1_0';
 
+/** What the editor calls a free request, in the body and on its node. */
+export const OC_FREE_REQUEST = 'HTTP_REQUEST';
+export const OC_FREE_REQUEST_TITLE = 'HTTP Request';
+
 /** How a lookup result is tested for a hit, as the capture spells it. */
 export const OC_IS_EMPTY = 'IsEmpty';
 export const OC_NOT_EMPTY = 'NotEmpty';
@@ -235,7 +239,7 @@ export interface OcUiGroup {
 
 export interface OcWorkflowNode {
     id: string;
-    type: 'start' | 'connector' | 'loop' | 'if';
+    type: 'start' | 'connector' | 'system' | 'loop' | 'if';
     position: { x: number; y: number };
 
     /** Mirrors the method's or operator's execution index; absent on the start node. */
@@ -372,6 +376,12 @@ export function ocMethodNodeId(position: number): string {
 
 export function ocLoopNodeId(position: number): string {
     return `loop-${position}`;
+}
+
+
+/** A request with no connector behind it is a node of its own kind, not a connector node. */
+export function ocSystemNodeId(position: number): string {
+    return `system-${position}`;
 }
 
 

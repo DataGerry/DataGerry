@@ -778,11 +778,27 @@ describe('AutomationCompilerService', () => {
             const added = payload.connection.fromConnector.methods
                 .find(method => method.methodType === 'HTTP_REQUEST');
 
-            expect(added).toBeTruthy();
             expect(added?.request.method).toBe('PUT');
             expect(added?.request.endpoint).toBe('https://monitor.example/api/hosts');
             expect(added?.request.header.Authorization).toBe('Bearer x');
-            expect(added?.connector).toBeUndefined();
+            // Named after the verb and belonging to no connector, as the capture shows.
+            expect(added?.name).toBe('PUT');
+            expect(added?.connector).toBeNull();
+            expect(added?.response.fail.status).toBe('500');
+        });
+
+
+        /* A free request is its own kind of node in the editor, not a connector node without one. */
+        it('draws it as a system node rather than a connector node', () => {
+            const definition = withExtra({ kind: 'http', operation: '', endpoint: 'https://x' });
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const node = payload.connection.ui.workflowNodes.find(item => item.type === 'system');
+
+            expect(node?.id).toContain('system-');
+            expect(node?.data.kind).toBe('system');
+            expect(node?.data.title).toBe('HTTP Request');
+            expect('connector' in node!.data).toBeFalse();
         });
 
 
