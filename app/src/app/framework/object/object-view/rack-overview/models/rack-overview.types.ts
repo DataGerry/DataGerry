@@ -267,6 +267,53 @@ export interface RackCapacity {
 }
 
 
+export interface RackRowView {
+    /** The row exactly as the backend reports it, which is what the write routes are given. */
+    row: RackMountRow;
+    mountId: number;
+    objectId: number | null;
+    area: RackArea;
+    startSlot: number | null;
+    height: number | null;
+    position: number | null;
+    isMount: boolean;
+    isFullDepth: boolean;
+    label: string;
+    kindTitle: string;
+    typeName: string;
+    secondaryLabel: string | null;
+    period: string | null;
+    slotRange: string;
+    gridRow: string;
+    tone: string;
+    tint: string;
+    icon: string;
+}
+
+
+/** One U of the rack: the grid row it occupies, and whether the ruler marks it. */
+export interface RackSlotView {
+    slot: number;
+    gridRow: string;
+    isMajor: boolean;
+}
+
+
+/** A legend type with the colour and icon its rows are drawn with. */
+export interface RackTypeLegendView extends RackTypeLegendEntry {
+    tone: string;
+    tint: string;
+    icon: string;
+}
+
+
+/** A legend occupant kind, named and iconed the way its rows are. */
+export interface RackOccupantLegendView extends RackOccupantLegendEntry {
+    title: string;
+    icon: string;
+}
+
+
 /**
  * One drawn elevation: the rows holding slots on that face, the slots still open, and how full it is.
  * A FULL_DEPTH row belongs to both faces and is therefore part of both.
@@ -274,8 +321,8 @@ export interface RackCapacity {
 export interface RackFace {
     side: RackViewSide;
     title: string;
-    units: RackMountRow[];
-    freeSlots: number[];
+    units: RackRowView[];
+    freeSlots: RackSlotView[];
     capacity: RackCapacity;
 }
 
@@ -284,5 +331,5 @@ export interface RackFace {
 export interface RackAreaGroup {
     area: RackArea;
     title: string;
-    mounts: RackMountRow[];
+    mounts: RackRowView[];
 }

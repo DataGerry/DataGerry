@@ -15,36 +15,73 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { RackCapacity, RackFace, RackMountRow, RackTypeLegendEntry, RackViewSide } from '../models/rack-overview.types';
+import {
+    RackCapacity,
+    RackFace,
+    RackRowView,
+    RackSlotView,
+    RackTypeLegendEntry,
+    RackViewSide
+} from '../models/rack-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+/** Row 1 of the elevation grid is the cabinet cap, so U numbering starts on row 2. */
+const FIRST_SLOT_ROW = 2;
+
+/** A rack is counted in fives, so every fifth U is drawn heavier - on the ruler and in the cavity. */
+export function isMajorSlot(slot: number): boolean {
+    return slot % 5 === 0 || slot === 1;
+}
+
+
+/** Grid row a single U sits on. Slot 1 is the bottom of the rack, row 1 of the grid is its top. */
+export function gridRowOfSlot(slot: number, rackHeight: number): string {
+    return `${rackHeight - slot + FIRST_SLOT_ROW}`;
+}
+
+
+/** Grid placement of a row: it starts at its anchor slot and spans its height. */
+export function gridRowOfPlacement(startSlot: number | null, height: number | null, rackHeight: number): string {
+    if (startSlot === null || height === null) {
+        return '';
+    }
+
+    return `${rackHeight - startSlot + FIRST_SLOT_ROW} / span ${height}`;
+}
+
+
+export function toSlotView(slot: number, rackHeight: number): RackSlotView {
+    return { slot, gridRow: gridRowOfSlot(slot, rackHeight), isMajor: isMajorSlot(slot) };
+}
+
+
 /** Lowest slot a row reaches: it is anchored at its start slot and extends downward. */
-export function bottomSlotOf(mount: RackMountRow): number | null {
-    if (mount.start_slot == null || mount.height == null) {
+export function bottomSlotOf(mount: RackRowView): number | null {
+    if (mount.startSlot == null || mount.height == null) {
         return null;
     }
 
-    return mount.start_slot - mount.height + 1;
+    return mount.startSlot - mount.height + 1;
 }
 
 
 /** True when the row has usable geometry that stays inside the rack. */
-export function fitsRack(mount: RackMountRow, rackHeight: number): boolean {
+export function fitsRack(mount: RackRowView, rackHeight: number): boolean {
     const bottom = bottomSlotOf(mount);
 
-    return bottom !== null && mount.start_slot <= rackHeight && bottom >= 1;
+    return bottom !== null && mount.startSlot <= rackHeight && bottom >= 1;
 }
 
 
 /** Every slot the row covers, top down. Empty for a row without usable geometry. */
-export function slotsCovered(mount: RackMountRow): number[] {
+export function slotsCovered(mount: RackRowView): number[] {
     const bottom = bottomSlotOf(mount);
 
     if (bottom === null) {
         return [];
     }
 
-    return Array.from({ length: mount.height as number }, (_, index) => (mount.start_slot as number) - index);
+    return Array.from({ length: mount.height as number }, (_, index) => (mount.startSlot as number) - index);
 }
 
 
@@ -55,7 +92,7 @@ export function slotsCovered(mount: RackMountRow): number[] {
 export function buildFace(
     side: RackViewSide,
     title: string,
-    mounts: RackMountRow[],
+    mounts: RackRowView[],
     rackHeight: number
 ): RackFace {
     const units = mounts.filter(mount => fitsRack(mount, rackHeight));
@@ -63,11 +100,11 @@ export function buildFace(
 
     units.forEach(mount => slotsCovered(mount).forEach(slot => covered.add(slot)));
 
-    const freeSlots: number[] = [];
+    const freeSlots: RackSlotView[] = [];
 
     for (let slot = rackHeight; slot >= 1; slot--) {
         if (!covered.has(slot)) {
-            freeSlots.push(slot);
+            freeSlots.push(toSlotView(slot, rackHeight));
         }
     }
 
@@ -107,8 +144,8 @@ export function measureCapacity(coveredSlots: Set<number>, rackHeight: number): 
 
 
 /** Descending U numbers of a rack, the order a ruler is read in. */
-export function buildSlotTicks(rackHeight: number): number[] {
-    return Array.from({ length: Math.max(rackHeight, 0) }, (_, index) => rackHeight - index);
+export function buildSlotTicks(rackHeight: number): RackSlotView[] {
+    return Array.from({ length: Math.max(rackHeight, 0) }, (_, index) => toSlotView(rackHeight - index, rackHeight));
 }
 
 
@@ -116,13 +153,13 @@ export function buildSlotTicks(rackHeight: number): number[] {
  * Rows that claim slots outside the rack, which happens when the rack height was reduced below an
  * existing placement. They cannot be drawn in the elevation, so they are listed separately.
  */
-export function collectOutOfRangeMounts(mounts: RackMountRow[], rackHeight: number): RackMountRow[] {
+export function collectOutOfRangeMounts(mounts: RackRowView[], rackHeight: number): RackRowView[] {
     return mounts.filter(mount => !fitsRack(mount, rackHeight));
 }
 
 
 /** Areas without slot geometry are ordered by their explicit position. */
-export function sortByPosition(mounts: RackMountRow[]): RackMountRow[] {
+export function sortByPosition(mounts: RackRowView[]): RackRowView[] {
     return [...mounts].sort((first, second) => (first.position ?? 0) - (second.position ?? 0));
 }
 

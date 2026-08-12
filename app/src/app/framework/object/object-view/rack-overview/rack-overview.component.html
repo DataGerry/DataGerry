@@ -1,41 +1,41 @@
-<section class="rack-view rack-view--compact" [style.--rack-zoom]="zoomLabel" dgFullscreen #fullscreen="dgFullscreen"
-  (fullscreenChange)="onFullscreenChange($event)">
+<section class="rack-view rack-view--compact" [style.--rack-zoom]="zoomLabel()" dgFullscreen
+  #fullscreen="dgFullscreen" (fullscreenChange)="onFullscreenChange($event)">
 
-  @if (rack) {
+  @if (rack(); as rackHeader) {
   <!-- ------------------------------------------- TOOLBAR -------------------------------------------- -->
   <div class="rack-toolbar">
     <div class="rack-switch" role="group" aria-label="Which face to show">
-      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode === 'split'"
-        [attr.aria-pressed]="viewMode === 'split'" (click)="onViewChange('split')">Split</button>
+      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'split'"
+        [attr.aria-pressed]="viewMode() === 'split'" (click)="onViewChange('split')">Split</button>
 
-      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode === 'front'"
-        [attr.aria-pressed]="viewMode === 'front'" (click)="onViewChange('front')">Front</button>
+      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'front'"
+        [attr.aria-pressed]="viewMode() === 'front'" (click)="onViewChange('front')">Front</button>
 
-      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode === 'rear'"
-        [attr.aria-pressed]="viewMode === 'rear'" (click)="onViewChange('rear')">Rear</button>
+      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'rear'"
+        [attr.aria-pressed]="viewMode() === 'rear'" (click)="onViewChange('rear')">Rear</button>
     </div>
 
     <!-- Scales the elevation only. The read-out doubles as the reset back to 100%. -->
     <div class="rack-zoom" role="group" aria-label="Zoom the elevation">
-      <button type="button" class="rack-tool" title="Zoom out" aria-label="Zoom out" [disabled]="!canZoomOut"
+      <button type="button" class="rack-tool" title="Zoom out" aria-label="Zoom out" [disabled]="!canZoomOut()"
         (click)="onZoomOut()">
         <i class="fas fa-search-minus" aria-hidden="true"></i>
       </button>
 
       <button type="button" class="rack-zoom__level" title="Reset zoom" aria-label="Reset the zoom to 100%"
-        [disabled]="isDefaultZoom" (click)="onResetZoom()">{{ zoomLabel }}</button>
+        [disabled]="isDefaultZoom()" (click)="onResetZoom()">{{ zoomLabel() }}</button>
 
-      <button type="button" class="rack-tool" title="Zoom in" aria-label="Zoom in" [disabled]="!canZoomIn"
+      <button type="button" class="rack-tool" title="Zoom in" aria-label="Zoom in" [disabled]="!canZoomIn()"
         (click)="onZoomIn()">
         <i class="fas fa-search-plus" aria-hidden="true"></i>
       </button>
     </div>
 
-    <button type="button" class="rack-tool" [class.rack-tool--on]="isFullscreen" [attr.aria-pressed]="isFullscreen"
-      [title]="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'"
-      [attr.aria-label]="isFullscreen ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
+    <button type="button" class="rack-tool" [class.rack-tool--on]="isFullscreen()"
+      [attr.aria-pressed]="isFullscreen()" [title]="isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'"
+      [attr.aria-label]="isFullscreen() ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
       (click)="fullscreen.toggle()">
-      <i [class]="isFullscreen ? 'fas fa-compress' : 'fas fa-expand'" aria-hidden="true"></i>
+      <i [class]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'" aria-hidden="true"></i>
     </button>
 
     <span class="rack-toolbar__spacer"></span>
@@ -51,39 +51,39 @@
     heaviest ones are keyed until the user asks for the rest, and the open list scrolls in place
     rather than pushing the elevation off the screen.
   -->
-  @if (hasLegend) {
+  @if (hasLegend()) {
   <div class="rack-legend">
     <span class="rack-legend__title" id="rack-legend-title">Legend</span>
 
-    <ul id="rack-legend-list" class="rack-legend__list" [class.rack-legend__list--open]="isLegendExpanded"
+    <ul id="rack-legend-list" class="rack-legend__list" [class.rack-legend__list--open]="isLegendExpanded()"
       aria-labelledby="rack-legend-title">
-      @for (entry of visibleTypesLegend; track entry.type_id) {
+      @for (entry of visibleTypesLegend(); track entry.type_id) {
       <li class="rack-legend__item">
-        <span class="rack-legend__chip" [style.color]="typeTone(entry)" [style.background]="typeTint(entry)">
-          <i [class]="typeIcon(entry)" aria-hidden="true"></i>
+        <span class="rack-legend__chip" [style.color]="entry.tone" [style.background]="entry.tint">
+          <i [class]="entry.icon" aria-hidden="true"></i>
         </span>
-        <span class="rack-legend__text" [ngbTooltip]="entry.type_label" [container]="tooltipContainer">{{
+        <span class="rack-legend__text" [ngbTooltip]="entry.type_label" [container]="tooltipContainer()">{{
           entry.type_label }}</span>
         <span class="rack-legend__count">{{ entry.count }}</span>
       </li>
       }
 
-      @for (entry of occupantsLegend; track entry.kind) {
+      @for (entry of occupantsLegend(); track entry.kind) {
       <li class="rack-legend__item rack-legend__item--occupant">
         <span class="rack-legend__chip">
-          <i [class]="kindIcon(entry.kind)" aria-hidden="true"></i>
+          <i [class]="entry.icon" aria-hidden="true"></i>
         </span>
-        <span class="rack-legend__text">{{ kindTitle(entry.kind) }}</span>
+        <span class="rack-legend__text">{{ entry.title }}</span>
         <span class="rack-legend__count">{{ entry.count }}</span>
         <span class="rack-legend__held">{{ entry.slots }}U held</span>
       </li>
       }
     </ul>
 
-    @if (hiddenTypesCount) {
-    <button type="button" class="rack-legend__more" [attr.aria-expanded]="isLegendExpanded"
+    @if (hiddenTypesCount()) {
+    <button type="button" class="rack-legend__more" [attr.aria-expanded]="isLegendExpanded()"
       aria-controls="rack-legend-list" (click)="onToggleLegend()">
-      {{ isLegendExpanded ? 'Show less' : '+' + hiddenTypesCount + ' more' }}
+      {{ isLegendExpanded() ? 'Show less' : '+' + hiddenTypesCount() + ' more' }}
     </button>
     }
   </div>
@@ -100,37 +100,37 @@
           <aside class="rack-rail" [attr.aria-label]="group.title">
             <span class="rack-rail__title">{{ group.title }}</span>
 
-            @for (mount of group.mounts; track mount.mount_id) {
-            <div class="rack-rail__card" [style.--rack-tone]="toneOf(mount)">
-              <span class="rack-rail__icon" [style.color]="toneOf(mount)" [style.background]="toneTintOf(mount)">
-                <i [class]="iconOf(mount)" aria-hidden="true"></i>
+            @for (mount of group.mounts; track mount.mountId) {
+            <div class="rack-rail__card" [style.--rack-tone]="mount.tone">
+              <span class="rack-rail__icon" [style.color]="mount.tone" [style.background]="mount.tint">
+                <i [class]="mount.icon" aria-hidden="true"></i>
               </span>
 
               <!-- The name is cut to one line; the tooltip carries the whole label. -->
               <span class="rack-rail__text">
-                @if (isMount(mount)) {
-                <button type="button" class="rack-rail__name" [ngbTooltip]="labelOf(mount)"
-                  [container]="tooltipContainer" (click)="onOpenObject(mount.object_id)">
-                  {{ labelOf(mount) }}
+                @if (mount.isMount) {
+                <button type="button" class="rack-rail__name" [ngbTooltip]="mount.label"
+                  [container]="tooltipContainer()" (click)="onOpenObject(mount.objectId)">
+                  {{ mount.label }}
                 </button>
                 } @else {
-                <span class="rack-rail__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer">
-                  {{ labelOf(mount) }}
+                <span class="rack-rail__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
+                  {{ mount.label }}
                 </span>
                 }
                 <span class="rack-rail__sub">
-                  {{ typeNameOf(mount) }}
+                  {{ mount.typeName }}
                   @if (mount.position !== null) { &middot; pos {{ mount.position }} }
                 </span>
               </span>
 
               <span class="rack-rail__actions" *permissionLink="['base.framework.rack.edit']">
-                <button type="button" class="rack-icon-btn" [attr.aria-label]="'Edit ' + labelOf(mount)"
+                <button type="button" class="rack-icon-btn" [attr.aria-label]="'Edit ' + mount.label"
                   (click)="onEditMount(mount)">
                   <i class="fas fa-sliders-h" aria-hidden="true"></i>
                 </button>
                 <button type="button" class="rack-icon-btn rack-icon-btn--danger"
-                  [attr.aria-label]="'Remove ' + labelOf(mount) + ' from the rack'" (click)="onRemoveMount(mount)">
+                  [attr.aria-label]="'Remove ' + mount.label + ' from the rack'" (click)="onRemoveMount(mount)">
                   <i class="fas fa-times" aria-hidden="true"></i>
                 </button>
               </span>
@@ -168,38 +168,37 @@
           <div class="rack-cab__plinth rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"></div>
 
           <!-- Open bays. Always drawn; only the action inside them needs the edit right. -->
-          @for (slot of face.freeSlots; track slot) {
+          @for (bay of face.freeSlots; track bay.slot) {
           <div class="rack-bay rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"
-            [class.rack-bay--major]="isMajorSlot(slot)" [style.grid-row]="gridRowOfSlot(slot)">
+            [class.rack-bay--major]="bay.isMajor" [style.grid-row]="bay.gridRow">
             <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-bay__add"
-              [attr.aria-label]="'Fill slot U' + slot + ' on the ' + face.title.toLowerCase()"
-              (click)="onFreeSlotClick(face.side, slot)">
-              <span class="rack-bay__hint">+ U{{ slot }}</span>
+              [attr.aria-label]="'Fill slot U' + bay.slot + ' on the ' + face.title.toLowerCase()"
+              (click)="onFreeSlotClick(face.side, bay.slot)">
+              <span class="rack-bay__hint">+ U{{ bay.slot }}</span>
             </button>
           </div>
           }
 
           <!-- The equipment. -->
-          @for (mount of face.units; track mount.mount_id) {
+          @for (mount of face.units; track mount.mountId) {
           <button type="button" class="rack-unit rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"
-            [class.rack-unit--selected]="isSelected(mount)" [class.rack-unit--occupant]="!isMount(mount)"
-            [style.--rack-tone]="toneOf(mount)" [style.grid-row]="gridRowOf(mount)"
-            [attr.aria-pressed]="isSelected(mount)"
-            [attr.aria-label]="labelOf(mount) + ', ' + typeNameOf(mount) + ', ' + slotRangeOf(mount)"
+            [class.rack-unit--selected]="isSelected(mount)" [class.rack-unit--occupant]="!mount.isMount"
+            [style.--rack-tone]="mount.tone" [style.grid-row]="mount.gridRow" [attr.aria-pressed]="isSelected(mount)"
+            [attr.aria-label]="mount.label + ', ' + mount.typeName + ', ' + mount.slotRange"
             (click)="onSelectMount(mount)">
-            <span class="rack-unit__icon"><i [class]="iconOf(mount)" aria-hidden="true"></i></span>
+            <span class="rack-unit__icon"><i [class]="mount.icon" aria-hidden="true"></i></span>
             <!-- A faceplate is only as wide as its U; the tooltip carries the name it cannot fit. -->
-            <span class="rack-unit__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer">
-              {{ labelOf(mount) }}
+            <span class="rack-unit__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
+              {{ mount.label }}
             </span>
             <span class="rack-unit__vent" aria-hidden="true"></span>
             <span class="rack-unit__spec">
               <!-- In a split view the link across the ruler already says it, so the plate keeps the room. -->
-              @if (isFullDepth(mount) && viewMode !== 'split') {
+              @if (mount.isFullDepth && viewMode() !== 'split') {
               <span class="rack-unit__tag">FULL DEPTH</span>
               }
               <span>{{ mount.height }}U</span>
-              <span>{{ slotRangeOf(mount) }}</span>
+              <span>{{ mount.slotRange }}</span>
             </span>
             <span class="rack-unit__led" aria-hidden="true"></span>
           </button>
@@ -207,23 +206,23 @@
           }
         </ng-template>
 
-        <ng-container *ngTemplateOutlet="rail; context: { $implicit: sideRails[0] }"></ng-container>
+        <ng-container *ngTemplateOutlet="rail; context: { $implicit: sideRails()[0] }"></ng-container>
 
-        <div class="rack-grid" [attr.data-view]="viewMode" [style.grid-template-rows]="rowTemplate">
-          @if (viewMode === 'split') {
-          <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: frontFace }"></ng-container>
-          <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: rearFace }"></ng-container>
+        <div class="rack-grid" [attr.data-view]="viewMode()" [style.grid-template-rows]="rowTemplate()">
+          @if (viewMode() === 'split') {
+          <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: frontFace() }"></ng-container>
+          <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: rearFace() }"></ng-container>
 
           <!-- The only thing crossing between the two cabinets: one row holding both faces. -->
-          @for (mount of bridges; track mount.mount_id) {
-          <span class="rack-link" [class.rack-link--selected]="isSelected(mount)" [style.--rack-tone]="toneOf(mount)"
-            [style.grid-row]="gridRowOf(mount)" aria-hidden="true">
+          @for (mount of bridges(); track mount.mountId) {
+          <span class="rack-link" [class.rack-link--selected]="isSelected(mount)" [style.--rack-tone]="mount.tone"
+            [style.grid-row]="mount.gridRow" aria-hidden="true">
             <span>{{ mount.height }}U</span>
           </span>
           }
           }
 
-          @else if (shownFace; as face) {
+          @else if (shownFace(); as face) {
           <!--
               Only what actually holds this face's slots is drawn. A FRONT row does not occupy the
               matching BACK slot - they compete only through FULL_DEPTH - so those bays stay open here.
@@ -232,19 +231,19 @@
           }
 
           <!-- The U ruler. Between the cabinets when split, on both posts of a single face. -->
-          @for (tick of slotTicks; track tick) {
-          <span class="rack-tick" [class.rack-tick--major]="isMajorSlot(tick)" [style.grid-row]="gridRowOfSlot(tick)">{{
-            tick }}</span>
-          <span class="rack-tick rack-tick--mirror" [class.rack-tick--major]="isMajorSlot(tick)"
-            [style.grid-row]="gridRowOfSlot(tick)" aria-hidden="true">{{ tick }}</span>
+          @for (tick of slotTicks(); track tick.slot) {
+          <span class="rack-tick" [class.rack-tick--major]="tick.isMajor" [style.grid-row]="tick.gridRow">{{
+            tick.slot }}</span>
+          <span class="rack-tick rack-tick--mirror" [class.rack-tick--major]="tick.isMajor"
+            [style.grid-row]="tick.gridRow" aria-hidden="true">{{ tick.slot }}</span>
           }
 
-          @if (!rack.height) {
+          @if (!rackHeader.height) {
           <p class="rack-grid__unset">This rack has no height configured yet.</p>
           }
         </div>
 
-        <ng-container *ngTemplateOutlet="rail; context: { $implicit: sideRails[1] }"></ng-container>
+        <ng-container *ngTemplateOutlet="rail; context: { $implicit: sideRails()[1] }"></ng-container>
       </div>
     </div>
 
@@ -256,15 +255,15 @@
     -->
     <aside class="rack-side" aria-label="Selected row and unplaced entries">
       <section class="rack-inspector" aria-live="polite">
-        @if (selectedMount; as mount) {
+        @if (selectedRow(); as mount) {
         <div class="rack-inspector__head">
-          <span class="rack-inspector__icon" [style.--rack-tone]="toneOf(mount)">
-            <i [class]="iconOf(mount)" aria-hidden="true"></i>
+          <span class="rack-inspector__icon" [style.--rack-tone]="mount.tone">
+            <i [class]="mount.icon" aria-hidden="true"></i>
           </span>
 
           <span class="rack-inspector__title">
-            <strong>{{ labelOf(mount) }}</strong>
-            <span>{{ typeNameOf(mount) }}@if (mount.object_id !== null) { &middot; #{{ mount.object_id }} }</span>
+            <strong>{{ mount.label }}</strong>
+            <span>{{ mount.typeName }}@if (mount.objectId !== null) { &middot; #{{ mount.objectId }} }</span>
           </span>
 
           <button type="button" class="rack-icon-btn" aria-label="Clear selection" (click)="onClearSelection()">
@@ -276,11 +275,11 @@
           <dl class="rack-placement">
             <div>
               <dt>Face</dt>
-              <dd>{{ isFullDepth(mount) ? 'Both' : (mount.area === AREAS.FRONT ? 'Front' : 'Rear') }}</dd>
+              <dd>{{ mount.isFullDepth ? 'Both' : (mount.area === AREAS.FRONT ? 'Front' : 'Rear') }}</dd>
             </div>
             <div>
               <dt>Anchor</dt>
-              <dd>U{{ mount.start_slot }}</dd>
+              <dd>U{{ mount.startSlot }}</dd>
             </div>
             <div>
               <dt>Height</dt>
@@ -291,17 +290,17 @@
           <dl class="rack-rows">
             <div class="rack-rows__row">
               <dt>Occupies</dt>
-              <dd>{{ slotRangeOf(mount) }}</dd>
+              <dd>{{ mount.slotRange }}</dd>
             </div>
 
-            @if (secondaryLabelOf(mount); as extraLabel) {
+            @if (mount.secondaryLabel; as extraLabel) {
             <div class="rack-rows__row">
               <dt>Label</dt>
               <dd>{{ extraLabel }}</dd>
             </div>
             }
 
-            @if (periodOf(mount); as period) {
+            @if (mount.period; as period) {
             <div class="rack-rows__row">
               <dt>Booked</dt>
               <dd>{{ period }}</dd>
@@ -310,28 +309,28 @@
 
             <div class="rack-rows__row">
               <dt>Mount ID</dt>
-              <dd>#{{ mount.mount_id }}</dd>
+              <dd>#{{ mount.mountId }}</dd>
             </div>
           </dl>
 
           <div class="rack-inspector__actions" *permissionLink="['base.framework.rack.edit']">
             <app-button label="Move" icon="fas fa-sliders-h" bootstrapClass="btn-sm btn-outline-secondary"
-              [ariaLabel]="'Edit the placement of ' + labelOf(mount)" (clicked)="onEditMount(mount)">
+              [ariaLabel]="'Edit the placement of ' + mount.label" (clicked)="onEditMount(mount)">
             </app-button>
 
             <app-button label="Unplace" icon="fas fa-eject" bootstrapClass="btn-sm btn-outline-secondary"
-              title="Free the slots but keep it in the rack" [ariaLabel]="'Unplace ' + labelOf(mount)"
+              title="Free the slots but keep it in the rack" [ariaLabel]="'Unplace ' + mount.label"
               (clicked)="onUnplaceMount(mount)">
             </app-button>
 
             <app-button label="Remove from rack" bootstrapClass="btn-sm btn-outline-danger"
-              [ariaLabel]="'Remove ' + labelOf(mount) + ' from the rack'" (clicked)="onRemoveMount(mount)">
+              [ariaLabel]="'Remove ' + mount.label + ' from the rack'" (clicked)="onRemoveMount(mount)">
             </app-button>
           </div>
 
-          @if (isMount(mount)) {
+          @if (mount.isMount) {
           <app-button label="Open object" icon="fas fa-external-link-alt" bootstrapClass="btn-sm btn-outline-primary"
-            (clicked)="onOpenObject(mount.object_id)">
+            (clicked)="onOpenObject(mount.objectId)">
           </app-button>
           }
         </div>
@@ -344,7 +343,7 @@
       </section>
 
       <!-- ------------------------------------------ STAGING TRAY ------------------------------------- -->
-      @if (unassignedGroup; as tray) {
+      @if (unassignedGroup(); as tray) {
       <section class="rack-tray">
         <div class="rack-tray__head">
           <h4>{{ tray.title }}</h4>
@@ -355,37 +354,37 @@
         @if (tray.mounts.length) {
         <!-- Focusable because it scrolls: without the edit right a row can hold nothing tabbable. -->
         <ul class="rack-tray__list" tabindex="0" [attr.aria-label]="tray.title">
-          @for (mount of tray.mounts; track mount.mount_id) {
-          <li class="rack-tray__item" [style.--rack-tone]="toneOf(mount)">
-            <span class="rack-tray__icon" [style.color]="toneOf(mount)" [style.background]="toneTintOf(mount)">
-              <i [class]="iconOf(mount)" aria-hidden="true"></i>
+          @for (mount of tray.mounts; track mount.mountId) {
+          <li class="rack-tray__item" [style.--rack-tone]="mount.tone">
+            <span class="rack-tray__icon" [style.color]="mount.tone" [style.background]="mount.tint">
+              <i [class]="mount.icon" aria-hidden="true"></i>
             </span>
 
             <span class="rack-tray__text">
-              @if (isMount(mount)) {
-              <button type="button" class="rack-tray__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer"
-                (click)="onOpenObject(mount.object_id)">
-                {{ labelOf(mount) }}
+              @if (mount.isMount) {
+              <button type="button" class="rack-tray__name" [ngbTooltip]="mount.label"
+                [container]="tooltipContainer()" (click)="onOpenObject(mount.objectId)">
+                {{ mount.label }}
               </button>
               } @else {
-              <span class="rack-tray__name" [ngbTooltip]="labelOf(mount)" [container]="tooltipContainer">
-                {{ labelOf(mount) }}
+              <span class="rack-tray__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
+                {{ mount.label }}
               </span>
               }
               <span class="rack-tray__sub">
-                {{ typeNameOf(mount) }}
+                {{ mount.typeName }}
                 @if (mount.height) { &middot; {{ mount.height }}U hint }
-                @if (periodOf(mount); as period) { &middot; {{ period }} }
+                @if (mount.period; as period) { &middot; {{ period }} }
               </span>
             </span>
 
             <span class="rack-tray__actions" *permissionLink="['base.framework.rack.edit']">
-              <button type="button" class="rack-ghost-btn" [attr.aria-label]="'Place ' + labelOf(mount)"
+              <button type="button" class="rack-ghost-btn" [attr.aria-label]="'Place ' + mount.label"
                 (click)="onEditMount(mount)">
                 <i class="fas fa-arrow-right" aria-hidden="true"></i> Place
               </button>
               <button type="button" class="rack-icon-btn rack-icon-btn--danger"
-                [attr.aria-label]="'Remove ' + labelOf(mount) + ' from the rack'" (click)="onRemoveMount(mount)">
+                [attr.aria-label]="'Remove ' + mount.label + ' from the rack'" (click)="onRemoveMount(mount)">
                 <i class="fas fa-times" aria-hidden="true"></i>
               </button>
             </span>
@@ -401,28 +400,30 @@
   </div>
 
   <!-- ------------------------------------------ OUT OF RANGE ------------------------------------- -->
-  @if (outOfRangeMounts.length) {
+  @if (outOfRangeRows(); as outOfRange) {
+  @if (outOfRange.length) {
   <div class="rack-callout rack-callout--warn" role="alert">
     <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
     <div>
       <p class="rack-callout__title">
-        {{ outOfRangeMounts.length }} entr{{ outOfRangeMounts.length === 1 ? 'y' : 'ies' }}
-        no longer fit inside {{ rack.height }}U and cannot be drawn
+        {{ outOfRange.length }} entr{{ outOfRange.length === 1 ? 'y' : 'ies' }}
+        no longer fit inside {{ rackHeader.height }}U and cannot be drawn
       </p>
       <ul class="rack-callout__list">
-        @for (mount of outOfRangeMounts; track mount.mount_id) {
+        @for (mount of outOfRange; track mount.mountId) {
         <li>
-          <b>{{ labelOf(mount) }}</b> &mdash; anchored at U{{ mount.start_slot }}, {{ mount.height }}U
+          <b>{{ mount.label }}</b> &mdash; anchored at U{{ mount.startSlot }}, {{ mount.height }}U
           <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-callout__action"
-            [attr.aria-label]="'Re-place ' + labelOf(mount)" (click)="onEditMount(mount)">Re-place</button>
+            [attr.aria-label]="'Re-place ' + mount.label" (click)="onEditMount(mount)">Re-place</button>
         </li>
         }
       </ul>
     </div>
   </div>
   }
+  }
 
-  } @else if (hasError) {
+  } @else if (hasError()) {
   <div class="rack-callout rack-callout--error" role="alert">
     <i class="fas fa-plug" aria-hidden="true"></i>
     <div>
