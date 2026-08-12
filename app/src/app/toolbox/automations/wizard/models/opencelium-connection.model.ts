@@ -223,8 +223,12 @@ export interface OcUiRule {
     type: 'rule';
     properties: {
         operator: string;
+
+        /** The reference the rule reads, in the same form the expression carries it. */
         leftField: string;
-        rightField: string;
+
+        /** Absent on an operator that compares against nothing, such as NotNull. */
+        rightField?: string;
     };
 }
 
@@ -232,7 +236,9 @@ export interface OcUiRule {
 export interface OcUiGroup {
     id: string;
     type: 'group';
-    properties: { not: boolean };
+
+    /** The joiner is only written when there is more than one rule to join, as the capture shows. */
+    properties: { not: boolean; conjunction?: '&&' | '||' };
     items: OcUiRule[];
 }
 
@@ -368,8 +374,15 @@ export function ocCollectionElementPath(
 }
 
 
-/** Node and edge identities, shared between the connection body and its ui block. */
-export function ocMethodNodeId(position: number): string {
+/**
+ * Node and edge identities, shared between the connection body and its ui block.
+ *
+ * A position for the steps the assistant builds, which are numbered; the step's own id for the ones
+ * the user added, which are not - that keeps a node traceable back to the entry it came from even
+ * after something was inserted above it. The editor writes a random suffix here and reads any, so
+ * the only thing that matters is that it stays unique.
+ */
+export function ocMethodNodeId(position: number | string): string {
     return `method-${position}`;
 }
 
@@ -380,7 +393,7 @@ export function ocLoopNodeId(position: number): string {
 
 
 /** A request with no connector behind it is a node of its own kind, not a connector node. */
-export function ocSystemNodeId(position: number): string {
+export function ocSystemNodeId(position: number | string): string {
     return `system-${position}`;
 }
 

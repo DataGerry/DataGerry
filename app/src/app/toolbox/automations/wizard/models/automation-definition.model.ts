@@ -316,10 +316,13 @@ export interface AutomationExtraCall {
      * better answer whenever one exists. A free request is for the endpoint that has none - called
      * once, or belonging to a service too small to describe.
      */
-    kind: 'operation' | 'http';
+    kind: 'operation' | 'http' | 'if';
 
     /** Operation of the target system's invoker. Empty for a free request. */
     operation: string;
+
+    /** What an 'if' tests. Everything placed after it then runs only when it holds. */
+    condition?: AutomationCallCondition;
 
     /** HTTP verb, for a free request only; an operation brings its own. */
     verb?: string;
@@ -331,6 +334,26 @@ export interface AutomationExtraCall {
     body?: Record<string, string>;
     headers?: Record<string, string>;
     endpoint?: string;
+}
+
+
+/**
+ * What a condition in the sequence tests.
+ *
+ * Both sides are written as the engine reads them: a reference such as
+ * `#FFCFB5.(response).body.$.results[i].type_id` fetches a value from a step that has already run,
+ * anything else is the literal it looks like. Which of the two a side is decides how it is written
+ * into the expression, and the '#' is what tells them apart - the same rule the captured conditions
+ * follow, where a reference stands in braces and a literal in quotes.
+ */
+export interface AutomationCallCondition {
+    left: string;
+
+    /** One of the engine's own relational operators: '=', 'Like', 'NotNull', and so on. */
+    operator: string;
+
+    /** Empty on an operator that compares against nothing. */
+    right: string;
 }
 
 
@@ -681,15 +704,31 @@ function normalizeMappingEntry(raw: any): AutomationMappingEntry {
 }
 
 
-/** An added call the compiler can still place: it needs a step to follow and something to call. */
+/**
+ * An added step the compiler can still place.
+ *
+ * It needs a step to follow and something to do: an operation to call, a request written out, or a
+ * condition with a left-hand side to test. A condition missing that would compile to an operator
+ * with no expression, which OpenCelium rejects outright.
+ */
 function isUsableExtra(raw: any): boolean {
-    return !!raw?.id && !!raw?.after && (!!raw?.operation || raw?.kind === 'http');
+    if (!raw?.id || !raw?.after) {
+        return false;
+    }
+
+    if (raw.kind === 'http') {
+        return true;
+    }
+
+    return raw.kind === 'if' ? !!raw.condition?.left : !!raw.operation;
 }
 
 
-/** Fills in the kind for calls stored before free requests existed. */
+/** Fills in the kind for steps stored before free requests and conditions existed. */
 function normalizeExtra(raw: any): AutomationExtraCall {
-    return { ...raw, kind: raw.kind === 'http' ? 'http' : 'operation' };
+    const kind = raw.kind === 'http' || raw.kind === 'if' ? raw.kind : 'operation';
+
+    return { ...raw, kind };
 }
 
 
