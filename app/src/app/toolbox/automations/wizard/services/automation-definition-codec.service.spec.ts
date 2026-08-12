@@ -103,4 +103,48 @@ describe('AutomationDefinitionCodecService', () => {
 
         expect(service.exceedsSizeBudget(service.encode('', definition))).toBeTrue();
     });
+
+
+    /*
+     * Reopening an automation written before the sequence and the target-keyed mapping existed.
+     *
+     * The stored block is whatever that version wrote; nothing rewrites it in place, so every
+     * version the wizard ever wrote has to read back into the shape it works with now - otherwise
+     * an older automation opens with its assignment silently emptied.
+     */
+    it('reads an automation stored in the older shape', () => {
+        const stored = {
+            version: 1,
+            name: 'Sync servers',
+            direction: 'outgoing',
+            objectType: { typeId: 4, name: 'server', label: 'Server' },
+            fields: [{ name: 'hostname', label: 'Hostname', type: 'text' }],
+            target: { connectorId: 10, connectorTitle: 'i-doit', invokerName: 'i-doit', operation: 'create' },
+            mapping: [
+                { source: 'hostname', target: 'params.title', origin: 'manual', confidence: 1 },
+                { source: '$public_id', target: 'params.title', origin: 'auto', confidence: 0.4 },
+                // A field the user cleared: a source, and no target at all.
+                { source: 'serial', target: '', origin: 'auto', confidence: 0 }
+            ]
+        };
+        const description = service.encode('Written by an older wizard', stored as any);
+        const decoded = service.decode(description);
+        const definition = decoded.definition!;
+
+        expect(definition.name).toBe('Sync servers');
+
+        // One entry per target, holding both fields that write it, in the order they were stored.
+        expect(definition.mapping.length).toBe(1);
+        expect(definition.mapping[0].target).toBe('params.title');
+        expect(definition.mapping[0].sources.map(source => source.field))
+            .toEqual(['hostname', '$public_id']);
+
+        // The cleared field stays cleared rather than being suggested a target again.
+        expect(definition.unmapped).toEqual(['serial']);
+
+        // Everything the older shape knew nothing about reads back as empty, not as undefined.
+        expect(definition.extras).toEqual([]);
+        expect(definition.overrides).toEqual({});
+        expect(definition.matching.identifyBy).toBe('');
+    });
 });

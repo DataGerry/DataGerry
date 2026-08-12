@@ -433,6 +433,13 @@ $muted: #6b7280;
 }
 
 
+// A loop's marker says what it is rather than where it sits; there is no counting a loop.
+.tree__marker.is-loop {
+    background: rgba(233, 77, 24, 0.12);
+    color: $accent;
+    font-size: 0.625rem;
+}
+
 /* The condition builder: one thing under another, because it reads as a sentence. */
 .cond {
     display: flex;

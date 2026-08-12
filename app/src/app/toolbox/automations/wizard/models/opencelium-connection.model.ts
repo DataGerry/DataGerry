@@ -387,7 +387,7 @@ export function ocMethodNodeId(position: number | string): string {
 }
 
 
-export function ocLoopNodeId(position: number): string {
+export function ocLoopNodeId(position: number | string): string {
     return `loop-${position}`;
 }
 
