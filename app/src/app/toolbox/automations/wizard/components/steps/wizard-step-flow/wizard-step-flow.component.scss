@@ -224,9 +224,70 @@ $muted: #6b7280;
         border-color: $accent;
         background: rgba(233, 77, 24, 0.04);
     }
+
+    // A value that fetches something rather than being something.
+    &.is-ref { color: $accent; }
 }
 
 .wire__url .wire__input { flex: 1; }
+
+/* Value cell: the value itself, the way to fetch one from an earlier step, and the way back. */
+.wire__value {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+
+    .wire__input { flex: 1; }
+}
+
+.wire__pick,
+.wire__drop {
+    flex-shrink: 0;
+    border: 1px solid #dee2e6;
+    background: #fff;
+    border-radius: 0.25rem;
+    color: $muted;
+    font-size: 0.6875rem;
+    line-height: 1;
+    padding: 0.3rem 0.4rem;
+
+    &:hover {
+        color: $accent;
+        border-color: $accent;
+    }
+}
+
+// The row that has no value yet sits a little apart from the ones that do.
+.wire__new {
+    td { padding-top: 0.4rem; }
+
+    input::placeholder { font-style: italic; }
+}
+
+.pick__group {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: $muted;
+    padding: 0.5rem 0.1rem 0.2rem;
+}
+
+.pick {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+}
+
+.pick__label { font-weight: 600; }
+
+.pick__ref {
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.6875rem;
+    color: $muted;
+    overflow-wrap: anywhere;
+}
 
 // A value taken from an earlier call, rather than written out here.
 .wire__ref {
@@ -369,4 +430,28 @@ $muted: #6b7280;
     font-weight: 700;
     padding: 0.15rem 1.4rem 0.15rem 0.4rem;
     flex-shrink: 0;
+}
+
+
+/* The condition builder: one thing under another, because it reads as a sentence. */
+.cond {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0 1.25rem 0.5rem;
+}
+
+.cond__label {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: $muted;
+    margin: 0.4rem 0 0;
+}
+
+.cond__right {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
 }

@@ -18,8 +18,8 @@
 import { Injectable } from '@angular/core';
 
 import {
+    AutomationCallCondition,
     AutomationCallOverride,
-    AutomationConditionGroup,
     AutomationDefinition,
     AutomationExtraCall,
     AutomationMappingEntry,
@@ -44,6 +44,7 @@ import {
     OcSchedulerPayload,
     OcUi,
     OcUiGroup,
+    OcUiRule,
     OcWorkflowEdge,
     OcWorkflowNode,
     ocCollectionElementPath,
@@ -350,7 +351,7 @@ export class AutomationCompilerService {
         }
 
         const fromExtras = this.appendExtras(definition, context, {
-            palette, methods, bindings, graph, warnings
+            palette, methods, operators, bindings, graph, warnings
         });
 
         this.applyOverrides({ ...definition.overrides, ...fromExtras }, methods, bindings, warnings);
@@ -386,6 +387,7 @@ export class AutomationCompilerService {
         out: {
             palette: ReadonlyArray<string>;
             methods: OcMethod[];
+            operators: OcOperator[];
             bindings: OcFieldBinding[];
             graph: GraphNode[];
             warnings: string[];
@@ -393,25 +395,47 @@ export class AutomationCompilerService {
     ): Record<string, AutomationCallOverride> {
         const values: Record<string, AutomationCallOverride> = {};
 
+        // What each added step became, so the next one can name it. An added step is named by its
+        // own id rather than by the position it happened to land on, which moves as soon as
+        // anything is inserted above it - and a step inside a condition would then be orphaned.
+        const placed = new Map<string, Anchor>();
+
         for (const extra of definition.extras) {
-            const anchor = out.methods.find(method => method.index === extra.after);
+            const anchor = placed.get(extra.after) ?? this.anchorOf(extra, out);
 
             if (!anchor) {
                 out.warnings.push(
-                    `The added call "${extra.operation}" follows a step that no longer exists, so it `
-                    + 'was left out. Place it after another step or remove it.'
+                    `The added step "${extra.operation || extra.kind}" follows a step that no longer `
+                    + 'exists, so it was left out. Place it after another step or remove it.'
                 );
 
                 continue;
             }
 
-            const index = this.nextSiblingIndex(anchor.index, out.methods);
-            const id = ocMethodNodeId(out.methods.length);
+            // Everything placed after a condition runs inside it - that is what putting it there
+            // means - so it takes a position below rather than beside.
+            const index = anchor.branch
+                ? this.nextChildIndex(anchor.index, out)
+                : this.nextSiblingIndex(anchor.index, out);
+
+            if (extra.kind === 'if') {
+                const gate = this.appendConditionStep(extra, anchor, index, out);
+
+                if (gate) {
+                    placed.set(extra.id, gate);
+                }
+
+                continue;
+            }
+
+            // Named after the entry rather than after a position: an added call is found again by
+            // the step it came from, and a position moves as soon as anything is inserted above it.
+            const id = ocMethodNodeId(extra.id);
             const color = out.palette[out.methods.length % out.palette.length];
             let method: OcMethod;
 
             if (extra.kind === 'http') {
-                method = this.buildFreeRequest(extra, ocSystemNodeId(out.methods.length), index, color);
+                method = this.buildFreeRequest(extra, ocSystemNodeId(extra.id), index, color);
             } else {
                 // The system the user chose, not the side that happens to be written: an added call
                 // through an invoker always goes to the foreign system, whichever way it runs.
@@ -435,11 +459,17 @@ export class AutomationCompilerService {
                 kind: 'method',
                 parent: anchor.id,
                 method,
-                // A call that follows another sits beside it, not inside it.
-                below: false
+                // A call that follows another sits beside it; one inside a condition drops below it
+                // and hangs off the exit that was taken.
+                below: !!anchor.branch,
+                branch: anchor.branch
             });
 
-            this.bindParentId(extra, anchor, method, out.bindings, out.warnings);
+            if (anchor.method) {
+                this.bindParentId(extra, anchor.method, method, out.bindings, out.warnings);
+            }
+
+            placed.set(extra.id, { id: method.id, index: method.index, method });
 
             // Values the user typed reach it the same way a correction does - handed back rather
             // than written into the definition, which the compiler must not touch.
@@ -496,6 +526,126 @@ export class AutomationCompilerService {
     }
 
 
+    /**
+     * The step an added one hangs off.
+     *
+     * A condition counts as much as a call does: putting something after a condition is the only
+     * way to say "do this when it holds", so an added step may name one - and then it is drawn and
+     * indexed inside it rather than beside it, which is what `branch` carries.
+     */
+    private anchorOf(
+        extra: AutomationExtraCall,
+        out: { methods: OcMethod[]; operators: OcOperator[] }
+    ): Anchor | null {
+        const method = out.methods.find(candidate => candidate.index === extra.after);
+
+        if (method) {
+            return { id: method.id, index: method.index, method };
+        }
+
+        const operator = out.operators.find(
+            candidate => candidate.index === extra.after && candidate.type === 'if'
+        );
+
+        return operator ? { id: operator.id, index: operator.index, branch: 'true' } : null;
+    }
+
+
+    /**
+     * The condition itself: an operator in the tree, and the node the editor draws for it.
+     *
+     * No method and no colour - a condition sends nothing. What follows it in the sequence finds it
+     * as its anchor and lands one level further in, which is how a branch comes to hold anything.
+     */
+    private appendConditionStep(
+        extra: AutomationExtraCall,
+        anchor: Anchor,
+        index: string,
+        out: { operators: OcOperator[]; graph: GraphNode[]; warnings: string[] }
+    ): Anchor | null {
+        const id = ocIfNodeId(extra.id);
+        const rendered = this.renderCallCondition(extra.condition, id);
+
+        if (!rendered) {
+            out.warnings.push(
+                'A condition in the sequence has nothing to test, so it and everything placed after '
+                + 'it were left out. Give it a value to compare, or remove it.'
+            );
+
+            return null;
+        }
+
+        const operator: OcOperator = {
+            id,
+            index,
+            type: 'if',
+            dataAggregator: null,
+            expression: rendered.expression,
+            iterator: null
+        };
+
+        out.operators.push(operator);
+        out.graph.push({
+            id: operator.id,
+            kind: 'if',
+            parent: anchor.id,
+            operator,
+            // A condition after a call is its sibling and enters from the left; one after another
+            // condition runs inside it and drops below, which is what the captured nesting shows.
+            below: !!anchor.branch,
+            branch: anchor.branch,
+            tree: rendered.tree
+        });
+
+        // Everything placed after a condition runs inside it, down its `true` exit.
+        return { id: operator.id, index: operator.index, branch: 'true' };
+    }
+
+
+    /**
+     * A condition the user built, in both the forms it is stored in.
+     *
+     * Which side is a reference and which a literal is decided by the '#' that starts every
+     * reference: one goes into the expression in braces, the other in quotes, exactly as the
+     * captured conditions carry them.
+     */
+    private renderCallCondition(
+        condition: AutomationCallCondition | undefined,
+        uiId: string
+    ): { expression: string; tree: OcUiGroup } | null {
+        const left = condition?.left?.trim();
+
+        if (!left || !condition?.operator) {
+            return null;
+        }
+
+        const right = (condition.right ?? '').trim();
+        const rightSide = right.startsWith('#') ? `{%${right}%}` : quoteLiteral(right);
+
+        if (right && rightSide === null) {
+            return null;
+        }
+
+        return {
+            expression: right
+                ? `({%${left}%} ${condition.operator} ${rightSide})`
+                : `({%${left}%} ${condition.operator})`,
+            tree: {
+                id: `${uiId}-group`,
+                type: 'group',
+                properties: { not: false },
+                items: [{
+                    id: `${uiId}-rule`,
+                    type: 'rule',
+                    properties: right
+                        ? { leftField: left, operator: condition.operator, rightField: right }
+                        : { leftField: left, operator: condition.operator }
+                }]
+            }
+        };
+    }
+
+
     /** The operation of that name, for a call the user chose rather than the wizard resolved. */
     private operationByName(invoker: any, name: string): ResolvedOperation | null {
         const match = (invoker?.operations ?? []).find((operation: any) => operation?.name === name);
@@ -505,13 +655,35 @@ export class AutomationCompilerService {
 
 
     /** The next free position beside a step, so an added call runs after it rather than inside it. */
-    private nextSiblingIndex(anchor: string, methods: OcMethod[]): string {
+    private nextSiblingIndex(anchor: string, out: { methods: OcMethod[]; operators: OcOperator[] }): string {
         const parts = anchor.split('_');
         const parent = parts.slice(0, -1).join('_');
-        const taken = methods
-            .map(method => method.index)
-            .filter(index => index.startsWith(parent ? `${parent}_` : '') 
-                && index.split('_').length === parts.length)
+
+        return this.nextFreePosition(parent, parts.length, out);
+    }
+
+
+    /** The next free position inside a step, which is where everything after a condition goes. */
+    private nextChildIndex(anchor: string, out: { methods: OcMethod[]; operators: OcOperator[] }): string {
+        return this.nextFreePosition(anchor, anchor.split('_').length + 1, out);
+    }
+
+
+    /**
+     * The first position under a parent nothing occupies yet.
+     *
+     * Operators count as much as methods do: an execution index addresses one tree, and a condition
+     * sitting at '1_1' means the next call beside it is '1_2' - numbering the two separately would
+     * put a call on top of a branch.
+     */
+    private nextFreePosition(
+        parent: string,
+        depth: number,
+        out: { methods: OcMethod[]; operators: OcOperator[] }
+    ): string {
+        const taken = [...out.methods, ...out.operators]
+            .map(entry => entry.index)
+            .filter(index => index.startsWith(parent ? `${parent}_` : '') && index.split('_').length === depth)
             .map(index => Number(index.split('_').pop()));
 
         const next = Math.max(...taken, -1) + 1;
@@ -664,10 +836,11 @@ export class AutomationCompilerService {
         graph: GraphNode[],
         warnings: string[]
     ): { id: string; index: string } {
-        const expression = this.buildConditionExpression(
+        const { expression, tree } = this.buildCondition(
             definition,
             context,
             sides.source!.responseArrayPath,
+            ocIfNodeId('gate'),
             warnings
         );
 
@@ -691,7 +864,7 @@ export class AutomationCompilerService {
             parent: loop.id,
             operator: gate,
             below: true,
-            tree: this.buildConditionUiGroup(gate.id, definition.conditions)
+            tree
         });
 
         return { id: gate.id, index: gate.index };
@@ -1511,15 +1684,16 @@ export class AutomationCompilerService {
      * the engine's own RelationalOperator vocabulary; terms are parenthesised and joined with &&
      * or ||, exactly as its parser tests spell out.
      */
-    private buildConditionExpression(
+    private buildCondition(
         definition: AutomationDefinition,
         context: AutomationCompileContext,
         arrayPath: string,
+        uiId: string,
         warnings: string[]
-    ): string {
+    ): { expression: string; tree: OcUiGroup } {
         const group = definition.conditions;
-        const joiner = group.combinator === 'and' ? ' && ' : ' || ';
-        const parts: string[] = [];
+        const conjunction = group.combinator === 'and' ? '&&' : '||';
+        const rendered: RenderedRule[] = [];
 
         for (const rule of group.rules) {
             // The same resolution the mapping uses. A rule names a field the way the user knows it,
@@ -1540,63 +1714,106 @@ export class AutomationCompilerService {
                 continue;
             }
 
-            parts.push(this.renderRule(
-                `{%${ocFieldReference(
-                    AutomationCompilerService.SOURCE_COLOR,
-                    'response',
-                    ocCollectionElementPath(arrayPath, value.path)
-                )}%}`,
-                rule.operator,
-                rule.value
-            ));
+            const reference = ocFieldReference(
+                AutomationCompilerService.SOURCE_COLOR,
+                'response',
+                ocCollectionElementPath(arrayPath, value.path)
+            );
+            const term = this.renderRule(reference, rule.operator, rule.value);
+
+            if (!term) {
+                warnings.push(
+                    `The condition on "${rule.field}" compares against a value holding both kinds of `
+                    + 'quote, which the expression language cannot write, so it was left out.'
+                );
+
+                continue;
+            }
+
+            rendered.push(term);
         }
 
-        if (parts.length === 0) {
-            return '';
+        if (rendered.length === 0) {
+            return { expression: '', tree: this.emptyConditionTree() };
         }
 
-        const expression = parts.length > 1 ? `(${parts.join(joiner)})` : parts[0];
+        const body = rendered.map(entry => entry.term).join(` ${conjunction} `);
 
-        return group.negate ? `!(${expression})` : expression;
+        return {
+            expression: group.negate ? `!(${body})` : `(${body})`,
+            tree: {
+                id: `${uiId}-group`,
+                type: 'group',
+                properties: rendered.length > 1
+                    ? { not: group.negate, conjunction }
+                    : { not: group.negate },
+                items: rendered.map((entry, position) => ({
+                    id: `${uiId}-rule-${position}`,
+                    type: 'rule' as const,
+                    properties: entry.rule
+                }))
+            }
+        };
     }
 
 
     /**
-     * One rule as a parenthesised term.
+     * One rule, in both the forms a condition is stored in.
      *
-     * Two of the mappings are worth knowing about. A "contains" on text becomes `Like "%v%"` rather
+     * The expression is what the engine evaluates; the rule tree beside it is what the editor draws
+     * and what it regenerates the expression from if someone opens the connection there. They have
+     * to say the same thing, which is why one method produces both - and why the tree carries the
+     * resolved reference rather than the field name the user picked, as the capture does.
+     *
+     * Two of the mappings are worth knowing about. A "contains" on text becomes `Like %v%` rather
      * than `Contains`, because the engine's Contains works on a list and would throw on a string.
      * And "is empty" becomes two terms, because a field can be empty by being absent or by holding
-     * an empty string, and the engine treats those as different things.
+     * an empty string, and the engine treats those as different things - the tree keeps the null
+     * half of that, which is as much as a single rule can say.
+     *
+     * Null when the value cannot be written down at all; the caller reports it.
      */
-    private renderRule(left: string, operator: AutomationRuleOperator, value: string): string {
-        const text = `"${(value ?? '').replace(/"/g, '\\"')}"`;
+    private renderRule(
+        reference: string,
+        operator: AutomationRuleOperator,
+        value: string
+    ): RenderedRule | null {
+        const left = `{%${reference}%}`;
         const number = Number(value);
         const numeric = Number.isFinite(number) ? String(number) : '0';
+        const rule = (name: string, right?: string) => right === undefined
+            ? { leftField: reference, operator: name }
+            : { leftField: reference, operator: name, rightField: right };
+
+        const compare = (name: string, right: string): RenderedRule | null => {
+            const literal = quoteLiteral(right);
+
+            return literal === null ? null : { term: `${left} ${name} ${literal}`, rule: rule(name, right) };
+        };
 
         switch (operator) {
             case 'equals':
-                return `(${left} = ${text})`;
+                return compare('=', value);
             case 'not_equals':
-                return `(${left} != ${text})`;
+                return compare('!=', value);
             case 'contains':
-                return `(${left} Like "%${value}%")`;
+                return compare('Like', `%${value}%`);
             case 'not_contains':
-                return `(${left} NotLike "%${value}%")`;
+                return compare('NotLike', `%${value}%`);
             case 'starts_with':
-                return `(${left} Like "${value}%")`;
+                return compare('Like', `${value}%`);
             case 'ends_with':
-                return `(${left} Like "%${value}")`;
+                return compare('Like', `%${value}`);
             case 'is_empty':
-                return `((${left} IsNull) || (${left} = ""))`;
+                return { term: `(${left} IsNull || ${left} = '')`, rule: rule('IsNull') };
             case 'is_not_empty':
-                return `((${left} NotNull) && (${left} != ""))`;
+                return { term: `(${left} NotNull && ${left} != '')`, rule: rule('NotNull') };
             case 'greater_than':
-                return `(${left} > ${numeric})`;
+                return { term: `${left} > ${numeric}`, rule: rule('>', numeric) };
             case 'less_than':
-                return `(${left} < ${numeric})`;
+                return { term: `${left} < ${numeric}`, rule: rule('<', numeric) };
             default:
-                return `(${left} = ${text})`;
+                return compare('=', value);
         }
     }
 
@@ -1606,23 +1823,6 @@ export class AutomationCompilerService {
         return { id: '0-group', type: 'group', properties: { not: false }, items: [] };
     }
 
-
-    private buildConditionUiGroup(uiId: string, group: AutomationConditionGroup): OcUiGroup {
-        return {
-            id: `${uiId}-group`,
-            type: 'group',
-            properties: { not: group.negate },
-            items: group.rules.map((rule, position) => ({
-                id: `${uiId}-rule-${position}`,
-                type: 'rule' as const,
-                properties: {
-                    operator: rule.operator,
-                    leftField: rule.field,
-                    rightField: rule.value
-                }
-            }))
-        };
-    }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                    WORKFLOW GRAPH                                                  */
@@ -1746,7 +1946,9 @@ export class AutomationCompilerService {
             items: [{
                 id: `${operator.id}-rule`,
                 type: 'rule',
-                properties: { leftField: reference, operator: presence, rightField: '' }
+                // No right-hand side: a presence check compares against nothing, and the capture
+                // leaves the key off such a rule rather than carrying it empty.
+                properties: { leftField: reference, operator: presence }
             }]
         };
     }
@@ -1995,6 +2197,45 @@ export class AutomationCompilerService {
 type SourceValue =
     | { kind: 'path'; path: string }
     | { kind: 'constant'; value: string };
+
+
+/**
+ * A step an added one hangs off, and how it hangs off it.
+ *
+ * `branch` is set when the anchor is a condition: what follows a condition runs inside it, one
+ * level further into the execution tree and down the exit that was taken.
+ */
+interface Anchor {
+    id: string;
+    index: string;
+    method?: OcMethod;
+    branch?: 'true';
+}
+
+
+/** One condition rule, said twice: once for the engine, once for the editor's rule builder. */
+interface RenderedRule {
+    term: string;
+    rule: OcUiRule['properties'];
+}
+
+
+/**
+ * A value as the expression language writes it.
+ *
+ * The engine's tokenizer takes either quote and knows no escape character, so the quote the value
+ * does not itself contain is the one that works. A value holding both cannot be written at all -
+ * null then, rather than a string that would tokenize into something else entirely.
+ */
+function quoteLiteral(value: string): string | null {
+    const text = value ?? '';
+
+    if (!text.includes('\'')) {
+        return `'${text}'`;
+    }
+
+    return text.includes('"') ? null : `"${text}"`;
+}
 
 
 /** One branch of the lookup: what to do, and which answer selects it. */

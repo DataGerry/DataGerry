@@ -753,6 +753,108 @@ describe('AutomationCompilerService', () => {
         });
 
 
+        /*
+         * A condition of the user's own, in the grammar the editor writes: the tested value in
+         * braces, a literal in quotes, and a right-hand side that is itself a reference left as one.
+         */
+        it('places a condition in the sequence and runs what follows inside it', () => {
+            const definition = withExtra({
+                id: 'extra-if',
+                kind: 'if',
+                operation: '',
+                condition: {
+                    left: '#FFCFB5.(response).body.$.results[i].type_id',
+                    operator: 'Like',
+                    right: 'srv%'
+                }
+            });
+
+            definition.extras = [...definition.extras, {
+                id: 'extra-inside',
+                // Named by the entry it follows, not by the position that entry landed on.
+                after: 'extra-if',
+                kind: 'operation',
+                operation: 'cmdb.object.update'
+            }];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const gate = payload.connection.fromConnector.operators.find(entry => entry.id === 'if-extra-if');
+            const inside = payload.connection.fromConnector.methods
+                .find(method => method.id === 'method-extra-inside');
+
+            expect(gate.index).toBe('1_1');
+            expect(gate.iterator).toBeNull();
+            expect(gate.expression)
+                .toBe("({%#FFCFB5.(response).body.$.results[i].type_id%} Like 'srv%')");
+
+            // Inside the condition, not beside it.
+            expect(inside.index).toBe('1_1_0');
+        });
+
+
+        it('leaves the right-hand side a reference when it is one', () => {
+            const definition = withExtra({
+                id: 'extra-if',
+                kind: 'if',
+                operation: '',
+                condition: {
+                    left: '#FFCFB5.(response).body.$.results[i].type_id',
+                    operator: '=',
+                    right: '#C77E7E.(response).body.$.result.id'
+                }
+            });
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const gate = payload.connection.fromConnector.operators.find(entry => entry.type === 'if');
+
+            expect(gate.expression).toBe(
+                '({%#FFCFB5.(response).body.$.results[i].type_id%} '
+                + '= {%#C77E7E.(response).body.$.result.id%})'
+            );
+        });
+
+
+        it('drops the right-hand side where the comparison has none', () => {
+            const definition = withExtra({
+                id: 'extra-if',
+                kind: 'if',
+                operation: '',
+                condition: {
+                    left: '#FFCFB5.(response).body.$.results[i].type_id',
+                    operator: 'NotNull',
+                    right: ''
+                }
+            });
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const gate = payload.connection.fromConnector.operators.find(entry => entry.type === 'if');
+            const node = payload.connection.ui.workflowNodes.find(entry => entry.id === gate.id);
+
+            expect(gate.expression)
+                .toBe('({%#FFCFB5.(response).body.$.results[i].type_id%} NotNull)');
+            expect(node.type).toBe('if');
+            expect(node.data.conditionConfig.tree.items[0].properties.operator).toBe('NotNull');
+            expect('rightField' in node.data.conditionConfig.tree.items[0].properties).toBeFalse();
+        });
+
+
+        /* An operator with no expression is rejected outright, so it is reported instead. */
+        it('reports a condition that tests nothing', () => {
+            const definition = withExtra({
+                id: 'extra-if',
+                kind: 'if',
+                operation: '',
+                condition: { left: '', operator: '=', right: 'x' }
+            });
+
+            const { payload, warnings } = compiler.compileForCreate(definition, context());
+
+            expect(payload.connection.fromConnector.operators.some(entry => entry.id === 'if-extra-if'))
+                .toBeFalse();
+            expect(warnings.some(warning => warning.includes('nothing to test'))).toBeTrue();
+        });
+
+
         /* Removing a branch can leave one behind; saying so beats compiling it somewhere else. */
         it('reports a call whose step is gone', () => {
             const { warnings } = compiler.compileForCreate(withExtra({ after: '9_9' }), context());
@@ -785,6 +887,33 @@ describe('AutomationCompilerService', () => {
             expect(added?.name).toBe('PUT');
             expect(added?.connector).toBeNull();
             expect(added?.response.fail.status).toBe('500');
+        });
+
+
+        /*
+         * A free request describes nothing, so everything it sends is typed in - and a value typed
+         * in may be a reference, which is how such a call reaches what ran before it.
+         */
+        it('sends the headers and the body a free request was given', () => {
+            const definition = withExtra({
+                kind: 'http',
+                operation: '',
+                verb: 'POST',
+                endpoint: 'https://monitor.example/api/hosts',
+                headers: { 'Content-Type': 'application/json' },
+                body: {
+                    'host.name': '#C77E7E.(response).body.$.result.id',
+                    'host.source': 'DataGerry'
+                }
+            });
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const added = payload.connection.fromConnector.methods
+                .find(method => method.methodType === 'HTTP_REQUEST');
+
+            expect(added?.request.header['Content-Type']).toBe('application/json');
+            expect(added?.request.body.fields.host.name).toBe('#C77E7E.(response).body.$.result.id');
+            expect(added?.request.body.fields.host.source).toBe('DataGerry');
         });
 
 
@@ -1050,7 +1179,7 @@ describe('AutomationCompilerService', () => {
 
             expect(gate.type).toBe('if');
             expect(gate.index).toBe('1_0');
-            expect(gate.expression).toBe('({%#FFCFB5.(response).body.$.result[i].title%} = "srv01")');
+            expect(gate.expression).toBe("({%#FFCFB5.(response).body.$.result[i].title%} = 'srv01')");
         });
 
 
@@ -1073,7 +1202,7 @@ describe('AutomationCompilerService', () => {
             const gate = payload.connection.fromConnector.operators[1];
 
             expect(gate.expression).toContain(' && ');
-            expect(gate.expression).toContain('Like "%srv%"');
+            expect(gate.expression).toContain("Like '%srv%'");
             expect(gate.expression).toContain('NotNull');
         });
 
@@ -1085,7 +1214,7 @@ describe('AutomationCompilerService', () => {
             );
 
             expect(payload.connection.fromConnector.operators[1].expression)
-                .toBe('({%#FFCFB5.(response).body.$.result[i].title%} Like "SRV-%")');
+                .toBe("({%#FFCFB5.(response).body.$.result[i].title%} Like 'SRV-%')");
         });
 
 
@@ -1096,8 +1225,8 @@ describe('AutomationCompilerService', () => {
             );
 
             expect(payload.connection.fromConnector.operators[1].expression)
-                .toBe('(({%#FFCFB5.(response).body.$.result[i].title%} IsNull) '
-                    + '|| ({%#FFCFB5.(response).body.$.result[i].title%} = ""))');
+                .toBe("(({%#FFCFB5.(response).body.$.result[i].title%} IsNull "
+                    + "|| {%#FFCFB5.(response).body.$.result[i].title%} = ''))");
         });
 
 
@@ -1118,9 +1247,22 @@ describe('AutomationCompilerService', () => {
             const gateNode = payload.connection.ui.workflowNodes
                 .find(node => node.id === payload.connection.fromConnector.operators[1].id);
 
-            expect(gateNode.data.conditionConfig.tree.items.length).toBe(2);
+            const tree = gateNode.data.conditionConfig.tree;
+
+            expect(tree.items.length).toBe(2);
             expect(gateNode.data.conditionConfig.expression)
                 .toBe(payload.connection.fromConnector.operators[1].expression);
+
+            // The editor regenerates the expression from this tree, so it has to say the same
+            // thing: the resolved reference rather than the field name, the engine's own operator,
+            // the joiner on the group, and no right-hand side where there is nothing to compare to.
+            expect(tree.properties.conjunction).toBe('&&');
+            expect(tree.items[0].properties.leftField)
+                .toBe('#FFCFB5.(response).body.$.result[i].title');
+            expect(tree.items[0].properties.operator).toBe('Like');
+            expect(tree.items[0].properties.rightField).toBe('%srv%');
+            expect(tree.items[1].properties.operator).toBe('NotNull');
+            expect('rightField' in tree.items[1].properties).toBeFalse();
         });
 
 

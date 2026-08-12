@@ -18,11 +18,24 @@
 import { Component, DoCheck, EventEmitter, Input, Output } from '@angular/core';
 
 import {
+    AutomationCallCondition,
+    AutomationCallOverride,
     AutomationDefinition,
     AutomationExtraCall,
+    AutomationField,
     requiresMatching
 } from '../../../models/automation-definition.model';
-import { OcConnection, OcMethod, OcOperator } from '../../../models/opencelium-connection.model';
+import {
+    OcConnection,
+    OcMethod,
+    OcOperator,
+    ocFieldReference,
+    ocIfNodeId,
+    ocMethodNodeId,
+    ocSystemNodeId,
+    OC_FREE_REQUEST,
+    OC_LOOP_ITERATOR
+} from '../../../models/opencelium-connection.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** One key/value pair of a request, as the table shows it. */
@@ -38,6 +51,18 @@ export interface WirePair {
 
     /** True when this value was entered by hand rather than worked out. */
     changed: boolean;
+}
+
+/**
+ * A value an earlier step has, and the reference that fetches it.
+ *
+ * Everything a call can be given beyond a typed-in literal: what the steps before it answered, and
+ * the DataGerry fields, which are that same answer under the names the user knows them by.
+ */
+export interface ValueSource {
+    group: string;
+    label: string;
+    reference: string;
 }
 
 /** One line of the sequence. */
@@ -90,14 +115,40 @@ export class WizardStepFlowComponent implements DoCheck {
     public steps: FlowStep[] = [];
     public openStep = '';
 
-    /** Which stage of adding a call is open: the kinds, the operations, or nothing. */
-    public adding: '' | 'kind' | 'operation' = '';
+    /** Which stage of adding a step is open: the kinds, the operations, a condition, or nothing. */
+    public adding: '' | 'kind' | 'operation' | 'condition' = '';
+
+    /** The condition being built, and the entry it belongs to while one is being changed. */
+    public condition: AutomationCallCondition = { left: '', operator: '=', right: '' };
+    public editing = '';
 
     /**
-     * What a step can be. Conditions and loops are shown but not offered yet: both are containers -
-     * things run inside them - and an added call names only the step it follows, so there is nowhere
-     * for a child to say which container it is in. Both would also need a condition builder, and an
-     * operator saved without an expression is rejected outright.
+     * The comparisons offered, in the engine's own vocabulary.
+     *
+     * A subset of what it knows: the ones whose meaning is the same to a person as to the parser.
+     * The operator itself is what the expression carries, so what is chosen here is what runs.
+     */
+    public readonly operators: ReadonlyArray<{ value: string; label: string; unary?: boolean }> = [
+        { value: '=', label: 'is' },
+        { value: '!=', label: 'is not' },
+        { value: 'Like', label: 'matches (% stands for anything)' },
+        { value: 'NotLike', label: 'does not match' },
+        { value: '>', label: 'is greater than' },
+        { value: '<', label: 'is less than' },
+        { value: '>=', label: 'is at least' },
+        { value: '<=', label: 'is at most' },
+        { value: 'NotNull', label: 'has a value', unary: true },
+        { value: 'IsNull', label: 'has no value', unary: true },
+        { value: 'NotEmpty', label: 'is a list with entries', unary: true },
+        { value: 'IsEmpty', label: 'is an empty list', unary: true }
+    ];
+
+    /**
+     * What a step can be.
+     *
+     * A loop is still missing: it would have to name the list it walks and give its iterator a name
+     * the steps inside it can use, and nothing in the sequence says which of an answer's lists is
+     * the one meant.
      */
     public readonly kinds: ReadonlyArray<{
         key: 'operation' | 'http' | 'if' | 'loop';
@@ -127,10 +178,10 @@ export class WizardStepFlowComponent implements DoCheck {
         {
             key: 'if',
             title: 'Condition',
-            what: 'Splits the sequence; what follows runs only in the branch that holds.',
+            what: 'Compares a value from a step that has already run. Everything placed after it '
+                + 'runs only when it holds.',
             icon: 'fas fa-code-branch',
-            available: false,
-            why: 'Needs the sequence to hold nested steps, and a builder for the condition itself.'
+            available: true
         },
         {
             key: 'loop',
@@ -145,22 +196,75 @@ export class WizardStepFlowComponent implements DoCheck {
     /** Filters the operation list, which is long enough on a real invoker to need it. */
     public operationFilter = '';
 
+    /**
+     * The DataGerry fields of the chosen object type, in the order the type declares them.
+     *
+     * That order is the address: DataGerry answers with `fields: [{ name, value }, ...]` in it, so
+     * the third field of the type is `fields[2].value` in the answer and nothing in the payload
+     * says which field that is. The names come from here so a reference can be offered by label.
+     */
+    @Input() public dataGerryFields: AutomationField[] = [];
+
+    /** The selected call's request, a row per value, cached against the template asking for it. */
+    public headerRows: WirePair[] = [];
+    public bodyRows: WirePair[] = [];
+
+    /** What the selected step could read, grouped by the step that answers it. */
+    public valueSources: ValueSource[] = [];
+
+    /** Which value the picker is currently filling in, and what it is being filtered by. */
+    public picking: { part: 'headers' | 'body' | 'endpoint'; key: string } | null = null;
+    public pickFilter = '';
+
+    /** The pair being added, kept apart from the saved ones until it has a name. */
+    public draft: Record<'headers' | 'body', { key: string; value: string }> = {
+        headers: { key: '', value: '' },
+        body: { key: '', value: '' }
+    };
+
     private seenConnection: OcConnection | null = null;
+    private seenStep = '';
+
+    /** Which node a just-added step becomes, so the detail pane opens on it rather than on nothing. */
+    private awaiting = '';
 
     /* ------------------------------------------------- CHANGE TRACKING ---------------------------------------------- */
 
     public ngDoCheck(): void {
-        if (this.connection === this.seenConnection) {
+        if (this.connection !== this.seenConnection) {
+            this.seenConnection = this.connection;
+            this.steps = this.buildSteps();
+
+            // A call just added is what the user wants to see; a row that no longer exists must not
+            // stay selected on one that is now something else.
+            const added = this.awaiting && this.steps.find(step => step.id === this.awaiting);
+
+            if (added) {
+                this.openStep = added.id;
+                this.awaiting = '';
+            } else if (!this.steps.some(step => step.id === this.openStep)) {
+                this.openStep = this.steps[0]?.id ?? '';
+            }
+
+            this.seenStep = '';
+        }
+
+        if (this.openStep === this.seenStep) {
             return;
         }
 
-        this.seenConnection = this.connection;
-        this.steps = this.buildSteps();
+        // Rebuilt here rather than read out of the template: every one of these walks the whole
+        // connection and hands back a new array, and a template that asks on each pass would keep
+        // finding a different one and never settle.
+        this.seenStep = this.openStep;
 
-        // A row that no longer exists must not stay selected on one that is now something else.
-        if (!this.steps.some(step => step.id === this.openStep)) {
-            this.openStep = this.steps[0]?.id ?? '';
-        }
+        const step = this.selected;
+
+        this.draft = { headers: { key: '', value: '' }, body: { key: '', value: '' } };
+        this.picking = null;
+        this.headerRows = step ? this.headersOf(step) : [];
+        this.bodyRows = step ? this.bodyOf(step) : [];
+        this.valueSources = this.buildValueSources(step);
     }
 
 
@@ -207,7 +311,7 @@ export class WizardStepFlowComponent implements DoCheck {
                 depth: depthOf(operator.index),
                 kind: 'if',
                 title: this.titleOfOperator(operator),
-                detail: 'branch',
+                detail: summarize(operator.expression),
                 system: '',
                 expression: operator.expression
             });
@@ -243,6 +347,10 @@ export class WizardStepFlowComponent implements DoCheck {
 
 
     private titleOfOperator(operator: OcOperator): string {
+        if (operator.id.startsWith('if-extra-')) {
+            return 'Only when it holds';
+        }
+
         if (operator.expression.includes('IsEmpty')) {
             return 'If it is not there';
         }
@@ -298,10 +406,7 @@ export class WizardStepFlowComponent implements DoCheck {
 
     /** Marks a value as bound or hand-entered, which is what decides whether it can be edited. */
     private decorate(step: FlowStep, pair: WirePair, part: 'headers' | 'body'): WirePair {
-        return {
-            ...pair,
-            changed: this.definition.overrides[step.index]?.[part]?.[pair.key] !== undefined
-        };
+        return { ...pair, changed: this.valuesOf(step)[part]?.[pair.key] !== undefined };
     }
 
     /* ----------------------------------------------------- EDITING -------------------------------------------------- */
@@ -309,28 +414,246 @@ export class WizardStepFlowComponent implements DoCheck {
     /**
      * Records a value entered by hand.
      *
-     * Kept as a correction to the call rather than written into the call, because the call itself is
-     * rebuilt from the definition on every change - anything written into it directly would vanish
-     * on the next keystroke elsewhere.
+     * Kept beside the call rather than written into it, because the call itself is rebuilt from the
+     * definition on every change - anything written into it directly would vanish on the next
+     * keystroke elsewhere. Where "beside" is depends on the call: one the user added is defined by
+     * its entry in the sequence, one the assistant built is corrected by its position.
      */
     public onEdit(step: FlowStep, part: 'headers' | 'body', key: string, value: string): void {
-        const current = this.definition.overrides[step.index] ?? {};
-        const section = { ...(current[part] ?? {}), [key]: value };
+        const current = this.valuesOf(step);
 
-        this.definition.overrides = {
-            ...this.definition.overrides,
-            [step.index]: { ...current, [part]: section }
-        };
-        this.definitionChange.emit(this.definition);
+        this.writeValues(step, { ...current, [part]: { ...(current[part] ?? {}), [key]: value } });
+    }
+
+
+    /** Adds a value the call did not have: a header of its own, or a field in its body. */
+    public onAddPair(step: FlowStep, part: 'headers' | 'body'): void {
+        const { key, value } = this.draft[part];
+
+        if (!key.trim()) {
+            return;
+        }
+
+        this.draft[part] = { key: '', value: '' };
+        this.onEdit(step, part, key.trim(), value);
+    }
+
+
+    /**
+     * Drops a value entered by hand.
+     *
+     * On a call the user added that removes the value outright; on one the assistant built it puts
+     * the value back to what the interface description says, which is the only thing "remove" can
+     * mean there - the call would send the field either way.
+     */
+    public onRemovePair(step: FlowStep, part: 'headers' | 'body', key: string): void {
+        const current = this.valuesOf(step);
+        const { [key]: _dropped, ...rest } = current[part] ?? {};
+
+        this.writeValues(step, { ...current, [part]: rest });
+    }
+
+
+    /** Whether the value came from the user, which is what there is to take back. */
+    public isOwn(step: FlowStep, part: 'headers' | 'body', key: string): boolean {
+        return this.valuesOf(step)[part]?.[key] !== undefined;
     }
 
 
     public onEditEndpoint(step: FlowStep, endpoint: string): void {
-        this.definition.overrides = {
-            ...this.definition.overrides,
-            [step.index]: { ...(this.definition.overrides[step.index] ?? {}), endpoint }
-        };
+        this.writeValues(step, { ...this.valuesOf(step), endpoint });
+    }
+
+
+    /** Where the values a user typed for this call are kept. */
+    private valuesOf(step: FlowStep): AutomationCallOverride {
+        const extra = this.extraFor(step);
+
+        return extra
+            ? { endpoint: extra.endpoint, headers: extra.headers, body: extra.body }
+            : (this.definition.overrides[step.index] ?? {});
+    }
+
+
+    private writeValues(step: FlowStep, values: AutomationCallOverride): void {
+        const extra = this.extraFor(step);
+
+        if (extra) {
+            this.definition.extras = this.definition.extras.map(candidate =>
+                candidate.id === extra.id ? { ...candidate, ...values } : candidate
+            );
+        } else {
+            this.definition.overrides = { ...this.definition.overrides, [step.index]: values };
+        }
+
         this.definitionChange.emit(this.definition);
+    }
+
+    /* ------------------------------------------------- VALUE PICKER ------------------------------------------------- */
+
+    public openPicker(part: 'headers' | 'body' | 'endpoint', key: string): void {
+        this.picking = { part, key };
+        this.pickFilter = '';
+    }
+
+
+    /**
+     * Puts a reference into the value being edited.
+     *
+     * Appended rather than substituted, because a value is often part text and part reference - an
+     * Authorization header is `Bearer` and then the token - and the engine replaces a reference
+     * wherever in the value it finds one.
+     */
+    public onPick(source: ValueSource): void {
+        const step = this.selected;
+        const target = this.picking;
+
+        if (!step || !target) {
+            return;
+        }
+
+        this.picking = null;
+
+        if (target.part === 'endpoint') {
+            const address = this.endpointOf(step);
+
+            this.onEditEndpoint(step, address ? `${address}${source.reference}` : source.reference);
+
+            return;
+        }
+
+        const rows = target.part === 'headers' ? this.headerRows : this.bodyRows;
+        const current = rows.find(pair => pair.key === target.key)?.value ?? '';
+
+        this.onEdit(step, target.part, target.key, current ? `${current} ${source.reference}` : source.reference);
+    }
+
+
+    /** The same, for a pair that is still being written and has nowhere to be saved yet. */
+    public onPickIntoDraft(source: ValueSource): void {
+        const target = this.picking;
+
+        if (!target || target.part === 'endpoint') {
+            return;
+        }
+
+        const draft = this.draft[target.part];
+
+        this.draft[target.part] = {
+            ...draft,
+            value: draft.value ? `${draft.value} ${source.reference}` : source.reference
+        };
+        this.picking = null;
+    }
+
+
+    public get filteredSources(): ValueSource[] {
+        const needle = this.pickFilter.trim().toLowerCase();
+
+        return needle
+            ? this.valueSources.filter(source =>
+                `${source.group} ${source.label}`.toLowerCase().includes(needle))
+            : this.valueSources;
+    }
+
+
+    /** The same values, grouped - a select needs them nested where a list does not. */
+    public get sourceGroups(): Array<{ name: string; items: ValueSource[] }> {
+        const groups: Array<{ name: string; items: ValueSource[] }> = [];
+
+        for (const source of this.valueSources) {
+            const group = groups.find(candidate => candidate.name === source.group);
+
+            if (group) {
+                group.items.push(source);
+            } else {
+                groups.push({ name: source.group, items: [source] });
+            }
+        }
+
+        return groups;
+    }
+
+
+    /** Whether the chosen comparison has a right-hand side at all. */
+    public get conditionNeedsValue(): boolean {
+        return !this.operators.find(entry => entry.value === this.condition.operator)?.unary;
+    }
+
+
+    /** Group heading, printed once above the first entry that belongs to it. */
+    public startsGroup(source: ValueSource, position: number): boolean {
+        return this.filteredSources[position - 1]?.group !== source.group;
+    }
+
+
+    /**
+     * Everything the selected step could read.
+     *
+     * Only steps that have already run: a call cannot use an answer that has not been given yet, and
+     * offering one would produce a reference the engine resolves to nothing. The element a reference
+     * points at follows from the same rule the compiler uses - the list the loop walks is addressed
+     * by its iterator, so every pass reads its own object, and anything else by position.
+     */
+    private buildValueSources(step: FlowStep | undefined): ValueSource[] {
+        if (!this.connection || !step) {
+            return [];
+        }
+
+        const methods = this.connection.fromConnector.methods;
+        const iterated = this.loopArrayPath();
+        const sources: ValueSource[] = [];
+
+        for (const method of methods) {
+            if (compareIndex(method.index, step.index) >= 0 || method.methodType === OC_FREE_REQUEST) {
+                continue;
+            }
+
+            const group = method.connector?.title
+                ? `${method.connector.title} · ${method.name}`
+                : method.name;
+
+            for (const path of leafPaths(method.response?.success?.body?.fields, iterated)) {
+                sources.push({
+                    group,
+                    label: path,
+                    reference: ocFieldReference(method.color, 'response', path)
+                });
+            }
+        }
+
+        return [...this.dataGerryFieldSources(methods[0], iterated), ...sources];
+    }
+
+
+    /**
+     * The DataGerry fields, by the names the user knows them by.
+     *
+     * Only when DataGerry is the side being read - when it is being written, its fields are where
+     * values go, not somewhere they come from, and the mapping step is what fills them.
+     */
+    private dataGerryFieldSources(source: OcMethod | undefined, iterated: string): ValueSource[] {
+        if (!source || this.definition.direction !== 'outgoing') {
+            return [];
+        }
+
+        return this.dataGerryFields.map((field, position) => ({
+            group: 'DataGerry fields',
+            label: field.label || field.name,
+            reference: ocFieldReference(
+                source.color,
+                'response',
+                `${iterated}[${OC_LOOP_ITERATOR}].fields[${position}].value`
+            )
+        }));
+    }
+
+
+    /** Which list the loop walks, read back out of its own expression. */
+    private loopArrayPath(): string {
+        const loop = this.connection?.fromConnector.operators.find(operator => operator.type === 'loop');
+
+        return /body\.\$\.(.+?)\[\*\]/.exec(loop?.expression ?? '')?.[1] ?? '';
     }
 
 
@@ -363,9 +686,61 @@ export class WizardStepFlowComponent implements DoCheck {
             return;
         }
 
+        if (key === 'if') {
+            this.condition = { left: this.valueSources[0]?.reference ?? '', operator: '=', right: '' };
+            this.editing = '';
+            this.adding = 'condition';
+
+            return;
+        }
+
         if (key === 'http') {
             this.addExtra({ kind: 'http', operation: '', verb: 'POST', endpoint: '' });
         }
+    }
+
+
+    /**
+     * Puts the condition being built into the sequence, or back into the step it came from.
+     *
+     * A condition with nothing to test would compile to an operator without an expression, which
+     * OpenCelium rejects outright - so the sheet cannot be finished until it has a left-hand side.
+     */
+    public onSaveCondition(): void {
+        if (!this.condition.left) {
+            return;
+        }
+
+        const condition = { ...this.condition };
+
+        if (this.editing) {
+            const id = this.editing;
+
+            this.definition.extras = this.definition.extras.map(candidate =>
+                candidate.id === id ? { ...candidate, condition } : candidate
+            );
+            this.adding = '';
+            this.editing = '';
+            this.definitionChange.emit(this.definition);
+
+            return;
+        }
+
+        this.addExtra({ kind: 'if', operation: '', condition });
+    }
+
+
+    /** Opens the condition of an added `if` for a second look. */
+    public onEditCondition(step: FlowStep): void {
+        const extra = this.extraFor(step);
+
+        if (!extra) {
+            return;
+        }
+
+        this.condition = { left: '', operator: '=', right: '', ...(extra.condition ?? {}) };
+        this.editing = extra.id;
+        this.adding = 'condition';
     }
 
 
@@ -400,15 +775,20 @@ export class WizardStepFlowComponent implements DoCheck {
     private addExtra(partial: Omit<AutomationExtraCall, 'id' | 'after'>): void {
         const after = this.selected;
 
-        if (!after || after.kind !== 'call') {
+        if (!after) {
             return;
         }
 
-        this.definition.extras = [...this.definition.extras, {
+        const extra: AutomationExtraCall = {
             ...partial,
-            id: `extra-${after.index}-${this.definition.extras.length + 1}`,
-            after: after.index
-        }];
+            id: `extra-${this.definition.extras.length + 1}-${Date.now()}`,
+            // A step the user added is named by its own id; one from the skeleton by its position,
+            // which is stable because the skeleton is rebuilt the same way every time.
+            after: this.extraFor(after)?.id ?? after.index
+        };
+
+        this.definition.extras = [...this.definition.extras, extra];
+        this.awaiting = nodeIdOf(extra);
         this.adding = '';
         this.definitionChange.emit(this.definition);
     }
@@ -480,9 +860,19 @@ export class WizardStepFlowComponent implements DoCheck {
 
         const { [step.index]: _dropped, ...overrides } = this.definition.overrides;
 
-        this.definition.extras = this.definition.extras.filter(candidate => candidate.id !== extra.id);
+        this.definition.extras = this.definition.extras
+            .filter(candidate => candidate.id !== extra.id)
+            // Steps placed inside or after this one move up to where it stood, rather than being
+            // taken out with it or left pointing at something that is gone.
+            .map(candidate => candidate.after === extra.id ? { ...candidate, after: extra.after } : candidate);
         this.definition.overrides = overrides;
         this.definitionChange.emit(this.definition);
+    }
+
+
+    /** Whether the step is a condition of the user's own, which is the one that can be changed. */
+    public isAddedCondition(step: FlowStep): boolean {
+        return step.kind === 'if' && this.extraFor(step)?.kind === 'if';
     }
 
 
@@ -526,25 +916,7 @@ export class WizardStepFlowComponent implements DoCheck {
 
 
     private extraFor(step: FlowStep): AutomationExtraCall | undefined {
-        // An added call keeps no index of its own, so it is found by where it was placed.
-        return this.definition.extras.find(extra => this.indexOfExtra(extra) === step.index);
-    }
-
-
-    /**
-     * Where an added call ended up.
-     *
-     * The compiler numbers them after the skeleton, in the order they were added, beside the step
-     * they follow - repeating that here is what lets a row be traced back to its entry.
-     */
-    private indexOfExtra(extra: AutomationExtraCall): string {
-        const siblings = this.definition.extras.filter(candidate => candidate.after === extra.after);
-        const position = siblings.indexOf(extra);
-        const parts = extra.after.split('_');
-        const parent = parts.slice(0, -1).join('_');
-        const base = Number(parts[parts.length - 1]) + 1 + position;
-
-        return parent ? `${parent}_${base}` : String(base);
+        return this.definition.extras.find(extra => nodeIdOf(extra) === step.id);
     }
 
 
@@ -596,6 +968,64 @@ function compareIndex(left: string, right: string): number {
     }
 
     return 0;
+}
+
+
+/**
+ * A condition in as few words as the tree row has space for.
+ *
+ * References are what make an expression unreadable at a glance, and their last segment is the part
+ * that carries the meaning: `{%#FFCFB5.(response).body.$.results[i].type_id%} = '12'` is, to
+ * someone scanning the sequence, `type_id = '12'`.
+ */
+function summarize(expression: string): string {
+    return expression
+        .replace(/\{%(.*?)%\}/g, (_all, reference: string) => reference.split('.').pop() ?? reference)
+        .replace(/^\((.*)\)$/, '$1');
+}
+
+
+/**
+ * Which node in the compiled connection an added step became.
+ *
+ * Its own id, not its position: a position moves the moment something is inserted above it, and the
+ * whole point of the link is that the row in front of the user can be traced back to the entry that
+ * produced it - to be changed, moved or taken out again.
+ */
+function nodeIdOf(extra: AutomationExtraCall): string {
+    if (extra.kind === 'if') {
+        return ocIfNodeId(extra.id);
+    }
+
+    return extra.kind === 'http' ? ocSystemNodeId(extra.id) : ocMethodNodeId(extra.id);
+}
+
+
+/**
+ * Flattens a response schema to the paths a reference can point at.
+ *
+ * A schema describes a list by one sample element, so a list becomes one set of paths rather than
+ * one per entry. Which entry those paths mean is the whole question: the list the loop walks is
+ * addressed by the iterator, so a reference into it reads the object of the current pass, and every
+ * other list by its first entry - which is what a lookup's answer is.
+ */
+function leafPaths(node: unknown, iterated: string, prefix = ''): string[] {
+    if (node === null || node === undefined || prefix.split('.').length > 6) {
+        return [];
+    }
+
+    if (Array.isArray(node)) {
+        const element = prefix === iterated ? OC_LOOP_ITERATOR : '0';
+
+        return node.length === 0 ? [prefix] : leafPaths(node[0], iterated, `${prefix}[${element}]`);
+    }
+
+    if (typeof node !== 'object') {
+        return prefix ? [prefix] : [];
+    }
+
+    return Object.entries(node as Record<string, unknown>)
+        .flatMap(([key, value]) => leafPaths(value, iterated, prefix ? `${prefix}.${key}` : key));
 }
 
 

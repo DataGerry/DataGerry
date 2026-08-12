@@ -46,10 +46,10 @@
         <button
           type="button"
           class="tree__addbtn"
-          [disabled]="selected?.kind !== 'call'"
-          [title]="selected?.kind === 'call'
-            ? 'Runs after the selected step'
-            : 'Select a call first — a step cannot follow a condition itself'"
+          [disabled]="!selected"
+          [title]="selected?.kind === 'if'
+            ? 'Runs inside the selected condition'
+            : 'Runs after the selected step'"
           (click)="startAdding()">
           + Add a step in the target system
         </button>
@@ -69,7 +69,11 @@
             </div>
 
             <div class="detail__tools">
-              @if (isAdded(step)) {
+              @if (isAddedCondition(step)) {
+                <button type="button" class="btn btn-secondary btn-sm" (click)="onRemoveCall(step)">
+                  <i class="fas fa-times me-1"></i> Remove
+                </button>
+              } @else if (isAdded(step)) {
                 <button
                   type="button"
                   class="btn btn-secondary btn-sm"
@@ -101,10 +105,19 @@
             <div class="wire__block">
               <div class="wire__label">Condition</div>
               <pre class="wire__code">{{ step.expression }}</pre>
-              <p class="wizard-section__hint mb-0">
-                Everything set back below this row runs only when it holds. The condition follows
-                from the connection, so it is not edited here.
-              </p>
+              @if (isAddedCondition(step)) {
+                <button type="button" class="btn btn-secondary btn-sm mt-2" (click)="onEditCondition(step)">
+                  <i class="fas fa-pen me-1"></i> Change what it tests
+                </button>
+                <p class="wizard-section__hint mb-0 mt-2">
+                  Everything placed after this step runs inside it — only when the comparison holds.
+                </p>
+              } @else {
+                <p class="wizard-section__hint mb-0">
+                  Everything set back below this row runs only when it holds. The condition follows
+                  from the connection, so it is not edited here.
+                </p>
+              }
             </div>
           } @else {
             <div class="wire__block">
@@ -127,60 +140,169 @@
                   class="form-control form-control-sm wire__input"
                   [value]="endpointOf(step)"
                   (change)="onEditEndpoint(step, $any($event.target).value)">
+                <button
+                  type="button"
+                  class="wire__pick"
+                  title="Append a value from an earlier step"
+                  (click)="openPicker('endpoint', '')">
+                  <i class="fas fa-link"></i>
+                </button>
               </div>
             </div>
 
-            @if (headersOf(step).length > 0) {
-              <div class="wire__block">
-                <div class="wire__label">Headers</div>
-                <table class="wire__table">
-                  @for (pair of headersOf(step); track pair.key) {
-                    <tr>
-                      <td class="wire__key">{{ pair.key }}</td>
-                      <td>
+            <div class="wire__block">
+              <div class="wire__label">Headers</div>
+              <table class="wire__table">
+                @for (pair of headerRows; track pair.key) {
+                  <tr>
+                    <td class="wire__key">{{ pair.key }}</td>
+                    <td>
+                      <div class="wire__value">
                         <input
                           type="text"
                           class="form-control form-control-sm wire__input"
                           [class.is-changed]="pair.changed"
                           [value]="pair.value"
                           (change)="onEdit(step, 'headers', pair.key, $any($event.target).value)">
-                      </td>
-                    </tr>
-                  }
-                </table>
-              </div>
-            }
+                        <button
+                          type="button"
+                          class="wire__pick"
+                          title="Insert a value from an earlier step"
+                          (click)="openPicker('headers', pair.key)">
+                          <i class="fas fa-link"></i>
+                        </button>
+                        @if (isOwn(step, 'headers', pair.key)) {
+                          <button
+                            type="button"
+                            class="wire__drop"
+                            [title]="isAdded(step) ? 'Remove this header' : 'Put it back as it was'"
+                            (click)="onRemovePair(step, 'headers', pair.key)">
+                            <i class="fas fa-times"></i>
+                          </button>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
 
-            @if (bodyOf(step).length > 0) {
-              <div class="wire__block">
-                <div class="wire__label">Body</div>
-                <table class="wire__table">
-                  @for (pair of bodyOf(step); track pair.key) {
-                    <tr>
-                      <td class="wire__key">{{ pair.key }}</td>
-                      <td>
-                        @if (pair.bound || pair.reference) {
-                          <span
-                            class="wire__ref"
-                            title="Written by the field assignment - change it there">{{ pair.value }}</span>
-                        } @else {
+                <tr class="wire__new">
+                  <td class="wire__key">
+                    <input
+                      type="text"
+                      class="form-control form-control-sm"
+                      placeholder="Header name"
+                      [(ngModel)]="draft.headers.key">
+                  </td>
+                  <td>
+                    <div class="wire__value">
+                      <input
+                        type="text"
+                        class="form-control form-control-sm wire__input"
+                        placeholder="Value"
+                        [(ngModel)]="draft.headers.value"
+                        (keyup.enter)="onAddPair(step, 'headers')">
+                      <button
+                        type="button"
+                        class="wire__pick"
+                        title="Insert a value from an earlier step"
+                        (click)="openPicker('headers', '')">
+                        <i class="fas fa-link"></i>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        [disabled]="!draft.headers.key"
+                        (click)="onAddPair(step, 'headers')">
+                        Add
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </div>
+
+            <div class="wire__block">
+              <div class="wire__label">Body</div>
+              <table class="wire__table">
+                @for (pair of bodyRows; track pair.key) {
+                  <tr>
+                    <td class="wire__key">{{ pair.key }}</td>
+                    <td>
+                      @if (pair.bound) {
+                        <span
+                          class="wire__ref"
+                          title="Written by the field assignment - change it there">{{ pair.value }}</span>
+                      } @else {
+                        <div class="wire__value">
                           <input
                             type="text"
                             class="form-control form-control-sm wire__input"
                             [class.is-changed]="pair.changed"
+                            [class.is-ref]="pair.reference"
                             [value]="pair.value"
                             (change)="onEdit(step, 'body', pair.key, $any($event.target).value)">
-                        }
-                      </td>
-                    </tr>
-                  }
-                </table>
-                <p class="wizard-section__hint mb-0">
-                  Marked values come from the field assignment and are changed there. The rest can be
-                  edited here — a foreign API often wants something no field covers.
-                </p>
-              </div>
-            }
+                          <button
+                            type="button"
+                            class="wire__pick"
+                            title="Insert a value from an earlier step"
+                            (click)="openPicker('body', pair.key)">
+                            <i class="fas fa-link"></i>
+                          </button>
+                          @if (isOwn(step, 'body', pair.key)) {
+                            <button
+                              type="button"
+                              class="wire__drop"
+                              [title]="isAdded(step) ? 'Remove this field' : 'Put it back as it was'"
+                              (click)="onRemovePair(step, 'body', pair.key)">
+                              <i class="fas fa-times"></i>
+                            </button>
+                          }
+                        </div>
+                      }
+                    </td>
+                  </tr>
+                }
+
+                <tr class="wire__new">
+                  <td class="wire__key">
+                    <input
+                      type="text"
+                      class="form-control form-control-sm"
+                      placeholder="Field, e.g. params.title"
+                      [(ngModel)]="draft.body.key">
+                  </td>
+                  <td>
+                    <div class="wire__value">
+                      <input
+                        type="text"
+                        class="form-control form-control-sm wire__input"
+                        placeholder="Value"
+                        [(ngModel)]="draft.body.value"
+                        (keyup.enter)="onAddPair(step, 'body')">
+                      <button
+                        type="button"
+                        class="wire__pick"
+                        title="Insert a value from an earlier step"
+                        (click)="openPicker('body', '')">
+                        <i class="fas fa-link"></i>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        [disabled]="!draft.body.key"
+                        (click)="onAddPair(step, 'body')">
+                        Add
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <p class="wizard-section__hint mb-0">
+                Marked values come from the field assignment and are changed there. Everything else
+                can be typed in or taken from a step that has already run — a foreign API often wants
+                something no field covers.
+              </p>
+            </div>
 
             @if (isAdded(step) && idCandidatesOf(step).length > 0) {
               <div class="wire__block">
@@ -211,6 +333,8 @@
             <h5 class="sheet__title" id="sheet-title">
               @if (adding === 'kind') {
                 What should the step do?
+              } @else if (adding === 'condition') {
+                What does it compare?
               } @else {
                 Which call?
               }
@@ -218,6 +342,9 @@
             <p class="sheet__lead">
               @if (adding === 'kind') {
                 A step either makes a call, or governs what happens after it.
+              } @else if (adding === 'condition') {
+                A value from a step that has already run, against a value you give or another the
+                sequence holds. Everything placed after this step then runs only when it holds.
               } @else {
                 Every operation the target system describes. Headers and body come from its
                 interface description.
@@ -225,7 +352,60 @@
             </p>
           </div>
 
-          @if (adding === 'kind') {
+          @if (adding === 'condition') {
+            <div class="cond">
+              <label class="cond__label" for="cond-left">Value</label>
+              <select class="form-select form-select-sm" id="cond-left" [(ngModel)]="condition.left">
+                <option value="" disabled>Pick a value from an earlier step</option>
+                @for (group of sourceGroups; track group.name) {
+                  <optgroup [label]="group.name">
+                    @for (source of group.items; track source.reference) {
+                      <option [value]="source.reference">{{ source.label }}</option>
+                    }
+                  </optgroup>
+                }
+              </select>
+
+              <label class="cond__label" for="cond-op">Comparison</label>
+              <select class="form-select form-select-sm" id="cond-op" [(ngModel)]="condition.operator">
+                @for (entry of operators; track entry.value) {
+                  <option [value]="entry.value">{{ entry.label }}</option>
+                }
+              </select>
+
+              @if (conditionNeedsValue) {
+                <label class="cond__label" for="cond-right">Against</label>
+                <div class="cond__right">
+                  <input
+                    type="text"
+                    class="form-control form-control-sm"
+                    id="cond-right"
+                    placeholder="A value, e.g. server"
+                    [(ngModel)]="condition.right">
+
+                  <select
+                    class="form-select form-select-sm"
+                    [ngModel]="''"
+                    (ngModelChange)="condition.right = $event">
+                    <option value="">…or another value from the sequence</option>
+                    @for (group of sourceGroups; track group.name) {
+                      <optgroup [label]="group.name">
+                        @for (source of group.items; track source.reference) {
+                          <option [value]="source.reference">{{ source.label }}</option>
+                        }
+                      </optgroup>
+                    }
+                  </select>
+                </div>
+              }
+
+              @if (!valueSources.length) {
+                <p class="text-muted mb-0">
+                  No step before this one answers with anything, so there is nothing to compare yet.
+                </p>
+              }
+            </div>
+          } @else if (adding === 'kind') {
             <div class="sheet__kinds">
               @for (kind of kinds; track kind.key) {
                 <button
@@ -263,12 +443,79 @@
           }
 
           <div class="sheet__foot">
-            @if (adding === 'operation') {
+            @if (adding !== 'kind' && !editing) {
               <button type="button" class="btn btn-secondary btn-sm" (click)="adding = 'kind'">
                 ← Back
               </button>
             }
-            <button type="button" class="btn btn-secondary btn-sm" (click)="adding = ''">Cancel</button>
+            <button type="button" class="btn btn-secondary btn-sm" (click)="adding = ''; editing = ''">
+              Cancel
+            </button>
+            @if (adding === 'condition') {
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                [disabled]="!condition.left"
+                (click)="onSaveCondition()">
+                {{ editing ? 'Save' : 'Add the condition' }}
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (picking) {
+      <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pick-title">
+        <div class="sheet__box">
+          <div class="sheet__head">
+            <div class="sheet__eyebrow">
+              @if (picking.part === 'endpoint') {
+                Into the address
+              } @else if (picking.key) {
+                Into {{ picking.key }}
+              } @else {
+                Into the new value
+              }
+            </div>
+            <h5 class="sheet__title" id="pick-title">Which value?</h5>
+            <p class="sheet__lead">
+              What the steps before this one answered. Nothing later is offered — a call cannot use
+              an answer that has not been given yet.
+            </p>
+          </div>
+
+          <div class="sheet__ops">
+            <input
+              type="text"
+              class="form-control form-control-sm"
+              placeholder="Filter values"
+              [(ngModel)]="pickFilter">
+
+            <div class="sheet__oplist">
+              @for (source of filteredSources; track source.reference; let position = $index) {
+                @if (startsGroup(source, position)) {
+                  <div class="pick__group">{{ source.group }}</div>
+                }
+                <button
+                  type="button"
+                  class="op pick"
+                  (click)="picking?.key || picking?.part === 'endpoint'
+                    ? onPick(source)
+                    : onPickIntoDraft(source)">
+                  <span class="pick__label">{{ source.label }}</span>
+                  <span class="pick__ref">{{ source.reference }}</span>
+                </button>
+              } @empty {
+                <p class="text-muted mb-0">
+                  Nothing to read here — no step before this one answers with anything.
+                </p>
+              }
+            </div>
+          </div>
+
+          <div class="sheet__foot">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="picking = null">Cancel</button>
           </div>
         </div>
       </div>
