@@ -116,3 +116,39 @@ what to reach for when a server rejects one.
 It talks to OpenCelium directly - `POST /connection`, not the `/rest/open_celium/schedulers` the
 wizard uses, which is DataGerry's own path in front of it. Only the connection half is sent; the
 scheduler beside it decides when an automation runs, and this is about what it would run.
+
+## Checking that the engine does what was compiled
+
+The last question, and the one none of the three above can answer: a condition that is never
+evaluated looks exactly like one that is, and so does a reference that resolves to nothing.
+
+`live-run.ts` runs the same automation twice, differing only in what its condition compares
+against - once so it holds, once so it does not - and reads back the execution tree OpenCelium
+logged. What it prints is the `if` result and the payload the request actually carried:
+
+```
+[holds   ] connection 77, if -> true, sent {"title": "jakobs Client"}
+[does not] connection 78, if -> false, nothing sent
+```
+
+**It is safe to run against a live installation.** The write into the target system is replaced,
+after compiling and before sending, with a request to a host that does not resolve - so the
+automation reads DataGerry, evaluates the condition, and at most fails to reach a hostname that has
+no address. Nothing it runs can reach the target system. Both connections and both schedulers are
+deleted afterwards.
+
+```bash
+node_modules/esbuild/bin/esbuild tools/verify-automation-compiler/live-run.ts \
+  --bundle --platform=node --format=cjs \
+  --alias:@angular/core=tools/verify-automation-compiler/stub-angular-core.js \
+  --outfile=/tmp/oc/live-run.cjs --log-level=error
+
+OC_BASE=$OC OC_TOKEN="$TOKEN" DG_DATA_DIR=/tmp/oc \
+  RUN_TYPE_ID=10 RUN_FIELDS=text-98758,dg-modelspec-manufacturer RUN_MATCH=jakob \
+  node /tmp/oc/live-run.cjs
+```
+
+`RUN_TYPE_ID` must be an object type that holds at least one object - a type with none makes the
+loop run zero times and the check prove nothing. `RUN_FIELDS` is that type's field names **in the
+order the type declares them**, because that order is the address of a value. `RUN_MATCH` is a
+piece of text the first of those fields contains on at least one object.
