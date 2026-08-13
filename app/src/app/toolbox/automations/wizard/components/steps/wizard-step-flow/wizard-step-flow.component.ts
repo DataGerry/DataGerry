@@ -235,7 +235,9 @@ export class WizardStepFlowComponent implements DoCheck {
     /* ------------------------------------------------- CHANGE TRACKING ---------------------------------------------- */
 
     public ngDoCheck(): void {
-        if (this.connection !== this.seenConnection) {
+        const recompiled = this.connection !== this.seenConnection;
+
+        if (recompiled) {
             this.seenConnection = this.connection;
             this.steps = this.buildSteps();
 
@@ -249,23 +251,28 @@ export class WizardStepFlowComponent implements DoCheck {
             } else if (!this.steps.some(step => step.id === this.openStep)) {
                 this.openStep = this.steps[0]?.id ?? '';
             }
-
-            this.seenStep = '';
         }
 
-        if (this.openStep === this.seenStep) {
+        const moved = this.openStep !== this.seenStep;
+
+        if (!recompiled && !moved) {
             return;
+        }
+
+        // Only when the user actually goes somewhere else. Every edit recompiles the connection,
+        // and clearing the pair being typed on each of those would take a half-written header away
+        // from under whoever is writing it.
+        if (moved) {
+            this.seenStep = this.openStep;
+            this.draft = { headers: { key: '', value: '' }, body: { key: '', value: '' } };
+            this.picking = null;
         }
 
         // Rebuilt here rather than read out of the template: every one of these walks the whole
         // connection and hands back a new array, and a template that asks on each pass would keep
         // finding a different one and never settle.
-        this.seenStep = this.openStep;
-
         const step = this.selected;
 
-        this.draft = { headers: { key: '', value: '' }, body: { key: '', value: '' } };
-        this.picking = null;
         this.headerRows = step ? this.headersOf(step) : [];
         this.bodyRows = step ? this.bodyOf(step) : [];
         this.valueSources = this.buildValueSources(step);
