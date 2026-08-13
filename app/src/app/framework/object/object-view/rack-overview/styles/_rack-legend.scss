@@ -1,0 +1,115 @@
+/* Rack › legend — the key above the stage: the types drawn in the rack and what the occupants hold. */
+
+.rack-legend {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: $paper;
+  border: 1px solid $hairline;
+  border-radius: $radius-sm;
+
+  &__title {
+    flex: none;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: $ink-4;
+  }
+
+  &__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.5rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    /*
+     * Open, the key can carry dozens of types. It is capped at a few rows and scrolls inside itself,
+     * so a crowded rack never pushes the elevation below the fold.
+     */
+    &--open {
+      max-height: 7.5rem;
+      overflow-y: auto;
+    }
+  }
+
+  &__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: 15rem;
+    padding: 0.15rem 0.5rem 0.15rem 0.15rem;
+    background: $sunk;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    color: $ink-2;
+
+    &--occupant {
+      background: transparent;
+      border: 1px dashed $hairline;
+    }
+  }
+
+  &__chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.06);
+    color: $ink-3;
+    font-size: 0.6rem;
+  }
+
+  &__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__count {
+    flex: none;
+    font-weight: 600;
+    color: $ink;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__held {
+    flex: none;
+    color: $ink-4;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__more {
+    flex: none;
+    align-self: center;
+    padding: 0.15rem 0.55rem;
+    border: 1px solid $hairline;
+    border-radius: 999px;
+    background: $paper;
+    color: $ink-2;
+    font-size: 0.72rem;
+    font-weight: 600;
+    transition: border-color $ease, background $ease, color $ease;
+
+    &:hover {
+      border-color: rgba($primary, 0.45);
+      background: rgba($primary, 0.06);
+      color: $primary;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+  }
+}

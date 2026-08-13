@@ -23,8 +23,10 @@ import { Observable, finalize, of, switchMap } from 'rxjs';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 import {
+    RACK_EDIT_RIGHT,
     RACK_OCCUPANT_FORBIDDEN_AREAS,
     RACK_OCCUPANT_KINDS,
     RACK_SLOT_AREAS,
@@ -107,7 +109,12 @@ export class RackMountModalComponent implements OnInit {
     private readonly rackOverviewService = inject(RackOverviewService);
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
+    private readonly permissionService = inject(PermissionService);
     private readonly destroyRef = inject(DestroyRef);
+
+    /** The modal is opened from code, so it re-checks the right instead of trusting its caller. */
+    public readonly canEdit = this.permissionService.hasRight(RACK_EDIT_RIGHT)
+        || this.permissionService.hasExtendedRight(RACK_EDIT_RIGHT);
 
     /**
      * Decorator inputs on purpose: NgbModal hands the values over by assigning them on the component
@@ -205,6 +212,11 @@ export class RackMountModalComponent implements OnInit {
                 this.applyAreaRules(area);
                 this.validationErrors.set([]);
             });
+
+        // Read-only without the right; silent, so the derived fields keep the values they show.
+        if (!this.canEdit) {
+            this.form.disable({ emitEvent: false });
+        }
     }
 
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
@@ -215,6 +227,10 @@ export class RackMountModalComponent implements OnInit {
 
     /** Pre-validates through the dry-run route and only writes when the placement is accepted. */
     public onSubmit(): void {
+        if (!this.canEdit) {
+            return;
+        }
+
         if (this.form.invalid) {
             this.form.markAllAsTouched();
             return;

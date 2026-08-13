@@ -1,0 +1,123 @@
+/* Rack › toolbar — the action row above the stage: the face switch, the zoom and the fullscreen control. */
+
+.rack-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+
+  &__spacer {
+    flex: 1 1 auto;
+  }
+}
+
+.rack-switch {
+  display: inline-flex;
+  padding: 0.2rem;
+  gap: 0.15rem;
+  background: $sunk;
+  border: 1px solid $hairline;
+  border-radius: 999px;
+
+  &__option {
+    padding: 0.3rem 0.9rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: $ink-3;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: background $ease, color $ease, box-shadow $ease;
+
+    &:hover {
+      color: $ink;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    &--active,
+    &--active:hover {
+      background: $paper;
+      color: $primary;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+    }
+  }
+}
+
+/* A flat icon control: no chrome at rest, a tinted lift on hover, filled while it is on. */
+.rack-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: $radius-sm;
+  background: transparent;
+  color: $ink-3;
+  font-size: 0.8rem;
+  transition: background $ease, color $ease, box-shadow $ease, transform $ease;
+
+  &:hover:not(:disabled) {
+    background: rgba(15, 23, 42, 0.06);
+    color: $ink;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px -6px rgba(15, 23, 42, 0.45);
+  }
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &--on,
+  &--on:hover:not(:disabled) {
+    background: $primary;
+    color: #fff;
+    box-shadow: 0 4px 12px -6px rgba($primary, 0.9);
+  }
+}
+
+.rack-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+
+  /* The read-out is also the reset; a fixed width keeps the group from jumping as the figure changes. */
+  &__level {
+    min-width: 3.4rem;
+    padding: 0.3rem 0.5rem;
+    border: 0;
+    border-radius: 0.45rem;
+    background: rgba(15, 23, 42, 0.05);
+    color: $ink-3;
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    transition: background $ease, color $ease;
+
+    &:hover:not(:disabled) {
+      background: rgba(15, 23, 42, 0.1);
+      color: $ink;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    &:disabled {
+      cursor: default;
+    }
+  }
+}

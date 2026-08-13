@@ -1,0 +1,82 @@
+/* Rack › callout — the inline notices: height conflicts, unset geometry and other warnings. */
+
+.rack-callout {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: $radius-sm;
+  border: 1px solid $hairline;
+  background: $sunk;
+
+  > i {
+    flex: none;
+    margin-top: 0.1rem;
+  }
+
+  &--warn {
+    background: #fffaf0;
+    border-color: #fbe6c2;
+
+    > i {
+      color: #b45309;
+    }
+  }
+
+  &--error {
+    background: #fef6f6;
+    border-color: #f6d9d9;
+
+    > i {
+      color: $dg-error-message-color;
+    }
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: $ink-2;
+  }
+
+  &__text {
+    margin: 0.1rem 0 0;
+    font-size: 0.8rem;
+    color: $ink-3;
+  }
+
+  &__list {
+    margin: 0.3rem 0 0;
+    padding-left: 1.1rem;
+    font-size: 0.8rem;
+    color: $ink-3;
+
+    li + li {
+      margin-top: 0.2rem;
+    }
+
+    b {
+      color: $ink-2;
+      font-weight: 600;
+    }
+  }
+
+  &__action {
+    margin-left: 0.35rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: $primary;
+    font-size: 0.8rem;
+    font-weight: 600;
+
+    &:hover {
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      border-radius: 0.2rem;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+  }
+}

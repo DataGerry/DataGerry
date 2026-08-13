@@ -1,0 +1,25 @@
+/* Rack › shell — the root element and the geometry custom properties the whole drawing reads. */
+
+.rack-view {
+  /* One U. Every row track and every plate height is a multiple of it. */
+  --rack-u: 1.7rem;
+  /* One elevation. A rack is tall, not wide, so the face never stretches with the page. */
+  --rack-face: 16.4rem;
+  --rack-spine: 2.75rem;
+  --rack-cap: 1.85rem;
+  --rack-plinth: 1rem;
+  --rack-jamb: 0.4rem;
+  --rack-post: 0.8rem;
+  /* The colour a row carries: its type, its reservation colour, or the neutral fallback. */
+  --rack-tone: #{$ink-3};
+
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  color: $ink;
+
+  /* The loader overlay is fixed-position, so its host must not take a slot in the column. */
+  > app-loading-popup {
+    display: contents;
+  }
+}

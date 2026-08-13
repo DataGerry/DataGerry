@@ -1,0 +1,33 @@
+/*
+ * Rack elevation styles. A manifest only, over the shared partial library in ../../styles.
+ *
+ * Everything the U grid places lives in this one component, so no rule has to cross an encapsulation
+ * boundary to position a grid item. The two states the shell owns - the compact density and a drag in
+ * flight - are read off it with :host-context.
+ *
+ *   rack-tokens ................ palette, radii, shadows, easing. Must stay first.
+ *   rack-board ................. the scrolling surface, which is this component's host
+ *   rack-rail .................. the LEFT and RIGHT cards beside the enclosure
+ *   rack-grid .................. the shared U grid and the columns each view uses
+ *   rack-cabinet ............... the steel enclosure: shell, cap, cavity, posts, plinth
+ *   rack-ruler ................. the U numbering
+ *   rack-bay ................... a free slot and its mount affordance
+ *   rack-unit .................. a mounted faceplate, and the cross-face link marker
+ *   rack-buttons ............... the icon controls the rail cards expose
+ *   rack-density-elevation ..... the plate detail dropped at compact row height
+ *   rack-dnd-elevation ......... grab affordances, the per-face hit area, the drop preview band
+ *   rack-responsive-elevation .. breakpoint overrides. Must stay last; it wins on source order.
+ */
+
+@import "../../styles/rack-tokens";
+@import "../../styles/rack-board";
+@import "../../styles/rack-rail";
+@import "../../styles/rack-grid";
+@import "../../styles/rack-cabinet";
+@import "../../styles/rack-ruler";
+@import "../../styles/rack-bay";
+@import "../../styles/rack-unit";
+@import "../../styles/rack-buttons";
+@import "../../styles/rack-density-elevation";
+@import "../../styles/rack-dnd-elevation";
+@import "../../styles/rack-responsive-elevation";

@@ -15,336 +15,140 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import {
-    ChangeDetectionStrategy,
-    ChangeDetectorRef,
-    Component,
-    inject,
-    Input,
-    OnChanges,
-    OnDestroy,
-    SimpleChanges
-} from '@angular/core';
-import { Router } from '@angular/router';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { Subject, finalize, takeUntil } from 'rxjs';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 
-import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
-import { LoaderService } from 'src/app/core/services/loader.service';
-import { ToastService } from 'src/app/layout/toast/toast.service';
-
-import { RackMountModalComponent } from './components/rack-mount-modal/rack-mount-modal.component';
-import {
-    RackArea,
-    RackAreaGroup,
-    RackHeader,
-    RackMountKind,
-    RackMountRow,
-    RackOccupantLegendEntry,
-    RackOverviewResponse,
-    RackSlotRow,
-    RackViewSide,
-    kindOf,
-    toDayString
-} from './models/rack-overview.types';
-import { RackOverviewService } from './services/rack-overview.service';
-import { buildSlotRows, collectOutOfRangeMounts, sortByPosition } from './utils/rack-layout.util';
-import { RACK_KIND_ICONS, RACK_KIND_LABELS, accentTint, safeAccent, safeIcon } from './utils/rack-visual.util';
+import { RackArea, RackViewMode, RackViewSide } from './models/rack-overview.types';
+import { RackActionsService } from './services/rack-actions.service';
+import { RackDragService } from './services/rack-drag.service';
+import { RackOverviewStore } from './services/rack-overview-store.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Opacity of the type colour filling the row of a mounted object. */
-const ROW_TINT_ALPHA = 0.22;
+/**
+ * How many type entries the legend shows before it has to be expanded. A rack may hold dozens of types,
+ * and the key must not grow taller than the drawing it explains.
+ */
+const LEGEND_TYPE_LIMIT = 6;
+
+/**
+ * Zoom bounds for the drawing, in percent. The range leans on shrinking: a rack is taller than the
+ * screen far more often than it is too small to read.
+ */
+const ZOOM_MIN = 80;
+const ZOOM_MAX = 150;
+const ZOOM_STEP = 10;
+const ZOOM_DEFAULT = 100;
 
 
+/**
+ * The rack view. It owns how the rack is looked at - which faces, at what zoom, what is keyed in the
+ * legend - and the frame those controls sit in. Everything else belongs to a part of its own:
+ *
+ *   {@link RackOverviewStore}  the rack, everything derived from it, and the writes that change it
+ *   {@link RackDragService}    one drag gesture, from the plate grabbed to the placement written
+ *   {@link RackActionsService} the actions that need a form, a confirmation or a route
+ *
+ * All three are provided here, so each rack view owns its own and the parts below can inject them
+ * instead of being handed the same values down a chain of inputs.
+ */
 @Component({
     selector: 'cmdb-rack-overview',
     templateUrl: './rack-overview.component.html',
     styleUrls: ['./rack-overview.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
+    providers: [RackOverviewStore, RackDragService, RackActionsService],
     standalone: false
 })
-export class RackOverviewComponent implements OnChanges, OnDestroy {
+export class RackOverviewComponent {
 
-    private readonly rackOverviewService = inject(RackOverviewService);
-    private readonly loaderService = inject(LoaderService);
-    private readonly toastService = inject(ToastService);
-    private readonly deleteModalService = inject(DeleteModalService);
-    private readonly modalService = inject(NgbModal);
-    private readonly router = inject(Router);
-    private readonly changesRef = inject(ChangeDetectorRef);
+    public readonly store = inject(RackOverviewStore);
+    public readonly drag = inject(RackDragService);
+    public readonly actions = inject(RackActionsService);
 
-    @Input() public publicId: number | null = null;
+    /**
+     * Nullable rather than required: the host binds the id of the object it is still loading, and a
+     * required input would throw on the first pass instead of simply having nothing to draw yet.
+     */
+    public readonly publicId = input<number | null>(null);
 
-    public readonly AREAS = RackArea;
-    public readonly isLoading$ = this.loaderService.isLoading$;
+    public readonly viewMode = signal<RackViewMode>('split');
+    /** Scales the drawing only; the toolbar, the legend and the side column keep their own size. */
+    public readonly zoomPercent = signal(ZOOM_DEFAULT);
+    public readonly isFullscreen = signal(false);
+    /** Only the first types are keyed until the user asks for the rest. */
+    public readonly isLegendExpanded = signal(false);
 
-    public rack: RackHeader | null = null;
-    public totalMounts = 0;
-    public activeSide: RackViewSide = RackArea.FRONT;
-    public slotRows: RackSlotRow[] = [];
-    public outOfRangeMounts: RackMountRow[] = [];
-    public positionAreaGroups: RackAreaGroup[] = [];
-    public occupantsLegend: RackOccupantLegendEntry[] = [];
-    public hasError = false;
+    public readonly hasLegend = computed(() =>
+        this.store.typesLegend().length > 0 || this.store.occupantsLegend().length > 0);
 
-    private overview: RackOverviewResponse | null = null;
-    private readonly destroy$ = new Subject<void>();
+    public readonly visibleTypesLegend = computed(() =>
+        this.isLegendExpanded() ? this.store.typesLegend() : this.store.typesLegend().slice(0, LEGEND_TYPE_LIMIT));
 
-/* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+    public readonly hiddenTypesCount = computed(() =>
+        Math.max(this.store.typesLegend().length - LEGEND_TYPE_LIMIT, 0));
 
-    public ngOnChanges(changes: SimpleChanges): void {
-        if (changes['publicId'] && this.publicId != null) {
-            this.activeSide = RackArea.FRONT;
-            this.loadOverview();
-        }
-    }
+    /** The face a new row defaults to, which is whichever one the current view leads with. */
+    public readonly defaultSide = computed<RackViewSide>(() =>
+        this.viewMode() === 'rear' ? RackArea.BACK : RackArea.FRONT);
 
-    public ngOnDestroy(): void {
-        this.destroy$.next();
-        this.destroy$.complete();
-    }
+    /** Also the value the board is zoomed by, so the read-out and the drawing cannot drift apart. */
+    public readonly zoomLabel = computed(() => `${this.zoomPercent()}%`);
 
-/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+    public readonly canZoomIn = computed(() => this.zoomPercent() < ZOOM_MAX);
 
-    public onSideChange(side: RackViewSide): void {
-        if (side === this.activeSide) {
-            return;
-        }
+    public readonly canZoomOut = computed(() => this.zoomPercent() > ZOOM_MIN);
 
-        this.activeSide = side;
-        this.buildActiveSide();
-        this.changesRef.markForCheck();
-    }
+    public readonly isDefaultZoom = computed(() => this.zoomPercent() === ZOOM_DEFAULT);
 
-    public onMountObject(): void {
-        this.openMountModal(null, this.activeSide, null);
-    }
+    /**
+     * A fullscreen element is the only thing painted, so a tooltip parked on the body would never be
+     * seen. While fullscreen is open they render next to their trigger instead.
+     */
+    public readonly tooltipContainer = computed<string | null>(() => this.isFullscreen() ? null : 'body');
 
-    /** Filling the clicked slot, pre-filled with that slot as the anchor. */
-    public onFreeSlotClick(row: RackSlotRow): void {
-        if (row.mount) {
-            return;
-        }
+    /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
-        this.openMountModal(null, this.activeSide, row.slot);
-    }
-
-    public onEditMount(mount: RackMountRow): void {
-        this.openMountModal(mount, mount.area, mount.start_slot);
-    }
-
-    /** Frees the slots but keeps the object in the rack, so it can be placed again later. */
-    public onUnplaceMount(mount: RackMountRow): void {
-        this.loaderService.show();
-
-        this.rackOverviewService
-            .updateMount(this.publicId, mount.mount_id, { area: RackArea.UNASSIGNED })
-            .pipe(takeUntil(this.destroy$), finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: () => this.loadOverview(),
-                error: (err) => this.toastService.error(err?.error?.message)
+    constructor() {
+        // Emits the first value as well, so this is also what loads the rack the view opens on.
+        toObservable(this.publicId)
+            .pipe(takeUntilDestroyed())
+            .subscribe((rackId) => {
+                this.viewMode.set('split');
+                this.isLegendExpanded.set(false);
+                this.store.open(rackId);
             });
     }
 
-    public onRemoveMount(mount: RackMountRow): void {
-        this.deleteModalService.confirmDelete({
-            title: 'Remove from rack',
-            itemType: this.kindTitleOf(mount),
-            itemName: this.labelOf(mount),
-            description: this.isMount(mount)
-                ? 'The object leaves the rack. The object itself is not deleted.'
-                : 'The slots it holds become free again.',
-            onConfirm: () => this.deleteMount(mount)
-        });
+    /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    public onViewChange(mode: RackViewMode): void {
+        this.viewMode.set(mode);
     }
 
-    /** Only a mount has an object to open; an occupant row never reaches this. */
-    public onOpenObject(objectId: number | null): void {
-        if (objectId == null) {
-            return;
-        }
-
-        this.router.navigate([`/framework/object/view/${objectId}`]);
+    public onZoomIn(): void {
+        this.setZoom(this.zoomPercent() + ZOOM_STEP);
     }
 
-/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
-
-    /** A mount is named by its object, an occupant by its own label and otherwise by its kind. */
-    public labelOf(mount: RackMountRow): string {
-        if (this.isMount(mount)) {
-            return mount.summary_line || `#${mount.object_id}`;
-        }
-
-        return mount.label?.trim() || this.kindTitleOf(mount);
+    public onZoomOut(): void {
+        this.setZoom(this.zoomPercent() - ZOOM_STEP);
     }
 
-    public isMount(mount: RackMountRow): boolean {
-        return kindOf(mount) === RackMountKind.MOUNT;
+    public onResetZoom(): void {
+        this.setZoom(ZOOM_DEFAULT);
     }
 
-    public kindTitleOf(mount: RackMountRow): string {
-        return RACK_KIND_LABELS[kindOf(mount)];
+    /** Driven by the directive, so leaving fullscreen with Escape keeps the button in step. */
+    public onFullscreenChange(isFullscreen: boolean): void {
+        this.isFullscreen.set(isFullscreen);
     }
 
-    public kindTitle(kind: RackMountKind): string {
-        return RACK_KIND_LABELS[kind];
+    public onToggleLegend(): void {
+        this.isLegendExpanded.update(expanded => !expanded);
     }
 
-    /** The label of a mount is already the object, so it only adds something to a named occupant. */
-    public secondaryLabelOf(mount: RackMountRow): string | null {
-        return this.isMount(mount) ? mount.label?.trim() || null : null;
-    }
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    /**
-     * The booked period of a reservation, as plain days. Either end may be open, and a reservation
-     * without any dates simply has no period to show.
-     */
-    public periodOf(mount: RackMountRow): string | null {
-        const from = toDayString(mount.start_date);
-        const until = toDayString(mount.end_date);
-
-        if (from && until) {
-            return `${from} to ${until}`;
-        }
-
-        if (from) {
-            return `from ${from}`;
-        }
-
-        return until ? `until ${until}` : null;
-    }
-
-    public isFullDepth(mount: RackMountRow | null): boolean {
-        return mount?.area === RackArea.FULL_DEPTH;
-    }
-
-    /** A row is exactly as tall as the U it covers, which is what makes the grid read as a rack. */
-    public heightOf(row: RackSlotRow): string {
-        return `calc(var(--rack-u) * ${row.span})`;
-    }
-
-    /**
-     * The U numbers this row covers, top down. The rulers are drawn from the rows themselves rather
-     * than from a separate list of slots, so the two can never drift apart.
-     */
-    public ticksOf(row: RackSlotRow): number[] {
-        return Array.from({ length: row.span }, (_, index) => row.slot - index);
-    }
-
-    public accentOf(mount: RackMountRow): string {
-        return safeAccent(this.colorSourceOf(mount));
-    }
-
-    public accentTintOf(mount: RackMountRow): string {
-        return accentTint(this.colorSourceOf(mount), ROW_TINT_ALPHA);
-    }
-
-    public kindIcon(kind: RackMountKind): string {
-        return RACK_KIND_ICONS[kind];
-    }
-
-    public iconOf(mount: RackMountRow): string {
-        return this.isMount(mount) ? safeIcon(mount.type_icon) : RACK_KIND_ICONS[kindOf(mount)];
-    }
-
-/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
-
-    private loadOverview(): void {
-        this.loaderService.show();
-
-        this.rackOverviewService
-            .getOverview(this.publicId)
-            .pipe(takeUntil(this.destroy$), finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: (response) => {
-                    this.applyOverview(response);
-                    this.changesRef.markForCheck();
-                },
-                error: (err) => {
-                    this.hasError = true;
-                    this.toastService.error(err?.error?.message);
-                    this.changesRef.markForCheck();
-                }
-            });
-    }
-
-    private applyOverview(response: RackOverviewResponse): void {
-        this.overview = response;
-        this.rack = response?.rack ?? null;
-        this.totalMounts = response?.total_mounts ?? 0;
-        this.occupantsLegend = response?.occupants_legend ?? [];
-        this.hasError = false;
-
-        this.positionAreaGroups = [
-            { area: RackArea.LEFT, title: 'Left side', mounts: sortByPosition(this.mountsOf(RackArea.LEFT)) },
-            { area: RackArea.RIGHT, title: 'Right side', mounts: sortByPosition(this.mountsOf(RackArea.RIGHT)) },
-            {
-                area: RackArea.UNASSIGNED,
-                title: 'Assigned, not placed',
-                mounts: sortByPosition(this.mountsOf(RackArea.UNASSIGNED))
-            }
-        ];
-
-        this.buildActiveSide();
-    }
-
-    /**
-     * A side shows its own mounts plus every FULL_DEPTH one: those occupy the same slots in the front
-     * and the rear, and the backend reports them once instead of duplicating them into both buckets.
-     */
-    private buildActiveSide(): void {
-        const rackHeight = this.rack?.height ?? 0;
-        const mounts = [...this.mountsOf(this.activeSide), ...this.mountsOf(RackArea.FULL_DEPTH)];
-
-        this.slotRows = buildSlotRows(mounts, rackHeight);
-        this.outOfRangeMounts = collectOutOfRangeMounts(mounts, rackHeight);
-    }
-
-    private mountsOf(area: RackArea): RackMountRow[] {
-        return this.overview?.areas?.[area] ?? [];
-    }
-
-    private openMountModal(mount: RackMountRow | null, presetArea: RackArea, presetStartSlot: number | null): void {
-        const modalRef = this.modalService.open(RackMountModalComponent, {
-            size: 'lg',
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop'
-        });
-
-        modalRef.componentInstance.rackId = this.publicId;
-        modalRef.componentInstance.rackHeight = this.rack?.height ?? 0;
-        modalRef.componentInstance.mount = mount;
-        modalRef.componentInstance.presetArea = presetArea;
-        modalRef.componentInstance.presetStartSlot = presetStartSlot;
-
-        modalRef.result.then(
-            (saved) => {
-                if (saved) {
-                    this.loadOverview();
-                }
-            },
-            () => undefined
-        );
-    }
-
-    /** Where the row takes its colour from: its type for a mount, its own colour for a reservation. */
-    private colorSourceOf(mount: RackMountRow): string | null {
-        if (this.isMount(mount)) {
-            return mount.type_color;
-        }
-
-        return kindOf(mount) === RackMountKind.RESERVATION ? mount.color : null;
-    }
-
-    private deleteMount(mount: RackMountRow): void {
-        this.loaderService.show();
-
-        this.rackOverviewService
-            .deleteMount(this.publicId, mount.mount_id)
-            .pipe(takeUntil(this.destroy$), finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: () => this.loadOverview(),
-                error: (err) => this.toastService.error(err?.error?.message)
-            });
+    private setZoom(percent: number): void {
+        this.zoomPercent.set(Math.min(Math.max(percent, ZOOM_MIN), ZOOM_MAX));
     }
 }

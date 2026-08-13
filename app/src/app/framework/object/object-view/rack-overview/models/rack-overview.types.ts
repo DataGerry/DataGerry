@@ -16,6 +16,16 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+/**
+ * Every rack write route is guarded by the EDIT right - no rack route uses `rack.add` or `rack.delete` -
+ * so the frontend gates each rack action with the same one.
+ */
+export const RACK_EDIT_RIGHT = 'base.framework.rack.edit';
+
+/** Guards every rack read route, and with it the rack tab of the object view. */
+export const RACK_VIEW_RIGHT = 'base.framework.rack.view';
+
+
 export enum RackArea {
     FRONT = 'FRONT',
     BACK = 'BACK',
@@ -123,10 +133,21 @@ export interface RackOccupantLegendEntry {
 }
 
 
+/** One object type present in the rack, with the colour and icon its rows are drawn with. */
+export interface RackTypeLegendEntry {
+    type_id: number;
+    type_label: string;
+    type_icon: string | null;
+    type_color: string | null;
+    count: number;
+}
+
+
 export interface RackOverviewResponse {
     rack: RackHeader;
     areas: RackAreaBuckets;
     total_mounts: number;
+    types_legend: RackTypeLegendEntry[];
     occupants_legend: RackOccupantLegendEntry[];
 }
 
@@ -230,13 +251,79 @@ export interface RackMountValidationResponse {
 
 
 /**
- * One rendered row of a rack side: either the top slot of a mount, spanning its height, or a single
- * free slot. Slots covered by a mount below its anchor are not emitted.
+ * Which elevations are drawn. `split` shows both faces beside one shared U ruler, the other two show a
+ * single face with a ruler on each of its posts.
  */
-export interface RackSlotRow {
+export type RackViewMode = 'split' | 'front' | 'rear';
+
+
+/** How full one face of the rack is. The largest gap is what says whether the free U are usable. */
+export interface RackCapacity {
+    total: number;
+    used: number;
+    free: number;
+    percent: number;
+    largestGap: number;
+}
+
+
+export interface RackRowView {
+    /** The row exactly as the backend reports it, which is what the write routes are given. */
+    row: RackMountRow;
+    mountId: number;
+    objectId: number | null;
+    area: RackArea;
+    startSlot: number | null;
+    height: number | null;
+    position: number | null;
+    isMount: boolean;
+    isFullDepth: boolean;
+    label: string;
+    kindTitle: string;
+    typeName: string;
+    secondaryLabel: string | null;
+    period: string | null;
+    slotRange: string;
+    gridRow: string;
+    tone: string;
+    tint: string;
+    icon: string;
+}
+
+
+/** One U of the rack: the grid row it occupies, and whether the ruler marks it. */
+export interface RackSlotView {
     slot: number;
-    span: number;
-    mount: RackMountRow | null;
+    gridRow: string;
+    isMajor: boolean;
+}
+
+
+/** A legend type with the colour and icon its rows are drawn with. */
+export interface RackTypeLegendView extends RackTypeLegendEntry {
+    tone: string;
+    tint: string;
+    icon: string;
+}
+
+
+/** A legend occupant kind, named and iconed the way its rows are. */
+export interface RackOccupantLegendView extends RackOccupantLegendEntry {
+    title: string;
+    icon: string;
+}
+
+
+/**
+ * One drawn elevation: the rows holding slots on that face, the slots still open, and how full it is.
+ * A FULL_DEPTH row belongs to both faces and is therefore part of both.
+ */
+export interface RackFace {
+    side: RackViewSide;
+    title: string;
+    units: RackRowView[];
+    freeSlots: RackSlotView[];
+    capacity: RackCapacity;
 }
 
 
@@ -244,5 +331,5 @@ export interface RackSlotRow {
 export interface RackAreaGroup {
     area: RackArea;
     title: string;
-    mounts: RackMountRow[];
+    mounts: RackRowView[];
 }

@@ -1,177 +1,145 @@
-<section class="rack-overview">
+<section class="rack-view rack-view--compact" [class.rack-view--dragging]="drag.isDragging()"
+  [style.--rack-zoom]="zoomLabel()" dgFullscreen #fullscreen="dgFullscreen"
+  (fullscreenChange)="onFullscreenChange($event)">
 
-  @if (rack) {
-    <header>
-      <h3>Rack view</h3>
-      <p>
-        {{ rack.display_name }} &middot; {{ rack.height }}U &middot; {{ totalMounts }} entr{{ totalMounts === 1 ? 'y' : 'ies' }}
-      </p>
+  @if (store.rack(); as rackHeader) {
+  <!-- ------------------------------------------- TOOLBAR -------------------------------------------- -->
+  <div class="rack-toolbar">
+    <div class="rack-switch" role="group" aria-label="Which face to show">
+      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'split'"
+        [attr.aria-pressed]="viewMode() === 'split'" (click)="onViewChange('split')">Split</button>
 
-      @if (occupantsLegend.length) {
-        <ul class="rack-overview__legend">
-          @for (entry of occupantsLegend; track entry.kind) {
-            <li>
-              <i [class]="kindIcon(entry.kind)" aria-hidden="true"></i>
-              {{ kindTitle(entry.kind) }}: {{ entry.count }} &middot; {{ entry.slots }}U held
-            </li>
-          }
-        </ul>
-      }
+      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'front'"
+        [attr.aria-pressed]="viewMode() === 'front'" (click)="onViewChange('front')">Front</button>
 
-      <div class="btn-group" role="group" aria-label="Rack side">
-        <app-button label="Front" [bootstrapClass]="activeSide === AREAS.FRONT ? 'btn-primary' : 'btn-outline-primary'"
-          [ariaPressed]="activeSide === AREAS.FRONT" (clicked)="onSideChange(AREAS.FRONT)">
-        </app-button>
-
-        <app-button label="Rear" [bootstrapClass]="activeSide === AREAS.BACK ? 'btn-primary' : 'btn-outline-primary'"
-          [ariaPressed]="activeSide === AREAS.BACK" (clicked)="onSideChange(AREAS.BACK)">
-        </app-button>
-      </div>
-
-      <app-button *permissionLink="['base.framework.rack.edit']" label="Add to rack" icon="fas fa-plus"
-        bootstrapClass="btn-primary" (clicked)="onMountObject()">
-      </app-button>
-    </header>
-
-    <!-- Slot grid of the active side. Slot 1 is the bottom, so the rows run top down and a mount
-         occupies one row as tall as its U range, between a U ruler on each post. -->
-    <p class="rack-grid__caption">{{ activeSide === AREAS.FRONT ? 'Front' : 'Rear' }} view</p>
-
-    <div class="rack-grid">
-      <div class="rack-grid__slots">
-        @for (row of slotRows; track row.slot) {
-          <!-- The U numbers sit inside the row, so a row and its posts can never fall out of step. -->
-          <div class="rack-unit" [style.height]="heightOf(row)">
-            <span class="rack-unit__ruler" aria-hidden="true">
-              @for (tick of ticksOf(row); track tick) {
-                <span>{{ tick }}</span>
-              }
-            </span>
-
-            @if (row.mount) {
-              <div class="rack-unit__device" [style.background]="accentTintOf(row.mount)">
-                <i class="rack-unit__icon" [class]="iconOf(row.mount)" aria-hidden="true"></i>
-
-                @if (isMount(row.mount)) {
-                  <button type="button" class="rack-unit__name" (click)="onOpenObject(row.mount.object_id)">
-                    {{ labelOf(row.mount) }}
-                  </button>
-                } @else {
-                  <span class="rack-unit__name">{{ labelOf(row.mount) }}</span>
-                }
-
-                <span class="rack-unit__meta">
-                  ({{ isMount(row.mount) ? row.mount.type_label : kindTitleOf(row.mount) }},
-                  {{ row.mount.height }}U@if (isFullDepth(row.mount)) {, full depth })
-                </span>
-
-                @if (secondaryLabelOf(row.mount); as extraLabel) {
-                  <span class="rack-unit__meta rack-unit__meta--secondary">{{ extraLabel }}</span>
-                }
-
-                @if (periodOf(row.mount); as period) {
-                  <span class="rack-unit__meta rack-unit__meta--secondary">{{ period }}</span>
-                }
-
-                <span class="rack-unit__actions" *permissionLink="['base.framework.rack.edit']">
-                  <app-button label="Edit" bootstrapClass="btn-sm btn-outline-secondary"
-                    [ariaLabel]="'Edit the mount of ' + labelOf(row.mount)" (clicked)="onEditMount(row.mount)">
-                  </app-button>
-
-                  <app-button label="Unplace" bootstrapClass="btn-sm btn-outline-secondary"
-                    title="Free the slots but keep the object in the rack"
-                    [ariaLabel]="'Unplace ' + labelOf(row.mount)" (clicked)="onUnplaceMount(row.mount)">
-                  </app-button>
-
-                  <app-button label="Remove" bootstrapClass="btn-sm btn-outline-danger"
-                    [ariaLabel]="'Remove ' + labelOf(row.mount) + ' from the rack'"
-                    (clicked)="onRemoveMount(row.mount)">
-                  </app-button>
-                </span>
-
-                <span class="rack-unit__chip" [style.background]="accentOf(row.mount)" aria-hidden="true"></span>
-              </div>
-            } @else {
-              <!-- The empty bay is always drawn; only the add action is permission-gated. -->
-              <div class="rack-unit__free">
-                <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-unit__add"
-                  [attr.aria-label]="'Fill slot ' + row.slot" (click)="onFreeSlotClick(row)">
-                  <span class="rack-unit__add-label">+ U{{ row.slot }}</span>
-                </button>
-              </div>
-            }
-
-            <span class="rack-unit__ruler" aria-hidden="true">
-              @for (tick of ticksOf(row); track tick) {
-                <span>{{ tick }}</span>
-              }
-            </span>
-          </div>
-        } @empty {
-          <p class="rack-grid__unset">This rack has no height configured.</p>
-        }
-      </div>
+      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'rear'"
+        [attr.aria-pressed]="viewMode() === 'rear'" (click)="onViewChange('rear')">Rear</button>
     </div>
 
-    @if (outOfRangeMounts.length) {
-      <div class="alert alert-warning" role="alert">
-        <p>These mounts no longer fit inside the rack height and cannot be drawn:</p>
-        <ul>
-          @for (mount of outOfRangeMounts; track mount.mount_id) {
-            <li>
-              {{ labelOf(mount) }} &mdash; slot {{ mount.start_slot }}, {{ mount.height }}U
-              <app-button *permissionLink="['base.framework.rack.edit']" label="Edit"
-                bootstrapClass="btn-sm btn-outline-secondary" [ariaLabel]="'Edit the mount of ' + labelOf(mount)"
-                (clicked)="onEditMount(mount)">
-              </app-button>
-            </li>
-          }
-        </ul>
-      </div>
+    <!-- Scales the elevation only. The read-out doubles as the reset back to 100%. -->
+    <div class="rack-zoom" role="group" aria-label="Zoom the elevation">
+      <button type="button" class="rack-tool" title="Zoom out" aria-label="Zoom out" [disabled]="!canZoomOut()"
+        (click)="onZoomOut()">
+        <i class="fas fa-search-minus" aria-hidden="true"></i>
+      </button>
+
+      <button type="button" class="rack-zoom__level" title="Reset zoom" aria-label="Reset the zoom to 100%"
+        [disabled]="isDefaultZoom()" (click)="onResetZoom()">{{ zoomLabel() }}</button>
+
+      <button type="button" class="rack-tool" title="Zoom in" aria-label="Zoom in" [disabled]="!canZoomIn()"
+        (click)="onZoomIn()">
+        <i class="fas fa-search-plus" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <button type="button" class="rack-tool" [class.rack-tool--on]="isFullscreen()"
+      [attr.aria-pressed]="isFullscreen()" [title]="isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'"
+      [attr.aria-label]="isFullscreen() ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
+      (click)="fullscreen.toggle()">
+      <i [class]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'" aria-hidden="true"></i>
+    </button>
+
+    <span class="rack-toolbar__spacer"></span>
+
+    <app-button *permissionLink="['base.framework.rack.edit']" label="Add to rack" icon="fas fa-plus"
+      bootstrapClass="btn-primary btn-sm" (clicked)="actions.add(defaultSide())">
+    </app-button>
+  </div>
+
+  <!-- ------------------------------------------- LEGEND --------------------------------------------- -->
+  <!--
+    The key to the drawing, so it sits directly above it. A rack may hold many types, so only the
+    heaviest ones are keyed until the user asks for the rest, and the open list scrolls in place
+    rather than pushing the elevation off the screen.
+  -->
+  @if (hasLegend()) {
+  <div class="rack-legend">
+    <span class="rack-legend__title" id="rack-legend-title">Legend</span>
+
+    <ul id="rack-legend-list" class="rack-legend__list" [class.rack-legend__list--open]="isLegendExpanded()"
+      aria-labelledby="rack-legend-title">
+      @for (entry of visibleTypesLegend(); track entry.type_id) {
+      <li class="rack-legend__item">
+        <span class="rack-legend__chip" [style.color]="entry.tone" [style.background]="entry.tint">
+          <i [class]="entry.icon" aria-hidden="true"></i>
+        </span>
+        <span class="rack-legend__text" [ngbTooltip]="entry.type_label" [container]="tooltipContainer()">{{
+          entry.type_label }}</span>
+        <span class="rack-legend__count">{{ entry.count }}</span>
+      </li>
+      }
+
+      @for (entry of store.occupantsLegend(); track entry.kind) {
+      <li class="rack-legend__item rack-legend__item--occupant">
+        <span class="rack-legend__chip">
+          <i [class]="entry.icon" aria-hidden="true"></i>
+        </span>
+        <span class="rack-legend__text">{{ entry.title }}</span>
+        <span class="rack-legend__count">{{ entry.count }}</span>
+        <span class="rack-legend__held">{{ entry.slots }}U held</span>
+      </li>
+      }
+    </ul>
+
+    @if (hiddenTypesCount()) {
+    <button type="button" class="rack-legend__more" [attr.aria-expanded]="isLegendExpanded()"
+      aria-controls="rack-legend-list" (click)="onToggleLegend()">
+      {{ isLegendExpanded() ? 'Show less' : '+' + hiddenTypesCount() + ' more' }}
+    </button>
     }
-
-    <!-- Areas without slot geometry, ordered by their position. -->
-    @for (group of positionAreaGroups; track group.area) {
-      <div class="rack-overview__area">
-        <h4>{{ group.title }} ({{ group.mounts.length }})</h4>
-
-        <ul>
-          @for (mount of group.mounts; track mount.mount_id) {
-            <li>
-              @if (isMount(mount)) {
-                <button type="button" class="btn btn-link p-0" (click)="onOpenObject(mount.object_id)">
-                  {{ labelOf(mount) }}
-                </button>
-              } @else {
-                <span><i [class]="iconOf(mount)" aria-hidden="true"></i> {{ labelOf(mount) }}</span>
-              }
-              <small>
-                {{ isMount(mount) ? mount.type_label : kindTitleOf(mount) }}
-                @if (mount.height) { &middot; {{ mount.height }}U }
-                @if (mount.position !== null) { &middot; position {{ mount.position }} }
-                @if (periodOf(mount); as period) { &middot; {{ period }} }
-              </small>
-
-              <ng-container *permissionLink="['base.framework.rack.edit']">
-                <app-button label="Edit" bootstrapClass="btn-sm btn-outline-secondary"
-                  [ariaLabel]="'Edit the mount of ' + labelOf(mount)" (clicked)="onEditMount(mount)">
-                </app-button>
-
-                <app-button label="Remove" bootstrapClass="btn-sm btn-outline-danger"
-                  [ariaLabel]="'Remove ' + labelOf(mount) + ' from the rack'" (clicked)="onRemoveMount(mount)">
-                </app-button>
-              </ng-container>
-            </li>
-          } @empty {
-            <li>No objects in this area.</li>
-          }
-        </ul>
-      </div>
-    }
-  } @else if (hasError) {
-    <p>The rack overview could not be loaded.</p>
+  </div>
   }
-</section>
 
-<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">
-</app-loading-popup>
+  <!-- ------------------------------------------- STAGE ---------------------------------------------- -->
+  <div class="rack-stage">
+    <cmdb-rack-elevation [viewMode]="viewMode()" [tooltipContainer]="tooltipContainer()"></cmdb-rack-elevation>
+
+    <!--
+      Two cards, always both: the row selected in the drawing, and the rows that are in the rack but
+      hold no slot. Placing one is a pick-then-place move, so the tray has to stay in reach of the
+      elevation rather than sit below it, where a tall rack pushes it off the screen.
+    -->
+    <aside class="rack-side" aria-label="Selected row and unplaced entries">
+      <cmdb-rack-inspector></cmdb-rack-inspector>
+      <cmdb-rack-tray [tooltipContainer]="tooltipContainer()"></cmdb-rack-tray>
+    </aside>
+  </div>
+
+  <!-- ------------------------------------------ OUT OF RANGE ------------------------------------- -->
+  @if (store.outOfRangeRows(); as outOfRange) {
+  @if (outOfRange.length) {
+  <div class="rack-callout rack-callout--warn" role="alert">
+    <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+    <div>
+      <p class="rack-callout__title">
+        {{ outOfRange.length }} entr{{ outOfRange.length === 1 ? 'y' : 'ies' }}
+        no longer fit inside {{ rackHeader.height }}U and cannot be drawn
+      </p>
+      <ul class="rack-callout__list">
+        @for (mount of outOfRange; track mount.mountId) {
+        <li>
+          <b>{{ mount.label }}</b> &mdash; anchored at U{{ mount.startSlot }}, {{ mount.height }}U
+          <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-callout__action"
+            [attr.aria-label]="'Re-place ' + mount.label" (click)="actions.edit(mount)">Re-place</button>
+        </li>
+        }
+      </ul>
+    </div>
+  </div>
+  }
+  }
+
+  } @else if (store.hasError()) {
+  <div class="rack-callout rack-callout--error" role="alert">
+    <i class="fas fa-plug" aria-hidden="true"></i>
+    <div>
+      <p class="rack-callout__title">The rack view could not be loaded</p>
+      <p class="rack-callout__text">Reload the page to try again.</p>
+    </div>
+  </div>
+  }
+
+  <!-- Inside the view on purpose: a fullscreen element hides everything outside itself. -->
+  <app-loading-popup [isVisible]="store.isLoading$ | async" message="We're Processing the Data...">
+  </app-loading-popup>
+</section>

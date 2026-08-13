@@ -1,0 +1,30 @@
+/* Rack › tokens — the palette, radii, shadows and easing every other rack partial builds on. */
+
+@import "src/scss/variables";
+
+/*
+ * The cabinet is the one dark surface of the page: a rack reads as a rack when the enclosure recedes
+ * and the equipment sits inside it. Everything around it stays on the light application palette.
+ */
+$ink: #151a21;
+$ink-2: #374151;
+$ink-3: #667085;
+$ink-4: #98a2b3;
+$hairline: #e3e7ec;
+$hairline-soft: #edf0f4;
+$paper: #fff;
+$sunk: #f4f6f8;
+
+$steel-edge: #333b48;
+$steel: #232a35;
+$steel-deep: #171d26;
+$cavity: #0a0e14;
+$post: #1a212b;
+$engrave: rgba(255, 255, 255, 0.42);
+$frame-ink: rgba(255, 255, 255, 0.36);
+
+$radius-card: 1rem;
+$radius-sm: 0.55rem;
+$radius-plate: 0.2rem;
+$shadow-card: 0 12px 30px -20px rgba(15, 23, 42, 0.34);
+$ease: 180ms ease;
