@@ -3,7 +3,8 @@
  * It sits in a narrow column beside the drawing, so its rows are stacked and the list is what scrolls.
  */
 
-.rack-tray {
+/* The card itself is the component host: it is the drop target, so it must take the whole card. */
+:host {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -12,7 +13,9 @@
   border: 1px solid $hairline;
   border-radius: $radius-card;
   box-shadow: $shadow-card;
+}
 
+.rack-tray {
   &__head {
     display: flex;
     align-items: center;

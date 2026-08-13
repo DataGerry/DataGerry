@@ -73,15 +73,31 @@ export function fitsRack(mount: RackRowView, rackHeight: number): boolean {
 }
 
 
-/** Every slot the row covers, top down. Empty for a row without usable geometry. */
-export function slotsCovered(mount: RackRowView): number[] {
-    const bottom = bottomSlotOf(mount);
-
-    if (bottom === null) {
+/** Every slot a placement covers, top down. Empty for geometry that cannot be drawn. */
+export function slotsOf(startSlot: number | null, height: number | null): number[] {
+    if (startSlot === null || height === null || height < 1) {
         return [];
     }
 
-    return Array.from({ length: mount.height as number }, (_, index) => (mount.startSlot as number) - index);
+    return Array.from({ length: height }, (_, index) => startSlot - index);
+}
+
+
+/** Every slot the row covers, top down. Empty for a row without usable geometry. */
+export function slotsCovered(mount: RackRowView): number[] {
+    return slotsOf(mount.startSlot, mount.height);
+}
+
+
+/** The U range a placement covers, written the way a rack is read: the anchor first. */
+export function slotRangeText(startSlot: number | null, height: number | null): string {
+    if (startSlot === null || height === null) {
+        return '';
+    }
+
+    const bottom = startSlot - height + 1;
+
+    return height > 1 ? `U${startSlot}–U${bottom}` : `U${startSlot}`;
 }
 
 

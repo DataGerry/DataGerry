@@ -1,23 +1,20 @@
 /*
- * Rack overview styles. This file is a manifest only - every rule lives in a partial under ./styles.
+ * Rack overview shell styles. This file is a manifest only - every rule lives in a partial under
+ * ./styles, which is the shared library the three rack components draw from.
+ *
+ * What the shell owns is the frame around the drawing: the controls above it, the layout that places
+ * the drawing beside its side column, and the notices below. The drawing, the inspector and the tray
+ * are components of their own and carry their own styles, because an emulated stylesheet cannot
+ * reach into another component's template.
  *
  *   rack-tokens ....... palette, radii, shadows, easing. Must stay first; the rest read from it.
  *   rack-shell ........ the root element and the --rack-* geometry the whole drawing is measured in
- *   rack-density ...... the compact geometry the elevation is drawn at
+ *   rack-density ...... the compact geometry tokens; the rules they drive live with the elevation
  *   rack-toolbar ...... view switch, zoom and fullscreen controls
  *   rack-legend ....... the key to the drawing: types in the rack and what the occupants hold
- *   rack-stage ........ drawing/side-column split and the scrolling board
+ *   rack-stage ........ the drawing/side-column split
  *   rack-side ......... the column beside the drawing and how its two cards share the height
- *   rack-rail ......... the LEFT and RIGHT cards beside the enclosure
- *   rack-grid ......... the shared U grid and the columns each view uses
- *   rack-cabinet ...... the steel enclosure: shell, cap, cavity, posts, plinth
- *   rack-ruler ........ the U numbering
- *   rack-bay .......... a free slot and its mount affordance
- *   rack-unit ......... a mounted faceplate, and the cross-face link marker
- *   rack-inspector .... the side panel for the selected row
- *   rack-buttons ...... the icon, ghost and action controls shared across the view
  *   rack-callout ...... inline notices
- *   rack-tray ......... the staging card for rows in the rack that hold no slot
  *   rack-fullscreen ... the page-filling layout: only the elevation scrolls
  *   rack-responsive ... breakpoint overrides. Must stay last; it wins on source order.
  */
@@ -29,15 +26,6 @@
 @import "./styles/rack-legend";
 @import "./styles/rack-stage";
 @import "./styles/rack-side";
-@import "./styles/rack-rail";
-@import "./styles/rack-grid";
-@import "./styles/rack-cabinet";
-@import "./styles/rack-ruler";
-@import "./styles/rack-bay";
-@import "./styles/rack-unit";
-@import "./styles/rack-inspector";
-@import "./styles/rack-buttons";
 @import "./styles/rack-callout";
-@import "./styles/rack-tray";
 @import "./styles/rack-fullscreen";
 @import "./styles/rack-responsive";

@@ -27,7 +27,7 @@ import {
     kindOf,
     toDayString
 } from '../models/rack-overview.types';
-import { gridRowOfPlacement } from './rack-layout.util';
+import { gridRowOfPlacement, slotRangeText } from './rack-layout.util';
 import { RACK_KIND_ICONS, RACK_KIND_LABELS, accentTint, safeAccent, safeIcon } from './rack-visual.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -62,7 +62,7 @@ export function toRowView(row: RackMountRow, rackHeight: number): RackRowView {
         // The label of a mount is already the object, so it only adds something to a named occupant.
         secondaryLabel: isMount ? row.label?.trim() || null : null,
         period: periodOf(row),
-        slotRange: slotRangeOf(row),
+        slotRange: slotRangeText(row.start_slot, row.height),
         gridRow: gridRowOfPlacement(row.start_slot, row.height, rackHeight),
         tone: safeAccent(colorSource),
         tint: accentTint(colorSource, TONE_TINT_ALPHA),
@@ -125,16 +125,4 @@ function periodOf(row: RackMountRow): string | null {
     }
 
     return until ? `until ${until}` : null;
-}
-
-
-/** The U range a row covers, written the way a rack is read: the anchor first. */
-function slotRangeOf(row: RackMountRow): string {
-    if (row.start_slot == null || row.height == null) {
-        return '';
-    }
-
-    const bottom = row.start_slot - row.height + 1;
-
-    return row.height > 1 ? `U${row.start_slot}–U${bottom}` : `U${row.start_slot}`;
 }

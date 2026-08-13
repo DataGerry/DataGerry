@@ -1,0 +1,101 @@
+@if (store.selectedRow(); as mount) {
+<div class="rack-inspector__head">
+  <span class="rack-inspector__icon" [style.--rack-tone]="mount.tone">
+    <i [class]="mount.icon" aria-hidden="true"></i>
+  </span>
+
+  <span class="rack-inspector__title">
+    <strong>{{ mount.label }}</strong>
+    <span class="rack-inspector__meta">
+      <span class="rack-inspector__kind">{{ mount.typeName }}</span>
+      @if (mount.objectId !== null) {
+      <span class="rack-inspector__id">#{{ mount.objectId }}</span>
+      }
+    </span>
+  </span>
+
+  <button type="button" class="rack-icon-btn" aria-label="Clear selection" (click)="store.select(null)">
+    <i class="fas fa-times" aria-hidden="true"></i>
+  </button>
+</div>
+
+<div class="rack-inspector__body">
+  <dl class="rack-placement">
+    <div>
+      <dt>Face</dt>
+      <dd>{{ mount.isFullDepth ? 'Both' : (mount.area === AREAS.FRONT ? 'Front' : 'Rear') }}</dd>
+    </div>
+    <div>
+      <dt>Anchor</dt>
+      <dd>U{{ mount.startSlot }}</dd>
+    </div>
+    <div>
+      <dt>Height</dt>
+      <dd>{{ mount.height }}U</dd>
+    </div>
+  </dl>
+
+  <dl class="rack-rows">
+    <div class="rack-rows__row">
+      <dt>Occupies</dt>
+      <dd>{{ mount.slotRange }}</dd>
+    </div>
+
+    @if (mount.secondaryLabel; as extraLabel) {
+    <div class="rack-rows__row">
+      <dt>Label</dt>
+      <dd>{{ extraLabel }}</dd>
+    </div>
+    }
+
+    @if (mount.period; as period) {
+    <div class="rack-rows__row">
+      <dt>Booked</dt>
+      <dd>{{ period }}</dd>
+    </div>
+    }
+
+    <div class="rack-rows__row">
+      <dt>Mount ID</dt>
+      <dd>#{{ mount.mountId }}</dd>
+    </div>
+  </dl>
+</div>
+
+<!--
+  Its own band, kept in reach while a long body scrolls. The order is the weight of the action:
+  the placement move first, then leaving the rack, with the destructive one set apart below.
+-->
+@if (store.canEdit || mount.isMount) {
+<div class="rack-inspector__foot">
+  <div class="rack-inspector__actions" *permissionLink="['base.framework.rack.edit']">
+    <app-button label="Move" icon="fas fa-sliders-h" bootstrapClass="rack-btn rack-btn--primary"
+      title="Change where it sits in the rack" [ariaLabel]="'Edit the placement of ' + mount.label"
+      (clicked)="actions.edit(mount)">
+    </app-button>
+
+    <app-button label="Unplace" icon="fas fa-eject" bootstrapClass="rack-btn rack-btn--quiet"
+      title="Free the slots but keep it in the rack" [ariaLabel]="'Unplace ' + mount.label"
+      (clicked)="actions.unplace(mount)">
+    </app-button>
+  </div>
+
+  @if (mount.isMount) {
+  <app-button label="Open object" icon="fas fa-external-link-alt" bootstrapClass="rack-btn rack-btn--quiet"
+    [ariaLabel]="'Open ' + mount.label" (clicked)="actions.openObject(mount.objectId)">
+  </app-button>
+  }
+
+  <div class="rack-inspector__danger" *permissionLink="['base.framework.rack.edit']">
+    <app-button label="Remove from rack" icon="fas fa-trash-alt" bootstrapClass="rack-btn rack-btn--danger"
+      [ariaLabel]="'Remove ' + mount.label + ' from the rack'" (clicked)="actions.confirmRemove(mount)">
+    </app-button>
+  </div>
+</div>
+}
+} @else {
+<p class="rack-inspector__empty">
+  <i class="fas fa-mouse-pointer" aria-hidden="true"></i>
+  Select an object in the rack to view its details.
+</p>
+}

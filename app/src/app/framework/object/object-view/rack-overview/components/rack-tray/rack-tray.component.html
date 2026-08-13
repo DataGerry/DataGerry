@@ -1,0 +1,64 @@
+@if (store.unassignedGroup(); as tray) {
+<div class="rack-tray__head">
+  <h4>{{ tray.title }}</h4>
+  <span class="rack-tray__count">{{ tray.mounts.length }}</span>
+  <p>Entries without a slot &mdash; drag one onto a face, or drop a placed row here to free its slots.</p>
+</div>
+
+@if (acceptsDrag()) {
+<p class="rack-tray__dropnote">Drop here to take it out of the elevation</p>
+}
+
+@if (tray.mounts.length) {
+<!-- Focusable because it scrolls: without the edit right a row can hold nothing tabbable. -->
+<ul class="rack-tray__list" tabindex="0" [attr.aria-label]="tray.title">
+  @for (mount of tray.mounts; track mount.mountId) {
+  <li class="rack-tray__item" [class.rack-tray__item--dragged]="drag.isDragged(mount)"
+    [style.--rack-tone]="mount.tone" [attr.draggable]="store.canEdit ? 'true' : null"
+    (dragstart)="drag.onCardDragStart($event, mount)" (dragend)="drag.onDragEnd()">
+    @if (store.canEdit) {
+    <!-- The affordance only; the keyboard path onto a face is the Place button beside it. -->
+    <span class="rack-tray__grip" aria-hidden="true">
+      <i class="fas fa-grip-vertical"></i>
+    </span>
+    }
+
+    <span class="rack-tray__icon" [style.color]="mount.tone" [style.background]="mount.tint">
+      <i [class]="mount.icon" aria-hidden="true"></i>
+    </span>
+
+    <span class="rack-tray__text">
+      @if (mount.isMount) {
+      <button type="button" class="rack-tray__name" [ngbTooltip]="mount.label"
+        [container]="tooltipContainer()" (click)="actions.openObject(mount.objectId)">
+        {{ mount.label }}
+      </button>
+      } @else {
+      <span class="rack-tray__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
+        {{ mount.label }}
+      </span>
+      }
+      <span class="rack-tray__sub">
+        {{ mount.typeName }}
+        @if (mount.height) { &middot; {{ mount.height }}U hint }
+        @if (mount.period; as period) { &middot; {{ period }} }
+      </span>
+    </span>
+
+    <span class="rack-tray__actions" *permissionLink="['base.framework.rack.edit']">
+      <button type="button" class="rack-ghost-btn" [attr.aria-label]="'Place ' + mount.label"
+        (click)="actions.edit(mount)">
+        <i class="fas fa-arrow-right" aria-hidden="true"></i> Place
+      </button>
+      <button type="button" class="rack-icon-btn rack-icon-btn--danger"
+        [attr.aria-label]="'Remove ' + mount.label + ' from the rack'" (click)="actions.confirmRemove(mount)">
+        <i class="fas fa-times" aria-hidden="true"></i>
+      </button>
+    </span>
+  </li>
+  }
+</ul>
+} @else {
+<p class="rack-tray__empty">Every entry in this rack has a place.</p>
+}
+}

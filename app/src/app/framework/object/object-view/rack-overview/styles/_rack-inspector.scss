@@ -1,6 +1,7 @@
 /* Rack › inspector — the side panel for the selected row: header, placement figures, detail rows. */
 
-.rack-inspector {
+/* The card itself is the component host, so the shell can size it without reaching inside. */
+:host {
   display: flex;
   flex-direction: column;
   background: $paper;
@@ -8,7 +9,9 @@
   border-radius: $radius-card;
   box-shadow: $shadow-card;
   overflow: hidden;
+}
 
+.rack-inspector {
   /* A neutral band, the same grey as the footer: the row colour stays in the icon tile alone. */
   &__head {
     display: flex;

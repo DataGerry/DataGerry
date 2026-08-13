@@ -1,4 +1,7 @@
-/* Rack › responsive — breakpoint overrides. Imported last: these rely on source order to win. */
+/*
+ * Rack › responsive (shell) — breakpoint overrides for what the shell owns. Imported last: these
+ * rely on source order to win. The elevation carries its own, imported last there for the same reason.
+ */
 
 @media (max-width: 1399.98px) {
   .rack-stage {
@@ -29,12 +32,6 @@
   .rack-board {
     flex-direction: column;
     align-items: center;
-  }
-
-  .rack-rail {
-    width: 100%;
-    max-width: 24rem;
-    padding-top: 0;
   }
 }
 
