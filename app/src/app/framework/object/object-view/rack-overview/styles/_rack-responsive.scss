@@ -36,6 +36,16 @@
 }
 
 @media (max-width: 767.98px) {
+  /*
+   * Not enough room for one row of clusters. They wrap instead, so what goes is the chrome between
+   * them - the caption on the switch and the rule that separated it from the zoom - rather than a
+   * control, and the two halves of the bar stay whole on the lines they land on.
+   */
+  .rack-cluster__label,
+  .rack-header__divider {
+    display: none;
+  }
+
   /* Too narrow for two cards abreast: they go back to sitting one above the other. */
   .rack-side {
     flex-direction: column;

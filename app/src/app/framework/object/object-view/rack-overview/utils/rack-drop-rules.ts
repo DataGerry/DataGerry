@@ -87,8 +87,11 @@ export function anchorForDrop(hoveredSlot: number, source: RackDragSource, rackH
 }
 
 
-/** The slots one face already holds, ignoring the row being moved. A full depth row holds both faces. */
-export function occupiedSlots(rows: RackRowView[], side: RackViewSide, movedMountId: number): Set<number> {
+/**
+ * The slots one face already holds, ignoring the row being moved. A full depth row holds both faces.
+ * A null id excludes nothing, which is what adding a new row needs.
+ */
+export function occupiedSlots(rows: RackRowView[], side: RackViewSide, movedMountId: number | null): Set<number> {
     const taken = new Set<number>();
 
     for (const row of rows) {

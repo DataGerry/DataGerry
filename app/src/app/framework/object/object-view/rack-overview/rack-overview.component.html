@@ -3,62 +3,81 @@
   (fullscreenChange)="onFullscreenChange($event)">
 
   @if (store.rack(); as rackHeader) {
-  <!-- ------------------------------------------- TOOLBAR -------------------------------------------- -->
-  <div class="rack-toolbar">
-    <div class="rack-switch" role="group" aria-label="Which face to show">
-      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'split'"
-        [attr.aria-pressed]="viewMode() === 'split'" (click)="onViewChange('split')">Split</button>
-
-      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'front'"
-        [attr.aria-pressed]="viewMode() === 'front'" (click)="onViewChange('front')">Front</button>
-
-      <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'rear'"
-        [attr.aria-pressed]="viewMode() === 'rear'" (click)="onViewChange('rear')">Rear</button>
-    </div>
-
-    <!-- Scales the elevation only. The read-out doubles as the reset back to 100%. -->
-    <div class="rack-zoom" role="group" aria-label="Zoom the elevation">
-      <button type="button" class="rack-tool" title="Zoom out" aria-label="Zoom out" [disabled]="!canZoomOut()"
-        (click)="onZoomOut()">
-        <i class="fas fa-search-minus" aria-hidden="true"></i>
-      </button>
-
-      <button type="button" class="rack-zoom__level" title="Reset zoom" aria-label="Reset the zoom to 100%"
-        [disabled]="isDefaultZoom()" (click)="onResetZoom()">{{ zoomLabel() }}</button>
-
-      <button type="button" class="rack-tool" title="Zoom in" aria-label="Zoom in" [disabled]="!canZoomIn()"
-        (click)="onZoomIn()">
-        <i class="fas fa-search-plus" aria-hidden="true"></i>
-      </button>
-    </div>
-
-    <button type="button" class="rack-tool" [class.rack-tool--on]="isFullscreen()"
-      [attr.aria-pressed]="isFullscreen()" [title]="isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'"
-      [attr.aria-label]="isFullscreen() ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
-      (click)="fullscreen.toggle()">
-      <i [class]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'" aria-hidden="true"></i>
-    </button>
-
-    <span class="rack-toolbar__spacer"></span>
-
-    <app-button *permissionLink="['base.framework.rack.edit']" label="Add to rack" icon="fas fa-plus"
-      bootstrapClass="btn-primary btn-sm" (clicked)="actions.add(defaultSide())">
-    </app-button>
-  </div>
-
-  <!-- ------------------------------------------- LEGEND --------------------------------------------- -->
+  <!-- ------------------------------------------- HEADER --------------------------------------------- -->
   <!--
-    The key to the drawing, so it sits directly above it. A rack may hold many types, so only the
-    heaviest ones are keyed until the user asks for the rest, and the open list scrolls in place
-    rather than pushing the elevation off the screen.
+    One card for everything done to the drawing. The controls sit in clusters - what to show, how big
+    to show it - and the key is folded into the same card rather than stacked above the elevation as a
+    band of its own.
   -->
-  @if (hasLegend()) {
-  <div class="rack-legend">
-    <span class="rack-legend__title" id="rack-legend-title">Legend</span>
+  <div class="rack-header">
+    <div class="rack-header__bar">
+      <div class="rack-cluster">
+        <span class="rack-cluster__label" id="rack-view-label">View</span>
 
-    <ul id="rack-legend-list" class="rack-legend__list" [class.rack-legend__list--open]="isLegendExpanded()"
-      aria-labelledby="rack-legend-title">
-      @for (entry of visibleTypesLegend(); track entry.type_id) {
+        <div class="rack-switch" role="group" aria-labelledby="rack-view-label">
+          <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'split'"
+            [attr.aria-pressed]="viewMode() === 'split'" (click)="onViewChange('split')">Split</button>
+
+          <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'front'"
+            [attr.aria-pressed]="viewMode() === 'front'" (click)="onViewChange('front')">Front</button>
+
+          <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'rear'"
+            [attr.aria-pressed]="viewMode() === 'rear'" (click)="onViewChange('rear')">Rear</button>
+        </div>
+      </div>
+
+      <span class="rack-header__divider" aria-hidden="true"></span>
+
+      <div class="rack-cluster">
+        <!-- Scales the elevation only. The read-out doubles as the reset back to 100%. -->
+        <div class="rack-zoom" role="group" aria-label="Zoom the elevation">
+          <button type="button" class="rack-zoom__step" title="Zoom out" aria-label="Zoom out"
+            [disabled]="!canZoomOut()" (click)="onZoomOut()">
+            <i class="fas fa-minus" aria-hidden="true"></i>
+          </button>
+
+          <button type="button" class="rack-zoom__level" title="Reset zoom" aria-label="Reset the zoom to 100%"
+            [disabled]="isDefaultZoom()" (click)="onResetZoom()">{{ zoomLabel() }}</button>
+
+          <button type="button" class="rack-zoom__step" title="Zoom in" aria-label="Zoom in" [disabled]="!canZoomIn()"
+            (click)="onZoomIn()">
+            <i class="fas fa-plus" aria-hidden="true"></i>
+          </button>
+        </div>
+
+        <button type="button" class="rack-tool" [class.rack-tool--on]="isFullscreen()"
+          [attr.aria-pressed]="isFullscreen()" [title]="isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'"
+          [attr.aria-label]="isFullscreen() ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
+          (click)="fullscreen.toggle()">
+          <i [class]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <span class="rack-header__spacer"></span>
+
+      @if (hasLegend()) {
+      <button type="button" id="rack-legend-toggle" class="rack-disclosure"
+        [class.rack-disclosure--open]="isLegendExpanded()" [attr.aria-expanded]="isLegendExpanded()"
+        aria-controls="rack-legend-panel" (click)="onToggleLegend()">
+        <span>Legend</span>
+        <span class="rack-disclosure__count">{{ legendCount() }}</span>
+        <i class="fas fa-chevron-down rack-disclosure__caret" aria-hidden="true"></i>
+      </button>
+      }
+
+      <app-button *permissionLink="['base.framework.rack.edit']" label="Add to rack" icon="fas fa-plus"
+        bootstrapClass="btn-primary btn-sm" (clicked)="actions.add(defaultSide())">
+      </app-button>
+    </div>
+
+    <!--
+      Kept in the DOM while it is folded away, so the button it is opened by can keep pointing at it.
+      A crowded rack keys dozens of types, so the panel is capped and scrolls inside itself.
+    -->
+    @if (hasLegend()) {
+    <ul id="rack-legend-panel" class="rack-legend" [hidden]="!isLegendExpanded()"
+      aria-labelledby="rack-legend-toggle">
+      @for (entry of store.typesLegend(); track entry.type_id) {
       <li class="rack-legend__item">
         <span class="rack-legend__chip" [style.color]="entry.tone" [style.background]="entry.tint">
           <i [class]="entry.icon" aria-hidden="true"></i>
@@ -80,15 +99,8 @@
       </li>
       }
     </ul>
-
-    @if (hiddenTypesCount()) {
-    <button type="button" class="rack-legend__more" [attr.aria-expanded]="isLegendExpanded()"
-      aria-controls="rack-legend-list" (click)="onToggleLegend()">
-      {{ isLegendExpanded() ? 'Show less' : '+' + hiddenTypesCount() + ' more' }}
-    </button>
     }
   </div>
-  }
 
   <!-- ------------------------------------------- STAGE ---------------------------------------------- -->
   <div class="rack-stage">

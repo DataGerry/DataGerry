@@ -114,6 +114,9 @@ export class RackActionsService {
 
         modalRef.componentInstance.rackId = this.store.rackId();
         modalRef.componentInstance.rackHeight = this.store.rackHeight();
+        // A snapshot is enough: the rack cannot be edited behind an open modal, and the backend
+        // re-checks the placement before it is written either way.
+        modalRef.componentInstance.rows = this.store.rows();
         modalRef.componentInstance.mount = mount;
         modalRef.componentInstance.presetArea = presetArea;
         modalRef.componentInstance.presetStartSlot = presetStartSlot;

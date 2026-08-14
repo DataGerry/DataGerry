@@ -86,7 +86,14 @@ import {
     /** The internal data model */
     value: any = null;
 
-    @Input() dropdownDirection?: 'bottom' | 'top' = 'bottom';
+    @Input() dropdownDirection?: 'bottom' | 'top' | 'auto' = 'bottom';
+
+    /**
+     * CSS selector of the element the option panel is rendered into. Leave empty to keep it inline;
+     * set it when an ancestor clips the panel (a scrolling modal body, an overflow-hidden card) to a
+     * selector that is guaranteed to resolve — ng-select throws when it matches nothing.
+     */
+    @Input() appendTo = '';
 
     @Input() groupBy?: string;
 

@@ -76,6 +76,9 @@ export class RackObjectPickerComponent implements ControlValueAccessor, OnInit {
 
     public readonly rackId = input.required<number>();
 
+    /** Passed straight to the dropdown, so a host whose layout clips the panel can re-parent it. */
+    public readonly appendTo = input('');
+
     /** The picked object itself, for a host that has to react to a new choice rather than to its id. */
     public readonly objectSelected = output<RackAssignableObject | null>();
 
