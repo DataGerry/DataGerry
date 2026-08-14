@@ -45,32 +45,33 @@ import {
     RACK_SLOT_AREAS,
     RackArea,
     RackMountKind,
-    RackMountPayload,
     RackMountRow,
-    RackMountUpdatePayload,
-    RackMountValidatePayload,
     RackMountValidationResponse,
     RackRowView,
     kindOf,
     toDayString
 } from '../../models/rack-overview.types';
 import { RackOverviewService } from '../../services/rack-overview.service';
-import { RackFreeRun, freeRuns, measureArea, runContaining, runsThatFit } from '../../utils/rack-availability.util';
+import {
+    RackSlotSuggestion,
+    freeRuns,
+    measureArea,
+    runContaining,
+    runsThatFit
+} from '../../utils/rack-availability.util';
 import { slotRangeText } from '../../utils/rack-layout.util';
+import {
+    buildInsertPayload,
+    buildUpdatePayload,
+    buildValidatePayload,
+    toNumber
+} from '../../utils/rack-mount-form.util';
 import { RACK_KIND_LABELS } from '../../utils/rack-visual.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 interface RackAreaOption {
     value: RackArea;
     label: string;
-}
-
-/** A free stretch offered as a one click placement; choosing it anchors the row at the stretch's top. */
-export interface RackSlotSuggestion extends RackFreeRun {
-    /** The stretch as a rack is read, anchor first, with how much it holds. */
-    range: string;
-    /** Spelled out for the tooltip and for a reader that gets the label without its context. */
-    hint: string;
 }
 
 interface RackKindOption {
@@ -201,15 +202,15 @@ export class RackMountModalComponent implements OnInit {
      * Built once in ngOnInit: what each area still has free never changes while the modal is open, and
      * rebuilding the labels on every keystroke would hand ng-select a fresh item list each time.
      */
-    private annotatedAreas = AREA_OPTIONS;
+    private readonly annotatedAreas = signal<RackAreaOption[]>(AREA_OPTIONS);
 
     /** The side areas hold objects only, so they leave the list as soon as an occupant is being added. */
     public readonly areaOptions = computed(() => {
         if (!RACK_OCCUPANT_KINDS.includes(this.selectedKind())) {
-            return this.annotatedAreas;
+            return this.annotatedAreas();
         }
 
-        return this.annotatedAreas.filter(option => !RACK_OCCUPANT_FORBIDDEN_AREAS.includes(option.value));
+        return this.annotatedAreas().filter(option => !RACK_OCCUPANT_FORBIDDEN_AREAS.includes(option.value));
     });
 
     /** Free stretches of the chosen area, top down. Empty for an area that carries no slots. */
@@ -220,9 +221,12 @@ export class RackMountModalComponent implements OnInit {
     public readonly largestRun = computed(() =>
         this.areaRuns().reduce((largest, run) => Math.max(largest, run.size), 0));
 
+    /** The anchor the chips compare themselves against, so the chosen stretch reads as selected. */
+    public readonly pickedAnchor = computed(() => toNumber(this.formValue().startSlot));
+
     /** The stretches the entered height still fits into, offered as one click placements. */
     public readonly slotSuggestions = computed<RackSlotSuggestion[]>(() => {
-        const span = this.toNumber(this.formValue().height) ?? 1;
+        const span = toNumber(this.formValue().height) ?? 1;
 
         return runsThatFit(this.areaRuns(), span).map(run => ({
             ...run,
@@ -246,7 +250,7 @@ export class RackMountModalComponent implements OnInit {
             return 'This area has no free slots left.';
         }
 
-        const span = this.toNumber(this.formValue().height);
+        const span = toNumber(this.formValue().height);
 
         return span !== null && span > largest ? `The longest free stretch here is ${largest}U.` : '';
     });
@@ -271,8 +275,8 @@ export class RackMountModalComponent implements OnInit {
      */
     public readonly slotRange = computed<{ text: string; warn: boolean }>(() => {
         const { startSlot, height } = this.formValue();
-        const anchorSlot = this.toNumber(startSlot);
-        const span = this.toNumber(height);
+        const anchorSlot = toNumber(startSlot);
+        const span = toNumber(height);
 
         if (anchorSlot === null || span === null) {
             return { text: `Slot 1 is the bottom of the rack, slot ${this.rackHeight} the top.`, warn: false };
@@ -304,7 +308,7 @@ export class RackMountModalComponent implements OnInit {
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
-        this.annotatedAreas = AREA_OPTIONS.map(option => ({ ...option, label: this.areaLabelWithSpace(option) }));
+        this.annotatedAreas.set(AREA_OPTIONS.map(option => ({ ...option, label: this.areaLabelWithSpace(option) })));
         this.seedForm();
         this.applyKindRules(this.form.getRawValue().kind);
         this.applyAreaRules(this.form.controls.area.value);
@@ -359,7 +363,7 @@ export class RackMountModalComponent implements OnInit {
         this.loaderService.show();
 
         this.rackOverviewService
-            .validateMount(this.rackId, this.buildValidatePayload())
+            .validateMount(this.rackId, buildValidatePayload(this.form.getRawValue(), this.mount))
             .pipe(
                 switchMap((validation) => this.persistWhenValid(validation)),
                 takeUntilDestroyed(this.destroyRef),
@@ -379,11 +383,6 @@ export class RackMountModalComponent implements OnInit {
 
     public get isEditMode(): boolean {
         return this.mount !== null;
-    }
-
-    /** True for the stretch the current anchor sits at the top of, so the chip can read as chosen. */
-    public isPickedSuggestion(run: RackSlotSuggestion): boolean {
-        return this.toNumber(this.formValue().startSlot) === run.to;
     }
 
     /**
@@ -579,122 +578,16 @@ export class RackMountModalComponent implements OnInit {
             return of(null);
         }
 
-        if (this.isEditMode) {
-            return this.rackOverviewService.updateMount(this.rackId, this.mount.mount_id, this.buildUpdatePayload());
-        }
-
-        return this.rackOverviewService.mountObject(this.rackId, this.buildInsertPayload());
-    }
-
-    private buildValidatePayload(): RackMountValidatePayload {
-        const payload: RackMountValidatePayload = {
-            ...this.buildGeometry(),
-            ...this.buildKindFields()
-        };
+        const value = this.form.getRawValue();
 
         if (this.isEditMode) {
-            payload.mount_id = this.mount.mount_id;
+            return this.rackOverviewService.updateMount(
+                this.rackId,
+                this.mount.mount_id,
+                buildUpdatePayload(value, this.mount)
+            );
         }
 
-        return payload;
-    }
-
-    private buildInsertPayload(): RackMountPayload {
-        return {
-            ...this.buildGeometry(),
-            ...this.buildKindFields()
-        };
-    }
-
-    /**
-     * The kind is immutable, so a PATCH carries the fields of the existing kind only. A null clears the
-     * stored value, which is what an emptied input means.
-     */
-    private buildUpdatePayload(): RackMountUpdatePayload {
-        const { label, startDate, endDate, color } = this.form.getRawValue();
-
-        const payload: RackMountUpdatePayload = {
-            ...this.buildGeometry(),
-            label: this.toText(label)
-        };
-
-        if (kindOf(this.mount) === RackMountKind.RESERVATION) {
-            payload.start_date = this.toIsoDate(startDate);
-            payload.end_date = this.toIsoDate(endDate);
-            payload.color = this.toText(color);
-        }
-
-        return payload;
-    }
-
-    /** Only the fields the chosen kind owns; the backend refuses the rest rather than ignoring them. */
-    private buildKindFields(): RackMountPayload {
-        const kind = this.form.getRawValue().kind;
-        const { objectId, label, startDate, endDate, color } = this.form.getRawValue();
-
-        const payload: RackMountPayload = { kind, label: this.toText(label) };
-
-        if (kind === RackMountKind.MOUNT) {
-            payload.object_id = this.isEditMode ? this.mount.object_id : objectId;
-            return payload;
-        }
-
-        if (kind === RackMountKind.RESERVATION) {
-            payload.start_date = this.toIsoDate(startDate);
-            payload.end_date = this.toIsoDate(endDate);
-            payload.color = this.toText(color);
-        }
-
-        return payload;
-    }
-
-    /**
-     * Geometry of the candidate placement. The unused axis is sent as null so a move away from it
-     * clears the stale value, and an omitted position lets the backend append to the area.
-     */
-    private buildGeometry(): RackMountUpdatePayload {
-        const { area, startSlot, height, position } = this.form.getRawValue();
-
-        if (RACK_SLOT_AREAS.includes(area)) {
-            return {
-                area,
-                start_slot: this.toNumber(startSlot),
-                height: this.toNumber(height),
-                position: null
-            };
-        }
-
-        const geometry: RackMountUpdatePayload = {
-            area,
-            start_slot: null,
-            height: area === RackArea.UNASSIGNED ? this.toNumber(height) : null
-        };
-
-        if (position != null && `${position}` !== '') {
-            geometry.position = this.toNumber(position);
-        }
-
-        return geometry;
-    }
-
-    /** Number inputs hand back strings, and the backend range-checks whatever it receives. */
-    private toNumber(value: number | string | null): number | null {
-        if (value == null || `${value}`.trim() === '') {
-            return null;
-        }
-
-        return Number(value);
-    }
-
-    /** An emptied text input means "no value", which the backend spells as null. */
-    private toText(value: string | null): string | null {
-        const text = (value ?? '').trim();
-
-        return text === '' ? null : text;
-    }
-
-    /** The date input yields a plain day; the backend stores an instant, so it is sent as midnight UTC. */
-    private toIsoDate(value: string | null): string | null {
-        return value ? `${value}T00:00:00+00:00` : null;
+        return this.rackOverviewService.mountObject(this.rackId, buildInsertPayload(value));
     }
 }

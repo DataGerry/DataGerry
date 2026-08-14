@@ -74,9 +74,15 @@
         </app-form-select>
 
         @if (showsHeight()) {
-          <app-form-input label="Height (U)" type="number" placeholder="How many slots it takes"
-            [required]="isSlotArea()" [errorMessage]="heightError || heightNotice()" formControlName="height">
-          </app-form-input>
+          <div class="mount-form__field">
+            <app-form-input label="Height (U)" type="number" placeholder="How many slots it takes"
+              [required]="isSlotArea()" [errorMessage]="heightError" formControlName="height">
+            </app-form-input>
+
+            @if (heightNotice(); as notice) {
+              <p class="mount-form__note">{{ notice }}</p>
+            }
+          </div>
         }
 
         @if (isSlotArea()) {
@@ -99,8 +105,9 @@
               <div class="mount-form__chips" role="group" aria-labelledby="rack-slot-suggestions">
                 @for (run of slotSuggestions(); track run.to) {
                   <app-button [label]="run.range" [title]="run.hint" [ariaLabel]="run.hint"
-                    [ariaPressed]="isPickedSuggestion(run)"
-                    [bootstrapClass]="isPickedSuggestion(run) ? 'mount-chip mount-chip--on' : 'mount-chip'"
+                    [ariaPressed]="pickedAnchor() === run.to"
+                    [bootstrapClass]="pickedAnchor() === run.to
+                      ? 'mount-form__chip mount-form__chip--on' : 'mount-form__chip'"
                     (clicked)="onSuggestionPicked(run)">
                   </app-button>
                 }

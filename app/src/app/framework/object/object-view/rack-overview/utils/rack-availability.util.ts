@@ -32,6 +32,15 @@ export interface RackFreeRun {
 }
 
 
+/** A free stretch offered as a one click placement; choosing it anchors the row at the stretch's top. */
+export interface RackSlotSuggestion extends RackFreeRun {
+    /** The stretch as a rack is read, anchor first, with how much it holds. */
+    range: string;
+    /** Spelled out for the tooltip and for a reader that gets the label without its context. */
+    hint: string;
+}
+
+
 /**
  * How much room an area still has. `largestRun` is the honest number: twelve free U spread over four
  * gaps cannot take a 3U server, and only the run says so.
