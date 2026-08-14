@@ -79,6 +79,14 @@ const KIND_OPTIONS: RackKindOption[] = [
 /** The backend accepts a plain six digit hex colour only. */
 const HEX_COLOR_PATTERN = /^#[\da-fA-F]{6}$/;
 
+/**
+ * The dropdowns render into the modal window rather than in place: the scrolling body and the
+ * corner-clipping content box would both cut a panel that opens past their edge. The window is the
+ * nearest ancestor that clips nothing, and it is the element `windowClass` puts the class on, so it
+ * resolves whether the modal is parked on the body or inside the fullscreen rack view.
+ */
+const DROPDOWN_HOST = '.dg-modal-window';
+
 
 /**
  * Both dates are optional, but a range that ends before it starts is never what was meant. The values
@@ -129,6 +137,7 @@ export class RackMountModalComponent implements OnInit {
     @Input() public presetStartSlot: number | null = null;
 
     public readonly kindOptions = KIND_OPTIONS;
+    public readonly DROPDOWN_HOST = DROPDOWN_HOST;
     public readonly isLoading$ = this.loaderService.isLoading$;
     public readonly validationErrors = signal<string[]>([]);
 
@@ -175,21 +184,36 @@ export class RackMountModalComponent implements OnInit {
 
     public readonly title = computed(() => `${this.isEditMode ? 'Edit' : 'Add'} ${this.kindLabel().toLowerCase()}`);
 
-    /** Spells out the slots the current input would take, since the anchor extends downward. */
-    public readonly slotRangeHint = computed<string | null>(() => {
-        if (!this.isSlotArea()) {
-            return null;
-        }
+    public readonly subtitle = computed(() => (this.rackHeight ? `${this.rackHeight}U rack` : ''));
 
+    /**
+     * Spells out the slots the current input would take, since the anchor extends downward. Until both
+     * values are in it explains the counting direction, and it warns as soon as the span would run off
+     * the bottom, which the height-first order makes easy to walk into.
+     */
+    public readonly slotRange = computed<{ text: string; warn: boolean }>(() => {
         const { startSlot, height } = this.formValue();
         const anchorSlot = this.toNumber(startSlot);
         const span = this.toNumber(height);
 
         if (anchorSlot === null || span === null) {
-            return null;
+            return { text: `Slot 1 is the bottom of the rack, slot ${this.rackHeight} the top.`, warn: false };
         }
 
-        return `Occupies slot ${anchorSlot - span + 1} to ${anchorSlot} of ${this.rackHeight}U.`;
+        const bottomSlot = anchorSlot - span + 1;
+
+        if (bottomSlot < 1) {
+            return { text: `${span}U does not fit below slot ${anchorSlot}.`, warn: true };
+        }
+
+        return { text: `Occupies slot ${bottomSlot} to ${anchorSlot} of ${this.rackHeight}U.`, warn: false };
+    });
+
+    /** Only a complete hex is previewed, so a half typed value does not flash a colour. */
+    public readonly previewColor = computed(() => {
+        const color = this.formValue().color ?? '';
+
+        return HEX_COLOR_PATTERN.test(color) ? color : null;
     });
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */

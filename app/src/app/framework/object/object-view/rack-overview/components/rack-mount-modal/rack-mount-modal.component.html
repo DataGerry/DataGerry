@@ -1,78 +1,132 @@
-<dg-modal icon="fas fa-server" eyebrow="Rack" [title]="title()" (dismiss)="activeModal.dismiss()">
+<dg-modal icon="fas fa-server" eyebrow="Rack" [title]="title()" [subtitle]="subtitle()"
+  (dismiss)="activeModal.dismiss()">
 
-  <form [formGroup]="form">
-    @if (isEditMode) {
-      <p>
-        Type: <strong>{{ kindLabel() }}</strong>
-      </p>
-    } @else {
-      <app-form-select label="What holds the space" bindLabel="label" bindValue="value" [items]="kindOptions"
-        [required]="true" formControlName="kind">
-      </app-form-select>
-    }
+  <form [formGroup]="form" class="mount-form">
 
-    @if (isMount()) {
-      @if (isEditMode) {
-        <p>
-          Object: <strong>{{ mount?.summary_line || ('#' + mount?.object_id) }}</strong>
-        </p>
-      } @else {
-        <cmdb-rack-object-picker [rackId]="rackId" formControlName="objectId" (objectSelected)="onObjectSelected()">
-        </cmdb-rack-object-picker>
-      }
-    }
+    <fieldset class="mount-form__section">
+      <legend class="mount-form__legend">
+        <span class="mount-form__legend-row">
+          <span class="mount-form__legend-icon"><i class="fas fa-cube" aria-hidden="true"></i></span>
+          <span class="mount-form__legend-text">Entry</span>
+        </span>
+      </legend>
 
-    <app-form-input label="Label (optional)" placeholder="Shown on the row, for example Metal frame"
-      formControlName="label">
-    </app-form-input>
+      <div class="mount-form__grid">
+        @if (isEditMode) {
+          <div class="mount-form__readout">
+            <span class="mount-form__readout-label">Type</span>
+            <span class="mount-form__readout-value">{{ kindLabel() }}</span>
+          </div>
+        } @else {
+          <app-form-select label="What holds the space" bindLabel="label" bindValue="value" [items]="kindOptions"
+            [required]="true" [appendTo]="DROPDOWN_HOST" dropdownDirection="auto" formControlName="kind">
+          </app-form-select>
+        }
 
-    <app-form-select label="Area" placeholder="Select an area..." bindLabel="label" bindValue="value"
-      [items]="areaOptions()" [required]="true" formControlName="area">
-    </app-form-select>
+        <app-form-input label="Label (optional)" placeholder="Shown on the row, for example Metal frame"
+          formControlName="label">
+        </app-form-input>
 
-    @if (isSlotArea()) {
-      <app-form-input label="Start slot" type="number" placeholder="Slot 1 is the bottom of the rack"
-        [required]="true" [errorMessage]="startSlotError" formControlName="startSlot">
-      </app-form-input>
-    }
+        @if (isMount()) {
+          @if (isEditMode) {
+            <div class="mount-form__readout mount-form__cell--full">
+              <span class="mount-form__readout-label">Object</span>
+              <span class="mount-form__readout-value">{{ mount?.summary_line || ('#' + mount?.object_id) }}</span>
+            </div>
+          } @else {
+            <div class="mount-form__cell--full">
+              <cmdb-rack-object-picker [rackId]="rackId" [appendTo]="DROPDOWN_HOST" formControlName="objectId"
+                (objectSelected)="onObjectSelected()">
+              </cmdb-rack-object-picker>
+            </div>
+          }
+        }
+      </div>
+    </fieldset>
 
-    @if (showsHeight()) {
-      <app-form-input label="Height (U)" type="number" [required]="isSlotArea()" [errorMessage]="heightError"
-        formControlName="height">
-      </app-form-input>
-    }
+    <fieldset class="mount-form__section">
+      <legend class="mount-form__legend">
+        <span class="mount-form__legend-row">
+          <span class="mount-form__legend-icon"><i class="fas fa-location-crosshairs" aria-hidden="true"></i></span>
+          <span class="mount-form__legend-text">Placement</span>
+        </span>
+      </legend>
 
-    @if (showsPosition()) {
-      <app-form-input label="Position (optional)" type="number"
-        placeholder="Leave empty to append to the end of the area" [errorMessage]="positionError"
-        formControlName="position">
-      </app-form-input>
-    }
+      <div class="mount-form__grid">
+        <app-form-select label="Area" placeholder="Select an area..." bindLabel="label" bindValue="value"
+          [items]="areaOptions()" [required]="true" [appendTo]="DROPDOWN_HOST" dropdownDirection="auto"
+          formControlName="area">
+        </app-form-select>
+
+        @if (showsHeight()) {
+          <app-form-input label="Height (U)" type="number" placeholder="How many slots it takes"
+            [required]="isSlotArea()" [errorMessage]="heightError" formControlName="height">
+          </app-form-input>
+        }
+
+        @if (isSlotArea()) {
+          <app-form-input label="Start slot" type="number" placeholder="Slot 1 is the bottom of the rack"
+            [required]="true" [errorMessage]="startSlotError" formControlName="startSlot">
+          </app-form-input>
+
+          <p class="mount-form__hint" [class.mount-form__hint--warn]="slotRange().warn">
+            <i class="fas" [class.fa-circle-info]="!slotRange().warn"
+              [class.fa-triangle-exclamation]="slotRange().warn" aria-hidden="true"></i>
+            <span>{{ slotRange().text }}</span>
+          </p>
+        }
+
+        @if (showsPosition()) {
+          <app-form-input label="Position (optional)" type="number"
+            placeholder="Leave empty to append to the end of the area" [errorMessage]="positionError"
+            formControlName="position">
+          </app-form-input>
+        }
+      </div>
+    </fieldset>
 
     @if (isReservation()) {
-      <app-form-input label="Reserved from (optional)" type="date" formControlName="startDate">
-      </app-form-input>
+      <fieldset class="mount-form__section">
+        <legend class="mount-form__legend">
+          <span class="mount-form__legend-row">
+            <span class="mount-form__legend-icon"><i class="fas fa-calendar-days" aria-hidden="true"></i></span>
+            <span class="mount-form__legend-text">Reservation window</span>
+          </span>
+        </legend>
 
-      <app-form-input label="Reserved until (optional)" type="date" [errorMessage]="dateRangeError"
-        formControlName="endDate">
-      </app-form-input>
+        <div class="mount-form__grid">
+          <app-form-input label="Reserved from (optional)" type="date" formControlName="startDate">
+          </app-form-input>
 
-      <app-form-input label="Colour (optional)" placeholder="#4CAF50" [errorMessage]="colorError"
-        formControlName="color">
-      </app-form-input>
-    }
+          <app-form-input label="Reserved until (optional)" type="date" [errorMessage]="dateRangeError"
+            formControlName="endDate">
+          </app-form-input>
 
-    @if (slotRangeHint(); as hint) {
-      <p>{{ hint }}</p>
+          <div class="mount-form__color">
+            <app-form-input label="Colour (optional)" placeholder="#4CAF50" [errorMessage]="colorError"
+              formControlName="color">
+            </app-form-input>
+
+            @if (previewColor(); as swatch) {
+              <span class="mount-form__swatch" [style.background]="swatch" aria-hidden="true"></span>
+            }
+          </div>
+        </div>
+      </fieldset>
     }
 
     @if (validationErrors().length) {
-      <div class="alert alert-danger" role="alert">
-        <ul class="mb-0">
-          @for (error of validationErrors(); track $index) {
-            <li>{{ error }}</li>
-          }
-        </ul>
+      <div class="mount-form__errors" role="alert">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+
+        <div>
+          <p class="mount-form__errors-title">This placement was rejected</p>
+          <ul class="mount-form__errors-list">
+            @for (error of validationErrors(); track $index) {
+              <li>{{ error }}</li>
+            }
+          </ul>
+        </div>
       </div>
     }
   </form>

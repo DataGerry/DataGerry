@@ -4,7 +4,8 @@
 
 <app-form-select label="Object" placeholder="Type to search objects..." bindLabel="option_label"
   bindValue="public_id" [items]="options()" [required]="true" [loading]="isFetching()" [typeahead]="searchTerms$"
-  [formControl]="objectControl" (selectedItemChange)="onOptionSelected($event)" (scrolledToEnd)="onScrollEnd()">
+  [appendTo]="appendTo()" dropdownDirection="auto" [formControl]="objectControl"
+  (selectedItemChange)="onOptionSelected($event)" (scrolledToEnd)="onScrollEnd()">
 </app-form-select>
 
 @if (assignedRackNotice(); as notice) {
