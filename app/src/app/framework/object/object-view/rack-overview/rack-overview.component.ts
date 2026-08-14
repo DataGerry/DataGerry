@@ -25,12 +25,6 @@ import { RackOverviewStore } from './services/rack-overview-store.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * How many type entries the legend shows before it has to be expanded. A rack may hold dozens of types,
- * and the key must not grow taller than the drawing it explains.
- */
-const LEGEND_TYPE_LIMIT = 6;
-
-/**
  * Zoom bounds for the drawing, in percent. The range leans on shrinking: a rack is taller than the
  * screen far more often than it is too small to read.
  */
@@ -72,20 +66,17 @@ export class RackOverviewComponent {
     public readonly publicId = input<number | null>(null);
 
     public readonly viewMode = signal<RackViewMode>('split');
-    /** Scales the drawing only; the toolbar, the legend and the side column keep their own size. */
+    /** Scales the drawing only; the header and the side column keep their own size. */
     public readonly zoomPercent = signal(ZOOM_DEFAULT);
     public readonly isFullscreen = signal(false);
-    /** Only the first types are keyed until the user asks for the rest. */
+    /** The key is folded away until it is asked for; it explains the drawing, it does not replace it. */
     public readonly isLegendExpanded = signal(false);
 
-    public readonly hasLegend = computed(() =>
-        this.store.typesLegend().length > 0 || this.store.occupantsLegend().length > 0);
+    /** Sits on the toggle, so the key says how much it holds without having to be opened first. */
+    public readonly legendCount = computed(() =>
+        this.store.typesLegend().length + this.store.occupantsLegend().length);
 
-    public readonly visibleTypesLegend = computed(() =>
-        this.isLegendExpanded() ? this.store.typesLegend() : this.store.typesLegend().slice(0, LEGEND_TYPE_LIMIT));
-
-    public readonly hiddenTypesCount = computed(() =>
-        Math.max(this.store.typesLegend().length - LEGEND_TYPE_LIMIT, 0));
+    public readonly hasLegend = computed(() => this.legendCount() > 0);
 
     /** The face a new row defaults to, which is whichever one the current view leads with. */
     public readonly defaultSide = computed<RackViewSide>(() =>
