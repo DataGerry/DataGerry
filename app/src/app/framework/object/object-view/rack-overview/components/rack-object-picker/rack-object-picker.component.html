@@ -11,9 +11,3 @@
 @if (assignedRackNotice(); as notice) {
   <app-warning-alert title="Already mounted:" [message]="notice"></app-warning-alert>
 }
-
-@if (total()) {
-  <p class="text-muted">
-    {{ loadedCount() }} of {{ total() }} matching objects loaded &mdash; scroll for more.
-  </p>
-}

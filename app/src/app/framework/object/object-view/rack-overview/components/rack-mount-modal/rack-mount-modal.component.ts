@@ -15,7 +15,20 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, Input, OnInit, signal } from '@angular/core';
+import {
+    ChangeDetectionStrategy,
+    Component,
+    DestroyRef,
+    ElementRef,
+    Injector,
+    Input,
+    OnInit,
+    ViewChild,
+    afterNextRender,
+    computed,
+    inject,
+    signal
+} from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormControl, FormGroup, ValidationErrors, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
@@ -37,16 +50,27 @@ import {
     RackMountUpdatePayload,
     RackMountValidatePayload,
     RackMountValidationResponse,
+    RackRowView,
     kindOf,
     toDayString
 } from '../../models/rack-overview.types';
 import { RackOverviewService } from '../../services/rack-overview.service';
+import { RackFreeRun, freeRuns, measureArea, runContaining, runsThatFit } from '../../utils/rack-availability.util';
+import { slotRangeText } from '../../utils/rack-layout.util';
 import { RACK_KIND_LABELS } from '../../utils/rack-visual.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 interface RackAreaOption {
     value: RackArea;
     label: string;
+}
+
+/** A free stretch offered as a one click placement; choosing it anchors the row at the stretch's top. */
+export interface RackSlotSuggestion extends RackFreeRun {
+    /** The stretch as a rack is read, anchor first, with how much it holds. */
+    range: string;
+    /** Spelled out for the tooltip and for a reader that gets the label without its context. */
+    hint: string;
 }
 
 interface RackKindOption {
@@ -119,6 +143,10 @@ export class RackMountModalComponent implements OnInit {
     private readonly toastService = inject(ToastService);
     private readonly permissionService = inject(PermissionService);
     private readonly destroyRef = inject(DestroyRef);
+    private readonly injector = inject(Injector);
+
+    /** Focused when a save is refused, which both announces the reasons and brings them into view. */
+    @ViewChild('errorSummary') private errorSummary?: ElementRef<HTMLElement>;
 
     /** The modal is opened from code, so it re-checks the right instead of trusting its caller. */
     public readonly canEdit = this.permissionService.hasRight(RACK_EDIT_RIGHT)
@@ -135,6 +163,11 @@ export class RackMountModalComponent implements OnInit {
     @Input() public mount: RackMountRow | null = null;
     @Input() public presetArea: RackArea = RackArea.FRONT;
     @Input() public presetStartSlot: number | null = null;
+    /**
+     * The rack as it stands, so the form can work out what is still free. A snapshot taken when the
+     * modal opened: it drives the suggestions only, never what is written, which the backend re-checks.
+     */
+    @Input() public rows: RackRowView[] = [];
 
     public readonly kindOptions = KIND_OPTIONS;
     public readonly DROPDOWN_HOST = DROPDOWN_HOST;
@@ -164,13 +197,58 @@ export class RackMountModalComponent implements OnInit {
 
     public readonly isReservation = computed(() => this.selectedKind() === RackMountKind.RESERVATION);
 
+    /**
+     * Built once in ngOnInit: what each area still has free never changes while the modal is open, and
+     * rebuilding the labels on every keystroke would hand ng-select a fresh item list each time.
+     */
+    private annotatedAreas = AREA_OPTIONS;
+
     /** The side areas hold objects only, so they leave the list as soon as an occupant is being added. */
     public readonly areaOptions = computed(() => {
         if (!RACK_OCCUPANT_KINDS.includes(this.selectedKind())) {
-            return AREA_OPTIONS;
+            return this.annotatedAreas;
         }
 
-        return AREA_OPTIONS.filter(option => !RACK_OCCUPANT_FORBIDDEN_AREAS.includes(option.value));
+        return this.annotatedAreas.filter(option => !RACK_OCCUPANT_FORBIDDEN_AREAS.includes(option.value));
+    });
+
+    /** Free stretches of the chosen area, top down. Empty for an area that carries no slots. */
+    private readonly areaRuns = computed(() =>
+        freeRuns(this.rows, this.formValue().area, this.rackHeight, this.editedMountId));
+
+    /** The longest unbroken stretch, which is the tallest row the area can still take. */
+    public readonly largestRun = computed(() =>
+        this.areaRuns().reduce((largest, run) => Math.max(largest, run.size), 0));
+
+    /** The stretches the entered height still fits into, offered as one click placements. */
+    public readonly slotSuggestions = computed<RackSlotSuggestion[]>(() => {
+        const span = this.toNumber(this.formValue().height) ?? 1;
+
+        return runsThatFit(this.areaRuns(), span).map(run => ({
+            ...run,
+            range: `${slotRangeText(run.to, run.size)} · ${run.size}U`,
+            hint: `Place at U${run.to}; ${run.size}U free here`
+        }));
+    });
+
+    /**
+     * A height the area cannot take anywhere. The validators only know the rack's own height, so
+     * without this the refusal would come from the backend after the save was attempted.
+     */
+    public readonly heightNotice = computed(() => {
+        if (!this.isSlotArea()) {
+            return '';
+        }
+
+        const largest = this.largestRun();
+
+        if (largest === 0) {
+            return 'This area has no free slots left.';
+        }
+
+        const span = this.toNumber(this.formValue().height);
+
+        return span !== null && span > largest ? `The longest free stretch here is ${largest}U.` : '';
     });
 
     public readonly isSlotArea = computed(() => RACK_SLOT_AREAS.includes(this.formValue().area));
@@ -206,7 +284,14 @@ export class RackMountModalComponent implements OnInit {
             return { text: `${span}U does not fit below slot ${anchorSlot}.`, warn: true };
         }
 
-        return { text: `Occupies slot ${bottomSlot} to ${anchorSlot} of ${this.rackHeight}U.`, warn: false };
+        // The run has to swallow the whole range, not just the anchor, or the row runs into what is below it.
+        const run = runContaining(this.areaRuns(), anchorSlot);
+
+        if (!run || run.from > bottomSlot) {
+            return { text: `${slotRangeText(anchorSlot, span)} is already taken.`, warn: true };
+        }
+
+        return { text: `Occupies ${slotRangeText(anchorSlot, span)} of ${this.rackHeight}U.`, warn: false };
     });
 
     /** Only a complete hex is previewed, so a half typed value does not flash a colour. */
@@ -219,6 +304,7 @@ export class RackMountModalComponent implements OnInit {
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
+        this.annotatedAreas = AREA_OPTIONS.map(option => ({ ...option, label: this.areaLabelWithSpace(option) }));
         this.seedForm();
         this.applyKindRules(this.form.getRawValue().kind);
         this.applyAreaRules(this.form.controls.area.value);
@@ -246,6 +332,15 @@ export class RackMountModalComponent implements OnInit {
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onObjectSelected(): void {
+        this.validationErrors.set([]);
+    }
+
+    /** Anchors the row at the top of the chosen stretch, which is where a rack is filled from. */
+    public onSuggestionPicked(run: RackSlotSuggestion): void {
+        const startSlot = this.form.controls.startSlot;
+
+        startSlot.setValue(run.to);
+        startSlot.markAsTouched();
         this.validationErrors.set([]);
     }
 
@@ -284,6 +379,11 @@ export class RackMountModalComponent implements OnInit {
 
     public get isEditMode(): boolean {
         return this.mount !== null;
+    }
+
+    /** True for the stretch the current anchor sits at the top of, so the chip can read as chosen. */
+    public isPickedSuggestion(run: RackSlotSuggestion): boolean {
+        return this.toNumber(this.formValue().startSlot) === run.to;
     }
 
     /**
@@ -331,6 +431,38 @@ export class RackMountModalComponent implements OnInit {
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /**
+     * The summary sits above the fields rather than below them, so a refusal cannot land off the end
+     * of a scrolled body. Focusing it is what carries it into view, and `role="alert"` on the same
+     * element is what reads the reasons out.
+     */
+    private showValidationErrors(messages: string[]): void {
+        this.validationErrors.set(messages);
+
+        if (!messages.length) {
+            return;
+        }
+
+        // The element is created by this very change, so the focus waits for the render that adds it.
+        afterNextRender(() => this.errorSummary?.nativeElement.focus(), { injector: this.injector });
+    }
+
+    /** The row being edited never competes with itself for the slots it already holds. */
+    private get editedMountId(): number | null {
+        return this.mount?.mount_id ?? null;
+    }
+
+    /** Areas that carry slots say what is left in them, so the choice is made knowing where there is room. */
+    private areaLabelWithSpace(option: RackAreaOption): string {
+        if (!RACK_SLOT_AREAS.includes(option.value) || this.rackHeight < 1) {
+            return option.label;
+        }
+
+        const { free } = measureArea(this.rows, option.value, this.rackHeight, this.editedMountId);
+
+        return free > 0 ? `${option.label} · ${free}U free` : `${option.label} · full`;
+    }
 
     private seedForm(): void {
         if (this.mount) {
@@ -443,7 +575,7 @@ export class RackMountModalComponent implements OnInit {
 
     private persistWhenValid(validation: RackMountValidationResponse): Observable<unknown | null> {
         if (!validation?.valid) {
-            this.validationErrors.set((validation?.errors ?? []).map(error => error.message));
+            this.showValidationErrors((validation?.errors ?? []).map(error => error.message));
             return of(null);
         }
 

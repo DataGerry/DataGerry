@@ -3,6 +3,21 @@
 
   <form [formGroup]="form" class="mount-form">
 
+    @if (validationErrors().length) {
+      <div class="mount-form__errors" role="alert" tabindex="-1" #errorSummary>
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+
+        <div>
+          <p class="mount-form__errors-title">This placement was rejected</p>
+          <ul class="mount-form__errors-list">
+            @for (error of validationErrors(); track $index) {
+              <li>{{ error }}</li>
+            }
+          </ul>
+        </div>
+      </div>
+    }
+
     <fieldset class="mount-form__section">
       <legend class="mount-form__legend">
         <span class="mount-form__legend-row">
@@ -60,7 +75,7 @@
 
         @if (showsHeight()) {
           <app-form-input label="Height (U)" type="number" placeholder="How many slots it takes"
-            [required]="isSlotArea()" [errorMessage]="heightError" formControlName="height">
+            [required]="isSlotArea()" [errorMessage]="heightError || heightNotice()" formControlName="height">
           </app-form-input>
         }
 
@@ -74,6 +89,28 @@
               [class.fa-triangle-exclamation]="slotRange().warn" aria-hidden="true"></i>
             <span>{{ slotRange().text }}</span>
           </p>
+
+          <div class="mount-form__suggest mount-form__cell--full">
+            @if (slotSuggestions().length) {
+              <span class="mount-form__suggest-label" id="rack-slot-suggestions">
+                Free space &mdash; pick one to place it
+              </span>
+
+              <div class="mount-form__chips" role="group" aria-labelledby="rack-slot-suggestions">
+                @for (run of slotSuggestions(); track run.to) {
+                  <app-button [label]="run.range" [title]="run.hint" [ariaLabel]="run.hint"
+                    [ariaPressed]="isPickedSuggestion(run)"
+                    [bootstrapClass]="isPickedSuggestion(run) ? 'mount-chip mount-chip--on' : 'mount-chip'"
+                    (clicked)="onSuggestionPicked(run)">
+                  </app-button>
+                }
+              </div>
+            } @else {
+              <span class="mount-form__suggest-label mount-form__suggest-label--empty">
+                No free stretch in this area is tall enough.
+              </span>
+            }
+          </div>
         }
 
         @if (showsPosition()) {
@@ -115,20 +152,6 @@
       </fieldset>
     }
 
-    @if (validationErrors().length) {
-      <div class="mount-form__errors" role="alert">
-        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-
-        <div>
-          <p class="mount-form__errors-title">This placement was rejected</p>
-          <ul class="mount-form__errors-list">
-            @for (error of validationErrors(); track $index) {
-              <li>{{ error }}</li>
-            }
-          </ul>
-        </div>
-      </div>
-    }
   </form>
 
   <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" (clicked)="activeModal.dismiss()">
