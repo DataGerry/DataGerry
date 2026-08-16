@@ -56,7 +56,9 @@
   }
 
   /*
-   * The card keeps its head in place however many rows are waiting; only the rows scroll. The
+   * The card keeps its head in place however many rows are waiting; only the rows scroll. The cap
+   * is four rows and the top of a fifth: enough to work from, short enough to leave the selected
+   * row above it whole, and cut mid-row so there is no mistaking that the list carries on. The
    * padding is pulled back out with a matching negative margin so a focus ring on a row is not
    * clipped by the scroll container while the rows still line up with the head above them.
    */
@@ -66,7 +68,7 @@
     gap: 0.4rem;
     flex: 1 1 auto;
     min-height: 0;
-    max-height: var(--rack-tray-max, 20rem);
+    max-height: var(--rack-tray-max, 14rem);
     margin: 0.6rem -0.2rem 0;
     padding: 0 0.2rem;
     overflow-y: auto;

@@ -1,11 +1,15 @@
 /*
- * Rack › side — the column beside the drawing. It holds two cards at once: what is selected in the
- * rack, and what is in the rack without a place yet. The selected row takes only the height it needs,
- * so whatever is left of the sticky column belongs to the staging tray.
+ * Rack › side — the column beside the drawing. It holds three cards: what is selected in the rack,
+ * what is in the rack without a place yet, and the notes kept on the rack. The selected row and the
+ * notes take only the height they need, so whatever is left of the sticky column belongs to the
+ * staging tray.
  */
 
 /* What the column keeps clear of the viewport edge, above and below. */
 $rack-side-inset: 1.25rem;
+
+/* What the tray keeps for itself however tall the card above it is: its head and a row under it. */
+$rack-tray-floor: 9rem;
 
 .rack-side {
   /*
@@ -19,15 +23,26 @@ $rack-side-inset: 1.25rem;
   gap: 1rem;
   min-height: 0;
   max-height: calc(100vh - #{$navbar-height} - #{$rack-side-inset} * 2);
+  /* Only reached once the tray is down to its floor: past that the column scrolls rather than
+     running its last card off the bottom of a short screen, where nothing could reach it. */
+  overflow-y: auto;
 
+  /*
+   * Read whole or not at all. Shrunk to fit it would scroll inside itself, and a card whose figures
+   * and actions sit below its own fold reads as if it simply did not have them.
+   */
   .rack-inspector {
-    flex: 0 1 auto;
-    min-height: 0;
-    overflow-y: auto;
+    flex: none;
   }
 
+  /* The one card that gives: it takes what the other two leave and scrolls its list inside that. */
   .rack-tray {
-    flex: 0 1 auto;
-    min-height: 0;
+    flex: 1 1 auto;
+    min-height: $rack-tray-floor;
+  }
+
+  /* Folded it is one line, and opened its read-out scrolls, so it never takes the tray's height. */
+  .rack-notes {
+    flex: none;
   }
 }

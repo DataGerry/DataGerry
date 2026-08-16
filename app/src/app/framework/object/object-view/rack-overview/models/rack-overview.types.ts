@@ -25,6 +25,15 @@ export const RACK_EDIT_RIGHT = 'base.framework.rack.edit';
 /** Guards every rack read route, and with it the rack tab of the object view. */
 export const RACK_VIEW_RIGHT = 'base.framework.rack.view';
 
+/**
+ * The notes are a field of the rack object rather than rack data of their own, so they are written
+ * through the object PATCH route - and are gated by the object right, not the rack one.
+ */
+export const OBJECT_EDIT_RIGHT = 'base.framework.object.edit';
+
+/** Name of the notes field of the RACK special type. */
+export const RACK_NOTES_FIELD = 'dg-rack-notes';
+
 
 export enum RackArea {
     FRONT = 'FRONT',

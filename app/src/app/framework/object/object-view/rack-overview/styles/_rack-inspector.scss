@@ -92,10 +92,8 @@
     padding: 0.75rem 0.85rem;
   }
 
-  /* The actions keep their own band and stay in reach while a long body scrolls under them. */
+  /* The actions keep a band of their own, set off from the figures they apply to. */
   &__foot {
-    position: sticky;
-    bottom: 0;
     display: flex;
     flex-direction: column;
     flex: none;

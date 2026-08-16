@@ -55,6 +55,7 @@ import { RackOverviewComponent } from './object-view/rack-overview/rack-overview
 import { RackElevationComponent } from './object-view/rack-overview/components/rack-elevation/rack-elevation.component';
 import { RackInspectorComponent } from './object-view/rack-overview/components/rack-inspector/rack-inspector.component';
 import { RackTrayComponent } from './object-view/rack-overview/components/rack-tray/rack-tray.component';
+import { RackNotesComponent } from './object-view/rack-overview/components/rack-notes/rack-notes.component';
 import { RackMountModalComponent } from './object-view/rack-overview/components/rack-mount-modal/rack-mount-modal.component';
 import { RackPlacementComponent } from './object-view/rack-overview/components/rack-placement/rack-placement.component';
 import { RackObjectPickerComponent } from './object-view/rack-overview/components/rack-object-picker/rack-object-picker.component';
@@ -121,6 +122,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         RackElevationComponent,
         RackInspectorComponent,
         RackTrayComponent,
+        RackNotesComponent,
         RackMountModalComponent,
         RackPlacementComponent,
         ObjectActionsComponent,

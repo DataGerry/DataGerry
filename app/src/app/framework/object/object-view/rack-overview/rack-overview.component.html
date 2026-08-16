@@ -107,13 +107,15 @@
     <cmdb-rack-elevation [viewMode]="viewMode()" [tooltipContainer]="tooltipContainer()"></cmdb-rack-elevation>
 
     <!--
-      Two cards, always both: the row selected in the drawing, and the rows that are in the rack but
-      hold no slot. Placing one is a pick-then-place move, so the tray has to stay in reach of the
-      elevation rather than sit below it, where a tall rack pushes it off the screen.
+      The row selected in the drawing, the rows that are in the rack but hold no slot, and the notes
+      kept on the rack itself. Placing a row is a pick-then-place move, so the tray has to stay in
+      reach of the elevation rather than sit below it, where a tall rack pushes it off the screen.
+      The notes card is last and folded away: it is a reference beside the rack, not part of placing.
     -->
-    <aside class="rack-side" aria-label="Selected row and unplaced entries">
+    <aside class="rack-side" aria-label="Selected row, unplaced entries and rack notes">
       <cmdb-rack-inspector></cmdb-rack-inspector>
       <cmdb-rack-tray [tooltipContainer]="tooltipContainer()"></cmdb-rack-tray>
+      <cmdb-rack-notes></cmdb-rack-notes>
     </aside>
   </div>
 
