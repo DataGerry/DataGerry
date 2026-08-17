@@ -17,6 +17,8 @@
     justify-content: center;
     gap: 0.4rem;
     position: relative;
+    /* Keeps the label centred above the vent strip instead of sitting on it. */
+    padding-bottom: 0.45rem;
     font-size: 0.68rem;
     font-weight: 600;
     letter-spacing: 0.16em;
@@ -39,7 +41,7 @@
 
   &__figure {
     letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
     font-variant-numeric: tabular-nums;
   }
 
