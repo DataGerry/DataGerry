@@ -24,7 +24,7 @@ import { RunReportComponent } from './report/components/run-report/run-report.co
 const routes: Routes = [
     {
         path: '',
-        redirectTo: 'reports/overview',
+        redirectTo: 'overview',
         pathMatch: 'full'
     },
     {
