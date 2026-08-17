@@ -132,8 +132,8 @@ const routes: Routes = [
     },
     {
         path: 'ci-explorer',
-        canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         data: {
             breadcrumb: 'CI Explorer',
             right: 'base.framework.ciExplorer.view'
