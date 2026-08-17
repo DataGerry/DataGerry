@@ -169,7 +169,8 @@
                       </div>
 
                       <div class="col">
-                        <a [routerLink]="['/webhooks']" class="dropdown-icon-item">
+                        <a [routerLink]="['/webhooks']" class="dropdown-icon-item"
+                          *permissionLink="'base.framework.webhook.view'">
                           <fa-icon icon="link"></fa-icon>
                           <span>Webhooks</span>
                         </a>

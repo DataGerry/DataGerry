@@ -199,8 +199,8 @@ const routes: Routes = [
     },
     {
         path: 'webhooks',
-        canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         data: {
             right: 'base.framework.webhook.view'
         },
