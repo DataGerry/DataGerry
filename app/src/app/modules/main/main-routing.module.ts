@@ -153,10 +153,11 @@ const routes: Routes = [
         path: 'docapi',
         data: {
             breadcrumb: 'Document Generator',
+            right: 'base.docapi.template.view',
             premiumFeature: LicenseFeature.DocumentGenerator
         },
-        canActivate: [AuthGuard, premiumFeatureGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard, PermissionGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         loadChildren: () => import('../docapi/docapi.module').then(m => m.DocapiModule)
     },
     {
