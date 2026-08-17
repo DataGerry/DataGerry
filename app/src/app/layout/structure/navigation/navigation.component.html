@@ -94,7 +94,7 @@
                     [routerLink]="['/framework/relation']">
                     <i class="fas fa-exchange-alt"></i> Relations
                   </a>
-                  <a class="dropdown-item" *permissionLink="'base.framework.objectGroup.view'"
+                  <a class="dropdown-item" *permissionLink="'base.user-management.person.view'"
                     [routerLink]="['/framework/persons']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
                     <i class="fas fa-user-friends"></i> Persons
                     @if (isLocked(LicenseFeature.Isms)) {
@@ -102,7 +102,7 @@
                     }
                   </a>
 
-                  <a class="dropdown-item" *permissionLink="'base.framework.objectGroup.view'"
+                  <a class="dropdown-item" *permissionLink="'base.user-management.personGroup.view'"
                     [routerLink]="['/framework/person-groups']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
                     <i class="fas fa-users"></i> Person Groups
                     @if (isLocked(LicenseFeature.Isms)) {

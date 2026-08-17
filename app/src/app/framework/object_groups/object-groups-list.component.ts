@@ -181,7 +181,7 @@ export class ObjectGroupsListComponent implements OnInit {
    */
   onView(group: ObjectGroup): void {
     this.router.navigate(['framework/object_groups/view', group.public_id], {
-      state: { group, isViewMode: true }
+      state: { group }
     });
   }
   
@@ -192,7 +192,7 @@ export class ObjectGroupsListComponent implements OnInit {
    */
   onEdit(group: ObjectGroup): void {
     this.router.navigate(['framework/object_groups/edit', group.public_id], {
-      state: { group, isViewMode: false }
+      state: { group }
     });
   }
   
