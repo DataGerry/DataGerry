@@ -190,10 +190,11 @@ const routes: Routes = [
     {
         path: 'reports',
         data: {
-            breadcrumb: 'Reports'
+            breadcrumb: 'Reports',
+            right: 'base.framework.report.view'
         },
-        canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         loadChildren: () => import('../../toolbox/reporting/reporting.module').then(m => m.ReportingModule)
     },
     {

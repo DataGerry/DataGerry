@@ -29,6 +29,7 @@ import { NgSelectModule } from '@ng-select/ng-select';
 import { TableModule } from 'src/app/layout/table/table.module';
 import { LayoutModule } from 'src/app/layout/layout.module';
 import { CoreModule } from 'src/app/core/core.module';
+import { AuthModule } from 'src/app/modules/auth/auth.module';
 
 @NgModule({
     declarations: [
@@ -44,7 +45,8 @@ import { CoreModule } from 'src/app/core/core.module';
         QueryBuilderModule,
         NgSelectModule,
         TableModule,
-        CoreModule
+        CoreModule,
+        AuthModule
     ],
     exports: [
         FilterBuilderComponent

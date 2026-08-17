@@ -162,7 +162,8 @@
                         </a>
                       </div>
                       <div class="col">
-                        <a class="dropdown-icon-item" [routerLink]="['/reports/overview']">
+                        <a class="dropdown-icon-item" *permissionLink="'base.framework.report.view'"
+                          [routerLink]="['/reports/overview']">
                           <fa-icon icon="chart-line"></fa-icon><span>Reporting</span>
                         </a>
                       </div>

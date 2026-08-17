@@ -27,7 +27,11 @@ const routes: Routes = [
         redirectTo: 'reports/overview',
         pathMatch: 'full'
     },
-    { path: 'run/:id', component: RunReportComponent }
+    {
+        path: 'run/:id',
+        component: RunReportComponent,
+        data: { right: 'base.framework.report.view' }
+    }
 ];
 
 @NgModule({
