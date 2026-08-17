@@ -19,93 +19,158 @@
 
 import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
+
+import { PermissionGuard } from 'src/app/modules/auth/guards/permission.guard';
+
 import { RiskAssessmentAddComponent } from './risk-assessment-add/risk-assessment-add.component';
 import { RiskAssessmentListComponent } from './risk-assesment-list/risk-assessment-list.component';
 
+// These routes are registered as siblings of the ISMS shell route, so they are not covered
+// by its canActivateChild and each one guards itself.
 const routes: Routes = [
   /* ➜ CREATE ------------------------------------------------------------- */
   {
     path: 'risks/:riskId/risk-assessments/add',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'Add Risk Assessment (Risk)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Add Risk Assessment (Risk)',
+      right: 'base.isms.riskAssessment.add'
+    }
   },
   {
     path: 'objects/:objectId/risk-assessments/add',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'Add Risk Assessment (Object)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Add Risk Assessment (Object)',
+      right: 'base.isms.riskAssessment.add'
+    }
   },
   {
     path: 'object-groups/:groupId/risk-assessments/add',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'Add Risk Assessment (Group)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Add Risk Assessment (Group)',
+      right: 'base.isms.riskAssessment.add'
+    }
   },
 
   /* ➜ LIST --------------------------------------------------------------- */
   {
     path: 'risks/:riskId/risk-assessments',
     component: RiskAssessmentListComponent,
-    data: { breadcrumb: 'Risk Assessments (Risk)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Risk Assessments (Risk)',
+      right: 'base.isms.riskAssessment.view'
+    }
   },
   {
     path: 'objects/:objectId/risk-assessments',
     component: RiskAssessmentListComponent,
-    data: { breadcrumb: 'Risk Assessments (Object)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Risk Assessments (Object)',
+      right: 'base.isms.riskAssessment.view'
+    }
   },
   {
     path: 'object-groups/:groupId/risk-assessments',
     component: RiskAssessmentListComponent,
-    data: { breadcrumb: 'Risk Assessments (Group)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Risk Assessments (Group)',
+      right: 'base.isms.riskAssessment.view'
+    }
   },
 
   /* ➜ EDIT --------------------------------------------------------------- */
   {
     path: 'risks/:riskId/risk-assessments/edit/:id',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'Edit Risk Assessment (Risk)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Edit Risk Assessment (Risk)',
+      right: 'base.isms.riskAssessment.edit'
+    }
   },
   {
     path: 'objects/:objectId/risk-assessments/edit/:id',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'Edit Risk Assessment (Object)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Edit Risk Assessment (Object)',
+      right: 'base.isms.riskAssessment.edit'
+    }
   },
   {
     path: 'object-groups/:groupId/risk-assessments/edit/:id',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'Edit Risk Assessment (Group)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Edit Risk Assessment (Group)',
+      right: 'base.isms.riskAssessment.edit'
+    }
   },
 
   /* ➜ VIEW --------------------------------------------------------------- */
   {
     path: 'risks/:riskId/risk-assessments/view/:id',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'View Risk Assessment (Risk)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'View Risk Assessment (Risk)',
+      right: 'base.isms.riskAssessment.view'
+    }
   },
   {
     path: 'objects/:objectId/risk-assessments/view/:id',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'View Risk Assessment (Object)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'View Risk Assessment (Object)',
+      right: 'base.isms.riskAssessment.view'
+    }
   },
   {
     path: 'object-groups/:groupId/risk-assessments/view/:id',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'View Risk Assessment (Group)' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'View Risk Assessment (Group)',
+      right: 'base.isms.riskAssessment.view'
+    }
   },
 
   /* ➜ fall‑back (no context) ---------------------------------------------- */
   {
     path: 'risk-assessments/edit/:id',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'Edit Risk Assessment' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Edit Risk Assessment',
+      right: 'base.isms.riskAssessment.edit'
+    }
   },
   {
     path: 'risk-assessments/view/:id',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'View Risk Assessment' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'View Risk Assessment',
+      right: 'base.isms.riskAssessment.view'
+    }
   },
   {
     path: 'risk-assessments/add',
     component: RiskAssessmentAddComponent,
-    data: { breadcrumb: 'Add Risk Assessment' }
+    canActivate: [PermissionGuard],
+    data: {
+      breadcrumb: 'Add Risk Assessment',
+      right: 'base.isms.riskAssessment.add'
+    }
   }
 ];
 
