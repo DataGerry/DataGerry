@@ -1,16 +1,13 @@
 <section class="wizard-section">
   <div class="mapping-head">
     <div>
-      <h5 class="wizard-section__title">1. Match the fields</h5>
+      <h5 class="wizard-section__title">1. Every field the automation writes</h5>
       <p class="wizard-section__hint mb-0">
-        Grouped by target field. Several source fields may feed the same one - they reach the script
-        as <code>value1</code>, <code>value2</code> in the order shown.
+        Which source field ends up in which target field is decided in the sequence, by giving a
+        request value a field reference. Here you see the result - and you can change how a value
+        looks on its way over.
       </p>
     </div>
-
-    <button type="button" class="btn btn-secondary btn-sm" (click)="autoMap.emit()">
-      <i class="fas fa-wand-magic-sparkles me-2"></i> Match automatically
-    </button>
   </div>
 
   <div class="mapping-status">
@@ -25,7 +22,7 @@
     }
 
     @if (spares.length > 0) {
-      <span class="mapping-status__pill mapping-status__pill--open">{{ spares.length }} unassigned</span>
+      <span class="mapping-status__pill mapping-status__pill--open">{{ spares.length }} not sent</span>
     }
   </div>
 
@@ -34,24 +31,13 @@
       The chosen action offers no fields to write to. Pick a different action on the previous step.
     </p>
   } @else {
-    @if (identifierMissing) {
-      <div class="alert alert-warning mapping-identify-hint">
-        <strong>Which field tells the systems it is the same object?</strong>
-        This automation looks the object up in the target system before it writes. Mark the row that
-        identifies it - only fields the target system can search by can be used.
-      </div>
-    }
-
     <table class="table mapping-table">
       <thead>
         <tr>
           <th scope="col">Source fields</th>
           <th scope="col" class="mapping-table__arrow"></th>
           <th scope="col">Target field</th>
-          @if (matchingRelevant) {
-            <th scope="col" class="mapping-table__identify">Identifies</th>
-          }
-          <th scope="col" class="mapping-table__actions"></th>
+          <th scope="col" class="mapping-table__actions">Value adjustment</th>
         </tr>
       </thead>
       <tbody>
@@ -60,85 +46,26 @@
             <td>
               @for (source of row.sources; track source.field) {
                 <div class="mapping-source">
-                  @if (row.combined) {
-                    <code class="mapping-source__var">{{ source.variable }}</code>
-                  }
+                  <code class="mapping-source__var">{{ source.variable }}</code>
                   <span class="mapping-source__name">{{ source.label }}</span>
 
                   @if (source.fixed) {
                     <span class="mapping-table__fixed">fixed: <code>{{ source.fixed }}</code></span>
                   }
-
-                  <span class="mapping-source__tools">
-                    @if (row.combined) {
-                      <button
-                        type="button"
-                        class="btn btn-link btn-sm"
-                        title="Move up - decides value1 from value2"
-                        (click)="onMoveSource(row.target, source.field, -1)">
-                        <i class="fas fa-arrow-up"></i>
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn-link btn-sm"
-                        title="Move down"
-                        (click)="onMoveSource(row.target, source.field, 1)">
-                        <i class="fas fa-arrow-down"></i>
-                      </button>
-                    }
-                    <button
-                      type="button"
-                      class="btn btn-link btn-sm"
-                      title="Remove this source"
-                      (click)="onRemoveSource(row.target, source.field)">
-                      <i class="fas fa-times"></i>
-                    </button>
-                  </span>
                 </div>
-              }
-
-              @if (spares.length > 0) {
-                <app-form-select
-                  label=""
-                  placeholder="+ add source"
-                  [items]="spares"
-                  bindLabel="label"
-                  bindValue="name"
-                  [ngModel]="null"
-                  (ngModelChange)="onAddSource(row.target, $event)">
-                </app-form-select>
               }
             </td>
             <td class="mapping-table__arrow"><i class="fas fa-arrow-right"></i></td>
             <td>
-              <app-form-select
-                label=""
-                placeholder="Not mapped"
-                [items]="targetChoices(row.target)"
-                bindLabel="label"
-                bindValue="path"
-                [ngModel]="row.target"
-                (ngModelChange)="onTargetChanged(row.target, $event)">
-              </app-form-select>
+              <span class="mapping-target__name">{{ row.targetName }}</span>
+              <span class="mapping-target__path">{{ row.target }}</span>
+
+              @if (row.combined) {
+                <span class="mapping-target__combined">
+                  built from {{ row.sources.length }} fields
+                </span>
+              }
             </td>
-            @if (matchingRelevant) {
-              <td class="mapping-table__identify">
-                @if (row.canIdentify) {
-                  <label class="mapping-table__identify-choice">
-                    <input
-                      type="radio"
-                      name="identifyBy"
-                      [checked]="row.identifies"
-                      (click)="onIdentifyBy(row)">
-                    <span class="visually-hidden">Identify the object by this field</span>
-                  </label>
-                } @else {
-                  <span
-                    class="text-muted"
-                    title="Combined fields and fields the target system cannot search by are not usable here">-</span>
-                }
-              </td>
-            }
             <td class="mapping-table__actions">
               <button
                 type="button"
@@ -155,23 +82,29 @@
 
           @if (isExpanded(row.target)) {
             <tr class="mapping-transform">
-              <td [attr.colspan]="matchingRelevant ? 5 : 4">
+              <td colspan="4">
                 <div class="mapping-transform__head">
                   <div>
                     <strong>Adjust the value</strong>
                     <p class="mapping-transform__hint mb-0">
                       @if (row.combined) {
-                        The sources arrive as
-                        @for (source of row.sources; track source.field) {
-                          <code>{{ source.variable }}</code>
-                          <span class="text-muted">= {{ source.label }}</span>
-                        }
-                        — assign the result to <code>value</code>.
+                        The sources arrive under these names - put the result in <code>value</code>.
                       } @else {
                         Optional. The value arrives in <code>value</code>; change it and it is sent
                         changed. Leave it alone and the value is transferred as it is.
                       }
                     </p>
+
+                    @if (row.combined) {
+                      <ul class="mapping-transform__legend">
+                        @for (source of row.sources; track source.field) {
+                          <li>
+                            <code>{{ source.variable }}</code>
+                            <span>{{ source.label }}</span>
+                          </li>
+                        }
+                      </ul>
+                    }
                   </div>
 
                   <label class="mapping-transform__toggle">
@@ -206,8 +139,9 @@
           }
         } @empty {
           <tr>
-            <td [attr.colspan]="matchingRelevant ? 5 : 4" class="text-muted">
-              Nothing is mapped yet. Assign a field below, or let the assistant match automatically.
+            <td colspan="4" class="text-muted">
+              The sequence does not write any field yet. Give a request value a field reference on
+              the sequence step, and the field turns up here.
             </td>
           </tr>
         }
@@ -216,26 +150,17 @@
 
     @if (spares.length > 0) {
       <div class="mapping-spares">
-        <h6 class="mapping-spares__title">Not assigned yet</h6>
+        <h6 class="mapping-spares__title">Not sent anywhere</h6>
         <p class="wizard-section__hint">
-          These fields are selected but do not reach the target system. Give each one a target field,
-          or leave it - nothing is sent for it.
+          These fields are selected, but no request value refers to them - nothing is sent for them.
+          Give one a field reference on the sequence step if it should travel too.
         </p>
 
-        @for (spare of spares; track spare.name) {
-          <div class="mapping-spares__row">
-            <span class="mapping-spares__name">{{ spare.label }}</span>
-            <app-form-select
-              label=""
-              placeholder="Choose a target field"
-              [items]="freeTargets"
-              bindLabel="label"
-              bindValue="path"
-              [ngModel]="null"
-              (ngModelChange)="onAssign(spare.name, $event)">
-            </app-form-select>
-          </div>
-        }
+        <ul class="mapping-spares__list">
+          @for (spare of spares; track spare.name) {
+            <li class="mapping-spares__name">{{ spare.label }}</li>
+          }
+        </ul>
       </div>
     }
   }
