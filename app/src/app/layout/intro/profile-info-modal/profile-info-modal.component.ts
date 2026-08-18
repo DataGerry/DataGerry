@@ -158,6 +158,7 @@ const IPAM_PROFILE = 'ipam-profile';
       'telecommunications-branch': [
           'user-management-profile', 
           'location-profile',
+          'rack-profile',
           'ipam-profile',
           'server-management-profile',
           'network-infrastructure-profile'
@@ -165,6 +166,7 @@ const IPAM_PROFILE = 'ipam-profile';
       'helpdesk-branch': [
           'user-management-profile',
           'location-profile',
+          'rack-profile',
           'client-management-profile',
           'ipam-profile',
           'server-management-profile',
@@ -173,10 +175,12 @@ const IPAM_PROFILE = 'ipam-profile';
       'service-provider-branch': [
           'user-management-profile',
           'location-profile',
+          'rack-profile'
       ],
       'healthcare-branch': [
           'user-management-profile',
           'location-profile',
+          'rack-profile',
           'client-management-profile'
     ]
     }
@@ -187,6 +191,7 @@ const IPAM_PROFILE = 'ipam-profile';
     public branchProfileNames = {
       'user-management-profile': 'User management',
       'location-profile': 'Location',
+      'rack-profile': 'Rack View (New Feature)',
       'client-management-profile': 'Client management',
       'ipam-profile': 'IPAM (New Feature)',
       'server-management-profile': 'Server management',

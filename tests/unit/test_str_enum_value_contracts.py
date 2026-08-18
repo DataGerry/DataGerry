@@ -86,6 +86,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (FooterValue, {'HEIGHT': 'height'}),
     (ProfileName, {
         'USER_MANAGEMENT': 'user-management-profile',
+        'RACK': 'rack-profile',
         'LOCATION': 'location-profile',
         'IPAM': 'ipam-profile',
         'CLIENT_MANAGEMENT': 'client-management-profile',

@@ -122,6 +122,19 @@ class TypeDefault:
     CI_EXPLORER_COLOR_HEX_WIDTH: int = 6
 
 
+class RackTypeIdentity:
+    """
+    The CmdbType identity the 'Rack View' profile assigns to the RACK SpecialType
+
+    NAME is deliberately the same name the location profile gives its basic 'Rack' type: a CmdbType
+    name is unique, so only one of the two profiles may create it. The location profile therefore
+    only builds its own Rack when the RACK_ID slot is still empty (see LocationProfile.create_profile)
+    """
+    NAME: str = 'rack'
+    LABEL: str = 'Rack'
+    ICON: str = 'fas fa-th-large'
+
+
 class CategoryBodyKey(BaseStrEnum):
     """
     Keys of the CmdbCategory dict the assistant builds after all types are created

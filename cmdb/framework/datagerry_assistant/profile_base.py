@@ -129,12 +129,13 @@ class ProfileBase:
 
     def create_special_type(self, type_name_key: str, special_type: SpecialType, type_dict: dict[str, Any]) -> int:
         """
-        Creates an IPAM SpecialType in the db and cross-wires its reference fields
+        Creates a SpecialType in the db and cross-wires its reference fields
 
         Inserts the type like create_basic_type, then calls handle_special_types so the SpecialType
         reference fields (Subnet -> Supernet, VLAN -> Subnet) and the dg-ipam-interface section
-        template are wired to the newly created type. Must be called in dependency order
-        (Supernet, then Subnet, then VLAN) so each wiring target already exists.
+        template are wired to the newly created type. The IPAM types must therefore be created in
+        dependency order (Supernet, then Subnet, then VLAN) so each wiring target already exists;
+        the RACK SpecialType holds no reference fields, so the wiring is a no-op for it.
 
         Args:
             type_name_key (str): Slot key under which the created type's public_id is stored
