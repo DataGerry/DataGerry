@@ -91,7 +91,12 @@ export class ObjectFooterComponent implements OnChanges {
     this.resolveActiveTab();
 
     // Another object means another drawing, so it is only kept while its tab is the one on screen.
-    this.rackTabVisited = this.activeTab === 'rack-view';
+    // The same object handed over again - re-read after a write - keeps what is already built.
+    const shownBefore = changes['renderResult']?.previousValue as RenderResult;
+
+    if (shownBefore?.object_information?.object_id !== this.objectID) {
+      this.rackTabVisited = this.activeTab === 'rack-view';
+    }
 
     this.changesRef.markForCheck();
   }
