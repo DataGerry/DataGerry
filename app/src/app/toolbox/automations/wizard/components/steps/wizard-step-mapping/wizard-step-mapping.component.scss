@@ -33,16 +33,6 @@
       color: #a37200;
     }
   }
-
-  &__filter {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin: 0;
-    font-size: 0.8125rem;
-    color: $muted;
-    cursor: pointer;
-  }
 }
 
 .mapping-table {
@@ -55,19 +45,10 @@
     color: $muted;
   }
 
-  tr.is-unresolved td:first-child {
-    // Draw attention to exactly the rows that still need the user.
-    box-shadow: inset 3px 0 0 #ffc107;
-  }
-
   &__actions {
-    width: 8rem;
+    width: 9rem;
     text-align: right;
     white-space: nowrap;
-  }
-
-  &__source {
-    display: block;
   }
 
   &__fixed {
@@ -95,6 +76,47 @@
   }
 }
 
+// One source line: the name the script uses, then the field it stands for.
+.mapping-source {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+
+  & + & {
+    margin-top: 0.25rem;
+  }
+
+  &__var {
+    flex: 0 0 auto;
+    min-width: 3.5rem;
+    font-size: 0.7rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    background: #eef2ff;
+    color: #4338ca;
+    text-align: center;
+  }
+
+  &__name {
+    color: #374151;
+  }
+}
+
+.mapping-target {
+  &__name {
+    display: block;
+    color: #374151;
+  }
+
+  &__path,
+  &__combined {
+    display: block;
+    font-size: 0.7rem;
+    color: $muted;
+  }
+}
+
 // The value adjustment, folded out under the pair it belongs to.
 .mapping-transform {
   background: #f9fafb;
@@ -116,6 +138,33 @@
     color: $muted;
     margin-top: 0.15rem;
     max-width: 60ch;
+  }
+
+  // The variable legend: what value1 and value2 stand for, which is what the script needs.
+  &__legend {
+    list-style: none;
+    margin: 0.4rem 0 0;
+    padding: 0;
+    font-size: 0.75rem;
+
+    li {
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
+    }
+
+    code {
+      min-width: 3.5rem;
+      padding: 0.05rem 0.35rem;
+      border-radius: 4px;
+      background: #eef2ff;
+      color: #4338ca;
+      text-align: center;
+    }
+
+    span {
+      color: $muted;
+    }
   }
 
   &__toggle {
@@ -151,6 +200,32 @@
       margin-right: 0.5rem;
       color: #374151;
     }
+  }
+}
+
+.mapping-spares {
+  margin-top: 0.5rem;
+
+  &__title {
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+  }
+
+  &__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  &__name {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: #f3f4f6;
+    color: $muted;
   }
 }
 
@@ -191,22 +266,4 @@
   .rule-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
-}
-
-/* The identification marker: one narrow column, the radio centred in it. */
-.mapping-table__identify {
-    width: 6rem;
-    text-align: center;
-}
-
-.mapping-table__identify-choice {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0;
-    cursor: pointer;
-}
-
-.mapping-identify-hint {
-    margin-bottom: 1rem;
 }

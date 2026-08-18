@@ -18,7 +18,8 @@
 import {
     AutomationDefinition,
     AutomationMappingEntry,
-    createEmptyAutomationDefinition
+    createEmptyAutomationDefinition,
+    hasActiveTransform
 } from '../../../models/automation-definition.model';
 import { TargetField } from '../../../models/target-catalog.model';
 import { WizardStepMappingComponent } from './wizard-step-mapping.component';
@@ -37,6 +38,11 @@ function entry(targetPath: string, ...fields: string[]): AutomationMappingEntry 
 }
 
 
+function adjusted(base: AutomationMappingEntry, script: string): AutomationMappingEntry {
+    return { ...base, transform: { enabled: true, script } };
+}
+
+
 /** A component wired the way the wizard shell wires it, already through its first check. */
 function mounted(mapping: AutomationMappingEntry[], sources = ['hostname', 'serial', 'location']): {
     component: WizardStepMappingComponent;
@@ -50,7 +56,6 @@ function mounted(mapping: AutomationMappingEntry[], sources = ['hostname', 'seri
     component.definition = definition;
     component.sourceFields = sources.map(name => ({ name, label: name.toUpperCase(), type: 'text' }));
     component.targetFields = [target('params.title'), target('params.sysid'), target('params.note')];
-    component.matchableTargets = ['title', 'sysid'];
     component.ngDoCheck();
 
     return { component, definition };
@@ -59,12 +64,19 @@ function mounted(mapping: AutomationMappingEntry[], sources = ['hostname', 'seri
 
 describe('WizardStepMappingComponent', () => {
 
-    describe('rows', () => {
+    describe('the mapping it shows', () => {
 
-        it('shows one row per target field', () => {
+        it('shows one row per target field the automation writes', () => {
             const { component } = mounted([entry('params.title', 'hostname'), entry('params.note', 'serial')]);
 
             expect(component.rows.map(row => row.target)).toEqual(['params.title', 'params.note']);
+        });
+
+
+        it('names the target field the way the target system names it', () => {
+            const { component } = mounted([entry('params.title', 'hostname')]);
+
+            expect(component.rows[0].targetName).toBe('title');
         });
 
 
@@ -79,6 +91,15 @@ describe('WizardStepMappingComponent', () => {
         });
 
 
+        /* The script refers to the sources by name, so a name has to say which field it stands for. */
+        it('says which field each variable of a combined row stands for', () => {
+            const { component } = mounted([entry('params.sysid', 'serial', 'location')]);
+
+            expect(component.rows[0].sources.map(source => `${source.variable}=${source.label}`))
+                .toEqual(['value1=SERIAL', 'value2=LOCATION']);
+        });
+
+
         it('calls the single source of a plain copy just value', () => {
             const { component } = mounted([entry('params.title', 'hostname')]);
 
@@ -87,136 +108,150 @@ describe('WizardStepMappingComponent', () => {
         });
 
 
-        it('lists the source fields that feed nothing', () => {
+        it('lists the source fields that reach no target field', () => {
             const { component } = mounted([entry('params.title', 'hostname')]);
 
+            expect(component.spares.map(field => field.name)).toEqual(['serial', 'location']);
+        });
+
+
+        it('counts the rows that combine and the rows that adjust', () => {
+            const { component } = mounted([
+                adjusted(entry('params.sysid', 'serial', 'location'), 'value = value1 + value2;'),
+                entry('params.title', 'hostname')
+            ]);
+
+            expect(component.combinedCount).toBe(1);
+            expect(component.adjustedCount).toBe(1);
+        });
+
+
+        /* An empty draft is a row somebody opened and left, not an adjustment the automation runs. */
+        it('does not count an adjustment with nothing in it', () => {
+            const { component } = mounted([adjusted(entry('params.title', 'hostname'), '   ')]);
+
+            expect(component.adjustedCount).toBe(0);
+        });
+    });
+
+
+    describe('what it leaves to the sequence', () => {
+
+        /* Which field goes where is settled where the request value gets its reference. */
+        it('never changes which source feeds which target', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+
+            component.onToggleTransform(definition.mapping[0]);
+            component.onTransformScriptChanged(definition.mapping[0], 'value = value.trim();');
+            component.onRemoveTransform(definition.mapping[0]);
+
+            expect(definition.mapping.length).toBe(1);
+            expect(definition.mapping[0].target).toBe('params.title');
+            expect(definition.mapping[0].sources.map(source => source.field)).toEqual(['hostname']);
+        });
+
+
+        it('leaves the fields nobody sends where they are', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+
+            component.onToggleTransform(definition.mapping[0]);
+
+            expect(definition.unmapped).toEqual([]);
             expect(component.spares.map(field => field.name)).toEqual(['serial', 'location']);
         });
     });
 
 
-    describe('editing', () => {
+    describe('the value adjustment', () => {
 
-        it('adding a source turns a plain copy into a combination', () => {
+        it('opens with an empty draft the user can type into', () => {
             const { component, definition } = mounted([entry('params.title', 'hostname')]);
 
-            component.onAddSource('params.title', 'serial');
+            component.onToggleTransform(definition.mapping[0]);
 
-            expect(definition.mapping[0].sources.map(source => source.field)).toEqual(['hostname', 'serial']);
+            expect(component.isExpanded('params.title')).toBeTrue();
+            expect(definition.mapping[0].transform).toEqual({ enabled: true, script: '' });
         });
 
 
-        it('moving a source is what decides value1 from value2', () => {
-            const { component, definition } = mounted([entry('params.sysid', 'serial', 'location')]);
+        it('keeps what was typed into it', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
 
-            component.onMoveSource('params.sysid', 'location', -1);
+            component.onToggleTransform(definition.mapping[0]);
+            component.onTransformScriptChanged(definition.mapping[0], 'value = value.toUpperCase();');
 
-            expect(definition.mapping[0].sources.map(source => source.field)).toEqual(['location', 'serial']);
+            expect(hasActiveTransform(definition.mapping[0])).toBeTrue();
+            expect(definition.mapping[0].transform?.script).toBe('value = value.toUpperCase();');
         });
 
 
-        it('removing the last source removes the row, not just the value', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+        /* Switching it off is not the same as throwing it away - the script has to survive. */
+        it('remembers the script of an adjustment that was switched off', () => {
+            const { component, definition } = mounted([adjusted(entry('params.title', 'hostname'), 'value = 1;')]);
 
-            component.onRemoveSource('params.title', 'hostname');
+            component.onTransformEnabledChanged(definition.mapping[0], false);
 
-            expect(definition.mapping).toEqual([]);
+            expect(hasActiveTransform(definition.mapping[0])).toBeFalse();
+            expect(definition.mapping[0].transform?.script).toBe('value = 1;');
         });
 
 
-        /* Otherwise the next suggestion would hand back the field the user just took away. */
-        it('remembers a source that was taken away', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+        it('removing it leaves the row without any adjustment at all', () => {
+            const { component, definition } = mounted([adjusted(entry('params.title', 'hostname'), 'value = 1;')]);
 
-            component.onRemoveSource('params.title', 'hostname');
+            component.onRemoveTransform(definition.mapping[0]);
 
-            expect(definition.unmapped).toEqual(['hostname']);
+            expect('transform' in definition.mapping[0]).toBeFalse();
+            expect(component.isExpanded('params.title')).toBeFalse();
         });
 
 
-        it('assigning a spare to a free target opens a row', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+        /* An adjustment folded away is an adjustment nobody reviews, and reviewing is the point. */
+        it('shows an adjustment the automation already carries', () => {
+            const { component } = mounted([
+                adjusted(entry('params.title', 'hostname'), 'value = 1;'),
+                entry('params.note', 'serial')
+            ]);
 
-            component.onAssign('serial', 'params.note');
-
-            expect(definition.mapping[1]).toEqual(jasmine.objectContaining({ target: 'params.note' }));
-            expect(definition.mapping[1].sources[0].field).toBe('serial');
+            expect(component.isExpanded('params.title')).toBeTrue();
+            expect(component.isExpanded('params.note')).toBeFalse();
         });
 
 
-        it('assigning a spare to a taken target joins it', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+        it('leaves an adjustment the user folded away folded', () => {
+            const { component, definition } = mounted([adjusted(entry('params.title', 'hostname'), 'value = 1;')]);
 
-            component.onAssign('serial', 'params.title');
+            component.onToggleTransform(definition.mapping[0]);
+            definition.mapping = [...definition.mapping];
+            component.ngDoCheck();
 
-            expect(definition.mapping.length).toBe(1);
-            expect(definition.mapping[0].sources.map(source => source.field)).toEqual(['hostname', 'serial']);
+            expect(component.isExpanded('params.title')).toBeFalse();
         });
     });
 
 
-    describe('target choices', () => {
+    describe('conditions', () => {
 
-        /*
-         * Bound into ng-select, which rebuilds its panel whenever it is handed a new items array.
-         * Building them in the template returned a fresh array on every change detection run, which
-         * locked the step up; this pins the caching that replaced it.
-         */
-        it('returns the same array while nothing changes', () => {
-            const { component } = mounted([entry('params.title', 'hostname')]);
-            const first = component.targetChoices('params.title');
-
-            component.ngDoCheck();
-            component.ngDoCheck();
-
-            expect(component.targetChoices('params.title')).toBe(first);
-        });
-
-
-        it('blocks a target another row already writes to', () => {
-            const { component } = mounted([entry('params.title', 'hostname'), entry('params.note', 'serial')]);
-            const blocked = component.targetChoices('params.title').find(choice => choice.path === 'params.note');
-
-            expect(blocked?.disabled).toBeTrue();
-        });
-
-
-        it('leaves a row its own target selectable', () => {
-            const { component } = mounted([entry('params.title', 'hostname')]);
-            const own = component.targetChoices('params.title').find(choice => choice.path === 'params.title');
-
-            expect(own?.disabled).toBeFalse();
-        });
-    });
-
-
-    describe('identification', () => {
-
-        it('offers the marker only where the lookup can search', () => {
-            const { component } = mounted([entry('params.title', 'hostname'), entry('params.note', 'serial')]);
-
-            expect(component.rows[0].canIdentify).toBeTrue();
-            expect(component.rows[1].canIdentify).toBeFalse();
-        });
-
-
-        /* A combined field has no single value to search by, so it cannot identify anything. */
-        it('refuses a combined field as the identifier', () => {
-            const { component } = mounted([entry('params.title', 'hostname', 'serial')]);
-
-            expect(component.rows[0].canIdentify).toBeFalse();
-        });
-
-
-        it('marks and unmarks the identifying row', () => {
+        it('adds a rule on the first source field', () => {
             const { component, definition } = mounted([entry('params.title', 'hostname')]);
 
-            component.onIdentifyBy(component.rows[0]);
-            expect(definition.matching.identifyBy).toBe('hostname');
+            component.onAddRule();
 
-            component.ngDoCheck();
-            component.onIdentifyBy(component.rows[0]);
-            expect(definition.matching.identifyBy).toBe('');
+            expect(definition.conditions.rules).toEqual([
+                { field: 'hostname', operator: 'equals', value: '' }
+            ]);
+        });
+
+
+        /* An operator that compares against nothing must not carry a value nobody can see. */
+        it('drops the value when the comparison stops needing one', () => {
+            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+
+            component.onAddRule();
+            component.onRuleValueChanged(0, 'srv-1');
+            component.onRuleOperatorChanged(0, 'is_empty');
+
+            expect(definition.conditions.rules[0].value).toBe('');
         });
     });
 });
