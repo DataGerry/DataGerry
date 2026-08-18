@@ -176,6 +176,70 @@ describe('WizardStepFlowComponent', () => {
             expect(component.steps[1].detail).toBe('id NotNull');
             expect(component.steps[2].depth).toBeGreaterThan(component.steps[1].depth);
         });
+
+
+        /*
+         * A condition and a loop's list are references too, and were the last places still showing
+         * the whole route. They are cut the same way as a request value so a field is called the
+         * same thing wherever it appears.
+         */
+        it('marks the reference inside a condition instead of spelling out its route', () => {
+            const withContainers = connection();
+            withContainers.fromConnector.operators.push(
+                {
+                    id: 'if-extra-1',
+                    index: '1_1',
+                    type: 'if',
+                    dataAggregator: null,
+                    expression: '({%#FFCFB5.(response).body.$.results[i].id%} NotNull)',
+                    iterator: null
+                }
+            );
+            settle(withContainers);
+
+            const condition = component.steps.find(step => step.kind === 'if')!;
+            const marked = condition.detailTokens!.filter(token => token.reference);
+
+            expect(marked.map(token => token.label)).toEqual(['id']);
+            expect(marked[0].text).toBe('{%#FFCFB5.(response).body.$.results[i].id%}');
+            // The parentheses around the whole thing say nothing, so they are not shown; what is
+            // left beside the reference is the comparison itself.
+            expect(condition.detailTokens!.filter(token => !token.reference)
+                .map(token => token.text).join('')).toBe(' NotNull');
+        });
+
+
+        it('marks the list a loop walks the same way', () => {
+            const withContainers = connection();
+            withContainers.fromConnector.operators.push(
+                {
+                    id: 'loop-extra-1',
+                    index: '1_1',
+                    type: 'loop',
+                    dataAggregator: null,
+                    expression: 'for {%#FFCFB5.(response).body.$.results[i].fields[*]%}',
+                    iterator: 'j'
+                }
+            );
+            settle(withContainers);
+
+            const loop = component.steps.find(step => step.kind === 'loop')!;
+
+            expect(loop.expressionTokens!.map(token => token.label)).toEqual(['for ', 'fields']);
+            expect(loop.expressionTokens![1].reference).toBeTrue();
+        });
+
+
+        /* A call has no reference in its subtitle, but the row renders tokens either way. */
+        it('gives a call a single plain token so every row is drawn the same', () => {
+            settle(connection());
+
+            const call = component.steps.find(step => step.kind === 'call')!;
+
+            expect(call.detailTokens).toEqual([
+                { text: call.detail, reference: false, label: call.detail }
+            ]);
+        });
     });
 
     /* ----------------------------------------------------- VALUES --------------------------------------------------- */

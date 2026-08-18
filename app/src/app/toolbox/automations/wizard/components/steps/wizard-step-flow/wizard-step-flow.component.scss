@@ -523,3 +523,39 @@ $muted: #6b7280;
 
 /* The bound value keeps its own colour but shows its references the same way. */
 .wire__ref .wire__token { cursor: help; }
+
+/*
+ * The same field name in the sequence rows and in the condition block.
+ *
+ * A tree row has one line and no room for a box, so the reference is marked by weight and colour
+ * alone; the block it opens can afford the same token the request rows use.
+ */
+.tree__token {
+    color: $accent;
+    font-weight: 600;
+    cursor: help;
+}
+
+.wire__code .wire__token {
+    display: inline;
+    padding: 0 4px;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+/* The same reference marking in the sequence rows, where space is tightest. */
+.tree__token {
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba($accent, 0.12);
+    color: $accent;
+    font-weight: 600;
+    cursor: help;
+}
+
+/* And inside a condition or a loop's list, which are shown as code. */
+.wire__code .wire__token {
+    display: inline;
+    padding: 0 4px;
+    white-space: normal;
+}
