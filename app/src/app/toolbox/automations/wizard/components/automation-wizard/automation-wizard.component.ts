@@ -598,7 +598,7 @@ export class AutomationWizardComponent implements OnInit {
         this.sourceFields = keepIfUnchanged(
             this.sourceFields,
             this.sourceFieldsForMapping(),
-            field => `${field.name} ${field.label}`
+            field => `${field.name}\u0000${field.label}`
         );
     }
 
