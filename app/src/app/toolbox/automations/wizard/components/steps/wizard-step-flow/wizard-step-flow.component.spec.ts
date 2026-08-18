@@ -475,7 +475,229 @@ describe('WizardStepFlowComponent', () => {
             expect(component.definition.extras[0].loop?.iterator).toBe('k');
         });
     });
+
+    /* --------------------------------------------------- REORDERING ------------------------------------------------- */
+
+    /*
+     * What decides the order of the added steps is the order of the entries, not the step each one
+     * names - that only says which container it runs in. So these pin both: that the entries come
+     * out in the new order, and that nothing is left naming a step it now runs before, which the
+     * compiler drops with a warning.
+     */
+    describe('moving a step', () => {
+        /** A call the assistant built, then a loop with a call inside it and a call after it. */
+        function withAdded(): OcConnection {
+            const next = connection();
+            const call = next.fromConnector.methods[1];
+
+            next.fromConnector.operators.push({
+                id: 'loop-extra-l',
+                index: '1_1',
+                type: 'loop',
+                dataAggregator: null,
+                expression: 'for {%#FFCFB5.(response).body.$.results[i].fields[*]%}',
+                iterator: 'j'
+            });
+            next.fromConnector.methods.push(
+                { ...call, id: 'method-extra-c', index: '1_1_0', name: 'inside' },
+                { ...call, id: 'method-extra-d', index: '1_2', name: 'after' }
+            );
+
+            return next;
+        }
+
+
+        function orderOf(): string[] {
+            return component.definition.extras.map(extra => extra.id);
+        }
+
+
+        function stepOf(id: string) {
+            return component.steps.find(step => step.id === id)!;
+        }
+
+
+        beforeEach(() => {
+            component.definition.extras = [
+                { id: 'extra-l', after: '1_0', kind: 'loop', operation: '', loop: { list: '#x[*]', iterator: 'j' } },
+                { id: 'extra-c', after: 'extra-l', kind: 'operation', operation: 'inside' },
+                { id: 'extra-d', after: '1_0', kind: 'operation', operation: 'after' }
+            ];
+            settle(withAdded());
+        });
+
+
+        it('moves the last added step in front of the one before it', () => {
+            component.onMove(stepOf('method-extra-d'), -1);
+
+            expect(orderOf()).toEqual(['extra-d', 'extra-l', 'extra-c']);
+        });
+
+
+        it('passes a container whole rather than stepping into it', () => {
+            component.onMove(stepOf('method-extra-d'), -1);
+
+            expect(component.definition.extras.find(extra => extra.id === 'extra-c')?.after)
+                .toBe('extra-l');
+        });
+
+
+        it('carries what runs inside a step along with it', () => {
+            component.onMove(stepOf('loop-extra-l'), 1);
+
+            expect(orderOf()).toEqual(['extra-d', 'extra-l', 'extra-c']);
+        });
+
+
+        /*
+         * A step is placed by the one it follows, and the entries are read in order - so a step
+         * moved in front of the one it named would be dropped as following something that has not
+         * run. It belongs where the step it named belongs.
+         */
+        it('re-points a step left naming one it now runs before', () => {
+            const next = connection();
+            const call = next.fromConnector.methods[1];
+
+            next.fromConnector.methods.push(
+                { ...call, id: 'method-extra-one', index: '1_1', name: 'one' },
+                { ...call, id: 'method-extra-two', index: '1_2', name: 'two' }
+            );
+            component.definition.extras = [
+                { id: 'extra-one', after: '1_0', kind: 'operation', operation: 'one' },
+                { id: 'extra-two', after: 'extra-one', kind: 'operation', operation: 'two' }
+            ];
+            settle(next);
+
+            component.onMove(stepOf('method-extra-two'), -1);
+
+            expect(orderOf()).toEqual(['extra-two', 'extra-one']);
+            expect(component.definition.extras[0].after).toBe('1_0');
+        });
+
+
+        it('offers no move on a step the skeleton owns', () => {
+            const derived = stepOf('method-1');
+
+            expect(component.canMove(derived, -1)).toBeFalse();
+            expect(component.canMove(derived, 1)).toBeFalse();
+            expect(component.canNest(derived, true)).toBeFalse();
+        });
+
+
+        it('says which way the step at the end of its container can still go', () => {
+            expect(component.canMove(stepOf('method-extra-d'), 1)).toBeFalse();
+            expect(component.canMove(stepOf('method-extra-d'), -1)).toBeTrue();
+        });
+
+
+        it('takes a step out of the container it runs inside', () => {
+            component.onNest(stepOf('method-extra-c'), false);
+
+            expect(component.definition.extras.find(extra => extra.id === 'extra-c')?.after)
+                .toBe('1_0');
+        });
+
+
+        it('runs a step inside the container above it', () => {
+            component.onNest(stepOf('method-extra-d'), true);
+
+            expect(component.definition.extras.find(extra => extra.id === 'extra-d')?.after)
+                .toBe('extra-l');
+        });
+
+
+        it('leaves a step already outside every container where it is', () => {
+            expect(component.canNest(stepOf('method-extra-d'), false)).toBeFalse();
+        });
+
+
+        it('reorders from the keyboard, so a move needs no pointer', () => {
+            component.onRowKeys(stepOf('method-extra-d'), keys({ altKey: true, key: 'ArrowUp' }));
+
+            expect(orderOf()).toEqual(['extra-d', 'extra-l', 'extra-c']);
+        });
+
+
+        /* Plain arrows belong to moving between rows, which is what they do in every other list. */
+        it('leaves an arrow without alt alone', () => {
+            component.onRowKeys(stepOf('method-extra-d'), keys({ key: 'ArrowUp' }));
+
+            expect(orderOf()).toEqual(['extra-l', 'extra-c', 'extra-d']);
+        });
+    });
+
+    /* --------------------------------------------------- DEBUG MODE ------------------------------------------------- */
+
+    /*
+     * The distinction the mode exists for: what comes out of DataGerry can be shown before the
+     * automation has ever run, and what comes out of the target system cannot exist yet. Anything
+     * that blurred the two would be worse than showing nothing.
+     */
+    describe('what a value would be', () => {
+        beforeEach(() => {
+            component.sampleValues = { hostname: 'srv-01' };
+            component.ngDoCheck();
+        });
+
+
+        it('stays off until it is asked for', () => {
+            expect(component.debug).toBeFalse();
+        });
+
+
+        it('shows a DataGerry value as the sample object holds it', () => {
+            const preview = component.previewOf('#FFCFB5.(response).body.$.results[i].fields[0].value');
+
+            expect(preview.known).toBeTrue();
+            expect(preview.value).toBe('srv-01');
+            expect(preview.source).toBe('Hostname');
+        });
+
+
+        it('says a value the target system answers with is only known during a run', () => {
+            const preview = component.previewOf('#C77E7E.(response).body.$.result.id');
+
+            expect(preview.known).toBeFalse();
+            expect(preview.value).toBe('');
+            expect(preview.source).toBe('i-doit · cmdb.object.create');
+        });
+
+
+        it('holds back rather than inventing one where no sample was loaded', () => {
+            const preview = component.previewOf('#FFCFB5.(response).body.$.results[i].fields[1].value');
+
+            expect(preview.known).toBeTrue();
+            expect(preview.value).toBe('');
+        });
+
+
+        it('reads the wrapped spelling a condition uses', () => {
+            expect(component.previewOf('{%#FFCFB5.(response).body.$.results[i].fields[0].value%}').value)
+                .toBe('srv-01');
+        });
+
+
+        /* A sample arrives long after the sequence does, and every shown value is drawn from it. */
+        it('shows the sample handed over after the sequence was built', () => {
+            component.sampleValues = { hostname: 'srv-02' };
+            component.ngDoCheck();
+
+            expect(component.previewOf('#FFCFB5.(response).body.$.results[i].fields[0].value').value)
+                .toBe('srv-02');
+        });
+
+
+        it('says so plainly when nothing in the sequence answers the reference', () => {
+            expect(component.previewOf('#ABCDEF.(response).body.$.thing').known).toBeFalse();
+        });
+    });
 });
+
+
+/** A key press, in the little of it the row reads. */
+function keys(part: Partial<KeyboardEvent>): KeyboardEvent {
+    return { altKey: false, preventDefault: () => undefined, ...part } as KeyboardEvent;
+}
 
 
 /*
