@@ -1,0 +1,252 @@
+/*
+ * Rack › header — one card for everything done *to* the drawing: which faces are shown, at what size,
+ * and the key to the colours.
+ *
+ * The controls are grouped rather than spread, so the row reads as a few clusters instead of a line of
+ * loose buttons, and the key opens inside the same card. It used to be a second box stacked above the
+ * elevation, which is what made the top of the view feel like two headers fighting for the same space.
+ */
+
+.rack-header {
+  display: flex;
+  flex-direction: column;
+  background: $paper;
+  border: 1px solid $hairline;
+  border-radius: $radius-card;
+  box-shadow: $shadow-card;
+
+  &__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding: 0.45rem 0.6rem;
+  }
+
+  /* Marks where one cluster ends without drawing a box around each of them. */
+  &__divider {
+    flex: none;
+    width: 1px;
+    height: 1.35rem;
+    background: $hairline;
+  }
+
+  &__spacer {
+    flex: 1 1 auto;
+  }
+}
+
+/* What belongs together travels together: the bar wraps between clusters, never inside one. */
+.rack-cluster {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 0.4rem;
+
+  &__label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: $ink-4;
+  }
+}
+
+.rack-switch {
+  display: inline-flex;
+  padding: 0.2rem;
+  gap: 0.15rem;
+  background: $sunk;
+  border: 1px solid $hairline;
+  border-radius: 999px;
+
+  &__option {
+    padding: 0.25rem 0.85rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: $ink-3;
+    font-size: 0.78rem;
+    font-weight: 600;
+    transition: background $ease, color $ease, box-shadow $ease;
+
+    &:hover {
+      color: $ink;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    &--active,
+    &--active:hover {
+      background: $paper;
+      color: $primary;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+    }
+  }
+}
+
+/* One sunken stepper rather than three loose buttons, so the read-out reads as part of the control. */
+.rack-zoom {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem;
+  background: $sunk;
+  border: 1px solid $hairline;
+  border-radius: 999px;
+
+  &__step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.55rem;
+    height: 1.55rem;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: $ink-3;
+    font-size: 0.7rem;
+    transition: background $ease, color $ease;
+
+    &:hover:not(:disabled) {
+      background: rgba(15, 23, 42, 0.08);
+      color: $ink;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    &:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+  }
+
+  /* Also the reset back to 100%; a fixed width keeps the stepper from jumping as the figure changes. */
+  &__level {
+    min-width: 3rem;
+    padding: 0 0.25rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: $ink-2;
+    font-size: 0.74rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    transition: color $ease;
+
+    &:hover:not(:disabled) {
+      color: $primary;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    &:disabled {
+      cursor: default;
+    }
+  }
+}
+
+/* A flat icon control: no chrome at rest, a tinted lift on hover, filled while it is on. */
+.rack-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.95rem;
+  height: 1.95rem;
+  border: 0;
+  border-radius: $radius-sm;
+  background: transparent;
+  color: $ink-3;
+  font-size: 0.8rem;
+  transition: background $ease, color $ease, box-shadow $ease;
+
+  &:hover:not(:disabled) {
+    background: rgba(15, 23, 42, 0.06);
+    color: $ink;
+  }
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &--on,
+  &--on:hover:not(:disabled) {
+    background: $primary;
+    color: #fff;
+    box-shadow: 0 4px 12px -6px rgba($primary, 0.9);
+  }
+}
+
+/* The handle on the key. Carries what is inside it, so the panel is worth opening before it is open. */
+.rack-disclosure {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 0.4rem;
+  padding: 0.28rem 0.65rem;
+  border: 1px solid $hairline;
+  border-radius: 999px;
+  background: $paper;
+  color: $ink-2;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: border-color $ease, background $ease, color $ease;
+
+  &:hover {
+    border-color: rgba($primary, 0.45);
+    color: $primary;
+  }
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+  }
+
+  &__count {
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: $sunk;
+    color: $ink-3;
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__caret {
+    font-size: 0.6rem;
+    color: $ink-4;
+    transition: transform $ease;
+  }
+
+  &--open {
+    background: rgba($primary, 0.07);
+    border-color: rgba($primary, 0.4);
+    color: $primary;
+
+    .rack-disclosure__count {
+      background: rgba($primary, 0.14);
+      color: $primary;
+    }
+
+    .rack-disclosure__caret {
+      color: inherit;
+      transform: rotate(180deg);
+    }
+  }
+}

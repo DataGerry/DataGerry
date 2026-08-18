@@ -15,9 +15,10 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CoreDeleteConfirmationModalComponent } from '../components/dialog/delete-dialog/core-delete-confirmation-modal.component';
+import { FullscreenModalService } from './fullscreen-modal.service';
 
 /**
  * Configuration options for delete confirmation modal
@@ -51,6 +52,8 @@ export interface DeleteModalConfig {
 })
 export class DeleteModalService {
 
+  private readonly fullscreenModalService = inject(FullscreenModalService);
+
   constructor(private modalService: NgbModal) { }
 
   /**
@@ -59,9 +62,15 @@ export class DeleteModalService {
    * @returns Promise that resolves when the modal is closed
    */
   public confirmDelete(config: DeleteModalConfig): Promise<void> {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { 
-      size: config.size || 'lg' 
-    });
+    // Hosted inside the fullscreen element while one is open; a body-level modal is not painted there.
+    const modalRef = this.modalService.open(
+      CoreDeleteConfirmationModalComponent,
+      this.fullscreenModalService.withFullscreenContainer({
+        size: config.size || 'lg',
+        windowClass: 'dg-modal-window',
+        backdropClass: 'dg-modal-window-backdrop'
+      })
+    );
 
     // Set component inputs
     modalRef.componentInstance.title = config.title;

@@ -65,7 +65,8 @@ export class ObjectGroupsAddComponent implements OnInit {
   ngOnInit(): void {
     const state = history.state;
     this.groupId = +this.route.snapshot.paramMap.get('id');
-    this.isViewMode = !!state?.isViewMode;
+    // The route decides the mode so a deep link to /view/:id can never open an editable form
+    this.isViewMode = this.route.snapshot.data?.['isViewMode'] === true;
     this.isEditMode = !!this.groupId && !this.isViewMode;
 
 

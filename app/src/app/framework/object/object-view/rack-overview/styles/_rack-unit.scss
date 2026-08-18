@@ -1,0 +1,182 @@
+/* Rack › unit — a mounted faceplate, plus the link marker for a row that holds both faces at once. */
+
+.rack-unit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 1px calc(var(--rack-jamb) + var(--rack-post) - 0.2rem);
+  padding: 0 0.45rem 0 0;
+  border: 0;
+  border-radius: $radius-plate;
+  overflow: hidden;
+  min-width: 0;
+  color: #fff;
+  text-align: left;
+  background-color: var(--rack-tone);
+  /* The faceplate bevel: a lit top edge and a shaded bottom, over the row's own colour. */
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0) 45%,
+    rgba(0, 0, 0, 0.16) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+    0 2px 5px -1px rgba(0, 0, 0, 0.55);
+  transition: box-shadow $ease, filter $ease;
+
+  /* The mounting screw at each rack ear. */
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    margin-top: -2px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, rgba(255, 255, 255, 0.5), rgba(0, 0, 0, 0.55) 70%);
+  }
+
+  &::before {
+    left: 3px;
+  }
+
+  &::after {
+    right: 3px;
+  }
+
+  &:hover {
+    filter: brightness(1.07);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.36),
+      0 8px 18px -6px rgba(0, 0, 0, 0.7);
+  }
+
+  &:focus-visible {
+    outline: 0;
+  }
+
+  &--selected,
+  &:focus-visible {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.36),
+      0 0 0 2px $primary,
+      0 8px 20px -8px rgba(0, 0, 0, 0.7);
+  }
+
+  /* A reservation or blocker holds space rather than filling it, so its plate is hatched. */
+  &--occupant {
+    background-image:
+      repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.16) 0 5px, transparent 5px 10px),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.16) 100%);
+  }
+
+  &__icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 1.1rem;
+    margin-left: 0.65rem;
+    font-size: 0.7rem;
+    opacity: 0.95;
+  }
+
+  &__name {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Faceplate louvres. They take the leftover width only, so the name is never squeezed for them. */
+  &__vent {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 60%;
+    margin: 0 0.1rem;
+    border-radius: 2px;
+    opacity: 0.5;
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.18) 0 2px,
+      rgba(255, 255, 255, 0.06) 2px 4px
+    );
+  }
+
+  &__spec {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: none;
+    font-size: 0.62rem;
+    color: rgba(255, 255, 255, 0.82);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__tag {
+    padding: 1px 0.3rem;
+    border-radius: 2px;
+    background: rgba(0, 0, 0, 0.3);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.55rem;
+    letter-spacing: 0.06em;
+  }
+
+  &__led {
+    flex: none;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 5px 1px rgba(74, 222, 128, 0.6);
+  }
+
+  /* An occupant has nothing running in it, so its indicator is dark. */
+  &--occupant &__led {
+    background: rgba(255, 255, 255, 0.35);
+    box-shadow: none;
+  }
+}
+
+/* The one thing that crosses between the two enclosures: a row holding both faces at once. */
+.rack-link {
+  grid-column: 2;
+  display: grid;
+  place-items: center;
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 0;
+    left: 0;
+    height: 2px;
+    margin-top: -1px;
+    background-image: repeating-linear-gradient(90deg, var(--rack-tone) 0 4px, transparent 4px 7px);
+  }
+
+  span {
+    position: relative;
+    padding: 1px 0.3rem;
+    border-radius: 2px;
+    background: var(--rack-tone);
+    color: #fff;
+    font-size: 0.58rem;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 2px 5px -2px rgba(0, 0, 0, 0.6);
+  }
+
+  &--selected span {
+    box-shadow: 0 0 0 2px $primary;
+  }
+}

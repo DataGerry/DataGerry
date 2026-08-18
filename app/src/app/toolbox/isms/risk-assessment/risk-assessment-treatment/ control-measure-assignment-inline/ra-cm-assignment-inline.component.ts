@@ -257,7 +257,8 @@ export class RaCmAssignmentInlineComponent implements OnInit, OnChanges {
         size: 'lg',
         centered: true,
         backdrop: 'static',
-        windowClass: 'dg-modal'
+        windowClass: 'dg-modal-window',
+        backdropClass: 'dg-modal-window-backdrop'
       });
     }, 0);
   }

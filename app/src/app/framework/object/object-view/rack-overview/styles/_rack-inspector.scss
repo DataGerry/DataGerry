@@ -1,0 +1,217 @@
+/* Rack › inspector — the side panel for the selected row: header, placement figures, detail rows. */
+
+/* The card itself is the component host, so the shell can size it without reaching inside. */
+:host {
+  display: flex;
+  flex-direction: column;
+  background: $paper;
+  border: 1px solid $hairline;
+  border-radius: $radius-card;
+  box-shadow: $shadow-card;
+  overflow: hidden;
+}
+
+.rack-inspector {
+  /* A neutral band, the same grey as the footer: the row colour stays in the icon tile alone. */
+  &__head {
+    display: flex;
+    align-items: center;
+    flex: none;
+    gap: 0.65rem;
+    padding: 0.8rem 0.85rem;
+    background: linear-gradient(180deg, darken($sunk, 3%), $sunk);
+    border-bottom: 1px solid $hairline;
+  }
+
+  &__icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 0.55rem;
+    color: #fff;
+    font-size: 0.85rem;
+    background-color: var(--rack-tone);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
+    box-shadow: 0 2px 6px -3px rgba(15, 23, 42, 0.6);
+  }
+
+  &__title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+    line-height: 1.25;
+
+    strong {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: $ink;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    font-size: 0.72rem;
+    color: $ink-3;
+  }
+
+  &__kind {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The object id reads as a reference, not as prose: set apart and on figure spacing. */
+  &__id {
+    flex: none;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.25rem;
+    background: rgba(15, 23, 42, 0.06);
+    color: $ink-2;
+    font-size: 0.68rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__head .rack-icon-btn {
+    margin-left: auto;
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 0.75rem 0.85rem;
+  }
+
+  /* The actions keep a band of their own, set off from the figures they apply to. */
+  &__foot {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    gap: 0.4rem;
+    padding: 0.65rem 0.85rem 0.7rem;
+    background: $sunk;
+    border-top: 1px solid $hairline;
+
+    /* The shared button is the box the layout sees, so the sizing is set on the host, not the control. */
+    app-button {
+      display: block;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    gap: 0.4rem;
+
+    app-button {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+  }
+
+  /* Set apart so the destructive action is never the one hit on the way to the others. */
+  &__danger {
+    margin-top: 0.15rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid $hairline;
+  }
+
+  /* One line, not a panel: with nothing selected the height belongs to the card below it. */
+  &__empty {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0.85rem 0.9rem;
+    font-size: 0.78rem;
+    color: $ink-3;
+
+    i {
+      flex: none;
+      font-size: 0.9rem;
+      color: $ink-4;
+    }
+  }
+}
+
+/* The three figures that describe the placement, as one segmented strip. */
+.rack-placement {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  background: $sunk;
+  border: 1px solid $hairline-soft;
+  border-radius: $radius-sm;
+  overflow: hidden;
+
+  /* An inset edge rather than a border: the cells keep the same width whichever one is last. */
+  > div {
+    padding: 0.4rem 0.55rem;
+    box-shadow: inset -1px 0 0 $hairline;
+
+    &:last-child {
+      box-shadow: none;
+    }
+  }
+
+  dt {
+    margin-bottom: 0.1rem;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: $ink-3;
+  }
+
+  dd {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: $ink;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.rack-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+
+  &__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.32rem 0;
+    border-bottom: 1px solid $hairline-soft;
+    font-size: 0.78rem;
+
+    &:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    dt {
+      flex: none;
+      color: $ink-3;
+    }
+
+    dd {
+      margin: 0;
+      min-width: 0;
+      font-weight: 600;
+      color: $ink-2;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+}

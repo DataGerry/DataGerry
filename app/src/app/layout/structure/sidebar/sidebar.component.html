@@ -75,7 +75,7 @@
         <div class="sb-filter">
           <input type="text" placeholder="Filter.." [formControl]="filterTerm" />
           @if (filterTerm.value) {
-          <button class="sb-filter__clear" (click)="filterTerm.reset('')" type="button">
+          <button class="sb-filter__clear" (click)="filterTerm.reset('')" type="button" aria-label="Clear filter">
             <fa-icon icon="times"></fa-icon>
           </button>
           }

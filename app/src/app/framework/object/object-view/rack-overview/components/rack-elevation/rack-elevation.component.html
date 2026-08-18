@@ -1,0 +1,194 @@
+<div class="rack-board__inner">
+
+  <!--
+    One rail definition, drawn on both posts of the rack. It takes drops as well as gives them:
+    a row dragged here is bolted to the side of the enclosure instead of holding slots in it.
+  -->
+  <ng-template #rail let-group>
+    @if (group) {
+    <aside class="rack-rail" [class.rack-rail--drop-ready]="drag.targetArea() === group.area"
+      [attr.aria-label]="group.title" (dragover)="drag.onAreaDragOver($event, group.area)"
+      (dragleave)="drag.onAreaDragLeave($event)" (drop)="drag.onAreaDrop($event, group.area)">
+      <span class="rack-rail__title">{{ group.title }}</span>
+
+      @if (drag.droppableAreas().has(group.area)) {
+      <p class="rack-rail__dropnote">Drop to side-mount</p>
+      }
+
+      <!--
+        Dragged by the whole card. These are only as wide as the post they sit beside, so they
+        carry no grip: it would take the room the name needs, which is why the actions are out
+        of flow in the first place.
+      -->
+      @for (mount of group.mounts; track mount.mountId) {
+      <div class="rack-rail__card" [class.rack-rail__card--dragged]="drag.isDragged(mount)"
+        [style.--rack-tone]="mount.tone" [attr.draggable]="store.canEdit ? 'true' : null"
+        (dragstart)="drag.onCardDragStart($event, mount)" (dragend)="drag.onDragEnd()">
+        <span class="rack-rail__icon" [style.color]="mount.tone" [style.background]="mount.tint">
+          <i [class]="mount.icon" aria-hidden="true"></i>
+        </span>
+
+        <!-- The name is cut to one line; the tooltip carries the whole label. -->
+        <span class="rack-rail__text">
+          @if (mount.isMount) {
+          <button type="button" class="rack-rail__name" [ngbTooltip]="mount.label"
+            [container]="tooltipContainer()" (click)="actions.openObject(mount.objectId)">
+            {{ mount.label }}
+          </button>
+          } @else {
+          <span class="rack-rail__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
+            {{ mount.label }}
+          </span>
+          }
+          <span class="rack-rail__sub">
+            {{ mount.typeName }}
+            @if (mount.position !== null) { &middot; pos {{ mount.position }} }
+          </span>
+        </span>
+
+        <span class="rack-rail__actions" *permissionLink="['base.framework.rack.edit']">
+          <button type="button" class="rack-icon-btn" [attr.aria-label]="'Edit ' + mount.label"
+            (click)="actions.edit(mount)">
+            <i class="fas fa-sliders-h" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="rack-icon-btn rack-icon-btn--danger"
+            [attr.aria-label]="'Remove ' + mount.label + ' from the rack'" (click)="actions.confirmRemove(mount)">
+            <i class="fas fa-times" aria-hidden="true"></i>
+          </button>
+        </span>
+      </div>
+      } @empty {
+      <p class="rack-rail__empty">No side-mounted objects.</p>
+      }
+
+      <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-rail__add"
+        (click)="actions.add(group.area)">
+        <i class="fas fa-plus" aria-hidden="true"></i> Add to side
+      </button>
+    </aside>
+    }
+  </ng-template>
+
+  <!--
+    One cabinet definition, drawn once per face. Every part carries `rack-face`, which the grid
+    places into a column: front left and rear right when split, the shown face centred otherwise.
+  -->
+  <ng-template #cabinet let-face>
+    @if (face) {
+    <div class="rack-cab rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"></div>
+
+    <div class="rack-cab__cap rack-face" [class.rack-face--rear]="face.side === AREAS.BACK">
+      {{ face.title }}
+      <span class="rack-cab__figure">{{ face.capacity.used }}/{{ face.capacity.total }}U</span>
+    </div>
+
+    <div class="rack-cab__void rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"></div>
+    <div class="rack-cab__post rack-cab__post--left rack-face" [class.rack-face--rear]="face.side === AREAS.BACK">
+    </div>
+    <div class="rack-cab__post rack-cab__post--right rack-face"
+      [class.rack-face--rear]="face.side === AREAS.BACK"></div>
+    <div class="rack-cab__plinth rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"></div>
+
+    <!-- Open bays. Always drawn; only the action inside them needs the edit right. -->
+    @for (bay of face.freeSlots; track bay.slot) {
+    <div class="rack-bay rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"
+      [class.rack-bay--major]="bay.isMajor" [style.grid-row]="bay.gridRow">
+      <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-bay__add"
+        [attr.aria-label]="'Fill slot U' + bay.slot + ' on the ' + face.title.toLowerCase()"
+        (click)="actions.addAtSlot(face.side, bay.slot)">
+        <span class="rack-bay__hint">+ U{{ bay.slot }}</span>
+      </button>
+    </div>
+    }
+
+    <!-- The equipment. Grabbed by the plate itself, the way a row is carried in a real rack. -->
+    @for (mount of face.units; track mount.mountId) {
+    <button type="button" class="rack-unit rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"
+      [class.rack-unit--selected]="store.isSelected(mount)" [class.rack-unit--occupant]="!mount.isMount"
+      [class.rack-unit--dragged]="drag.isDragged(mount)" [style.--rack-tone]="mount.tone"
+      [style.grid-row]="mount.gridRow" [attr.draggable]="store.canEdit ? 'true' : null"
+      [attr.aria-pressed]="store.isSelected(mount)"
+      [attr.aria-label]="mount.label + ', ' + mount.typeName + ', ' + mount.slotRange"
+      (click)="store.toggleSelection(mount)" (dragstart)="drag.onPlateDragStart($event, mount)"
+      (dragend)="drag.onDragEnd()">
+      <span class="rack-unit__icon"><i [class]="mount.icon" aria-hidden="true"></i></span>
+      <!-- A faceplate is only as wide as its U; the tooltip carries the name it cannot fit. -->
+      <span class="rack-unit__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
+        {{ mount.label }}
+      </span>
+      <span class="rack-unit__vent" aria-hidden="true"></span>
+      <span class="rack-unit__spec">
+        <!-- In a split view the link across the ruler already says it, so the plate keeps the room. -->
+        @if (mount.isFullDepth && viewMode() !== 'split') {
+        <span class="rack-unit__tag">FULL DEPTH</span>
+        }
+        <span>{{ mount.height }}U</span>
+        <span>{{ mount.slotRange }}</span>
+      </span>
+      <span class="rack-unit__led" aria-hidden="true"></span>
+    </button>
+    }
+
+    <!--
+      The slot band of this face, as one hit area. It has to lie over the plates - a row is
+      dragged across the ones it currently overlaps - so it is only live while something is
+      actually in flight, and lets every click through the rest of the time.
+    -->
+    @if (store.canEdit) {
+    <div class="rack-dropzone rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"
+      (dragover)="drag.onFaceDragOver($event, face.side)" (dragleave)="drag.onFaceDragLeave()"
+      (drop)="drag.onFaceDrop($event, face.side)"></div>
+    }
+    }
+  </ng-template>
+
+  <ng-container *ngTemplateOutlet="rail; context: { $implicit: store.sideRails()[0] }"></ng-container>
+
+  <div class="rack-grid" [attr.data-view]="viewMode()" [style.grid-template-rows]="store.rowTemplate()">
+    @if (viewMode() === 'split') {
+    <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: store.frontFace() }"></ng-container>
+    <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: store.rearFace() }"></ng-container>
+
+    <!-- The only thing crossing between the two cabinets: one row holding both faces. -->
+    @for (mount of store.bridges(); track mount.mountId) {
+    <span class="rack-link" [class.rack-link--selected]="store.isSelected(mount)" [style.--rack-tone]="mount.tone"
+      [style.grid-row]="mount.gridRow" aria-hidden="true">
+      <span>{{ mount.height }}U</span>
+    </span>
+    }
+    }
+
+    @else if (shownFace(); as face) {
+    <!--
+      Only what actually holds this face's slots is drawn. A FRONT row does not occupy the
+      matching BACK slot - they compete only through FULL_DEPTH - so those bays stay open here.
+    -->
+    <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: face }"></ng-container>
+    }
+
+    <!-- The U ruler. Between the cabinets when split, on both posts of a single face. -->
+    @for (tick of store.slotTicks(); track tick.slot) {
+    <span class="rack-tick" [class.rack-tick--major]="tick.isMajor" [style.grid-row]="tick.gridRow">{{
+      tick.slot }}</span>
+    <span class="rack-tick rack-tick--mirror" [class.rack-tick--major]="tick.isMajor"
+      [style.grid-row]="tick.gridRow" aria-hidden="true">{{ tick.slot }}</span>
+    }
+
+    <!--
+      Where the dragged row would land. Drawn over the plates it would cover rather than behind
+      them, so a blocked drop shows what is standing in the way.
+    -->
+    @for (band of dropBands(); track band.side) {
+    <div class="rack-drop rack-face" [class.rack-face--rear]="band.isRear"
+      [class.rack-drop--blocked]="!band.ok" [style.grid-row]="band.gridRow" aria-hidden="true">
+      <span class="rack-drop__label">{{ band.label }}</span>
+    </div>
+    }
+
+    @if (!store.rackHeight()) {
+    <p class="rack-grid__unset">This rack has no height configured yet.</p>
+    }
+  </div>
+
+  <ng-container *ngTemplateOutlet="rail; context: { $implicit: store.sideRails()[1] }"></ng-container>
+</div>

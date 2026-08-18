@@ -1,6 +1,7 @@
 <div id="delete-log-list" class="row">
     <div class="col-12">
-        <button type="button" class="btn btn-danger btn-sm my-2" [disabled]="selectedLogIDs.length<=0" placement="auto"
+        <button type="button" class="btn btn-danger btn-sm my-2" *permissionLink="'base.framework.log.delete'"
+            [disabled]="selectedLogIDs.length<=0" placement="auto"
             ngbTooltip="Delete selected logs" (click)="cleanup()">
             <i class="far fa-trash-alt"></i> Cleanup
             <span class="badge bg-secondary">{{selectedLogIDs.length}}</span>

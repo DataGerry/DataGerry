@@ -1,0 +1,46 @@
+/*
+ * Rack › drag and drop, tray — the staging card is both where an entry is dragged from and the way
+ * back out of the elevation, so it says what it would do with the row in flight.
+ */
+
+/* The card is the drop target itself, so it marks the target state on its own border. */
+:host(.rack-tray--drop-ready) {
+  border-color: $primary;
+  box-shadow: 0 0 0 2px rgba($primary, 0.28), $shadow-card;
+}
+
+/* Shown only while a placed row is in flight. */
+.rack-tray__dropnote {
+  flex: none;
+  margin: 0.6rem 0 0;
+  padding: 0.45rem 0.5rem;
+  border: 1px dashed rgba($primary, 0.55);
+  border-radius: $radius-sm;
+  background: rgba($primary, 0.07);
+  color: $primary;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.rack-tray__grip {
+  flex: none;
+  margin-left: -0.15rem;
+  color: $ink-4;
+  font-size: 0.7rem;
+}
+
+.rack-tray__item {
+  &[draggable='true'] {
+    cursor: grab;
+    user-select: none;
+
+    &:active {
+      cursor: grabbing;
+    }
+  }
+
+  &--dragged {
+    opacity: 0.45;
+  }
+}

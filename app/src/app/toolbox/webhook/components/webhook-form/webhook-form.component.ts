@@ -72,6 +72,14 @@ export class WebhookFormComponent implements OnInit {
     /* --------------------------------------------------- GETTERS -------------------------------------------------- */
 
     /**
+     * Right required to persist the webhook in the current mode.
+     */
+    public get saveRight(): string {
+        return this.publicId ? 'base.framework.webhook.edit' : 'base.framework.webhook.add';
+    }
+
+
+    /**
      * Getter for the 'name' form control.
      * @returns The form control for the webhook's name field.
      */

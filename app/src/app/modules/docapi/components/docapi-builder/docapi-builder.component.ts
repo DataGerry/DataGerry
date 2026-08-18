@@ -81,6 +81,11 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     public isSaving = false;
     public isLoading$ = this.loaderService.isLoading$;
 
+    /** Right required to persist the template in the current wizard mode */
+    public get saveRight(): string {
+        return this.mode === CmdbMode.Edit ? 'base.docapi.template.edit' : 'base.docapi.template.add';
+    }
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */

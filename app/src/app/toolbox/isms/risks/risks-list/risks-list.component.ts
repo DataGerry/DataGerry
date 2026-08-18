@@ -238,7 +238,11 @@ export class RisksListComponent implements OnInit {
     if (!risk.public_id) {
       return;
     }
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Risk';
     modalRef.componentInstance.item = risk;
     modalRef.componentInstance.itemType = 'Risk';
@@ -290,7 +294,11 @@ export class RisksListComponent implements OnInit {
     }
 
     const isPlural = publicIds.length > 1;
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Risks';
     modalRef.componentInstance.item = this.selectedRisks;
     modalRef.componentInstance.itemType = 'Risks';

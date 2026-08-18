@@ -1,0 +1,13 @@
+<app-checkbox id="rack-picker-only-unmounted" label="Only show objects that are not mounted yet"
+  [checked]="showOnlyUnmounted()" (checkedChange)="onOnlyUnmountedChange($event)">
+</app-checkbox>
+
+<app-form-select label="Object" placeholder="Type to search objects..." bindLabel="option_label"
+  bindValue="public_id" [items]="options()" [required]="true" [loading]="isFetching()" [typeahead]="searchTerms$"
+  [appendTo]="appendTo()" dropdownDirection="auto" [formControl]="objectControl"
+  (selectedItemChange)="onOptionSelected($event)" (scrolledToEnd)="onScrollEnd()">
+</app-form-select>
+
+@if (assignedRackNotice(); as notice) {
+  <app-warning-alert title="Already mounted:" [message]="notice"></app-warning-alert>
+}

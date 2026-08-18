@@ -21,6 +21,21 @@
     }
 }
 
+/*
+ * Wrapper for footer actions when any of them is conditional.
+ *
+ * <ng-content select="[dgModalFooter]"> only matches the top-level nodes of the projected
+ * content, so a button inside an @if block is NOT selected — the block falls through to the
+ * default slot and the button lands in the body instead. Put the attribute on this always-
+ * rendered wrapper and keep the @if inside it.
+  */
+.dg-modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+}
+
 /* Footer action buttons — global because they are projected into the shell's footer slot. */
 .dg-btn {
     display: inline-flex;

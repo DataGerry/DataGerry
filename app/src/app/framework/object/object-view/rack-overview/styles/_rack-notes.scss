@@ -1,0 +1,184 @@
+/*
+ * Rack › notes — the notes of the rack object, as a card in the side column. Folded it is a single
+ * line; opened it reads the notes out and, with the object right, edits them where they are shown.
+ */
+
+/* The card is the component host, so the shell can size it in the column without reaching inside. */
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: $paper;
+  border: 1px solid $hairline;
+  border-radius: $radius-card;
+  box-shadow: $shadow-card;
+  overflow: hidden;
+}
+
+/* The flex display above would otherwise beat the hidden attribute the card removes itself with. */
+:host([hidden]) {
+  display: none;
+}
+
+.rack-notes {
+  &__toggle {
+    display: flex;
+    align-items: center;
+    flex: none;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.5rem;
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    border: 0;
+    background: $paper;
+    text-align: left;
+    transition: background $ease;
+
+    &:hover {
+      background: $sunk;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: inset 0 0 0 0.15rem rgba($primary, 0.35);
+    }
+
+    &--open {
+      background: linear-gradient(180deg, darken($sunk, 3%), $sunk);
+      border-bottom: 1px solid $hairline;
+
+      .rack-notes__caret {
+        color: $ink-3;
+        transform: rotate(180deg);
+      }
+    }
+  }
+
+  /* Tinted only when there is something to read, so the card says as much before it is opened. */
+  &__badge {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.35rem;
+    background: rgba(15, 23, 42, 0.05);
+    color: $ink-4;
+    font-size: 0.68rem;
+
+    &--filled {
+      background: rgba($primary, 0.1);
+      color: $primary;
+    }
+  }
+
+  &__title {
+    flex: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: $ink-2;
+  }
+
+  /*
+   * A line of its own under the title: the column is too narrow to hold the opening of a note
+   * beside it, and one clipped word says nothing about what the note holds. The text is cut to
+   * length in the component, so what arrives here is already as much as the header shows.
+   */
+  &__preview {
+    flex: 1 0 100%;
+    min-width: 0;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: $ink-3;
+    overflow-wrap: anywhere;
+  }
+
+  &__caret {
+    flex: none;
+    margin-left: auto;
+    font-size: 0.6rem;
+    color: $ink-4;
+    transition: transform $ease;
+  }
+
+  &__panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 0;
+    padding: 0.7rem 0.8rem 0.8rem;
+  }
+
+  /*
+   * The stored text, kept as it was typed: a note is written in lines, and collapsing them would
+   * turn a list of them into one paragraph. A long one scrolls rather than pushing the card over
+   * the height the column has to give it.
+   */
+  &__text {
+    margin: 0;
+    max-height: 12rem;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: $ink-2;
+  }
+
+  &__empty {
+    margin: 0;
+    font-size: 0.78rem;
+    color: $ink-4;
+  }
+
+  &__input {
+    width: 100%;
+    padding: 0.45rem 0.55rem;
+    background: $paper;
+    border: 1px solid $hairline;
+    border-radius: $radius-sm;
+    resize: vertical;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: $ink;
+
+    &::placeholder {
+      color: $ink-4;
+    }
+
+    &:focus {
+      outline: 0;
+      border-color: rgba($primary, 0.5);
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.2);
+    }
+  }
+
+  &__foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex: none;
+    gap: 0.4rem;
+  }
+
+  /* Takes the free space of the band, which is what pushes the controls to its far end. */
+  &__hint {
+    flex: 1 1 auto;
+    font-size: 0.68rem;
+    color: $ink-4;
+  }
+
+  &__actions {
+    flex: none;
+  }
+}
+
+/*
+ * The card takes the rack's own button skin from rack-buttons-action, the same one the inspector's
+ * actions wear - the application's Bootstrap secondary is amber, which reads as a warning on a
+ * control that only opens an editor. The band there is a stack of full-width buttons; the two the
+ * editor closes with share one line instead, so they take their content's width.
+ */
+.rack-notes__foot ::ng-deep .rack-btn {
+  width: auto;
+}

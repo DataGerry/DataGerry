@@ -1,0 +1,78 @@
+/*
+ * Rack › legend — the key to the drawing: the types in the rack and what the occupants hold.
+ *
+ * It is the panel of a disclosure in the header card rather than a band of its own, so it is folded
+ * away by default: the key explains the drawing and must never be the reason the drawing is off the
+ * screen. Open, it is capped and scrolls in place for the same reason.
+ */
+
+.rack-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.45rem;
+  max-height: 7.5rem;
+  padding: 0.55rem 0.7rem;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+  background: $sunk;
+  border-top: 1px solid $hairline;
+  /* Last in the card, so it has to carry the rounding the card's own corners would otherwise lose. */
+  border-radius: 0 0 calc(#{$radius-card} - 1px) calc(#{$radius-card} - 1px);
+
+  &[hidden] {
+    display: none;
+  }
+
+  &__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: 15rem;
+    padding: 0.15rem 0.5rem 0.15rem 0.15rem;
+    background: $paper;
+    border: 1px solid $hairline;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    color: $ink-2;
+
+    &--occupant {
+      background: transparent;
+      border-style: dashed;
+    }
+  }
+
+  &__chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.06);
+    color: $ink-3;
+    font-size: 0.6rem;
+  }
+
+  &__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__count {
+    flex: none;
+    font-weight: 600;
+    color: $ink;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__held {
+    flex: none;
+    color: $ink-4;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+  }
+}

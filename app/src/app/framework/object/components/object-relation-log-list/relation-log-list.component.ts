@@ -284,7 +284,11 @@ export class RelationLogListComponent implements OnInit, OnChanges {
    * "Delete" button: show a delete confirmation modal
    */
   public onDeleteLog(log: RelationLog): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = `Delete Relation Log: ${log.public_id}`;
     modalRef.componentInstance.item = log;
     modalRef.componentInstance.itemType = 'Relation Log';

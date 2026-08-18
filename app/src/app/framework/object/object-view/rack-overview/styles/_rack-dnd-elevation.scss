@@ -1,0 +1,119 @@
+/*
+ * Rack › drag and drop, elevation — what can be grabbed in the drawing, the hit area each face
+ * exposes while something is in flight, and the band that previews where the row would land.
+ */
+
+/*
+ * The slot band of one face, as a single hit area. It lies over the plates, because a row is dragged
+ * across the ones it currently overlaps and those would otherwise shadow the slots underneath. That
+ * only works while a drag is running: the rest of the time it must let clicks reach the plates and
+ * the free bays below it.
+ */
+.rack-dropzone {
+  grid-row: 2 / -2;
+  position: relative;
+  z-index: 3;
+  pointer-events: none;
+}
+
+:host-context(.rack-view--dragging) {
+  .rack-dropzone {
+    pointer-events: auto;
+  }
+
+  /* The plates are being dragged over, not aimed at, so they stop answering the pointer. */
+  .rack-unit:hover {
+    filter: none;
+  }
+}
+
+/* A rack row is moved by its faceplate rather than by a handle - the plate is the whole target. */
+.rack-unit[draggable='true'] {
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+/* The row is in flight; what stays behind is only the place it came from. */
+.rack-unit--dragged {
+  opacity: 0.3;
+  filter: grayscale(0.65);
+}
+
+/*
+ * Where the row would land, drawn over the plates it would cover so a blocked drop shows what is in
+ * the way. The label carries the U range it would take, or the reason it cannot take it.
+ */
+.rack-drop {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 calc(var(--rack-jamb) + var(--rack-post));
+  overflow: hidden;
+  border: 1px dashed rgba(74, 222, 128, 0.95);
+  border-radius: $radius-plate;
+  background: rgba(74, 222, 128, 0.22);
+  pointer-events: none;
+
+  &--blocked {
+    border-color: rgba(248, 113, 113, 0.95);
+    background: rgba(248, 113, 113, 0.3);
+  }
+
+  &__label {
+    padding: 0 0.3rem;
+    border-radius: 2px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+
+/*
+ * A rail is a bare column beside the enclosure with no border of its own, so it is ringed instead -
+ * as an outline, which marks it without taking any width from cards that are already narrow.
+ */
+.rack-rail--drop-ready {
+  border-radius: $radius-sm;
+  outline: 2px dashed $primary;
+  outline-offset: 0.3rem;
+  background: rgba($primary, 0.05);
+}
+
+/* Shown only while a row this rail could take is in flight. */
+.rack-rail__dropnote {
+  flex: none;
+  margin: 0.6rem 0 0;
+  padding: 0.45rem 0.5rem;
+  border: 1px dashed rgba($primary, 0.55);
+  border-radius: $radius-sm;
+  background: rgba($primary, 0.07);
+  color: $primary;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.rack-rail__card {
+  &[draggable='true'] {
+    cursor: grab;
+    user-select: none;
+
+    &:active {
+      cursor: grabbing;
+    }
+  }
+
+  &--dragged {
+    opacity: 0.45;
+  }
+}
