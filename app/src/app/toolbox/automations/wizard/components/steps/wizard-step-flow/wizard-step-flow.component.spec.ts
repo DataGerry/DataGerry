@@ -574,3 +574,36 @@ describe('WizardStepFlowComponent editing', () => {
         expect(component.isEditing('body', 'id')).toBeFalse();
     });
 });
+
+
+/*
+ * The condition and the list a loop walks carry references too, and they were the last places
+ * showing a raw address. These pin that they arrive cut up, and that the cut keeps the operator.
+ */
+describe('operator references', () => {
+
+    it('cuts a condition into its reference and the comparison around it', () => {
+        const tokens = tokensOf("({%#FFCFB5.(response).body.$.results[i].type_id%} = '12')");
+
+        expect(tokens.map(token => token.reference)).toEqual([false, true, false]);
+        expect(tokens[1].label).toBe('type_id');
+        expect(tokens[2].text).toBe(" = '12')");
+    });
+
+
+    it('cuts the list a loop walks', () => {
+        const tokens = tokensOf('for {%#FFCFB5.(response).body.$.results[*]%}');
+
+        expect(tokens[0].text).toBe('for ');
+        expect(tokens[1].reference).toBeTrue();
+        expect(tokens[1].label).toBe('results');
+    });
+
+
+    it('keeps a presence test readable beside the field it tests', () => {
+        const tokens = tokensOf('({%#6477AB.(response).body.$.result[*]%} NotEmpty)');
+
+        expect(tokens[1].label).toBe('result');
+        expect(tokens[2].text).toContain('NotEmpty');
+    });
+});
