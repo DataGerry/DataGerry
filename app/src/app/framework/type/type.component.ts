@@ -23,6 +23,7 @@ import { BehaviorSubject, ReplaySubject } from 'rxjs';
 import { finalize, takeUntil } from 'rxjs/operators';
 
 import { TypeService } from '../services/type.service';
+import { SpecialTypeService } from '../services/special-type.service';
 import { FileService } from '../../export/export.service';
 import { PermissionService } from '../../modules/auth/services/permission.service';
 import { convertResourceURL, UserSettingsService } from '../../management/user-settings/services/user-settings.service';
@@ -89,6 +90,8 @@ export class TypeComponent implements OnInit, OnDestroy {
     @ViewChild('dateTemplate', { static: true }) dateTemplate: TemplateRef<any>;
     // Table Template: user column
     @ViewChild('userTemplate', { static: true }) userTemplate: TemplateRef<any>;
+    // Table Template: special type column
+    @ViewChild('specialTypeTemplate', { static: true }) specialTypeTemplate: TemplateRef<any>;
 
     // Table columns definition
     public columns: Array<Column>;
@@ -114,6 +117,9 @@ export class TypeComponent implements OnInit, OnDestroy {
     public loading: boolean = false;
     public isLoading$ = this.loaderService.isLoading$;
 
+    // Special type token -> backend display label, used as the badge description
+    public specialTypeLabels: Record<string, string> = {};
+
     public tableStateSubject: BehaviorSubject<TableState> = new BehaviorSubject<TableState>(undefined);
     public tableStates: Array<TableState> = [];
 
@@ -122,6 +128,7 @@ export class TypeComponent implements OnInit, OnDestroy {
 
     constructor(
         private typeService: TypeService,
+        private specialTypeService: SpecialTypeService,
         private fileService: FileService,
         private route: ActivatedRoute,
         private permissionService: PermissionService,
@@ -182,6 +189,15 @@ export class TypeComponent implements OnInit, OnDestroy {
                 template: this.typeNameTemplate,
             },
             {
+                display: 'Special type',
+                name: 'special_type',
+                data: 'special_type',
+                searchable: false,
+                sortable: true,
+                template: this.specialTypeTemplate,
+                cssClasses: ['text-center']
+            },
+            {
                 display: 'Author',
                 name: 'author_id',
                 data: 'author_id',
@@ -231,6 +247,7 @@ export class TypeComponent implements OnInit, OnDestroy {
         }
 
         this.initTable();
+        this.loadSpecialTypeLabels();
         this.loadTypesFromAPI();
     }
 
@@ -260,6 +277,26 @@ export class TypeComponent implements OnInit, OnDestroy {
             this.page = this.tableState.page;
             this.limit = this.tableState.pageSize;
         }
+    }
+
+
+    /**
+     * Loads the display label of every special type once, so the list can describe the badge it
+     * renders without resolving a label per row.
+     */
+    private loadSpecialTypeLabels(): void {
+        this.loaderService.show();
+
+        this.specialTypeService.getAllSpecialTypes().pipe(
+            takeUntil(this.subscriber),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: (specialTypes: Record<string, string>) => {
+                this.specialTypeLabels = specialTypes ?? {};
+            },
+            // The badge falls back to the bare token, so a failed lookup is not worth a toast
+            error: () => this.specialTypeLabels = {}
+        });
     }
 
 
@@ -347,6 +384,17 @@ export class TypeComponent implements OnInit, OnDestroy {
     public onSelectedChange(selectedItems: Array<TypeTableItem>): void {
         this.selectedTypes = selectedItems;
         this.selectedTypeIDs = selectedItems.map(t => t.public_id);
+    }
+
+
+    /**
+     * Display label of a special type. Reads own properties only, so a token echoed back by the
+     * backend can never resolve to something inherited from Object.prototype.
+     */
+    public resolveSpecialTypeLabel(specialType: string): string {
+        return Object.prototype.hasOwnProperty.call(this.specialTypeLabels, specialType)
+            ? this.specialTypeLabels[specialType]
+            : '';
     }
 
 

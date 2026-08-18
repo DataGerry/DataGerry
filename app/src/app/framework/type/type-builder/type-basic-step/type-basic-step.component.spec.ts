@@ -46,9 +46,10 @@ describe('TypeBasicStepComponent (type creation - basic information)', () => {
         typeService.getTypeByName.and.returnValue(of(null));
 
         specialTypeService = jasmine.createSpyObj<SpecialTypeService>('SpecialTypeService', [
-            'getAvailableSpecialTypes', 'getSchema', 'getCachedSchema'
+            'getAvailableSpecialTypes', 'getAllSpecialTypes', 'getSchema', 'getCachedSchema'
         ]);
         specialTypeService.getAvailableSpecialTypes.and.returnValue(of({}));
+        specialTypeService.getAllSpecialTypes.and.returnValue(of({}));
         specialTypeService.getCachedSchema.and.returnValue(null);
 
         toastService = jasmine.createSpyObj<ToastService>('ToastService', ['error', 'success']);
@@ -221,6 +222,98 @@ describe('TypeBasicStepComponent (type creation - basic information)', () => {
             expect(component.name.asyncValidator).toBeNull();
             expect(specialTypeService.getAvailableSpecialTypes).not.toHaveBeenCalled();
             expect(component.ipamAvailable).toBeFalse();
+        });
+
+        it('leaves the special type field hidden for a regular type', () => {
+            component.ngOnInit();
+
+            expect(component.hasAssignedSpecialType).toBeFalse();
+            expect(component.assignedSpecialTypeOptions).toEqual([]);
+            expect(component.specialType.disabled).toBeFalse();
+            expect(specialTypeService.getAllSpecialTypes).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('edit mode: assigned special type', () => {
+        beforeEach(() => {
+            component.mode = CmdbMode.Edit;
+        });
+
+        it('selects the assigned special type and locks the control', () => {
+            specialTypeService.getAllSpecialTypes.and.returnValue(of({
+                SUBNET: 'IPAM - Subnet class',
+                RACK: 'Rack View - Rack class'
+            }));
+            component.typeInstance = buildType({ special_type: SpecialType.SUBNET });
+
+            component.ngOnInit();
+
+            expect(component.hasAssignedSpecialType).toBeTrue();
+            expect(component.specialType.value).toBe(SpecialType.SUBNET);
+            expect(component.specialType.disabled).toBeTrue();
+            expect(component.assignedSpecialTypeOptions).toEqual([{
+                value: SpecialType.SUBNET,
+                label: 'SUBNET - IPAM - Subnet class',
+                description: 'IPAM - Subnet class'
+            }]);
+            expect(loaderService.show).toHaveBeenCalled();
+            expect(loaderService.hide).toHaveBeenCalled();
+        });
+
+        it('keeps the disabled value out of the submitted form value', () => {
+            component.typeInstance = buildType({ special_type: SpecialType.RACK });
+
+            component.ngOnInit();
+
+            expect(component.form.value.special_type).toBeUndefined();
+            expect(component.form.getRawValue().special_type).toBe(SpecialType.RACK);
+        });
+
+        it('does not write the special type back onto the type instance when other fields change', () => {
+            component.typeInstance = buildType({ special_type: SpecialType.VLAN });
+
+            component.ngOnInit();
+            component.label.setValue('Renamed');
+
+            expect(component.typeInstance.special_type).toBe(SpecialType.VLAN);
+            expect(component.typeInstance.label).toBe('Renamed');
+        });
+
+        it('falls back to the bare token when the label lookup fails', () => {
+            specialTypeService.getAllSpecialTypes.and.returnValue(throwError(() => new Error('offline')));
+            component.typeInstance = buildType({ special_type: SpecialType.RACK });
+
+            component.ngOnInit();
+
+            expect(component.assignedSpecialTypeOptions).toEqual([{
+                value: SpecialType.RACK,
+                label: 'RACK',
+                description: ''
+            }]);
+            expect(toastService.error).not.toHaveBeenCalled();
+            expect(loaderService.hide).toHaveBeenCalled();
+        });
+
+        it('falls back to the bare token when the backend has no label for the token', () => {
+            specialTypeService.getAllSpecialTypes.and.returnValue(of({ SUBNET: 'IPAM - Subnet class' }));
+            component.typeInstance = buildType({ special_type: SpecialType.VLAN });
+
+            component.ngOnInit();
+
+            expect(component.assignedSpecialTypeOptions).toEqual([{
+                value: SpecialType.VLAN,
+                label: 'VLAN',
+                description: ''
+            }]);
+        });
+
+        it('ignores a blank special type value', () => {
+            component.typeInstance = buildType({ special_type: '   ' as SpecialType });
+
+            component.ngOnInit();
+
+            expect(component.hasAssignedSpecialType).toBeFalse();
+            expect(component.specialType.disabled).toBeFalse();
         });
     });
 
