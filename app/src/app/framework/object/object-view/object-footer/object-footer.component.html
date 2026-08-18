@@ -1,32 +1,53 @@
 <div id="object-footer" class="card">
   <div class="card-header">
     <ul class="nav nav-tabs card-header-tabs">
+      @if (showRackView) {
+        <li class="nav-item">
+          <button type="button" class="nav-link" [class.active]="activeTab === 'rack-view'"
+            (click)="selectTab('rack-view')">Rack View</button>
+        </li>
+      }
       <li class="nav-item">
-        <a class="nav-link active" data-bs-toggle="tab" href="#object-tab-risk-assesments-list"
-          role="tabpanel">Risk Assessments</a>
+        <button type="button" class="nav-link" [class.active]="activeTab === 'risk-assessments'"
+          (click)="selectTab('risk-assessments')">Risk Assessments</button>
       </li>
       <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#object-tab-reference" role="tabpanel">Referenced by</a>
+        <button type="button" class="nav-link" [class.active]="activeTab === 'references'"
+          (click)="selectTab('references')">Referenced by</button>
       </li>
       <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#object-tab-logs" role="tabpanel">Object Logs</a>
+        <button type="button" class="nav-link" [class.active]="activeTab === 'logs'"
+          (click)="selectTab('logs')">Object Logs</button>
       </li>
       <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#object-tab-relation-logs">Relation Logs</a>
+        <button type="button" class="nav-link" [class.active]="activeTab === 'relation-logs'"
+          (click)="selectTab('relation-logs')">Relation Logs</button>
       </li>
       <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#object-tab-summaries" role="tabpanel">Summaries</a>
+        <button type="button" class="nav-link" [class.active]="activeTab === 'summaries'"
+          (click)="selectTab('summaries')">Summaries</button>
       </li>
       <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#object-tab-meta" role="tabpanel">Metadata</a>
+        <button type="button" class="nav-link" [class.active]="activeTab === 'metadata'"
+          (click)="selectTab('metadata')">Metadata</button>
       </li>
       <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#object-tab-qr" role="tabpanel">QR Code</a>
+        <button type="button" class="nav-link" [class.active]="activeTab === 'qr'"
+          (click)="selectTab('qr')">QR Code</button>
       </li>
     </ul>
   </div>
   <div class="card-body tab-content">
-    <div class="tab-pane fade show active" id="object-tab-risk-assesments-list" role="tabpanel">
+    @if (showRackView) {
+      <div class="tab-pane" id="object-tab-rack-view" role="tabpanel" [class.active]="activeTab === 'rack-view'">
+        <!-- Built on the first visit and kept mounted afterwards, so zoom and side stay put. -->
+        @if (rackTabVisited) {
+          <cmdb-rack-overview [publicId]="objectID"></cmdb-rack-overview>
+        }
+      </div>
+    }
+    <div class="tab-pane" id="object-tab-risk-assesments-list" role="tabpanel"
+      [class.active]="activeTab === 'risk-assessments'">
       @if (ismsAvailable) {
       <app-risk-assessment-list [objectId]="objectID"></app-risk-assessment-list>
       } @else {
@@ -35,22 +56,22 @@
       </cmdb-premium-locked>
       }
     </div>
-    <div class="tab-pane fade" id="object-tab-reference" role="tabpanel">
+    <div class="tab-pane" id="object-tab-reference" role="tabpanel" [class.active]="activeTab === 'references'">
       <cmdb-object-references [publicID]="objectID"></cmdb-object-references>
     </div>
-    <div class="tab-pane fade" id="object-tab-logs" role="tabpanel">
+    <div class="tab-pane" id="object-tab-logs" role="tabpanel" [class.active]="activeTab === 'logs'">
       <cmdb-object-log-list [publicID]="objectID"></cmdb-object-log-list>
     </div>
-    <div class="tab-pane fade" id="object-tab-relation-logs" role="tabpanel">
+    <div class="tab-pane" id="object-tab-relation-logs" role="tabpanel" [class.active]="activeTab === 'relation-logs'">
       <relation-log-list [publicID]="objectID"></relation-log-list>
     </div>
-    <div class="tab-pane fade" id="object-tab-summaries" role="tabpanel">
+    <div class="tab-pane" id="object-tab-summaries" role="tabpanel" [class.active]="activeTab === 'summaries'">
       <cmdb-object-summary [renderResult]="renderResult" [summaries]="renderResult?.summaries"></cmdb-object-summary>
     </div>
-    <div class="tab-pane fade" id="object-tab-meta" role="tabpanel">
+    <div class="tab-pane" id="object-tab-meta" role="tabpanel" [class.active]="activeTab === 'metadata'">
       <cmdb-object-view-meta [renderResult]="renderResult"></cmdb-object-view-meta>
     </div>
-    <div class="tab-pane fade" id="object-tab-qr" role="tabpanel">
+    <div class="tab-pane" id="object-tab-qr" role="tabpanel" [class.active]="activeTab === 'qr'">
       <cmdb-object-qr></cmdb-object-qr>
     </div>
   </div>

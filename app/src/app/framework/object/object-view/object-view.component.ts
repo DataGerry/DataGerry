@@ -19,7 +19,6 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
-  inject,
   OnDestroy,
   OnInit
 } from '@angular/core';
@@ -31,8 +30,6 @@ import { TypeService } from 'src/app/framework/services/type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { SpecialType } from 'src/app/framework/models/special-type';
-import { PermissionService } from 'src/app/modules/auth/services/permission.service';
-import { RACK_VIEW_RIGHT } from './rack-overview/models/rack-overview.types';
 
 @Component({
   selector: 'cmdb-object-view',
@@ -67,22 +64,9 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     return this.renderResult?.object_information?.special_type === SpecialType.SUBNET;
   }
 
-  public get isRack(): boolean {
-    return this.renderResult?.object_information?.special_type === SpecialType.RACK;
-  }
-
-  /** The tab only frames the rack drawing, so it needs the same view right. */
-  public get showRackView(): boolean {
-    return this.isRack && this.canViewRack;
-  }
-
   private pendingSelectedId: number | null = null;
   private readonly unsubscribe = new Subject<void>();
   private readonly objectViewSubject = new BehaviorSubject<RenderResult>(undefined);
-
-  private readonly permissionService = inject(PermissionService);
-  private readonly canViewRack = this.permissionService.hasRight(RACK_VIEW_RIGHT)
-    || this.permissionService.hasExtendedRight(RACK_VIEW_RIGHT);
 
   /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
