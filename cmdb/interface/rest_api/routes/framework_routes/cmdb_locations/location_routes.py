@@ -54,6 +54,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     validate_object_location_move,
     move_object_location,
 )
+from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import guard_member_location_change
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import LocationRight
 from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault, LocationKey
 
@@ -630,6 +631,10 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
+        # A Rack owns where its members sit, so a member may not be dragged out of its rack from here -
+        # the tree would disagree with the rack until something re-reconciled it
+        guard_member_location_change(request_user, object_id, parent, locations_manager)
+
         move_object_location(object_id, parent, request_user, objects_manager, locations_manager)
 
         return DefaultResponse({'object_id': object_id, 'parent': parent}).make_response()
@@ -685,6 +690,11 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
 
         # Atomic pre-flight: validate every target before writing any (also resolves each type once
         # so the apply pass below does not re-fetch it)
+        # Every target is validated before anything is written, so an invalid one rejects the whole batch
+        # rather than leaving it half-applied. A Rack member is refused here too
+        for object_id in object_ids:
+            guard_member_location_change(request_user, object_id, parent, locations_manager)
+
         validated_types: dict[int, CmdbType] = {
             object_id: validate_object_location_move(object_id, parent, objects_manager, locations_manager)
             for object_id in object_ids
@@ -733,6 +743,10 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
 
         if not to_delete_location:
             abort(404, f"The Location linked to Object with ID: {object_id} was not found in the database!")
+
+        # A Rack member leaves the tree when it leaves the rack, not from here. No parent is requested,
+        # so this refuses every member outright
+        guard_member_location_change(request_user, object_id, None, locations_manager)
 
         # Deleting a location promotes its direct children - both the location nodes and the mirrored
         # object location fields - onto this location's own parent, so a location with children is

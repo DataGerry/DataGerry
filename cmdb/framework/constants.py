@@ -37,6 +37,7 @@ from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
+from cmdb.models.rack_model import CmdbRackMount
 from cmdb.models.log_model import CmdbObjectRelationLog
 from cmdb.models.object_group_model import CmdbObjectGroup
 from cmdb.models.extendable_option_model import CmdbExtendableOption
@@ -75,6 +76,7 @@ __COLLECTIONS__: list[Any] = [
     CmdbRelation,
     CmdbObjectRelation,
     CmdbObjectRelationLog,
+    CmdbRackMount,
     CmdbObjectGroup,
     CmdbExtendableOption,
     IsmsRisk,

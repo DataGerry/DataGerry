@@ -20,6 +20,11 @@ Helpers extracted from the route handlers so the orchestration in ``relations_ro
 ``object_relation_routes`` stays readable and the comparison / validation logic stays
 unit-testable. The validation helpers abort with the documented HTTP status on invalid input.
 
+A CmdbRelation update is split into ``apply_relation_update`` (everything that must happen for the
+relation itself) and ``cascade_relation_update`` (everything that must then happen to its dependent
+CmdbObjectRelations), so the route can report a failed cascade differently from a failed update: the
+first leaves nothing written, the second leaves the relation already updated.
+
 The log helpers are deliberately best-effort: a CmdbObjectRelation write must not fail because its
 history entry could not be stored, so they swallow (and log) the logs manager's errors. Every one of
 them is called AFTER the write it describes, so a failed write never leaves a log claiming a change
@@ -30,12 +35,19 @@ from typing import Any
 
 from flask import abort
 
-from cmdb.manager import ObjectRelationsManager, ObjectRelationLogsManager, RelationsManager, ObjectsManager
+from cmdb.manager import (
+    ObjectRelationsManager,
+    ObjectRelationLogsManager,
+    RelationsManager,
+    ObjectsManager,
+    TypesManager,
+)
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.object_relation_model import ObjectRelationKey
+from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKey
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.security.acl.permission import AccessControlPermission
 
@@ -261,7 +273,8 @@ def get_deleted_type_ids(old_ids: list[int], new_ids: list[int]) -> list[int]:
     return list(set(old_ids) - set(new_ids))
 
 
-def handle_deleted_type_ids(old_relation: dict[str, Any],
+def handle_deleted_type_ids(relation_id: int,
+                            old_relation: dict[str, Any],
                             new_relation: dict[str, Any],
                             object_relations_manager: ObjectRelationsManager) -> None:
     """
@@ -270,23 +283,160 @@ def handle_deleted_type_ids(old_relation: dict[str, Any],
     Compares the allowed parent and child CmdbTypes of the old vs. new relation; for every type
     that is no longer allowed, the corresponding CmdbObjectRelations are deleted.
 
+    A stored relation that carries no type list at all (an incomplete document from before the lists
+    became required) is read as an empty list, so the comparison reports nothing removed instead of
+    failing the whole update with a KeyError.
+
     Args:
+        relation_id (int): public_id of the CmdbRelation whose instances are reconciled
         old_relation (dict[str, Any]): The relation before the change
         new_relation (dict[str, Any]): The relation after the change
         object_relations_manager (ObjectRelationsManager): Manager for CmdbObjectRelations
     """
-    deleted_parent_ids: list[int] = get_deleted_type_ids(old_relation["parent_type_ids"],
-                                                         new_relation["parent_type_ids"])
+    deleted_parent_ids: list[int] = get_deleted_type_ids(
+        old_relation.get(RelationKey.PARENT_TYPE_IDS.value) or [],
+        new_relation.get(RelationKey.PARENT_TYPE_IDS.value) or [],
+    )
 
     if deleted_parent_ids:
-        object_relations_manager.delete_invalidated_object_relations(old_relation["public_id"],
-                                                                     deleted_parent_ids,
-                                                                     True)
+        object_relations_manager.delete_invalidated_object_relations(relation_id, deleted_parent_ids, True)
 
-    deleted_child_ids: list[int] = get_deleted_type_ids(old_relation["child_type_ids"],
-                                                        new_relation["child_type_ids"])
+    deleted_child_ids: list[int] = get_deleted_type_ids(
+        old_relation.get(RelationKey.CHILD_TYPE_IDS.value) or [],
+        new_relation.get(RelationKey.CHILD_TYPE_IDS.value) or [],
+    )
 
     if deleted_child_ids:
-        object_relations_manager.delete_invalidated_object_relations(old_relation["public_id"],
-                                                                     deleted_child_ids,
-                                                                     False)
+        object_relations_manager.delete_invalidated_object_relations(relation_id, deleted_child_ids, False)
+
+
+def get_added_and_removed_fields(old_relation: dict[str, Any],
+                                 new_relation: dict[str, Any]) -> dict[str, list[str]]:
+    """
+    Compares the 'sections' of two CmdbRelations to find which fields were added or removed
+
+    Collects every field identifier referenced by the sections of each relation and returns the set
+    difference in both directions. Pure data work: it reads two dicts and needs no database, which is
+    why it lives here and not on the RelationsManager
+
+    Args:
+        old_relation (dict[str, Any]): The CmdbRelation before the change (carries 'sections')
+        new_relation (dict[str, Any]): The CmdbRelation after the change (carries 'sections')
+
+    Returns:
+        dict[str, list[str]]: A dict with keys 'added' and 'removed', each a list of the field
+            identifiers that were added to / removed from the relation's sections
+    """
+    old_fields: set[str] = set()
+    new_fields: set[str] = set()
+
+    # Collect every field identifier referenced across the relation's sections
+    for section in old_relation.get(RelationKey.SECTIONS.value) or []:
+        old_fields.update(section.get(RelationKey.FIELDS.value) or [])
+
+    for section in new_relation.get(RelationKey.SECTIONS.value) or []:
+        new_fields.update(section.get(RelationKey.FIELDS.value) or [])
+
+    return {
+        RelationDiffKey.ADDED.value: list(new_fields - old_fields),
+        RelationDiffKey.REMOVED.value: list(old_fields - new_fields),
+    }
+
+
+def validate_relation_type_ids(types_manager: TypesManager, relation_data: dict[str, Any]) -> None:
+    """
+    Validates that a CmdbRelation only allows CmdbTypes that exist
+
+    Both id lists are checked in a single existence query. A relation pointing at a CmdbType that
+    was never created (or that a caller invented) would offer a parent / child side no object can
+    ever fill, so the write is refused with 400 instead of storing the dangling ids.
+
+    Args:
+        types_manager (TypesManager): Manager used to check which of the referenced types exist
+        relation_data (dict[str, Any]): The CmdbRelation payload to validate
+
+    Raises:
+        TypesManagerGetError: If the existence lookup fails
+    """
+    referenced_ids: list[int] = [
+        *(relation_data.get(RelationKey.PARENT_TYPE_IDS.value) or []),
+        *(relation_data.get(RelationKey.CHILD_TYPE_IDS.value) or []),
+    ]
+
+    if not referenced_ids:
+        return
+
+    existing_ids: set[int] = types_manager.get_existing_type_ids(referenced_ids)
+    unknown_ids: list[int] = sorted({type_id for type_id in referenced_ids if type_id not in existing_ids})
+
+    if unknown_ids:
+        abort(400, f"The Relation references Types which do not exist: {unknown_ids}!")
+
+
+def apply_relation_update(public_id: int,
+                          data: dict[str, Any],
+                          old_relation: dict[str, Any],
+                          relations_manager: RelationsManager) -> tuple[CmdbRelation, dict[str, list[str]]]:
+    """
+    Persists the updated CmdbRelation and reports the section/field diff of that update
+
+    The identity is pinned to the route's public_id so a forged body public_id cannot rewrite the
+    document, and the diff is computed from the in-memory old/new data BEFORE anything is written, so
+    the caller still has it if the write fails. Only the relation itself is touched here - its
+    dependent CmdbObjectRelations are reconciled afterwards by ``cascade_relation_update``
+
+    Args:
+        public_id (int): public_id of the CmdbRelation being updated (the URL's, not the body's)
+        data (dict[str, Any]): The new CmdbRelation data (mutated: its public_id is pinned)
+        old_relation (dict[str, Any]): The stored CmdbRelation as it was before this update
+        relations_manager (RelationsManager): Manager performing the write
+
+    Raises:
+        CmdbRelationInitFromDataError: If the payload cannot be turned into a CmdbRelation
+        RelationsManagerUpdateError: If the update itself fails
+
+    Returns:
+        tuple[CmdbRelation, dict[str, list[str]]]: The stored CmdbRelation and the
+            ``{'added': [...], 'removed': [...]}`` diff of its section fields
+    """
+    # Pin the identity to the URL so a forged body public_id cannot rewrite the document
+    data[RelationKey.PUBLIC_ID.value] = public_id
+
+    # Compute the diff from the in-memory old/new data before any persistence
+    changed_fields: dict[str, list[str]] = get_added_and_removed_fields(old_relation, data)
+    relation: CmdbRelation = CmdbRelation.from_data(data)
+
+    relations_manager.update_relation(public_id, relation)
+
+    return relation, changed_fields
+
+
+def cascade_relation_update(relation_id: int,
+                            old_relation: dict[str, Any],
+                            new_relation: dict[str, Any],
+                            changed_fields: dict[str, list[str]],
+                            object_relations_manager: ObjectRelationsManager) -> None:
+    """
+    Reconciles the CmdbObjectRelations that depend on an already-updated CmdbRelation
+
+    Two things follow from a changed definition: instances whose parent / child CmdbType is no longer
+    allowed are deleted, and the remaining instances gain / lose the field values the relation's
+    sections gained / lost. Both are server-side operations.
+
+    This runs AFTER the relation itself was persisted, so a failure here leaves the relation updated
+    and its instances behind - the caller has to report that partial application rather than claim
+    the update failed
+
+    Args:
+        relation_id (int): public_id of the updated CmdbRelation
+        old_relation (dict[str, Any]): The CmdbRelation before the update
+        new_relation (dict[str, Any]): The CmdbRelation data that was stored
+        changed_fields (dict[str, list[str]]): The ``added`` / ``removed`` section-field diff
+        object_relations_manager (ObjectRelationsManager): Manager for the dependent instances
+
+    Raises:
+        BaseManagerDeleteError: If deleting the invalidated CmdbObjectRelations fails
+        BaseManagerUpdateError: If applying the field diff to the CmdbObjectRelations fails
+    """
+    handle_deleted_type_ids(relation_id, old_relation, new_relation, object_relations_manager)
+    object_relations_manager.update_changed_fields(relation_id, changed_fields)

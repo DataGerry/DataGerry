@@ -314,7 +314,7 @@ def import_objects(request_user: CmdbUser) -> Response:
         type_: CmdbType = _resolve_import_type(importer_config_request, request_user, types_manager)
 
         # Importing objects of an IPAM special type requires a valid IPAM license
-        enforce_special_type_license(request_user, bool(type_ and type_.special_type))
+        enforce_special_type_license(request_user, type_.special_type if type_ else None)
 
         # Load + build the parser / config / importer for the file format
         importer: ObjectImporter = _build_object_importer(

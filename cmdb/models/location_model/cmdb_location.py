@@ -45,8 +45,13 @@ class CmdbLocation(CmdbDAO):
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = ['name', 'parent', 'object_id', 'type_id', 'type_label']
 
+    # 'object_id' is unique: a CmdbObject has at most one node in the location tree, which the code
+    # relies on throughout (LocationsManager.get_location_for_object is a get_one_by, and the
+    # object<->location mirror in location_helper assumes the single node it finds is the only one).
+    # Existing databases were created with this index non-unique - updater_20260804 de-duplicates and
+    # rebuilds it, because index reconciliation matches on name only and never on options
     INDEX_KEYS: list[dict[str, Any]] = [
-        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': False},
+        {'keys': [('object_id', CmdbDAO.DAO_ASCENDING)], 'name': 'object_id', 'unique': True},
         {'keys': [('parent', CmdbDAO.DAO_ASCENDING)], 'name': 'parent', 'unique': False},
         {'keys': [('type_id', CmdbDAO.DAO_ASCENDING)], 'name': 'type_id', 'unique': False}
     ]

@@ -32,17 +32,14 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
 )
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
 from cmdb.framework.exporter.exporter_constants import ExporterOptionKey, ExporterMetadataKey
+from cmdb.framework.rendering.render_constants import RenderedFieldKey
 
 from cmdb.errors.exporter import ExporterColumnError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # RenderResult keys read while exporting (these live on the render result / type information / object
-# information, not on the field definition, so they are not covered by FieldKey / CmdbObjectKey)
-REFERENCE_KEY: str = 'reference'
-REFERENCE_SUMMARIES_KEY: str = 'summaries'
-# A ref-section field carries its expansion under 'references' (plural) with the pulled-in 'fields'
-REFERENCE_SECTION_KEY: str = 'references'
-REFERENCE_SECTION_FIELDS_KEY: str = 'fields'
+# information, not on the field definition, so they are not covered by FieldKey / CmdbObjectKey).
+# The four reference-expansion keys are owned by the renderer and shared through `RenderedFieldKey`
 TYPE_INFO_LABEL_KEY: str = 'type_label'
 TYPE_INFO_NAME_KEY: str = 'type_name'
 TYPE_INFO_ID_KEY: str = 'type_id'
@@ -59,6 +56,25 @@ IDENTITY_COLUMN_LABELS: dict[str, str] = {
     CmdbObjectKey.PUBLIC_ID.value: 'Public ID',
     CmdbObjectKey.ACTIVE.value: 'Active',
 }
+
+
+def to_export_cell(value: Any) -> str:
+    """
+    Renders one resolved value as the text of an export cell
+
+    A field an object never filled in resolves to None, and stringifying that directly writes the
+    literal text `'None'` into the cell — which is not what the object holds, and which an import
+    then reads back as a real value (`auto_cast` turns the text 'None' into None only by accident of
+    its noneify step). An absent value is an `EMPTY_CELL` instead. Every other value is stringified
+    as before, so `0`, `False` and `''` keep exporting as their own text rather than being blanked
+
+    Args:
+        value (Any): The resolved field / metadata value
+
+    Returns:
+        str: The cell text, empty when the value is absent
+    """
+    return EMPTY_CELL if value is None else str(value)
 
 
 class BaseExporterFormat:
@@ -367,9 +383,9 @@ class BaseExporterFormat:
 
         for head in header:
             info_key = OBJECT_INFO_ID_KEY if head == CmdbObjectKey.PUBLIC_ID.value else head
-            cells.append(str(obj.object_information.get(info_key, EMPTY_CELL)))
+            cells.append(to_export_cell(obj.object_information.get(info_key)))
 
-        cells.extend(str(obj_fields.get(name)) for name in regular_columns)
+        cells.extend(to_export_cell(obj_fields.get(name)) for name in regular_columns)
 
         return cells
 
@@ -381,7 +397,8 @@ class BaseExporterFormat:
         """
         Builds the multi-data-section cells for one row (the `index`-th entry of each section)
 
-        A section without an `index`-th entry, or an entry missing one of its fields, yields an empty cell.
+        A section without an `index`-th entry, an entry missing one of its fields, or an entry whose
+        field carries no value, yields an empty cell.
 
         Args:
             mds_layout (list[tuple[str, list[str]]]): The `(section_id, field_names)` layout of the type
@@ -397,7 +414,7 @@ class BaseExporterFormat:
             section_rows = section_entries[section_id]
             entry = section_rows[index] if index < len(section_rows) else {}
             for field_name in field_names:
-                cells.append(str(entry[field_name]) if field_name in entry else EMPTY_CELL)
+                cells.append(to_export_cell(entry.get(field_name)))
 
         return cells
 
@@ -521,14 +538,15 @@ class BaseExporterFormat:
             str: The reference summary line
         """
         value = field.get(FieldKey.VALUE.value)
-        reference = field.get(REFERENCE_KEY) or {}
+        reference = field.get(RenderedFieldKey.REFERENCE.value) or {}
         object_id = reference.get(REFERENCE_OBJECT_ID_KEY)
 
         if not object_id:
             return EMPTY_CELL if value in (None, '') else str(value)
 
         summary_values = [
-            str(item.get(FieldKey.VALUE.value, '')) for item in reference.get(REFERENCE_SUMMARIES_KEY, [])
+            to_export_cell(item.get(FieldKey.VALUE.value))
+            for item in reference.get(RenderedFieldKey.SUMMARIES.value, [])
         ]
         summary_values = [summary for summary in summary_values if summary]
 
@@ -558,12 +576,14 @@ class BaseExporterFormat:
         if value in (None, ''):
             return EMPTY_CELL
 
-        references = field.get(REFERENCE_SECTION_KEY) or {}
+        references = field.get(RenderedFieldKey.REFERENCES.value) or {}
         pulled_values = [
-            str(pulled.get(FieldKey.VALUE.value, ''))
-            for pulled in references.get(REFERENCE_SECTION_FIELDS_KEY, [])
+            to_export_cell(pulled.get(FieldKey.VALUE.value))
+            for pulled in references.get(RenderedFieldKey.FIELDS.value, [])
         ]
-        pulled_values = [pulled for pulled in pulled_values if pulled and pulled != 'None']
+        # An unfilled pulled-in field is already an empty cell, so the plain truthiness filter is
+        # enough: the previous `!= 'None'` guard also dropped a value that genuinely reads "None"
+        pulled_values = [pulled for pulled in pulled_values if pulled]
 
         line = f"{references.get(TYPE_INFO_LABEL_KEY, '')} #{value}".strip()
 

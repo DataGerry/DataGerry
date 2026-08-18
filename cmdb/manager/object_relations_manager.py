@@ -31,7 +31,7 @@ from cmdb.models.object_relation_model import (
     ObjectRelationRole,
     RelationTabKey,
 )
-from cmdb.models.relation_model import CmdbRelation
+from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKey
 
 from cmdb.framework.results import IterationResult
 
@@ -47,17 +47,9 @@ LOGGER: Logger = getLogger(__name__)
 # ObjectRelationLogsManager, so they live with the model (ObjectRelationKey / ObjectRelationRole /
 # RelationTabKey in cmdb.models.object_relation_model) instead of being declared per layer
 
-# Keys of the ``changed_fields`` diff produced by RelationsManager.get_added_and_removed_fields
-ADDED_FIELDS_KEY: str = 'added'
-REMOVED_FIELDS_KEY: str = 'removed'
-
-# Role-oriented display fields on a CmdbRelation definition, projected into a relation tab
-DEF_NAME_PARENT_FIELD: str = 'relation_name_parent'
-DEF_NAME_CHILD_FIELD: str = 'relation_name_child'
-DEF_ICON_PARENT_FIELD: str = 'relation_icon_parent'
-DEF_ICON_CHILD_FIELD: str = 'relation_icon_child'
-DEF_COLOR_PARENT_FIELD: str = 'relation_color_parent'
-DEF_COLOR_CHILD_FIELD: str = 'relation_color_child'
+# The keys of the ``changed_fields`` diff and the role-oriented display fields of a CmdbRelation
+# definition (projected into a relation tab) belong to the relation document, so they come from
+# RelationDiffKey / RelationKey in cmdb.models.relation_model instead of being repeated here
 
 # Temporary field name for the joined relation definition inside the pipeline
 _DEFINITION_FIELD: str = 'definition'
@@ -116,14 +108,14 @@ def build_relation_tabs_pipeline(object_id: int) -> list[dict[str, Any]]:
             relation_id_key: f'$_id.{relation_id_key}',
             role_key: role_ref,
             RelationTabKey.LABEL.value: {'$cond': [is_parent,
-                                                   f'{definition_ref}.{DEF_NAME_PARENT_FIELD}',
-                                                   f'{definition_ref}.{DEF_NAME_CHILD_FIELD}']},
+                                                   f'{definition_ref}.{RelationKey.RELATION_NAME_PARENT.value}',
+                                                   f'{definition_ref}.{RelationKey.RELATION_NAME_CHILD.value}']},
             RelationTabKey.ICON.value: {'$cond': [is_parent,
-                                                  f'{definition_ref}.{DEF_ICON_PARENT_FIELD}',
-                                                  f'{definition_ref}.{DEF_ICON_CHILD_FIELD}']},
+                                                  f'{definition_ref}.{RelationKey.RELATION_ICON_PARENT.value}',
+                                                  f'{definition_ref}.{RelationKey.RELATION_ICON_CHILD.value}']},
             RelationTabKey.COLOR.value: {'$cond': [is_parent,
-                                                   f'{definition_ref}.{DEF_COLOR_PARENT_FIELD}',
-                                                   f'{definition_ref}.{DEF_COLOR_CHILD_FIELD}']},
+                                                   f'{definition_ref}.{RelationKey.RELATION_COLOR_PARENT.value}',
+                                                   f'{definition_ref}.{RelationKey.RELATION_COLOR_CHILD.value}']},
             RelationTabKey.COUNT.value: 1,
         }},
         # stable order: by relation, parent tab before child tab
@@ -394,8 +386,8 @@ class ObjectRelationsManager(GenericManager):
                 - "added" (list[str]): Field names that were newly introduced
                 - "removed" (list[str]): Field names that should be removed
         """
-        added: list[str] = changed_fields.get(ADDED_FIELDS_KEY, [])
-        removed: list[str] = changed_fields.get(REMOVED_FIELDS_KEY, [])
+        added: list[str] = changed_fields.get(RelationDiffKey.ADDED.value, [])
+        removed: list[str] = changed_fields.get(RelationDiffKey.REMOVED.value, [])
 
         # Nothing changed: skip the write entirely so unrelated relation edits do not rewrite every
         # dependent CmdbObjectRelation

@@ -139,6 +139,18 @@ class ObjectRelationLogRight(FrameworkRight):
         super().__init__(name, level, description=description)
 
 
+class RackRight(FrameworkRight):
+    """
+    Base class for Rack rights (the Rack View feature)
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.rack'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
 class ExtendableOptionRight(FrameworkRight):
     """
     Base class for CmdbExtendableOption rights

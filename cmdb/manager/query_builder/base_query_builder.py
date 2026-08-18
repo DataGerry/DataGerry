@@ -19,7 +19,7 @@ Implementation of BaseQueryBuilder
 from logging import Logger, getLogger
 
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.security.acl.builder import AccessControlQueryBuilder
+from cmdb.security.acl.builder import build_acl_pipeline
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
@@ -68,17 +68,22 @@ class BaseQueryBuilder(Builder):
         ``_sort_value`` field and sorting on that. All other sort keys go through the
         plain ``$sort`` stage.
 
+        The access-control stages are appended directly after the criteria, BEFORE sorting and
+        paginating. That order is what makes pagination correct for a restricted user: skipping
+        first would skip documents out of the unfiltered set, so a page could silently omit rows
+        the user is allowed to see. Filtering first also shrinks the set that has to be sorted.
+
         Returns:
             list[dict]: The build query
         """
         self.query = self.__init_query(builder_params.get_criteria())
 
+        if user and permission:
+            self.query.extend(build_acl_pipeline(user, permission))
+
         self._append_sort_stage(builder_params.get_sort(), builder_params.get_order())
 
         self.query.append(self.skip_(builder_params.get_skip()))
-
-        if user and permission:
-            self.query.extend(AccessControlQueryBuilder().build(user.group_id, permission))
 
         if builder_params.has_limit():
             self.query.append(self.limit_(builder_params.get_limit()))
@@ -102,7 +107,7 @@ class BaseQueryBuilder(Builder):
         self.query = self.__init_query(criteria)
 
         if user and permission:
-            self.query.extend(AccessControlQueryBuilder().build(user.group_id, permission))
+            self.query.extend(build_acl_pipeline(user, permission))
 
         self.query.append(self.count_('total'))
 

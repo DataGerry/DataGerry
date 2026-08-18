@@ -86,24 +86,25 @@ def generate_collection_parameters(params: CollectionParameters) -> dict:
     Returns:
         dict: A MongoDB query filter based on search term or metadata
     """
-    builder = Builder()
     search = params.optional.get('searchTerm')
     param = json.loads(params.optional['metadata'])
 
     if search:
+        # Builder's constructors are stateless, so they are called on the class - Builder itself is
+        # abstract and cannot be instantiated
         _ = [
-            builder.regex_('filename', search)
-            , builder.regex_('metadata.reference_type', search)
-            , builder.regex_('metadata.mime_type', search)
+            Builder.regex_('filename', search)
+            , Builder.regex_('metadata.reference_type', search)
+            , Builder.regex_('metadata.mime_type', search)
         ]
 
         if search.isdigit():
             _.append({'public_id': int(search)})
             _.append({'metadata.reference': int(search)})
-            _.append(builder.in_('metadata.reference', [int(search)]))
+            _.append(Builder.in_('metadata.reference', [int(search)]))
             _.append({'metadata.parent': int(search)})
 
-        return builder.and_([{'metadata.folder': False}, builder.or_(_)])
+        return Builder.and_([{'metadata.folder': False}, Builder.or_(_)])
 
     return generate_metadata_filter('metadata', params=param)
 

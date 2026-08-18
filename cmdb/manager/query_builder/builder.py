@@ -15,242 +15,279 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of Builder
+
+The shared vocabulary every query builder is assembled from: small constructors that each return one
+MongoDB query operator or aggregation stage as a plain dict. They hold no state, so they are
+staticmethods and can be called either on the class (`Builder.match_(...)`) or through a subclass
+instance (`self.match_(...)`).
+
+The MongoDB operator names (`'$match'`, `'$and'`, ...) are deliberately kept as bare literals here.
+They are the database's own wire vocabulary, not DataGerry document keys - unlike the field and
+schema keys of a stored document, which belong in their `*Key` enums (`FieldKey`, `CmdbObjectKey`,
+`TypeSchemaKey`, ...) and must never be written as literals. This module is the boundary between
+those two worlds: operators in, schema keys out.
+
+Only constructors with real callers live here. Adding one back is a two-line change, so the file
+stays a description of what DataGerry actually queries rather than a mirror of the MongoDB manual
 """
-from logging import Logger, getLogger
+from abc import ABC, abstractmethod
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    Builder - CLASS                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class Builder:
+class Builder(ABC):
     """
     Abstract base class for building query-like structures
 
-    This class defines a prototype for builder objects, requiring subclasses 
-    to implement essential methods for managing and manipulating data
+    Defines the two operations every builder must provide - reporting its length and resetting
+    itself - and supplies the stateless operator/stage constructors its subclasses share. Being an
+    ABC, a subclass that forgets either abstract method fails at construction rather than at the
+    call that needed it
     """
 
+    @abstractmethod
     def __len__(self) -> int:
         """
         Returns the number of elements in the builder
 
-        This method must be implemented by subclasses
-
-        Raises:
-            NotImplementedError: If the subclass does not override this method
+        Returns:
+            int: Number of query elements or pipeline stages held
         """
-        raise NotImplementedError("Subclasses must implement the __len__ method!")
 
 
+    @abstractmethod
     def clear(self) -> None:
         """
-        Clears the builder's data
-
-        This method must be implemented by subclasses to define how data should be reset or cleared
-
-        Raises:
-            NotImplementedError: If the subclass does not override this method
+        Clears the builder's data, resetting it to its empty state
         """
-        raise NotImplementedError("Subclasses must implement the clear method.")
 
-# -------------------------------------------------------------------------------------------------------------------- #
+# ------------------------------------------- LOGICAL QUERY OPERATORS ------------------------------------------------ #
 
-    # Logical Query Operators
-    @classmethod
-    def and_(cls, expressions: list[dict]) -> dict:
-        """Joins query clauses with a logical AND."""
+    @staticmethod
+    def and_(expressions: list[dict]) -> dict:
+        """
+        Joins query clauses with a logical AND
+
+        Args:
+            expressions (list[dict]): The clauses that must all match
+
+        Returns:
+            dict: An `$and` expression
+        """
         return {'$and': expressions}
 
 
-    @classmethod
-    def or_(cls, expressions: list[dict]) -> dict:
-        """Joins query clauses with a logical OR."""
+    @staticmethod
+    def or_(expressions: list[dict]) -> dict:
+        """
+        Joins query clauses with a logical OR
+
+        Args:
+            expressions (list[dict]): The clauses of which at least one must match
+
+        Returns:
+            dict: An `$or` expression
+        """
         return {'$or': expressions}
 
+# ---------------------------------------------------- COMPARISON ---------------------------------------------------- #
 
-    @classmethod
-    def not_(cls, expression: dict) -> dict:
-        """Inverts the effect of a query expression."""
-        return {'$not': expression}
+    @staticmethod
+    def in_(field: str, values: list[Any]) -> dict:
+        """
+        Matches any of the values specified in an array
 
+        Args:
+            field (str): The document field to test
+            values (list[Any]): The accepted values
 
-    @classmethod
-    def nor_(cls, expressions: list[dict]) -> dict:
-        """Joins query clauses with a logical NOR."""
-        return {'$nor': expressions}
-
-
-    # Comparison
-    @classmethod
-    def eq_(cls, field: str, value: Any) -> dict:
-        """Matches values that are equal to a specified value."""
-        return {field: {'$eq': value}}
-
-
-    @classmethod
-    def gt_(cls, field: str, value: Any) -> dict:
-        """Matches values that are greater than a specified value."""
-        return {field: {'$gt': value}}
-
-
-    @classmethod
-    def gte_(cls, field: str, value: Any) -> dict:
-        """Matches values that are greater than or equal to a specified value."""
-        return {field: {'$gte': value}}
-
-
-    @classmethod
-    def in_(cls, field: str, values: list[Any]) -> dict:
-        """Matches any of the values specified in an array."""
+        Returns:
+            dict: An `$in` expression
+        """
         return {field: {'$in': values}}
 
+# ---------------------------------------------------- EVALUATION ---------------------------------------------------- #
 
-    @classmethod
-    def lt_(cls, field: str, value: Any) -> dict:
-        """Matches values that are less than a specified value."""
-        return {field: {'$lt': value}}
+    @staticmethod
+    def regex_(field: str, regex: str, options: str = 'ims') -> dict:
+        """
+        Matches a field against a regular expression
 
+        The default options are case-insensitive (`i`), multi-line (`m`) and dot-matches-newline
+        (`s`) - the combination a user-entered search term needs. The `x` (extended) flag is
+        deliberately NOT part of the default: it makes the engine ignore unescaped whitespace in the
+        pattern and treat `#` as a comment, so a search for `Data Center` would silently match
+        nothing at all
 
-    @classmethod
-    def lte_(cls, field: str, value: Any) -> dict:
-        """Matches values that are less than or equal to a specified value."""
-        return {field: {'$lte': value}}
+        Args:
+            field (str): The document field to match against
+            regex (str): The regular expression, usually a raw user-entered search term
+            options (str): MongoDB regex option flags. Defaults to `'ims'`
 
-
-    @classmethod
-    def ne_(cls, field: str, value: Any) -> dict:
-        """Matches all values that are not equal to a specified value."""
-        return {field: {'$ne': value}}
-
-
-    @classmethod
-    def nin_(cls, field: str, values: list[Any]) -> dict:
-        """Matches none of the values specified in an array."""
-        return {field: {'$nin': values}}
-
-
-    # Element
-    @classmethod
-    def exists_(cls, field: str, exist: bool = True) -> dict:
-        """Matches documents that have the specified field."""
-        return {field: {'$exists': exist}}
-
-
-    @classmethod
-    def element_match_(cls, field: str, criteria: dict) -> dict:
-        """If element in the array field matches all the specified $elemMatch conditions."""
-        return {field: {'$elemMatch': criteria}}
-
-
-    # Evaluation
-    @classmethod
-    def regex_(cls, field: str, regex: str, options: str = 'imsx') -> dict:
-        """Where values match a specified regular expression"""
+        Returns:
+            dict: A `$regex` expression carrying its `$options`
+        """
         return {field: {'$regex': regex, '$options': options}}
 
+# --------------------------------------------------- AGGREGATIONS --------------------------------------------------- #
 
-    @classmethod
-    def expr_(cls, expression) -> dict:
-        """Allows the use of aggregation expressions within the query language."""
-        return {'$expr': expression}
+    @staticmethod
+    def match_(query: dict) -> dict:
+        """
+        Filters the document stream to the documents matching the query
 
+        Args:
+            query (dict): The filter the documents must satisfy
 
-    # Aggregations
-    @classmethod
-    def match_(cls, query: dict) -> dict:
-        """Filters the document stream to allow only matching documents to pass
-        unmodified into the next pipeline stage."""
+        Returns:
+            dict: A `$match` stage
+        """
         return {'$match': query}
 
 
-    @classmethod
-    def count_(cls, name: str) -> dict:
-        """Returns a count of the number of documents at this stage of the aggregation pipeline."""
+    @staticmethod
+    def count_(name: str) -> dict:
+        """
+        Counts the documents reaching this stage of the pipeline
+
+        Args:
+            name (str): Name of the output field holding the count
+
+        Returns:
+            dict: A `$count` stage
+        """
         return {'$count': name}
 
 
-    @classmethod
-    def skip_(cls, value: int) -> dict:
-        """Skips over the specified number of documents that pass into the stage."""
+    @staticmethod
+    def skip_(value: int) -> dict:
+        """
+        Skips the given number of documents
+
+        Args:
+            value (int): How many documents to pass over
+
+        Returns:
+            dict: A `$skip` stage
+        """
         return {'$skip': value}
 
 
-    @classmethod
-    def limit_(cls, value: int) -> dict:
-        """Limits the number of documents passed to the next stage in the pipeline."""
+    @staticmethod
+    def limit_(value: int) -> dict:
+        """
+        Limits how many documents pass to the next stage
+
+        Args:
+            value (int): Maximum number of documents to forward
+
+        Returns:
+            dict: A `$limit` stage
+        """
         return {'$limit': value}
 
 
-    @classmethod
-    def facet_(cls, stages: dict) -> dict:
-        """Processes multiple aggregation pipelines within a single stage on the same set of input documents."""
+    @staticmethod
+    def facet_(stages: dict) -> dict:
+        """
+        Runs several sub-pipelines over the same input documents
+
+        Args:
+            stages (dict): Mapping of output field name to its sub-pipeline
+
+        Returns:
+            dict: A `$facet` stage
+        """
         return {'$facet': stages}
 
 
-    @classmethod
-    def group_(cls, _id: str, value: dict = None) -> dict:
-        """Groups input documents by the specified _id expression and for each distinct grouping, outputs a document."""
-        statement = {'_id': _id}
-        if value:
-            statement.update(value)
-        return {'$group': statement}
-
-
-    @classmethod
-    def lookup_(cls, _from: str, _local: str, _foreign: str, _as: str) -> dict:
-        """ Performs a left outer join to an unsharded collection in the same database to filter in documents
-            from the “joined” collection for processing.
-            Args:
-                _from:      Specifies the collection in the same database to perform the join with.
-                _local:     Specifies the field from the documents input to the $lookup stage.
-                _foreign:   Specifies the field from the documents in the from collection.
-                _as:        Specifies the name of the new array field to add to the input documents.
-            """
-        return {'$lookup': {'from': _from, 'localField': _local, 'foreignField': _foreign, 'as': _as}}
-
-
-    @classmethod
-    def lookup_sub_(cls, from_: str, let_: dict, pipeline_: list, as_: str) -> dict:
+    @staticmethod
+    def group_(_id: Any, value: dict | None = None) -> dict:
         """
-        Performs uncorrelated subqueries between two collections as well as allow other join conditions besides a
-        single equality match, the $lookup stage has the following syntax.
+        Groups documents by an expression, optionally accumulating further fields
 
         Args:
-            from_:      Specifies the collection in the same database to perform the join with
-            let_:       Specifies variables to use in the pipeline field stages
-            pipeline_:  The pipeline determines the resulting documents from the joined collection
-            as_:        Specifies the name of the new array field to add to the input documents
+            _id (Any): The grouping expression; None groups every document into one bucket
+            value (dict | None): Additional accumulator fields to emit per group
+
+        Returns:
+            dict: A `$group` stage
         """
-        return {'$lookup': {'from': from_, 'let': let_, 'pipeline': pipeline_, 'as': as_}}
+        return {'$group': {'_id': _id, **(value or {})}}
 
 
-    @classmethod
-    def unwind_(cls, path: str | dict):
+    @staticmethod
+    def lookup_(from_collection: str, local_field: str, foreign_field: str, as_field: str) -> dict:
         """
-        Duplicates each document in the pipeline, once per array element
+        Performs a left outer join to another collection in the same database
+
+        Args:
+            from_collection (str): The collection to join with
+            local_field (str): The field on the documents entering the stage
+            foreign_field (str): The field on the joined collection to match against
+            as_field (str): Name of the new array field the matches are added under
+
+        Returns:
+            dict: A `$lookup` stage
+        """
+        return {
+            '$lookup': {
+                'from': from_collection,
+                'localField': local_field,
+                'foreignField': foreign_field,
+                'as': as_field,
+            }
+        }
+
+
+    @staticmethod
+    def unwind_(path: str | dict) -> dict:
+        """
+        Outputs one document per element of an array field
+
+        Args:
+            path (str | dict): The array field path (`'$items'`), or the full option document when
+                extra behaviour such as `preserveNullAndEmptyArrays` is needed
+
+        Returns:
+            dict: An `$unwind` stage
         """
         return {'$unwind': path}
 
 
-    @classmethod
-    def project_(cls, specification: dict):
-        """Passes along the documents with the requested fields to the next stage in the pipeline."""
+    @staticmethod
+    def project_(specification: dict) -> dict:
+        """
+        Passes the documents on with only the requested fields
+
+        Args:
+            specification (dict): The field inclusion / exclusion specification
+
+        Returns:
+            dict: A `$project` stage
+        """
         return {'$project': specification}
 
 
-    @classmethod
-    def sort_(cls, sort: str, order: int) -> dict:
-        """Sorts all input documents and returns them to the pipeline in sorted order."""
+    @staticmethod
+    def sort_(sort: str, order: int) -> dict:
+        """
+        Sorts the documents by one field
+
+        Args:
+            sort (str): The field to sort on
+            order (int): 1 for ascending, -1 for descending
+
+        Raises:
+            ValueError: If order is neither 1 nor -1
+
+        Returns:
+            dict: A `$sort` stage
+        """
         if order not in (1, -1):
             raise ValueError('Order value must be 1 (ascending) or -1 (descending)')
+
         return {'$sort': {sort: order}}
-
-
-    @classmethod
-    def type_(cls, expression) -> dict:
-        """Return the BSON data type of the field."""
-        return {'$type': expression}

@@ -47,6 +47,7 @@ __USER_GROUP_RIGHTS__: list[BaseRight] = [
     rights_manager.get_right('base.framework.type.view'),
     rights_manager.get_right('base.framework.category.view'),
     rights_manager.get_right('base.framework.log.view'),
+    rights_manager.get_right('base.framework.rack.view'),
     rights_manager.get_right('base.user-management.user.view'),
     rights_manager.get_right('base.user-management.group.view'),
     rights_manager.get_right('base.docapi.template.view')

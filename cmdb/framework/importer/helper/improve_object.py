@@ -76,8 +76,9 @@ class ImproveObject:
         Converts the entry's field values to their appropriate types
 
         Date-typed fields are parsed into ``datetime`` objects and text-typed fields are stringified when
-        not already strings. Boolean coercion (for ``active`` and checkbox fields) is done by the import
-        validator (``parse_import_bool``), not here.
+        not already strings - except an absent value, which stays absent rather than becoming the text
+        'None'. Boolean coercion (for ``active`` and checkbox fields) is done by the import validator
+        (``parse_import_bool``), not here.
 
         Returns:
             dict: The same entry, with improved values
@@ -97,7 +98,8 @@ class ImproveObject:
 
             if field_type == FieldType.DATE.value:
                 self.entry[entry_field.get_value()] = self.improve_date(value)
-            elif field_type == FieldType.TEXT.value and not isinstance(value, str):
+            elif field_type == FieldType.TEXT.value and value is not None and not isinstance(value, str):
+                # An absent value stays absent: stringifying it would store the literal text 'None'
                 self.entry[entry_field.get_value()] = str(value)
 
         return self.entry

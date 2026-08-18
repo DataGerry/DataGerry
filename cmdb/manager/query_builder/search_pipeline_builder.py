@@ -25,7 +25,7 @@ from cmdb.manager.query_builder.search_references_pipeline_builder import Search
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.search.search_param import SearchParam
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.security.acl.builder import AccessControlQueryBuilder
+from cmdb.security.acl.builder import build_acl_pipeline
 
 if TYPE_CHECKING:
     # Imported for type checking only - importing at module level would create a circular import
@@ -160,7 +160,6 @@ class SearchPipelineBuilder(PipelineBuilder):
 
         # permission builds
         if user and permission:
-            self.pipeline = [*self.pipeline, *(AccessControlQueryBuilder().build(group_id=int(user.group_id),
-                                                                                 permission=permission))]
+            self.pipeline = [*self.pipeline, *build_acl_pipeline(user, permission)]
 
         return self.pipeline

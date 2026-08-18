@@ -16,4 +16,28 @@
 """
 All constants for rendering in DataGerry
 """
+from cmdb.utils import BaseStrEnum
+# -------------------------------------------------------------------------------------------------------------------- #
+
 ANONYMOUS_NAME = 'unknown'
+
+
+class RenderedFieldKey(BaseStrEnum):
+    """
+    Enumeration of the expansion keys a renderer ADDS to a field entry
+
+    A rendered field starts out as the field definition of a CmdbType (whose keys are covered by
+    `FieldKey`) and is then enriched by `CmdbMultiRender` with the resolved data behind a reference.
+    Those extra keys live only on the render output — never on the stored type or object document —
+    which is why they are not part of `FieldKey` / `CmdbObjectKey`. Use these members instead of bare
+    string literals when reading a rendered field so a typo becomes an AttributeError instead of a
+    silently missing expansion
+    """
+    #: Set on a `FieldType.REFERENCE` field; holds the referenced object's expansion
+    REFERENCE = 'reference'
+    #: List of the referenced object's summary fields, inside `REFERENCE`
+    SUMMARIES = 'summaries'
+    #: Set on a `FieldType.REF_SECTION` field; holds the pulled-in section's expansion
+    REFERENCES = 'references'
+    #: List of the pulled-in fields, inside `REFERENCES`
+    FIELDS = 'fields'

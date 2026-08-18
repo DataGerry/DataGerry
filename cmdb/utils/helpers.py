@@ -28,14 +28,19 @@ Provides:
     * `duplicate_names` — reports the values occurring more than once in a sequence, used by the
       object- and type-import validators to reject duplicate field / section identifiers
     * `random_hex_color` — random '#RRGGBB' color, used wherever a CI-Explorer color is defaulted
+    * `is_hex_color` — the '#RRGGBB' predicate applied to a user-supplied color
+    * `coerce_datetime` — parses a stored or request-supplied timestamp into a datetime
     * `process_bar` — stdout progress bar driven by the database updater
 """
 import re
 import sys
 import random
 import importlib
+from datetime import datetime
 from logging import Logger, getLogger
 from typing import Any, Iterable
+
+from dateutil.parser import parse
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -47,6 +52,9 @@ _FALSY_IMPORT_VALUES: frozenset[str] = frozenset({'false', 'no', '0'})
 # Bounds of a random '#RRGGBB' CI-Explorer color: a value in [0, MAX] rendered as zero-padded hex
 _HEX_COLOR_MAX: int = 0xFFFFFF
 _HEX_COLOR_WIDTH: int = 6
+
+# A '#RRGGBB' color, the only spelling accepted from a user - the same form random_hex_color produces
+_HEX_COLOR_PATTERN: re.Pattern = re.compile(r'^#[0-9A-Fa-f]{6}$')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -229,6 +237,51 @@ def random_hex_color() -> str:
     return f'#{random.randint(0, _HEX_COLOR_MAX):0{_HEX_COLOR_WIDTH}X}'
 
 
+def is_hex_color(value: Any) -> bool:
+    """
+    Reports whether a value is a '#RRGGBB' color string
+
+    The predicate behind every user-supplied color. Deliberately strict about the form - the shorthand
+    '#RGB', a bare 'RRGGBB' and a CSS color name are all rejected, so a stored color is always the one
+    spelling a frontend has to render and the one `random_hex_color` produces. Case-insensitive, since
+    '#4caf50' and '#4CAF50' are the same color
+
+    Args:
+        value (Any): The value to check
+
+    Returns:
+        bool: True for a '#RRGGBB' string, False for anything else
+    """
+    return isinstance(value, str) and bool(_HEX_COLOR_PATTERN.match(value))
+
+
+def coerce_datetime(value: Any) -> datetime | None:
+    """
+    Coerces a stored or request-supplied timestamp into a datetime, or None when it is not one
+
+    A timestamp reaches the models two ways: as a real datetime out of MongoDB, and as a string out of
+    a JSON request body. This accepts both and reports anything else as None rather than raising, so a
+    drifted document still loads and a malformed request value can be refused by the caller with a
+    readable message instead of a stack trace
+
+    Args:
+        value (Any): The value to coerce
+
+    Returns:
+        datetime | None: The value as a datetime, or None when it is not a usable timestamp
+    """
+    if isinstance(value, datetime):
+        return value
+
+    if isinstance(value, str) and value.strip():
+        try:
+            return parse(value)
+        except (ValueError, OverflowError):
+            return None
+
+    return None
+
+
 def is_non_blank_string(value: Any) -> bool:
     """
     Reports whether a value is a string carrying more than whitespace
@@ -244,6 +297,46 @@ def is_non_blank_string(value: Any) -> bool:
         bool: True for a non-blank string, False for anything else
     """
     return isinstance(value, str) and bool(value.strip())
+
+
+def coerce_whole_number(value: Any) -> int | None:
+    """
+    Coerces a value to a whole number, or returns None when it is not one
+
+    The check behind every "this is a count / an index / a slot" field. Accepts an int, a float with no
+    fractional part (a JSON client may send 42.0) and a string holding either (a CSV import has no other
+    way to carry a number). Booleans are rejected on purpose: bool is an int subclass in Python, so
+    `True` would otherwise pass as 1
+
+    Args:
+        value (Any): The value to coerce
+
+    Returns:
+        int | None: The value as an int, or None when it is not a whole number
+    """
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, int):
+        return value
+
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            pass
+
+        try:
+            as_float = float(value.strip())
+        except ValueError:
+            return None
+
+        return int(as_float) if as_float.is_integer() else None
+
+    return None
 
 
 def duplicate_names(names: Iterable[Any]) -> list:

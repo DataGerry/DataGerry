@@ -222,6 +222,8 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_routes import webhook_event_blueprint
     from cmdb.interface.rest_api.routes.relation_routes.relations_routes import relations_blueprint
     from cmdb.interface.rest_api.routes.relation_routes.object_relation_routes import object_relations_blueprint
+    from cmdb.interface.rest_api.routes.rack_routes.rack_mount_routes import rack_mounts_blueprint
+    from cmdb.interface.rest_api.routes.rack_routes.rack_assignable_routes import rack_assignable_blueprint
     from cmdb.interface.rest_api.routes.log_routes.object_relation_logs_routes import object_relation_logs_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.persons_routes import person_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
@@ -297,6 +299,8 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(webhook_event_blueprint, url_prefix='/webhook_events')
     app.register_blueprint(relations_blueprint, url_prefix='/relations')
     app.register_blueprint(object_relations_blueprint, url_prefix='/object_relations')
+    app.register_blueprint(rack_mounts_blueprint, url_prefix='/racks')
+    app.register_blueprint(rack_assignable_blueprint, url_prefix='/racks')
     app.register_blueprint(object_relation_logs_blueprint, url_prefix='/object_relation_logs')
     app.register_blueprint(extendable_option_blueprint, url_prefix='/extendable_options')
     app.register_blueprint(ci_explorer_blueprint, url_prefix='/ci_explorer')
