@@ -1,0 +1,48 @@
+:host {
+  display: inline-flex;
+}
+
+.special-type-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.1rem 0.4rem;
+  font-size: inherit;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.25rem;
+}
+
+.special-type-badge__token {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// One tint per special type so a long list stays scannable. Every pairing clears WCAG AA (>= 4.5:1).
+.special-type-badge--supernet {
+  color: #4338ca;
+  background: #eef2ff;
+  border-color: #e0e7ff;
+}
+
+.special-type-badge--subnet {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #dbeafe;
+}
+
+.special-type-badge--vlan {
+  color: #0f766e;
+  background: #f0fdfa;
+  border-color: #ccfbf1;
+}
+
+.special-type-badge--rack {
+  color: #b45309;
+  background: #fffbeb;
+  border-color: #fef3c7;
+}

@@ -20,6 +20,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { EMPTY, Observable, Subject, catchError, defer, finalize, map, switchMap, tap } from 'rxjs';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ObjectChangeNotifierService } from 'src/app/framework/services/object-change-notifier.service';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
@@ -61,6 +62,7 @@ export class RackOverviewStore {
 
     private readonly rackOverviewService = inject(RackOverviewService);
     private readonly objectService = inject(ObjectService);
+    private readonly objectChanges = inject(ObjectChangeNotifierService);
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
     private readonly permissionService = inject(PermissionService);
@@ -311,6 +313,8 @@ export class RackOverviewStore {
             map(() => undefined),
             tap(() => {
                 this.applyNotes(notes);
+                // The notes are a field of the rack object, which the page around this view also shows.
+                this.objectChanges.notifyChanged(rackId);
                 this.toastService.success('Notes saved');
             }),
             catchError((err) => {

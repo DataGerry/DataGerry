@@ -100,6 +100,13 @@
         </div>
         }
       </div>
+      } @else if (hasAssignedSpecialType) {
+      <div class="col-md-12 mb-3">
+        <app-form-select formControlName="special_type" label="Special type" [items]="assignedSpecialTypeOptions"
+          bindLabel="label" bindValue="value" placeholder="Special type">
+        </app-form-select>
+        <div class="form-text">The special type is assigned when the type is created and cannot be changed.</div>
+      </div>
       }
 
       <div class="col-md-12 mb-3">

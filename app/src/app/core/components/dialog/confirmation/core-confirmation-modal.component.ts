@@ -4,6 +4,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
   selector: 'core-confirmation-modal',
   templateUrl: './core-confirmation-modal.component.html',
+  styleUrls: ['./core-confirmation-modal.component.scss'],
   standalone: false
 })
 export class CoreConfirmationModalComponent {
