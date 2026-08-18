@@ -462,3 +462,64 @@ $muted: #6b7280;
     flex-direction: column;
     gap: 0.35rem;
 }
+
+/* ------------------------------------------------------------------------------------------------ */
+/*                                        SHOWN VALUES                                              */
+/* ------------------------------------------------------------------------------------------------ */
+
+/*
+ * A stored value at rest: what it says rather than how it is addressed.
+ *
+ * It has to sit exactly where the input sits, because clicking it puts the input there - a value
+ * that shifted on click would make the caret land somewhere else than the reader aimed at.
+ */
+.wire__shown {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    min-height: 31px;
+    min-width: 0;
+    padding: 3px 8px;
+    text-align: left;
+    font: inherit;
+    font-size: 0.8125rem;
+    color: inherit;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: text;
+
+    &:hover { border-color: rgba(0, 0, 0, 0.12); }
+    &:focus-visible { outline: 2px solid $accent; outline-offset: 1px; }
+    &.is-changed { font-weight: 600; }
+}
+
+/* The name of a field an earlier call answered. The route to it is on the title. */
+.wire__token {
+    display: inline-block;
+    max-width: 100%;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba($accent, 0.12);
+    color: $accent;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help;
+}
+
+.wire__literal {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.wire__empty {
+    color: rgba(0, 0, 0, 0.35);
+    font-style: italic;
+}
+
+/* The bound value keeps its own colour but shows its references the same way. */
+.wire__ref .wire__token { cursor: help; }
