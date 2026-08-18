@@ -131,7 +131,7 @@
           @if (step.kind === 'loop') {
             <div class="wire__block">
               <div class="wire__label">Walks</div>
-              <pre class="wire__code">@for (token of step.expressionTokens ?? []; track $index) {
+              <div class="wire__code">@for (token of step.expressionTokens ?? []; track $index) {
                 @if (token.reference) {
                   <span class="wire__token" [title]="token.text">{{ token.label }}</span>
                 } @else {
@@ -139,7 +139,7 @@
                 }
               } @empty {
                 <span>{{ step.expression }}</span>
-              }</pre>
+              }</div>
               @if (isAddedLoop(step)) {
                 <button type="button" class="btn btn-secondary btn-sm mt-2" (click)="onEditLoop(step)">
                   <i class="fas fa-pen me-1"></i> Change the list
@@ -153,7 +153,7 @@
           } @else if (step.kind === 'if') {
             <div class="wire__block">
               <div class="wire__label">Condition</div>
-              <pre class="wire__code">@for (token of step.expressionTokens ?? []; track $index) {
+              <div class="wire__code">@for (token of step.expressionTokens ?? []; track $index) {
                 @if (token.reference) {
                   <span class="wire__token" [title]="token.text">{{ token.label }}</span>
                 } @else {
@@ -161,7 +161,7 @@
                 }
               } @empty {
                 <span>{{ step.expression }}</span>
-              }</pre>
+              }</div>
               @if (isAddedCondition(step)) {
                 <button type="button" class="btn btn-secondary btn-sm mt-2" (click)="onEditCondition(step)">
                   <i class="fas fa-pen me-1"></i> Change what it tests
