@@ -97,13 +97,6 @@
             <hr class="ipam-section-divider" />
             <cmdb-ipam-subnet-overview [publicId]="currentObjectID"></cmdb-ipam-subnet-overview>
           }
-
-          <!-- Contributes the "Rack View" tab to the strip; rack objects only. -->
-          @if (showRackView) {
-            <ng-template cmdbObjectTab="rack-view" label="Rack View" icon="fas fa-server">
-              <cmdb-rack-overview [publicId]="currentObjectID"></cmdb-rack-overview>
-            </ng-template>
-          }
         </cmdb-object-relations>
       </div>
 
