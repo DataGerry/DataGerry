@@ -34,6 +34,7 @@ import { TypeService } from 'src/app/framework/services/type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { SpecialType } from 'src/app/framework/models/special-type';
+import { RACK_VIEW_RIGHT } from './rack-overview/models/rack-overview.types';
 
 @Component({
   selector: 'cmdb-object-view',
@@ -53,6 +54,8 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   public renderResult: RenderResult;
   public currentObjectID: number;
   public isGraphView = false;
+  /** The section only frames the rack drawing, so it needs the rack view right. */
+  public readonly rackViewRight = RACK_VIEW_RIGHT;
 
   // Graph header object selector
   public allTypeIds: number[] = [];
@@ -66,6 +69,10 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
 
   public get isSubnet(): boolean {
     return this.renderResult?.object_information?.special_type === SpecialType.SUBNET;
+  }
+
+  public get isRack(): boolean {
+    return this.renderResult?.object_information?.special_type === SpecialType.RACK;
   }
 
   private pendingSelectedId: number | null = null;

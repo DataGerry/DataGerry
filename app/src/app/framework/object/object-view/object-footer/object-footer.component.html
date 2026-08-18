@@ -1,12 +1,6 @@
 <div id="object-footer" class="card">
   <div class="card-header">
     <ul class="nav nav-tabs card-header-tabs">
-      @if (showRackView) {
-        <li class="nav-item">
-          <button type="button" class="nav-link" [class.active]="activeTab === 'rack-view'"
-            (click)="selectTab('rack-view')">Rack View</button>
-        </li>
-      }
       <li class="nav-item">
         <button type="button" class="nav-link" [class.active]="activeTab === 'risk-assessments'"
           (click)="selectTab('risk-assessments')">Risk Assessments</button>
@@ -38,14 +32,6 @@
     </ul>
   </div>
   <div class="card-body tab-content">
-    @if (showRackView) {
-      <div class="tab-pane" id="object-tab-rack-view" role="tabpanel" [class.active]="activeTab === 'rack-view'">
-        <!-- Built on the first visit and kept mounted afterwards, so zoom and side stay put. -->
-        @if (rackTabVisited) {
-          <cmdb-rack-overview [publicId]="objectID"></cmdb-rack-overview>
-        }
-      </div>
-    }
     <div class="tab-pane" id="object-tab-risk-assesments-list" role="tabpanel"
       [class.active]="activeTab === 'risk-assessments'">
       @if (ismsAvailable) {
