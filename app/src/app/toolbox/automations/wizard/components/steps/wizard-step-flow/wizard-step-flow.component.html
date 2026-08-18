@@ -39,7 +39,17 @@
 
                 <span class="tree__main">
                   <span class="tree__title">{{ step.title }}</span>
-                  <span class="tree__detail">{{ step.detail }}</span>
+                  <span class="tree__detail">
+                    @for (token of step.detailTokens ?? []; track $index) {
+                      @if (token.reference) {
+                        <span class="tree__token" [title]="token.text">{{ token.label }}</span>
+                      } @else {
+                        <span>{{ token.text }}</span>
+                      }
+                    } @empty {
+                      <span>{{ step.detail }}</span>
+                    }
+                  </span>
                 </span>
 
                 @if (isAdded(step)) {
@@ -71,7 +81,15 @@
             <div>
               <div class="detail__title">{{ step.title }}</div>
               <div class="detail__sub">
-                {{ step.detail }}
+                @for (token of step.detailTokens ?? []; track $index) {
+                  @if (token.reference) {
+                    <span class="tree__token" [title]="token.text">{{ token.label }}</span>
+                  } @else {
+                    <span>{{ token.text }}</span>
+                  }
+                } @empty {
+                  <span>{{ step.detail }}</span>
+                }
                 @if (step.system) { · {{ step.system }} }
                 · position {{ step.index }}
               </div>
@@ -113,7 +131,15 @@
           @if (step.kind === 'loop') {
             <div class="wire__block">
               <div class="wire__label">Walks</div>
-              <pre class="wire__code">{{ step.expression }}</pre>
+              <pre class="wire__code">@for (token of step.expressionTokens ?? []; track $index) {
+                @if (token.reference) {
+                  <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                } @else {
+                  <span>{{ token.text }}</span>
+                }
+              } @empty {
+                <span>{{ step.expression }}</span>
+              }</pre>
               @if (isAddedLoop(step)) {
                 <button type="button" class="btn btn-secondary btn-sm mt-2" (click)="onEditLoop(step)">
                   <i class="fas fa-pen me-1"></i> Change the list
@@ -127,7 +153,15 @@
           } @else if (step.kind === 'if') {
             <div class="wire__block">
               <div class="wire__label">Condition</div>
-              <pre class="wire__code">{{ step.expression }}</pre>
+              <pre class="wire__code">@for (token of step.expressionTokens ?? []; track $index) {
+                @if (token.reference) {
+                  <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                } @else {
+                  <span>{{ token.text }}</span>
+                }
+              } @empty {
+                <span>{{ step.expression }}</span>
+              }</pre>
               @if (isAddedCondition(step)) {
                 <button type="button" class="btn btn-secondary btn-sm mt-2" (click)="onEditCondition(step)">
                   <i class="fas fa-pen me-1"></i> Change what it tests

@@ -105,9 +105,15 @@ export interface FlowStep {
 
     /** The operation or the condition, in the target system's words. */
     detail: string;
+
+    /** `detail` cut up, so a reference inside a condition reads as a name. See ValueToken. */
+    detailTokens?: ValueToken[];
     system: string;
     method?: OcMethod;
     expression?: string;
+
+    /** `expression` cut up the same way, for the block that shows it in full. */
+    expressionTokens?: ValueToken[];
 }
 
 /**
@@ -361,6 +367,7 @@ export class WizardStepFlowComponent implements DoCheck {
                 kind: 'call',
                 title: this.titleOf(method),
                 detail: method.name,
+                detailTokens: [{ text: method.name, reference: false, label: method.name }],
                 system: method.connector?.title ?? '',
                 method
             });
@@ -381,8 +388,10 @@ export class WizardStepFlowComponent implements DoCheck {
                 kind: operator.type,
                 title: this.titleOfOperator(operator),
                 detail: summarize(operator.expression),
+                detailTokens: tokensOf(unwrap(operator.expression)),
                 system: '',
-                expression: operator.expression
+                expression: operator.expression,
+                expressionTokens: tokensOf(operator.expression)
             });
         }
 
@@ -1220,11 +1229,15 @@ export function tokensOf(value: string): ValueToken[] {
 }
 
 
+/** Drops the parentheses an operator expression is wrapped in, which say nothing on their own. */
+function unwrap(expression: string): string {
+    return expression.replace(/^\((.*)\)$/, '$1');
+}
+
+
 function summarize(expression: string): string {
     // Same cut as the request rows use, so a field is called the same thing wherever it appears.
-    return expression
-        .replace(/\{%.*?%\}/g, reference => referenceLabel(reference))
-        .replace(/^\((.*)\)$/, '$1');
+    return unwrap(expression.replace(/\{%.*?%\}/g, reference => referenceLabel(reference)));
 }
 
 
