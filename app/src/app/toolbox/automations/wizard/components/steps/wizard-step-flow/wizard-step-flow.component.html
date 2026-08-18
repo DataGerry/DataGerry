@@ -1,4 +1,26 @@
 <section class="wizard-section">
+  <!--
+    What one reference would stand for, shown beside it while debug mode is on.
+
+    Declared once and pulled in wherever a value is drawn, so the same reference reads the same
+    whether it sits in an address, a header, a body field or a condition.
+  -->
+  <ng-template #peek let-reference>
+    @if (debug) {
+      @if (previewOf(reference); as preview) {
+        <span class="peek" [class.peek--runtime]="!preview.known" [title]="preview.source">
+          @if (!preview.known) {
+            only known during a run
+          } @else if (preview.value) {
+            {{ preview.value }}
+          } @else {
+            no sample object loaded
+          }
+        </span>
+      }
+    }
+  </ng-template>
+
   <h5 class="wizard-section__title">What happens in {{ systemName }}</h5>
   <p class="wizard-section__hint">
     The calls as they will be made. Reading from and writing to DataGerry is built from the object
@@ -14,6 +36,19 @@
 
       <!-- ---------------------------------------------------------------- tree -->
       <div class="panes__tree">
+        <div class="tree__head">
+          <label class="tree__debug">
+            <input type="checkbox" [(ngModel)]="debug">
+            Show what each value would be
+          </label>
+          @if (debug) {
+            <p class="tree__legend">
+              <span class="peek">from DataGerry, so it can be shown now</span>
+              <span class="peek peek--runtime">answered by {{ systemName }}, so only during a run</span>
+            </p>
+          }
+        </div>
+
         <ol class="tree">
           @for (step of steps; track step.id) {
             <li>
@@ -23,6 +58,8 @@
                 [class.is-selected]="isSelected(step)"
                 [attr.data-depth]="step.depth"
                 [attr.aria-current]="isSelected(step)"
+                [attr.aria-keyshortcuts]="isAdded(step) ? 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight' : null"
+                (keydown)="onRowKeys(step, $event)"
                 (click)="select(step)">
                 <span
                   class="tree__marker"
@@ -96,26 +133,42 @@
             </div>
 
             <div class="detail__tools">
-              @if (isAddedCondition(step) || isAddedLoop(step)) {
-                <button type="button" class="btn btn-secondary btn-sm" (click)="onRemoveCall(step)">
-                  <i class="fas fa-times me-1"></i> Remove
-                </button>
-              } @else if (isAdded(step)) {
+              @if (isAdded(step)) {
                 <button
                   type="button"
                   class="btn btn-secondary btn-sm"
+                  aria-label="Move it one step earlier"
                   [disabled]="!canMove(step, -1)"
-                  title="Run it after the previous call instead"
-                  (click)="onMoveCall(step, -1)">
+                  title="Run it before the step above (Alt+↑)"
+                  (click)="onMove(step, -1)">
                   <i class="fas fa-arrow-up"></i>
                 </button>
                 <button
                   type="button"
                   class="btn btn-secondary btn-sm"
+                  aria-label="Move it one step later"
                   [disabled]="!canMove(step, 1)"
-                  title="Run it after the next call instead"
-                  (click)="onMoveCall(step, 1)">
+                  title="Run it after the step below (Alt+↓)"
+                  (click)="onMove(step, 1)">
                   <i class="fas fa-arrow-down"></i>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  aria-label="Take it out of the step it runs inside"
+                  [disabled]="!canNest(step, false)"
+                  title="Take it out of the step it runs inside (Alt+←)"
+                  (click)="onNest(step, false)">
+                  <i class="fas fa-outdent"></i>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  aria-label="Run it inside the step above"
+                  [disabled]="!canNest(step, true)"
+                  title="Run it inside the step above (Alt+→)"
+                  (click)="onNest(step, true)">
+                  <i class="fas fa-indent"></i>
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm" (click)="onRemoveCall(step)">
                   <i class="fas fa-times me-1"></i> Remove
@@ -133,7 +186,8 @@
               <div class="wire__label">Walks</div>
               <div class="wire__code">@for (token of step.expressionTokens ?? []; track $index) {
                 @if (token.reference) {
-                  <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                  <span class="wire__token" [title]="token.text">{{ token.label }}</span><ng-container
+                    *ngTemplateOutlet="peek; context: { $implicit: token.text }"></ng-container>
                 } @else {
                   <span>{{ token.text }}</span>
                 }
@@ -155,7 +209,8 @@
               <div class="wire__label">Condition</div>
               <div class="wire__code">@for (token of step.expressionTokens ?? []; track $index) {
                 @if (token.reference) {
-                  <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                  <span class="wire__token" [title]="token.text">{{ token.label }}</span><ng-container
+                    *ngTemplateOutlet="peek; context: { $implicit: token.text }"></ng-container>
                 } @else {
                   <span>{{ token.text }}</span>
                 }
@@ -210,6 +265,7 @@
                     @for (token of endpointTokens; track $index) {
                       @if (token.reference) {
                         <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                        <ng-container *ngTemplateOutlet="peek; context: { $implicit: token.text }"></ng-container>
                       } @else {
                         <span class="wire__literal">{{ token.text }}</span>
                       }
@@ -255,6 +311,7 @@
                     @for (token of pair.tokens; track $index) {
                       @if (token.reference) {
                         <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                        <ng-container *ngTemplateOutlet="peek; context: { $implicit: token.text }"></ng-container>
                       } @else {
                         <span class="wire__literal">{{ token.text }}</span>
                       }
@@ -332,6 +389,7 @@
                           @for (token of pair.tokens; track $index) {
                             @if (token.reference) {
                               <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                              <ng-container *ngTemplateOutlet="peek; context: { $implicit: token.text }"></ng-container>
                             } @else {
                               <span class="wire__literal">{{ token.text }}</span>
                             }
@@ -359,6 +417,7 @@
                     @for (token of pair.tokens; track $index) {
                       @if (token.reference) {
                         <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                        <ng-container *ngTemplateOutlet="peek; context: { $implicit: token.text }"></ng-container>
                       } @else {
                         <span class="wire__literal">{{ token.text }}</span>
                       }
@@ -680,7 +739,8 @@
     <p class="wizard-section__hint panes__note">
       Read, loop, look up, branch and write follow from the connection and the assignment, and are
       rebuilt whenever those change — so they cannot be moved or removed here. Calls you add and
-      values you correct are kept as they are.
+      values you correct are kept as they are: a step you added moves with the arrows on it, or
+      with Alt and an arrow key on its row, and runs after the steps that were derived.
     </p>
 
     @if (needsIdentifier) {

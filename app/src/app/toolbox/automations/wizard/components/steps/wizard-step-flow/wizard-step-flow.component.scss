@@ -33,6 +33,35 @@ $muted: #6b7280;
 .panes__note { margin-top: 0.9rem; }
 
 /* ---------------------------------------------------------------------- tree */
+.tree__head {
+    border-bottom: 1px solid $border;
+    background: #f8f9fa;
+    padding: 0.5rem 0.7rem;
+}
+
+.tree__debug {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    font-size: 0.75rem;
+    color: $muted;
+    cursor: pointer;
+}
+
+/*
+ * Which of the two a value is, said once above the list.
+ *
+ * The whole point of the mode is the difference between a value that can be shown and one that
+ * cannot exist yet, so the two colours are named before the first row uses them.
+ */
+.tree__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin: 0.45rem 0 0;
+}
+
 .tree {
     list-style: none;
     margin: 0;
@@ -154,6 +183,8 @@ $muted: #6b7280;
 
 .detail__tools {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.35rem;
     flex-shrink: 0;
 }
@@ -558,4 +589,34 @@ $muted: #6b7280;
     display: inline;
     padding: 0 4px;
     white-space: normal;
+}
+
+/*
+ * What a reference would stand for, beside the reference itself.
+ *
+ * Two colours rather than one wording, because the difference is the point: green is a value that
+ * exists now and is printed as it is, amber is an answer the target system has not given yet and
+ * never a stand-in that could be mistaken for one.
+ */
+.peek {
+    display: inline-block;
+    max-width: 100%;
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: rgba(25, 135, 84, 0.12);
+    color: #146c43;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: baseline;
+}
+
+.peek--runtime {
+    background: rgba(255, 193, 7, 0.18);
+    color: #8a6100;
+    font-style: italic;
+    font-weight: 500;
 }

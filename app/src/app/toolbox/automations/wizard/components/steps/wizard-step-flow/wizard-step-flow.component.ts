@@ -117,6 +117,24 @@ export interface FlowStep {
 }
 
 /**
+ * What a reference would stand for, as far as that can be said before the automation ever runs.
+ *
+ * The distinction is the whole point: a value out of DataGerry is there to be looked at now, and a
+ * value out of the target system is an answer nobody has been given yet. A stand-in for the second
+ * would read as data, so there is none - the row says so instead.
+ */
+export interface ValuePreview {
+    /** True when the value can be worked out now. */
+    known: boolean;
+
+    /** The sample value, empty when there is one to have and none was handed over. */
+    value: string;
+
+    /** Where the value comes from, which is what a row with nothing to show says instead. */
+    source: string;
+}
+
+/**
  * Step group 3 - what happens in the target system, as the calls that will actually be made.
  *
  * Built from the compiled connection rather than described alongside it. Anything else would be a
@@ -237,6 +255,18 @@ export class WizardStepFlowComponent implements DoCheck {
      */
     @Input() public dataGerryFields: AutomationField[] = [];
 
+    /**
+     * What one object's fields actually hold, by DataGerry field name.
+     *
+     * Debug mode shows a value as what it would be, and for the DataGerry side that can be said
+     * before a run - but only against a real object. Empty until the shell hands one over, which
+     * is what the rows then say rather than inventing something that looks like data.
+     */
+    @Input() public sampleValues: Record<string, string> = {};
+
+    /** Whether every substituted value is shown as what it would be. */
+    public debug = false;
+
     /** The selected call's request, a row per value, cached against the template asking for it. */
     public headerRows: WirePair[] = [];
     public bodyRows: WirePair[] = [];
@@ -268,6 +298,15 @@ export class WizardStepFlowComponent implements DoCheck {
     private seenConnection: OcConnection | null = null;
     private seenStep = '';
 
+    /**
+     * What each reference resolves to, kept between passes.
+     *
+     * Worked out once per reference rather than on every template pass: a reference is looked up
+     * wherever it appears, and the answer only changes when the connection or the sample does.
+     */
+    private previews = new Map<string, ValuePreview>();
+    private seenSamples: Record<string, string> = {};
+
     /** Which node a just-added step becomes, so the detail pane opens on it rather than on nothing. */
     private awaiting = '';
 
@@ -275,6 +314,13 @@ export class WizardStepFlowComponent implements DoCheck {
 
     public ngDoCheck(): void {
         const recompiled = this.connection !== this.seenConnection;
+
+        // A sample can arrive long after the sequence does, and every resolved value is drawn from
+        // it, so what was worked out against the old one no longer holds.
+        if (recompiled || this.sampleValues !== this.seenSamples) {
+            this.seenSamples = this.sampleValues;
+            this.previews.clear();
+        }
 
         if (recompiled) {
             this.seenConnection = this.connection;
@@ -337,6 +383,61 @@ export class WizardStepFlowComponent implements DoCheck {
 
     public stopEditing(): void {
         this.editingField = '';
+    }
+
+    /* ---------------------------------------------------- DEBUG MODE ------------------------------------------------ */
+
+    /** What a reference would stand for. See ValuePreview. */
+    public previewOf(reference: string): ValuePreview {
+        const worked = this.previews.get(reference);
+
+        if (worked) {
+            return worked;
+        }
+
+        const preview = this.resolvePreview(reference);
+
+        this.previews.set(reference, preview);
+
+        return preview;
+    }
+
+
+    /**
+     * Which side of the automation answers a reference, and with what.
+     *
+     * The colour is what says: every reference names the call it reads, and only one call in the
+     * sequence is DataGerry's own read. Everything else is the target system, whose answer does not
+     * exist until the automation actually runs.
+     */
+    private resolvePreview(reference: string): ValuePreview {
+        const path = reference.replace(/^\{%/, '').replace(/%\}$/, '');
+        const parts = /^#([0-9A-Fa-f]{6})\.\(\w+\)\.(.*)$/.exec(path);
+        const method = parts && (this.connection?.fromConnector.methods ?? []).find(
+            candidate => (candidate.color ?? '').toUpperCase() === `#${parts[1].toUpperCase()}`
+        );
+
+        if (!parts || !method) {
+            return { known: false, value: '', source: 'a step this sequence no longer holds' };
+        }
+
+        if (method !== this.connection?.fromConnector.methods[0] || this.definition.direction !== 'outgoing') {
+            return {
+                known: false,
+                value: '',
+                source: method.connector?.title ? `${method.connector.title} · ${method.name}` : method.name
+            };
+        }
+
+        // DataGerry answers with the fields in the order the type declares them, so the position in
+        // that answer is what names the field - and the field's name is what a sample is keyed by.
+        const field = this.dataGerryFields[Number(/fields\[(\d+)\]\.value$/.exec(parts[2])?.[1] ?? -1)];
+
+        return {
+            known: true,
+            value: field ? this.sampleValues[field.name] ?? '' : '',
+            source: field ? field.label || field.name : 'DataGerry'
+        };
     }
 
 
@@ -1008,37 +1109,186 @@ export class WizardStepFlowComponent implements DoCheck {
     public verbChoices = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 
-    /**
-     * Moves an added call to the step before or after the one it currently follows.
-     *
-     * Only added calls can move. The skeleton is rebuilt from the connection and the assignment on
-     * every change, so dragging one of its steps would have nowhere to be written down - which is
-     * why those rows offer nothing here rather than offering something that quietly does not stick.
-     */
-    public onMoveCall(step: FlowStep, by: number): void {
-        const extra = this.extraFor(step);
-        const anchors = this.steps.filter(candidate => candidate.kind === 'call' && !this.isAdded(candidate));
-        const at = anchors.findIndex(candidate => candidate.index === extra?.after);
-        const target = anchors[at + by];
+    /* -------------------------------------------------- REORDERING -------------------------------------------------- */
 
-        if (!extra || at === -1 || !target) {
+    /**
+     * Moves an added step past the added step before or after it.
+     *
+     * Only added steps move, and only among each other. The skeleton is rebuilt from the definition
+     * on every change, so a step of it has nowhere to record that it was moved - and an added step
+     * cannot rise above the skeleton steps it shares a container with, because the compiler hangs
+     * added steps behind them. Those rows offer nothing here rather than offering a move that
+     * quietly does not stick.
+     *
+     * What decides the order is the order of the entries themselves, so that is what is rewritten;
+     * the step each one is placed after only says which container it runs in.
+     */
+    public onMove(step: FlowStep, by: number): void {
+        const target = this.neighbourOf(step, by);
+
+        if (!this.isAdded(step) || !target) {
             return;
         }
 
-        this.definition.extras = this.definition.extras.map(candidate =>
-            candidate.id === extra.id ? { ...candidate, after: target.index } : candidate
-        );
-        this.definitionChange.emit(this.definition);
+        const block = this.subtreeOf(step);
+        const rest = this.definition.extras.filter(extra => !block.includes(extra));
+        const passed = this.subtreeOf(target).filter(extra => rest.includes(extra));
+        // Down passes the neighbour whole: everything running inside it goes with it, or the step
+        // would land in the middle of a branch nobody put it in.
+        const at = by < 0
+            ? rest.indexOf(passed[0])
+            : rest.indexOf(passed[passed.length - 1]) + 1;
+
+        this.writeExtras([...rest.slice(0, at), ...block, ...rest.slice(at)]);
     }
 
 
-    /** Whether an added call could move in that direction, so the button can say so. */
+    /** Whether an added step could move that way, so the button can say so. */
     public canMove(step: FlowStep, by: number): boolean {
-        const extra = this.extraFor(step);
-        const anchors = this.steps.filter(candidate => candidate.kind === 'call' && !this.isAdded(candidate));
-        const at = anchors.findIndex(candidate => candidate.index === extra?.after);
+        return this.isAdded(step) && !!this.neighbourOf(step, by);
+    }
 
-        return !!extra && at !== -1 && !!anchors[at + by];
+
+    /**
+     * Takes an added step into the step above it, or out of the one it runs inside.
+     *
+     * Being inside a container is what "only when it holds" and "once per entry" mean, and it is
+     * decided when the step is added. This is the way back - and the way in for a step that was
+     * added before the container it belongs in.
+     */
+    public onNest(step: FlowStep, inside: boolean): void {
+        const extra = this.extraFor(step);
+        const target = this.nestTarget(step, inside);
+
+        if (!extra || !target) {
+            return;
+        }
+
+        const block = this.subtreeOf(step);
+        const rest = this.definition.extras.filter(candidate => !block.includes(candidate));
+        const around = this.subtreeOf(target.container).filter(candidate => rest.includes(candidate));
+        const at = around.length ? rest.indexOf(around[around.length - 1]) + 1 : rest.length;
+        const moved = block.map(candidate =>
+            candidate.id === extra.id ? { ...candidate, after: target.anchor } : candidate);
+
+        this.writeExtras([...rest.slice(0, at), ...moved, ...rest.slice(at)]);
+    }
+
+
+    public canNest(step: FlowStep, inside: boolean): boolean {
+        return !!this.extraFor(step) && !!this.nestTarget(step, inside);
+    }
+
+
+    /**
+     * Reordering from the keyboard, on the row itself.
+     *
+     * Alt is what leaves the plain arrows doing what they do in every other list - moving between
+     * rows - while still putting each move within reach of someone who never touches a mouse.
+     */
+    public onRowKeys(step: FlowStep, event: KeyboardEvent): void {
+        if (!event.altKey) {
+            return;
+        }
+
+        const moves: Record<string, () => void> = {
+            ArrowUp: () => this.onMove(step, -1),
+            ArrowDown: () => this.onMove(step, 1),
+            ArrowLeft: () => this.onNest(step, false),
+            ArrowRight: () => this.onNest(step, true)
+        };
+
+        const move = moves[event.key];
+
+        if (!move) {
+            return;
+        }
+
+        event.preventDefault();
+        this.select(step);
+        move();
+    }
+
+
+    /** The added step this one would trade places with: its neighbour inside the same container. */
+    private neighbourOf(step: FlowStep, by: number): FlowStep | undefined {
+        const row = this.steps.filter(candidate =>
+            this.isAdded(candidate) && parentOf(candidate.index) === parentOf(step.index));
+        const at = row.findIndex(candidate => candidate.id === step.id);
+
+        return at === -1 ? undefined : row[at + by];
+    }
+
+
+    /**
+     * An added step and everything that runs inside it, in the order the entries are read.
+     *
+     * Taken from the compiled indices rather than from the entries: an entry says which step it
+     * follows, and following a call means running beside it while following a container means
+     * running inside it. The index is where that distinction has already been made.
+     */
+    private subtreeOf(step: FlowStep): AutomationExtraCall[] {
+        const inside = this.steps.filter(candidate =>
+            candidate.id === step.id || candidate.index.startsWith(`${step.index}_`));
+
+        return this.definition.extras.filter(extra =>
+            inside.some(candidate => candidate.id === nodeIdOf(extra)));
+    }
+
+
+    /** Which container a step would move into or out of, and what it would then be placed after. */
+    private nestTarget(step: FlowStep, inside: boolean): { anchor: string; container: FlowStep } | undefined {
+        const container = inside ? this.containerAbove(step) : this.containerOf(step);
+
+        if (!container) {
+            return undefined;
+        }
+
+        if (inside) {
+            return { anchor: this.keyOf(container), container };
+        }
+
+        const owner = this.extraFor(container);
+
+        if (owner) {
+            return { anchor: owner.after, container };
+        }
+
+        // Out of a container the skeleton owns there is no entry to borrow a place from, so the
+        // only anchor left is a call standing beside it - and where there is none, nowhere to go.
+        const beside = this.steps.find(candidate => candidate.kind === 'call'
+            && parentOf(candidate.index) === parentOf(container.index));
+
+        return beside ? { anchor: this.keyOf(beside), container } : undefined;
+    }
+
+
+    /** The container a step runs inside, if the sequence shows one. */
+    private containerOf(step: FlowStep): FlowStep | undefined {
+        return this.steps.find(candidate => candidate.index === parentOf(step.index)
+            && candidate.kind !== 'call');
+    }
+
+
+    /** The step directly above it in the same container, if that step is one to run inside. */
+    private containerAbove(step: FlowStep): FlowStep | undefined {
+        const row = this.steps.filter(candidate => parentOf(candidate.index) === parentOf(step.index));
+        const at = row.findIndex(candidate => candidate.id === step.id);
+        const above = at > 0 ? row[at - 1] : undefined;
+
+        return above && above.kind !== 'call' ? above : undefined;
+    }
+
+
+    /** How an entry names the step it follows: its own id, or the position of a skeleton step. */
+    private keyOf(step: FlowStep): string {
+        return this.extraFor(step)?.id ?? step.index;
+    }
+
+
+    private writeExtras(extras: AutomationExtraCall[]): void {
+        this.definition.extras = normalizeAnchors(extras);
+        this.definitionChange.emit(this.definition);
     }
 
 
@@ -1153,6 +1403,38 @@ export class WizardStepFlowComponent implements DoCheck {
 /** How deep an execution index sits: '1_2_0' is two levels inside '1'. */
 function depthOf(index: string): number {
     return Math.max(0, index.split('_').length - 2);
+}
+
+
+/** The container an execution index sits in: '1_2_0' runs inside '1_2'. */
+function parentOf(index: string): string {
+    return index.split('_').slice(0, -1).join('_');
+}
+
+
+/**
+ * Re-points whatever is left naming a step that now runs after it.
+ *
+ * A step is placed by the one it follows, and the entries are read in order - so moving one past
+ * another leaves the second naming a step it now comes before, which the compiler cannot place and
+ * drops with a warning. It belongs where the step it named belonged, which is that step's own
+ * place, and the chain is walked because the same may have happened to that one.
+ */
+function normalizeAnchors(extras: AutomationExtraCall[]): AutomationExtraCall[] {
+    const byId = new Map(extras.map(extra => [extra.id, extra]));
+    const behind = new Set<string>();
+
+    return extras.map(extra => {
+        let anchor = extra.after;
+
+        for (let hop = 0; hop <= extras.length && byId.has(anchor) && !behind.has(anchor); hop++) {
+            anchor = byId.get(anchor)!.after;
+        }
+
+        behind.add(extra.id);
+
+        return anchor === extra.after ? extra : { ...extra, after: anchor };
+    });
 }
 
 
