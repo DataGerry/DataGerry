@@ -20,6 +20,7 @@
 import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
 
+import { PermissionGuard } from 'src/app/modules/auth/guards/permission.guard';
 
 import { IsmsComponent } from './isms.component';
 import { OverviewComponent } from './overview/overview.component';
@@ -51,19 +52,39 @@ const routes: Routes = [
     path: '',
     component: IsmsComponent,
     // data: { breadcrumb: 'ISMS' },
+    canActivateChild: [PermissionGuard],
     children: [
+      // The overview only reads the ISMS configuration status, which needs no right on the backend.
       { path: '', component: OverviewComponent, data: { breadcrumb: 'Overview' } },
       { path: 'overview',  redirectTo: '' },
+      // The wizard spans six right families and each step gates itself, so a single route right
+      // would lock out anyone holding only some of them.
       { path: 'configure', component: ConfigureComponent, data: { breadcrumb: 'Configure ISMS Settings' } },
 
       /* ─────────── Threats ─────────── */
       {
         path: 'threats',
         children: [
-          { path: '', component: ThreatsListComponent, data: { breadcrumb: 'Threats' } },
-          { path: 'add', component: ThreatsAddComponent, data: { breadcrumb: 'Add Threat' } },
-          { path: 'edit/:id', component: ThreatsAddComponent, data: { breadcrumb: 'Edit Threat' } },
-          { path: 'view', component: ThreatsAddComponent, data: { breadcrumb: 'View Threat' } }
+          {
+            path: '',
+            component: ThreatsListComponent,
+            data: { breadcrumb: 'Threats', right: 'base.isms.threat.view' }
+          },
+          {
+            path: 'add',
+            component: ThreatsAddComponent,
+            data: { breadcrumb: 'Add Threat', right: 'base.isms.threat.add' }
+          },
+          {
+            path: 'edit/:id',
+            component: ThreatsAddComponent,
+            data: { breadcrumb: 'Edit Threat', right: 'base.isms.threat.edit' }
+          },
+          {
+            path: 'view',
+            component: ThreatsAddComponent,
+            data: { breadcrumb: 'View Threat', right: 'base.isms.threat.view' }
+          }
         ]
       },
 
@@ -71,10 +92,26 @@ const routes: Routes = [
       {
         path: 'vulnerabilities',
         children: [
-          { path: '', component: VulnerabilitiesListComponent, data: { breadcrumb: 'Vulnerabilities' } },
-          { path: 'add', component: VulnerabilitiesAddComponent, data: { breadcrumb: 'Add Vulnerability' } },
-          { path: 'edit', component: VulnerabilitiesAddComponent, data: { breadcrumb: 'Edit Vulnerability' } },
-          { path: 'view', component: VulnerabilitiesAddComponent, data: { breadcrumb: 'View Vulnerability' } }
+          {
+            path: '',
+            component: VulnerabilitiesListComponent,
+            data: { breadcrumb: 'Vulnerabilities', right: 'base.isms.vulnerability.view' }
+          },
+          {
+            path: 'add',
+            component: VulnerabilitiesAddComponent,
+            data: { breadcrumb: 'Add Vulnerability', right: 'base.isms.vulnerability.add' }
+          },
+          {
+            path: 'edit',
+            component: VulnerabilitiesAddComponent,
+            data: { breadcrumb: 'Edit Vulnerability', right: 'base.isms.vulnerability.edit' }
+          },
+          {
+            path: 'view',
+            component: VulnerabilitiesAddComponent,
+            data: { breadcrumb: 'View Vulnerability', right: 'base.isms.vulnerability.view' }
+          }
         ]
       },
 
@@ -83,10 +120,26 @@ const routes: Routes = [
         path: 'risks',
         data: { breadcrumb: 'Risks' },
         children: [
-          { path: '', component: RisksListComponent, data: { breadcrumb: 'Risks' } },
-          { path: 'add', component: RiskAddComponent, data: { breadcrumb: 'Add Risk' } },
-          { path: 'edit', component: RiskAddComponent, data: { breadcrumb: 'Edit Risk' } },
-          { path: 'view', component: RiskAddComponent, data: { breadcrumb: 'View Risk' } }
+          {
+            path: '',
+            component: RisksListComponent,
+            data: { breadcrumb: 'Risks', right: 'base.isms.risk.view' }
+          },
+          {
+            path: 'add',
+            component: RiskAddComponent,
+            data: { breadcrumb: 'Add Risk', right: 'base.isms.risk.add' }
+          },
+          {
+            path: 'edit',
+            component: RiskAddComponent,
+            data: { breadcrumb: 'Edit Risk', right: 'base.isms.risk.edit' }
+          },
+          {
+            path: 'view',
+            component: RiskAddComponent,
+            data: { breadcrumb: 'View Risk', right: 'base.isms.risk.view' }
+          }
         ]
       },
 
@@ -95,10 +148,26 @@ const routes: Routes = [
         path: 'control-measures',
         data: { breadcrumb: 'Controls' },
         children: [
-          { path: '', component: ControlmeasuresListComponent, data: { breadcrumb: 'Controls' } },
-          { path: 'add', component: ControlMeasuresAddComponent, data: { breadcrumb: 'Add Control' } },
-          { path: 'edit', component: ControlMeasuresAddComponent, data: { breadcrumb: 'Edit Control' } },
-          { path: 'view', component: ControlMeasuresAddComponent, data: { breadcrumb: 'View Control' } }
+          {
+            path: '',
+            component: ControlmeasuresListComponent,
+            data: { breadcrumb: 'Controls', right: 'base.isms.controlMeasure.view' }
+          },
+          {
+            path: 'add',
+            component: ControlMeasuresAddComponent,
+            data: { breadcrumb: 'Add Control', right: 'base.isms.controlMeasure.add' }
+          },
+          {
+            path: 'edit',
+            component: ControlMeasuresAddComponent,
+            data: { breadcrumb: 'Edit Control', right: 'base.isms.controlMeasure.edit' }
+          },
+          {
+            path: 'view',
+            component: ControlMeasuresAddComponent,
+            data: { breadcrumb: 'View Control', right: 'base.isms.controlMeasure.view' }
+          }
         ]
       },
 
@@ -106,29 +175,49 @@ const routes: Routes = [
       {
         path: 'control-measure-assignments',
         children: [
-          { path: 'view', component: ControlMeasureAssignmentAddComponent, data: { breadcrumb: 'View Assign Control' } },
-          { path: 'edit', component: ControlMeasureAssignmentAddComponent, data: { breadcrumb: 'Edit Assign Control' } }
+          {
+            path: 'view',
+            component: ControlMeasureAssignmentAddComponent,
+            data: { breadcrumb: 'View Assign Control', right: 'base.isms.controlMeasureAssignment.view' }
+          },
+          {
+            path: 'edit',
+            component: ControlMeasureAssignmentAddComponent,
+            data: { breadcrumb: 'Edit Assign Control', right: 'base.isms.controlMeasureAssignment.edit' }
+          }
         ]
       },
       {
         path: 'risk_assessments/:riskId/control_measure_assignments',
         component: ControlMeasureAssignmentListComponent,
-        data: { breadcrumb: 'Assignments for Risk' }
+        data: {
+          breadcrumb: 'Assignments for Risk',
+          right: 'base.isms.controlMeasureAssignment.view'
+        }
       },
       {
         path: 'risk_assessments/:riskId/control_measure_assignments/add',
         component: ControlMeasureAssignmentAddComponent,
-        data: { breadcrumb: 'Add Assignment to Risk' }
+        data: {
+          breadcrumb: 'Add Assignment to Risk',
+          right: 'base.isms.controlMeasureAssignment.add'
+        }
       },
       {
         path: 'control_measures/:cmId/control_measure_assignments',
         component: ControlMeasureAssignmentListComponent,
-        data: { breadcrumb: 'Assignments for Control' }
+        data: {
+          breadcrumb: 'Assignments for Control',
+          right: 'base.isms.controlMeasureAssignment.view'
+        }
       },
       {
         path: 'control_measures/:cmId/control_measure_assignments/add',
         component: ControlMeasureAssignmentAddComponent,
-        data: { breadcrumb: 'Add Assign Control' }
+        data: {
+          breadcrumb: 'Add Assign Control',
+          right: 'base.isms.controlMeasureAssignment.add'
+        }
       },
 
       /* ─────────── Reports ─────────── */
@@ -136,14 +225,35 @@ const routes: Routes = [
         path: 'reports',
         data: { breadcrumb: 'Reports' },
         children: [
-          { path: '', component: ReportsOverviewComponent, data: { breadcrumb: null } }, // <- prevents duplicate "Reports / Reports"
-          { path: 'risk_matrix', component: RiskMatrixReportComponent, data: { breadcrumb: 'Risk Matrix Report' } },
-          { path: 'soa', component: SoaComponent, data: { breadcrumb: 'Statement of Applicability' } },
-          { path: 'risk_treatment_plan', component: RiskTreatmentPlanComponent, data: { breadcrumb: 'Risk Treatment Plan' } },
-          { path: 'risk_assesments', component: RiskAssesmentsComponent, data: { breadcrumb: 'Risk Assessments' } }
+          // <- breadcrumb null prevents duplicate "Reports / Reports"
+          {
+            path: '',
+            component: ReportsOverviewComponent,
+            data: { breadcrumb: null, right: 'base.isms.report.view' }
+          },
+          {
+            path: 'risk_matrix',
+            component: RiskMatrixReportComponent,
+            data: { breadcrumb: 'Risk Matrix Report', right: 'base.isms.report.view' }
+          },
+          {
+            path: 'soa',
+            component: SoaComponent,
+            data: { breadcrumb: 'Statement of Applicability', right: 'base.isms.report.view' }
+          },
+          {
+            path: 'risk_treatment_plan',
+            component: RiskTreatmentPlanComponent,
+            data: { breadcrumb: 'Risk Treatment Plan', right: 'base.isms.report.view' }
+          },
+          {
+            path: 'risk_assesments',
+            component: RiskAssesmentsComponent,
+            data: { breadcrumb: 'Risk Assessments', right: 'base.isms.report.view' }
+          }
         ]
       }
-      
+
     ]
   }
 ];

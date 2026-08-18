@@ -2,7 +2,8 @@
 
 <div class="container">
   <h2 class="mb-3">{{ isViewMode ? 'View' : isEditMode ? 'Edit' : 'Add' }} Object Group</h2>  
-  <form #groupForm="ngForm" autocomplete="off" class="needs-validation" (ngSubmit)="onSave()">
+  <!-- Saving runs through the Save button only, so a hidden button cannot be bypassed with Enter -->
+  <form #groupForm="ngForm" autocomplete="off" class="needs-validation">
     <!-- Group Name -->
     <div class="form-group">
       <label class="mb-2">Group Name <span class="text-danger">*</span></label>
@@ -116,7 +117,8 @@
     @if (!isViewMode) {
 <div class="mt-4 d-flex justify-content-between">
       <button class="btn btn-secondary me-2" type="button" (click)="onCancel()">Cancel</button>
-      <button class="btn btn-success" type="button" (click)="onSave()" [disabled]="groupForm.invalid || isSaveDisabled()">
+      <button class="btn btn-success" type="button" (click)="onSave()" [disabled]="groupForm.invalid || isSaveDisabled()"
+        *permissionLink="isEditMode ? 'base.framework.objectGroup.edit' : 'base.framework.objectGroup.add'">
         {{ isEditMode ? 'Save Changes' : 'Add Group' }}
       </button>
     </div>

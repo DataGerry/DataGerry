@@ -4,7 +4,8 @@
     <button type="button" class="btn btn-sm btn-secondary ms-2 text-white margin" [routerLink]="['/reports/categories']">
         <i class="fas fa-edit"></i> Edit Report Categories
       </button>
-    <button type="button" class="btn btn-sm btn-success" [routerLink]="['/reports/create']">
+    <button type="button" class="btn btn-sm btn-success" *permissionLink="'base.framework.report.add'"
+      [routerLink]="['/reports/create']">
       <i class="fas fa-plus"></i> Add
     </button>
 </div>
@@ -26,8 +27,10 @@
       [title]="hasMissingRequiredFields(item) ? 'No fields selected' : 'Run Report'"
       (click)="!hasMissingRequiredFields(item) && runReport(item)">
    </i>
-      <i class="far fa-edit icon-margin btn-edit" (click)="editReport(item.public_id)" title="Edit Report"></i>
-      <i class="far fa-trash-alt btn-delete" (click)="openDeleteReportModal(item)" title="Delete Report"></i>
+      <i class="far fa-edit icon-margin btn-edit" *permissionLink="'base.framework.report.edit'"
+        (click)="editReport(item.public_id)" title="Edit Report"></i>
+      <i class="far fa-trash-alt btn-delete" *permissionLink="'base.framework.report.delete'"
+        (click)="openDeleteReportModal(item)" title="Delete Report"></i>
     </div>
   </ng-template>
 

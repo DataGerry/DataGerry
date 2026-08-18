@@ -132,8 +132,8 @@ const routes: Routes = [
     },
     {
         path: 'ci-explorer',
-        canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         data: {
             breadcrumb: 'CI Explorer',
             right: 'base.framework.ciExplorer.view'
@@ -153,10 +153,11 @@ const routes: Routes = [
         path: 'docapi',
         data: {
             breadcrumb: 'Document Generator',
+            right: 'base.docapi.template.view',
             premiumFeature: LicenseFeature.DocumentGenerator
         },
-        canActivate: [AuthGuard, premiumFeatureGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, premiumFeatureGuard, PermissionGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         loadChildren: () => import('../docapi/docapi.module').then(m => m.DocapiModule)
     },
     {
@@ -189,16 +190,17 @@ const routes: Routes = [
     {
         path: 'reports',
         data: {
-            breadcrumb: 'Reports'
+            breadcrumb: 'Reports',
+            right: 'base.framework.report.view'
         },
-        canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         loadChildren: () => import('../../toolbox/reporting/reporting.module').then(m => m.ReportingModule)
     },
     {
         path: 'webhooks',
-        canActivate: [AuthGuard],
-        canActivateChild: [AuthGuard],
+        canActivate: [AuthGuard, PermissionGuard],
+        canActivateChild: [AuthGuard, PermissionGuard],
         data: {
             right: 'base.framework.webhook.view'
         },

@@ -3,9 +3,9 @@
  * ./styles, which is the shared library the three rack components draw from.
  *
  * What the shell owns is the frame around the drawing: the controls above it, the layout that places
- * the drawing beside its side column, and the notices below. The drawing, the inspector and the tray
- * are components of their own and carry their own styles, because an emulated stylesheet cannot
- * reach into another component's template.
+ * the drawing beside its side column, and the notices below. The drawing, the inspector, the tray and
+ * the notes card are components of their own and carry their own styles, because an emulated
+ * stylesheet cannot reach into another component's template.
  *
  *   rack-tokens ....... palette, radii, shadows, easing. Must stay first; the rest read from it.
  *   rack-shell ........ the root element and the --rack-* geometry the whole drawing is measured in
@@ -13,7 +13,7 @@
  *   rack-header ....... the control card above the drawing: view switch, zoom, fullscreen, the key
  *   rack-legend ....... the key itself, which opens as a panel of that card
  *   rack-stage ........ the drawing/side-column split
- *   rack-side ......... the column beside the drawing and how its two cards share the height
+ *   rack-side ......... the column beside the drawing and how its cards share the height
  *   rack-callout ...... inline notices
  *   rack-fullscreen ... the page-filling layout: only the elevation scrolls
  *   rack-responsive ... breakpoint overrides. Must stay last; it wins on source order.

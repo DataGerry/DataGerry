@@ -262,8 +262,9 @@ export class RackDragService {
             return;
         }
 
-        // Held across the reload, so the inspector reports where the row actually ended up.
-        this.store.select(source.mount.mountId);
+        // A placement is held across the reload, so the inspector reports where the row ended up.
+        // A drop out of the elevation is the row leaving the drawing, and the card goes with it.
+        this.store.select(plan.target === 'slot' ? source.mount.mountId : null);
         this.store.updatePlacement(source.mount.mountId, plan.payload);
     }
 }

@@ -8,17 +8,24 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Below the drawing now, so it has nothing to stick to and the two cards sit beside each other. */
+  /* Below the drawing now, so it has nothing to stick to and the cards sit beside each other. */
   .rack-side {
     position: static;
     flex-direction: row;
     align-items: flex-start;
     max-height: none;
+    overflow: visible;
 
     .rack-inspector,
-    .rack-tray {
+    .rack-tray,
+    .rack-notes {
       flex: 1 1 0;
       min-width: 0;
+    }
+
+    /* Nothing bounds the column here, so the tray is back to its own cap and needs no floor. */
+    .rack-tray {
+      min-height: 0;
     }
   }
 }
@@ -46,13 +53,17 @@
     display: none;
   }
 
-  /* Too narrow for two cards abreast: they go back to sitting one above the other. */
+  /* Too narrow for the cards abreast: they go back to sitting one above the other. */
   .rack-side {
     flex-direction: column;
 
     .rack-inspector,
     .rack-tray {
       flex: 0 1 auto;
+    }
+
+    .rack-notes {
+      flex: none;
     }
   }
 }

@@ -17,14 +17,18 @@
 */
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { EMPTY, Subject, catchError, finalize, switchMap } from 'rxjs';
+import { EMPTY, Observable, Subject, catchError, defer, finalize, map, switchMap, tap } from 'rxjs';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 import {
+    OBJECT_EDIT_RIGHT,
     RACK_EDIT_RIGHT,
+    RACK_NOTES_FIELD,
+    RACK_SLOT_AREAS,
     RackArea,
     RackAreaGroup,
     RackFace,
@@ -56,6 +60,7 @@ import { RackOverviewService } from './rack-overview.service';
 export class RackOverviewStore {
 
     private readonly rackOverviewService = inject(RackOverviewService);
+    private readonly objectService = inject(ObjectService);
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
     private readonly permissionService = inject(PermissionService);
@@ -64,6 +69,10 @@ export class RackOverviewStore {
     /** `*permissionLink` only hides the controls, so every write path re-checks the right before it acts. */
     public readonly canEdit = this.permissionService.hasRight(RACK_EDIT_RIGHT)
         || this.permissionService.hasExtendedRight(RACK_EDIT_RIGHT);
+
+    /** The notes are written onto the rack object, so they answer to the object right instead. */
+    public readonly canEditNotes = this.permissionService.hasRight(OBJECT_EDIT_RIGHT)
+        || this.permissionService.hasExtendedRight(OBJECT_EDIT_RIGHT);
 
     public readonly isLoading$ = this.loaderService.isLoading$;
     public readonly hasError = signal(false);
@@ -93,6 +102,17 @@ export class RackOverviewStore {
 
     public readonly rackHeight = computed(() => this.rack()?.height ?? 0);
 
+    /**
+     * Free text kept on the rack object. Always a string, so the card has one shape to read: the
+     * field is a textarea, but it is a plain object field and could have been written through the
+     * API with something else in it.
+     */
+    public readonly notes = computed(() => {
+        const notes = this.rack()?.notes;
+
+        return typeof notes === 'string' ? notes : '';
+    });
+
     /** Every row of the rack, drawn-ready. One mapping pass feeds the elevation, the rails and the tray. */
     public readonly rows = computed<RackRowView[]>(() => {
         const areas = this.overview()?.areas;
@@ -100,10 +120,16 @@ export class RackOverviewStore {
         return areas ? toRowViews(Object.values(areas).flat(), this.rackHeight()) : [];
     });
 
+    /**
+     * The selected row, for as long as the elevation still draws it. A row that leaves the drawing -
+     * unplaced into the tray, or bolted onto a side rail - holds no slots any more, so the card that
+     * reported its placement goes with it instead of reading out an anchor it no longer has.
+     */
     public readonly selectedRow = computed<RackRowView | null>(() => {
         const mountId = this.selectedMountId();
+        const selected = mountId === null ? null : this.rows().find(row => row.mountId === mountId) ?? null;
 
-        return mountId === null ? null : this.rows().find(row => row.mountId === mountId) ?? null;
+        return selected && RACK_SLOT_AREAS.includes(selected.area) ? selected : null;
     });
 
     public readonly typesLegend = computed(() =>
@@ -260,7 +286,54 @@ export class RackOverviewStore {
             });
     }
 
+    /**
+     * Writes the rack's notes. They sit on the rack object, so this is a field patch rather than a
+     * rack write: only that one field is sent, and nothing else on the object is touched.
+     *
+     * Emits once when the write went through, and completes silently when it was refused - the
+     * caller closes its editor on the emission, so a rejected save leaves the typed text in place.
+     */
+    public saveNotes(notes: string): Observable<void> {
+        const rackId = this.rackId();
+
+        if (!this.canEditNotes || rackId === null) {
+            return EMPTY;
+        }
+
+        // Deferred, so the loader is raised when the caller subscribes rather than when this is built.
+        return defer(() => {
+            this.loaderService.show();
+
+            return this.objectService.patchObject(rackId, {
+                fields: [{ name: RACK_NOTES_FIELD, value: notes }]
+            });
+        }).pipe(
+            map(() => undefined),
+            tap(() => {
+                this.applyNotes(notes);
+                this.toastService.success('Notes saved');
+            }),
+            catchError((err) => {
+                this.toastService.error(err?.error?.message);
+
+                return EMPTY;
+            }),
+            finalize(() => this.loaderService.hide()),
+            takeUntilDestroyed(this.destroyRef)
+        );
+    }
+
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /**
+     * Mirrors a written value onto the loaded header. Re-reading the rack would redraw every row and
+     * drop the selection, and no row is affected by a note.
+     */
+    private applyNotes(notes: string): void {
+        this.overview.update(current =>
+            current ? { ...current, rack: { ...current.rack, notes: notes || null } } : current);
+    }
+
 
     private rowsOf(area: RackArea): RackRowView[] {
         return this.rows().filter(row => row.area === area);
