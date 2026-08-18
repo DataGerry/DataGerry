@@ -20,7 +20,6 @@ import {
     AutomationRuleOperator,
     AutomationTriggerType,
     isTriggerSupported,
-    requiresMatching,
     ruleNeedsValue
 } from './automation-definition.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -79,10 +78,10 @@ export const WIZARD_GROUPS: ReadonlyArray<WizardGroupDescriptor> = [
     },
     {
         group: WizardGroup.MAPPING,
-        title: 'Assignment',
-        subtitle: 'Which fields?',
+        title: 'Fields',
+        subtitle: 'What arrives where?',
         icon: 'fas fa-right-left',
-        logicalSteps: ['Field mapping', 'Conditions']
+        logicalSteps: ['Field mapping', 'Value adjustment', 'Conditions']
     },
     {
         group: WizardGroup.REVIEW,
@@ -186,17 +185,16 @@ export function isGroupComplete(group: WizardGroup, definition: AutomationDefini
         case WizardGroup.LINK:
             return !!definition.objectType.typeId
                 && definition.fields.length > 0
-                && !!definition.target.connectorId
-                && !!definition.target.operation;
+                && !!definition.target.connectorId;
 
         // Nothing to fill in - the sequence follows from the connection.
         case WizardGroup.FLOW:
             return true;
 
+        // The assignment itself happens in the sequence, so nothing here has to be filled in
+        // before moving on - only a half-written condition can hold the step back.
         case WizardGroup.MAPPING:
-            return definition.mapping.some(entry => !!entry.target)
-                && (!requiresMatching(definition) || !!definition.matching.identifyBy)
-                && definition.conditions.rules.every(rule => !!rule.field
+            return definition.conditions.rules.every(rule => !!rule.field
                     && (!ruleNeedsValue(rule.operator) || !!rule.value.trim()));
 
         case WizardGroup.REVIEW:

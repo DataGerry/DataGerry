@@ -29,6 +29,7 @@ import {
     isTriggerSupported,
     outcomeWrites,
     requiresMatching,
+    seedsItsOwnCalls,
     systemFieldValue
 } from '../models/automation-definition.model';
 import {
@@ -200,7 +201,9 @@ export class AutomationCompilerService {
             errors.push('The source system offers no operation for reading objects.');
         }
 
-        if (!sides.target) {
+        // Only an automation whose calls are still derived needs one to exist: a newer one names
+        // its calls in the sequence, and an action it never chose must not hold it back.
+        if (seedsItsOwnCalls(definition) && !sides.target) {
             errors.push(`The target system offers no operation for "${definition.target.operation}".`);
         }
 
@@ -214,7 +217,7 @@ export class AutomationCompilerService {
 
         // Without it the automation has no way of telling which object over there it means, so
         // updating and deleting would act on nothing and creating would duplicate on every run.
-        if (requiresMatching(definition) && !definition.matching.identifyBy) {
+        if (seedsItsOwnCalls(definition) && requiresMatching(definition) && !definition.matching.identifyBy) {
             errors.push(
                 'Mark the field that identifies the object in the target system, so the automation '
                 + 'can find the object it should act on.'
@@ -296,7 +299,7 @@ export class AutomationCompilerService {
     ): OcConnection {
         const sides = this.resolveSides(definition, context);
 
-        if (!sides.source || !sides.target) {
+        if (!sides.source || (seedsItsOwnCalls(definition) && !sides.target)) {
             throw new Error('The automation cannot be compiled - validate() first.');
         }
 
@@ -338,26 +341,13 @@ export class AutomationCompilerService {
         // property of the loop: the loop's expression is the collection it walks, and the engine
         // reads nothing else. Everything the loop does then hangs off that gate instead.
         const container = this.buildConditionGate(definition, context, sides, loop, operators, graph, warnings);
-        const plan = this.planBranches(definition);
 
-        if (plan.length === 0) {
-            // No lookup: the single write hangs straight off the loop, which is what an automation
-            // that only ever adds looks like.
-            const writeMethod = this.buildMethod(
-                sides.target,
-                sides.targetConnector,
-                ocMethodNodeId(1),
-                `${container.index}_0`,
-                palette[1],
-                null
-            );
-
-            methods.push(writeMethod);
-            bindings.push(...this.buildFieldBindings(definition, context, sides, writeMethod, warnings));
-            graph.push({ id: writeMethod.id, kind: 'method', parent: container.id, method: writeMethod, below: true });
-        } else {
-            this.buildMatchedBranches(definition, context, sides, plan, {
-                palette, methods, operators, bindings, graph, container, warnings
+        // What the target system is asked to do is the sequence's answer, not this compiler's.
+        // Guessing it from an action the user picked meant guessing what that system calls the
+        // action, which is exactly the guess that kept being wrong - see seedsItsOwnCalls().
+        if (seedsItsOwnCalls(definition)) {
+            this.seedCalls(definition, context, sides, container, {
+                palette, methods, operators, bindings, graph, warnings
             });
         }
 
@@ -952,6 +942,46 @@ export class AutomationCompilerService {
         });
 
         return { id: gate.id, index: gate.index };
+    }
+
+
+    /**
+     * The calls an automation from before the sequence step carried implicitly.
+     *
+     * Such a definition names an action and how to match, and nothing in it lists the calls - so
+     * they are still derived, or reopening one would show an automation that writes nothing. A
+     * definition written since then lists its calls and comes through here untouched.
+     */
+    private seedCalls(
+        definition: AutomationDefinition,
+        context: AutomationCompileContext,
+        sides: ResolvedSides,
+        container: { id: string; index: string },
+        out: Omit<BranchBuildContext, 'container'>
+    ): void {
+        const { palette, methods, bindings, graph, warnings } = out;
+        const plan = this.planBranches(definition);
+
+        if (plan.length > 0) {
+            this.buildMatchedBranches(definition, context, sides, plan, { ...out, container });
+
+            return;
+        }
+
+        // No lookup: the single write hangs straight off the loop, which is what an automation
+        // that only ever adds looks like.
+        const writeMethod = this.buildMethod(
+            sides.target,
+            sides.targetConnector,
+            ocMethodNodeId(1),
+            `${container.index}_0`,
+            palette[1],
+            null
+        );
+
+        methods.push(writeMethod);
+        bindings.push(...this.buildFieldBindings(definition, context, sides, writeMethod, warnings));
+        graph.push({ id: writeMethod.id, kind: 'method', parent: container.id, method: writeMethod, below: true });
     }
 
 

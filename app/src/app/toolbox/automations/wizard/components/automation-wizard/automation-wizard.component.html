@@ -75,6 +75,7 @@
               [connection]="compiledConnection"
               [targetOperations]="targetOperations"
               [dataGerryFields]="availableFields"
+              [sampleValues]="sampleValues"
               (definitionChange)="onDefinitionChanged($event)">
             </app-wizard-step-flow>
           }
@@ -83,10 +84,7 @@
               [definition]="definition"
               [sourceFields]="sourceFields"
               [targetFields]="targetFields"
-              [matchableTargets]="matchableTargets"
-              [matchingRelevant]="matchingRelevant"
-              (definitionChange)="onDefinitionChanged($event)"
-              (autoMap)="onAutoMap()">
+              (definitionChange)="onDefinitionChanged($event)">
             </app-wizard-step-mapping>
           }
           @case (WizardGroup.REVIEW) {

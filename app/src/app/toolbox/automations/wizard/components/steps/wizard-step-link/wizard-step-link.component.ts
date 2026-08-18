@@ -24,15 +24,11 @@ import {
     AutomationDirection,
     AutomationField,
     AutomationMappingEntry,
-    AutomationMatchOutcome,
-    AutomationOperation,
     AutomationSystemField,
-    defaultMatchingFor,
     findSystemField,
     systemFieldValue,
     toAutomationField
 } from '../../../models/automation-definition.model';
-import { AUTOMATION_OPERATION_CHOICES } from '../../../models/target-catalog.model';
 import { SelectableTargetSystem } from '../../../services/target-catalog.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -67,7 +63,6 @@ export class WizardStepLinkComponent {
     /** Raised when the system or action changed, so the shell can rebuild the mapping. */
     @Output() public targetChange = new EventEmitter<void>();
 
-    public readonly operationChoices = AUTOMATION_OPERATION_CHOICES;
 
     /** Only one end is edited at a time; the other stays a summary. */
     public open: Pole | null = null;
@@ -220,79 +215,13 @@ export class WizardStepLinkComponent {
     }
 
 
-    public onSelectOperation(operation: AutomationOperation): void {
-        if (!this.isOperationAvailable(operation)) {
-            return;
-        }
-
-        this.definition.target.operation = operation;
-        // The action fixes one branch of the matching and leaves the other for the user.
-        this.definition.matching = {
-            ...defaultMatchingFor(operation),
-            identifyBy: this.definition.matching.identifyBy
-        };
-        this.emit();
-        this.targetChange.emit();
-    }
-
-
-    public onRemoteTypeChanged(value: string): void {
-        this.definition.target.remoteObjectTypeId = (value ?? '').trim();
-        this.emit();
-        this.targetChange.emit();
-    }
-
-
     public isSelectedSystem(system: SelectableTargetSystem): boolean {
         return this.definition.target.connectorId === system.connectorId;
     }
 
 
-    public isOperationAvailable(operation: AutomationOperation): boolean {
-        return this.selectedSystem?.availableOperations.includes(operation) ?? false;
-    }
-
-
     public get selectedSystem(): SelectableTargetSystem | undefined {
         return this.targetSystems.find(system => system.connectorId === this.definition.target.connectorId);
-    }
-
-    /* ---------------------------------------------------- MATCHING -------------------------------------------------- */
-
-    /** The case the chosen action does not already answer, which is what the user still decides. */
-    public get openBranch(): 'missing' | 'present' {
-        return this.definition.target.operation === 'create' ? 'present' : 'missing';
-    }
-
-
-    public get openBranchChoices(): ReadonlyArray<{ value: AutomationMatchOutcome; label: string }> {
-        return this.openBranch === 'present'
-            ? [
-                { value: 'skip', label: 'Leave it as it is' },
-                { value: 'update', label: 'Update it' },
-                { value: 'error', label: 'Report it as an error' }
-            ]
-            : [
-                { value: 'skip', label: 'Skip the object' },
-                { value: 'create', label: 'Create it' },
-                { value: 'error', label: 'Report it as an error' }
-            ];
-    }
-
-
-    public get openBranchValue(): AutomationMatchOutcome {
-        return this.openBranch === 'present'
-            ? this.definition.matching.whenPresent
-            : this.definition.matching.whenMissing;
-    }
-
-
-    public onOpenBranchChanged(outcome: AutomationMatchOutcome): void {
-        this.definition.matching = this.openBranch === 'present'
-            ? { ...this.definition.matching, whenPresent: outcome }
-            : { ...this.definition.matching, whenMissing: outcome };
-        this.emit();
-        this.targetChange.emit();
     }
 
     /* --------------------------------------------------- BACKGROUND ------------------------------------------------- */

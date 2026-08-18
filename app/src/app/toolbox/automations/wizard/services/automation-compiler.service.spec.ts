@@ -15,7 +15,11 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { AutomationDefinition, createEmptyAutomationDefinition } from '../models/automation-definition.model';
+import {
+    AutomationDefinition,
+    AUTOMATION_DERIVED_CALLS_VERSION,
+    createEmptyAutomationDefinition
+} from '../models/automation-definition.model';
 import { AutomationCompilerService, AutomationCompileContext } from './automation-compiler.service';
 import { TargetCatalogService } from './target-catalog.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -185,6 +189,10 @@ function context(): AutomationCompileContext {
 /** The reference scenario: i-doit is read, DataGerry is written. */
 function incomingDefinition(): AutomationDefinition {
     const definition = createEmptyAutomationDefinition();
+    // These suites are about the calls the compiler derives, which only an automation from before
+    // the sequence step still asks for. A fresh definition lists its calls instead - see the
+    // 'sequence-defined automations' suite below.
+    definition.version = AUTOMATION_DERIVED_CALLS_VERSION;
     definition.name = 'My Automation';
     definition.direction = 'incoming';
     definition.objectType = { typeId: 1, name: 'hardware', label: 'Hardware' };
@@ -1376,5 +1384,60 @@ describe('AutomationCompilerService', () => {
                 properties: { operator: 'for', leftField: '#FFCFB5.(response).body.$.result[*]' }
             }]
         });
+    });
+});
+
+
+/*
+ * Since the sequence step, what the target system is asked to do is listed there rather than worked
+ * out from an action. The action was a guess at what a given system calls creating something, and
+ * it was wrong often enough that it stopped being asked for.
+ */
+describe('AutomationCompilerService sequence-defined automations', () => {
+    let compiler: AutomationCompilerService;
+
+    beforeEach(() => {
+        compiler = new AutomationCompilerService(new TargetCatalogService());
+    });
+
+
+    /** The same automation, but written since the change - so it lists no calls of its own yet. */
+    function sequenceDefined(): AutomationDefinition {
+        const definition = incomingDefinition();
+        definition.version = 2;
+
+        return definition;
+    }
+
+
+    it('reads the source and stops there when the sequence lists nothing', () => {
+        const { payload } = compiler.compileForCreate(sequenceDefined(), context());
+
+        expect(payload.connection.fromConnector.methods.map(method => method.name))
+            .toEqual(['cmdb.objects.read']);
+    });
+
+
+    it('still walks the source collection, which is the automation itself', () => {
+        const { payload } = compiler.compileForCreate(sequenceDefined(), context());
+
+        expect(payload.connection.fromConnector.operators.map(operator => operator.type))
+            .toEqual(['loop']);
+    });
+
+
+    /* An action nobody chose must not hold back an automation that never needed one. */
+    it('accepts a definition whose action the target system cannot perform', () => {
+        const definition = sequenceDefined();
+        definition.target.operation = 'delete';
+
+        expect(compiler.validate(definition, context())).toEqual([]);
+    });
+
+
+    it('keeps deriving the calls of an automation written before the change', () => {
+        const { payload } = compiler.compileForCreate(incomingDefinition(), context());
+
+        expect(payload.connection.fromConnector.methods.length).toBeGreaterThan(1);
     });
 });

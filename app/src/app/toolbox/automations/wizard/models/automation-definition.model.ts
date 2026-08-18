@@ -26,8 +26,17 @@
  * a connection.
  */
 
-/** Bumped whenever the persisted shape changes so the codec can migrate or reject old drafts. */
-export const AUTOMATION_DEFINITION_VERSION = 1;
+/**
+ * Bumped whenever the persisted shape changes so the codec can migrate or reject old drafts.
+ *
+ * 2 is where the calls stopped being derived. Up to 1 an automation named an action - create,
+ * update, delete - and the compiler worked out the calls from it; since 2 the sequence lists them,
+ * and the action is only read to keep an automation written before the change running.
+ */
+export const AUTOMATION_DEFINITION_VERSION = 2;
+
+/** Last version whose calls the compiler still has to derive. See seedsItsOwnCalls(). */
+export const AUTOMATION_DERIVED_CALLS_VERSION = 1;
 
 /** Data flow direction, always expressed relative to DataGerry. */
 export type AutomationDirection = 'outgoing' | 'incoming';
@@ -183,6 +192,18 @@ export interface AutomationMatching {
 
     /** What to do with one it already holds. */
     whenPresent: AutomationMatchOutcome;
+}
+
+
+/**
+ * Whether the compiler still has to work the calls out for this automation.
+ *
+ * Only true for one written before the sequence step existed. Such a definition names an action and
+ * nothing else, so reopening it would show an automation that writes nothing if the calls were not
+ * derived. Anything written since lists its calls and is compiled as it stands.
+ */
+export function seedsItsOwnCalls(definition: AutomationDefinition): boolean {
+    return definition.version <= AUTOMATION_DERIVED_CALLS_VERSION;
 }
 
 
@@ -670,7 +691,9 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
     }
 
     return {
-        version: AUTOMATION_DEFINITION_VERSION,
+        // Kept as read rather than stamped: it is what says whether this definition lists its
+        // own calls, and stamping it would make every stored automation claim that it does.
+        version: raw.version ?? AUTOMATION_DERIVED_CALLS_VERSION,
         name: raw.name ?? base.name,
         description: raw.description ?? base.description,
         direction: raw.direction ?? base.direction,
