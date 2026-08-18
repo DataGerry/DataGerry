@@ -158,11 +158,32 @@
                 } @else {
                   <span class="wire__verb">{{ verbOf(step) }}</span>
                 }
-                <input
-                  type="text"
-                  class="form-control form-control-sm wire__input"
-                  [value]="endpointOf(step)"
-                  (change)="onEditEndpoint(step, $any($event.target).value)">
+                @if (isEditing('endpoint', '')) {
+                  <input
+                    type="text"
+                    class="form-control form-control-sm wire__input"
+                    [value]="endpointOf(step)"
+                    autofocus
+                    (blur)="stopEditing()"
+                    (change)="onEditEndpoint(step, $any($event.target).value)">
+                } @else {
+                  <button
+                    type="button"
+                    class="wire__shown"
+                    [class.is-changed]="false"
+                    title="Click to edit"
+                    (click)="startEditing('endpoint', '')">
+                    @for (token of endpointTokens; track $index) {
+                      @if (token.reference) {
+                        <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                      } @else {
+                        <span class="wire__literal">{{ token.text }}</span>
+                      }
+                    } @empty {
+                      <span class="wire__empty">empty</span>
+                    }
+                  </button>
+                }
                 <button
                   type="button"
                   class="wire__pick"
@@ -181,12 +202,33 @@
                     <td class="wire__key">{{ pair.key }}</td>
                     <td>
                       <div class="wire__value">
-                        <input
-                          type="text"
-                          class="form-control form-control-sm wire__input"
-                          [class.is-changed]="pair.changed"
-                          [value]="pair.value"
-                          (change)="onEdit(step, 'headers', pair.key, $any($event.target).value)">
+                        @if (isEditing('headers', pair.key)) {
+                          <input
+                            type="text"
+                            class="form-control form-control-sm wire__input"
+                            [class.is-changed]="pair.changed"
+                            [value]="pair.value"
+                            autofocus
+                            (blur)="stopEditing()"
+                            (change)="onEdit(step, 'headers', pair.key, $any($event.target).value)">
+                        } @else {
+                          <button
+                    type="button"
+                    class="wire__shown"
+                    [class.is-changed]="pair.changed"
+                    title="Click to edit"
+                    (click)="startEditing('headers', pair.key)">
+                    @for (token of pair.tokens; track $index) {
+                      @if (token.reference) {
+                        <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                      } @else {
+                        <span class="wire__literal">{{ token.text }}</span>
+                      }
+                    } @empty {
+                      <span class="wire__empty">empty</span>
+                    }
+                  </button>
+                        }
                         <button
                           type="button"
                           class="wire__pick"
@@ -252,18 +294,45 @@
                     <td class="wire__key">{{ pair.key }}</td>
                     <td>
                       @if (pair.bound) {
-                        <span
-                          class="wire__ref"
-                          title="Written by the field assignment - change it there">{{ pair.value }}</span>
+                        <span class="wire__ref" title="Written by the field assignment - change it there">
+                          @for (token of pair.tokens; track $index) {
+                            @if (token.reference) {
+                              <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                            } @else {
+                              <span class="wire__literal">{{ token.text }}</span>
+                            }
+                          }
+                        </span>
                       } @else {
                         <div class="wire__value">
-                          <input
-                            type="text"
-                            class="form-control form-control-sm wire__input"
-                            [class.is-changed]="pair.changed"
-                            [class.is-ref]="pair.reference"
-                            [value]="pair.value"
-                            (change)="onEdit(step, 'body', pair.key, $any($event.target).value)">
+                          @if (isEditing('body', pair.key)) {
+                            <input
+                              type="text"
+                              class="form-control form-control-sm wire__input"
+                              [class.is-changed]="pair.changed"
+                              [class.is-ref]="pair.reference"
+                              [value]="pair.value"
+                              autofocus
+                              (blur)="stopEditing()"
+                              (change)="onEdit(step, 'body', pair.key, $any($event.target).value)">
+                          } @else {
+                            <button
+                    type="button"
+                    class="wire__shown"
+                    [class.is-changed]="pair.changed"
+                    title="Click to edit"
+                    (click)="startEditing('body', pair.key)">
+                    @for (token of pair.tokens; track $index) {
+                      @if (token.reference) {
+                        <span class="wire__token" [title]="token.text">{{ token.label }}</span>
+                      } @else {
+                        <span class="wire__literal">{{ token.text }}</span>
+                      }
+                    } @empty {
+                      <span class="wire__empty">empty</span>
+                    }
+                  </button>
+                          }
                           <button
                             type="button"
                             class="wire__pick"

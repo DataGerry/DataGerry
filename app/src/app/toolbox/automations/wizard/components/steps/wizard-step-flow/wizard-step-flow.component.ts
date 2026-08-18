@@ -39,10 +39,32 @@ import {
 } from '../../../models/opencelium-connection.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+/**
+ * A stored value cut into the parts a reader can take in.
+ *
+ * A reference carries its whole route to the value - `#FFCFB5.(response).body.$.results[i].
+ * fields[0].value` - and the only part of that a person recognises is the last segment. So the
+ * route is kept and the name is shown, with the route one hover away.
+ */
+export interface ValueToken {
+    /** What is written into the request: the literal text, or the whole reference. */
+    text: string;
+
+    /** True when `text` is a reference rather than something typed. */
+    reference: boolean;
+
+    /** What the reader sees: the literal for text, the field's name for a reference. */
+    label: string;
+}
+
+
 /** One key/value pair of a request, as the table shows it. */
 export interface WirePair {
     key: string;
     value: string;
+
+    /** The value cut up for display; see ValueToken. */
+    tokens: ValueToken[];
 
     /** True when the value is read from an earlier call rather than written out. */
     reference: boolean;
@@ -216,6 +238,17 @@ export class WizardStepFlowComponent implements DoCheck {
     /** What the selected step could read, grouped by the step that answers it. */
     public valueSources: ValueSource[] = [];
 
+    /** The address of the selected call, cut up the same way as the pairs. */
+    public endpointTokens: ValueToken[] = [];
+
+    /**
+     * Which value is open for typing, as `part:key`.
+     *
+     * A value is shown by its field names and only turns into an editable box when it is clicked,
+     * because the box has to hold the whole reference for editing to be honest about what is sent.
+     */
+    private editingField = '';
+
     /** Which value the picker is currently filling in, and what it is being filtered by. */
     public picking: { part: 'headers' | 'body' | 'endpoint'; key: string } | null = null;
     public pickFilter = '';
@@ -275,7 +308,29 @@ export class WizardStepFlowComponent implements DoCheck {
 
         this.headerRows = step ? this.headersOf(step) : [];
         this.bodyRows = step ? this.bodyOf(step) : [];
+        this.endpointTokens = step ? tokensOf(this.endpointOf(step)) : [];
         this.valueSources = this.buildValueSources(step);
+
+        if (moved) {
+            this.editingField = '';
+        }
+    }
+
+
+    /* --------------------------------------------------- SHOWN VALUES ----------------------------------------------- */
+
+    public isEditing(part: 'headers' | 'body' | 'endpoint', key: string): boolean {
+        return this.editingField === `${part}:${key}`;
+    }
+
+
+    public startEditing(part: 'headers' | 'body' | 'endpoint', key: string): void {
+        this.editingField = `${part}:${key}`;
+    }
+
+
+    public stopEditing(): void {
+        this.editingField = '';
     }
 
 
@@ -1116,9 +1171,59 @@ function compareIndex(left: string, right: string): number {
  * that carries the meaning: `{%#FFCFB5.(response).body.$.results[i].type_id%} = '12'` is, to
  * someone scanning the sequence, `type_id = '12'`.
  */
+/**
+ * Matches a field reference in a stored value.
+ *
+ * Two spellings are in use: a request value holds the reference bare, an operator expression wraps
+ * it in `{%…%}`. Both are recognised so the same display works either side.
+ */
+const REFERENCE_PATTERN = /\{%[^%]*%\}|#[0-9A-Fa-f]{6}\.\([a-z]+\)[^\s,;)"']*/g;
+
+
+/** The part of a reference that carries meaning: its last segment, without any array index. */
+export function referenceLabel(reference: string): string {
+    const path = reference.replace(/^\{%/, '').replace(/%\}$/, '');
+    const last = path.split('.').filter(Boolean).pop() ?? path;
+
+    return last.replace(/\[[^\]]*\]$/, '') || last;
+}
+
+
+/**
+ * Cuts a stored value into literal text and references.
+ *
+ * A value is often part of each - an Authorization header is the word `Bearer` and then a token -
+ * so this returns a sequence rather than deciding the value is one thing or the other.
+ */
+export function tokensOf(value: string): ValueToken[] {
+    const tokens: ValueToken[] = [];
+    let at = 0;
+
+    for (const hit of value.matchAll(REFERENCE_PATTERN)) {
+        const start = hit.index ?? 0;
+
+        if (start > at) {
+            const text = value.slice(at, start);
+            tokens.push({ text, reference: false, label: text });
+        }
+
+        tokens.push({ text: hit[0], reference: true, label: referenceLabel(hit[0]) });
+        at = start + hit[0].length;
+    }
+
+    if (at < value.length) {
+        const text = value.slice(at);
+        tokens.push({ text, reference: false, label: text });
+    }
+
+    return tokens;
+}
+
+
 function summarize(expression: string): string {
+    // Same cut as the request rows use, so a field is called the same thing wherever it appears.
     return expression
-        .replace(/\{%(.*?)%\}/g, (_all, reference: string) => reference.split('.').pop() ?? reference)
+        .replace(/\{%.*?%\}/g, reference => referenceLabel(reference))
         .replace(/^\((.*)\)$/, '$1');
 }
 
@@ -1191,7 +1296,14 @@ function pairsOf(node: unknown, prefix = ''): WirePair[] {
     if (typeof node !== 'object') {
         const value = String(node);
 
-        return [{ key: prefix, value, reference: value.startsWith('#'), bound: false, changed: false }];
+        return [{
+            key: prefix,
+            value,
+            tokens: tokensOf(value),
+            reference: value.startsWith('#'),
+            bound: false,
+            changed: false
+        }];
     }
 
     if (Array.isArray(node)) {

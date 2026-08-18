@@ -20,7 +20,7 @@ import {
     createEmptyAutomationDefinition
 } from '../../../models/automation-definition.model';
 import { OcConnection } from '../../../models/opencelium-connection.model';
-import { WizardStepFlowComponent } from './wizard-step-flow.component';
+import { referenceLabel, tokensOf, WizardStepFlowComponent } from './wizard-step-flow.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -410,5 +410,103 @@ describe('WizardStepFlowComponent', () => {
             // 'i' belongs to the loop over the objects, 'j' to the one already there.
             expect(component.definition.extras[0].loop?.iterator).toBe('k');
         });
+    });
+});
+
+
+/*
+ * A reference carries its whole route to a value and only its last segment means anything to a
+ * reader. These pin the cut, because getting it wrong shows the wrong field name against the right
+ * value - which is worse than showing the route.
+ */
+describe('value tokens', () => {
+
+    it('shows a reference by the field it points at', () => {
+        const tokens = tokensOf('#FFCFB5.(response).body.$.results[i].fields[0].value');
+
+        expect(tokens.length).toBe(1);
+        expect(tokens[0].reference).toBeTrue();
+        expect(tokens[0].label).toBe('value');
+        expect(tokens[0].text).toBe('#FFCFB5.(response).body.$.results[i].fields[0].value');
+    });
+
+
+    it('drops an index from the name but keeps it in the reference', () => {
+        const [token] = tokensOf('#FFCFB5.(response).body.$.result[0]');
+
+        expect(token.label).toBe('result');
+        expect(token.text).toBe('#FFCFB5.(response).body.$.result[0]');
+    });
+
+
+    /* An Authorization header is the word Bearer and then a token, so a value is not one or other. */
+    it('keeps the text around a reference', () => {
+        const tokens = tokensOf('Bearer #C77E7E.(response).body.$.token');
+
+        expect(tokens.map(token => token.reference)).toEqual([false, true]);
+        expect(tokens[0].text).toBe('Bearer ');
+        expect(tokens[1].label).toBe('token');
+    });
+
+
+    it('reads the wrapped spelling an expression uses', () => {
+        const [token] = tokensOf('{%#FFCFB5.(response).body.$.results[i].type_id%}');
+
+        expect(token.reference).toBeTrue();
+        expect(token.label).toBe('type_id');
+    });
+
+
+    it('leaves a plain value alone', () => {
+        const tokens = tokensOf('application/json');
+
+        expect(tokens.length).toBe(1);
+        expect(tokens[0].reference).toBeFalse();
+        expect(tokens[0].label).toBe('application/json');
+    });
+
+
+    it('answers with nothing for an empty value, so the row can say so', () => {
+        expect(tokensOf('')).toEqual([]);
+    });
+
+
+    it('falls back to the whole reference when there is no segment to take', () => {
+        expect(referenceLabel('#FFCFB5.(response)')).toBe('(response)');
+    });
+});
+
+
+describe('WizardStepFlowComponent editing', () => {
+
+    it('opens one value at a time', () => {
+        const component = new WizardStepFlowComponent();
+
+        component.startEditing('body', 'params.title');
+        expect(component.isEditing('body', 'params.title')).toBeTrue();
+
+        component.startEditing('headers', 'Authorization');
+        expect(component.isEditing('body', 'params.title')).toBeFalse();
+        expect(component.isEditing('headers', 'Authorization')).toBeTrue();
+    });
+
+
+    it('closes on demand, which is what a blur does', () => {
+        const component = new WizardStepFlowComponent();
+
+        component.startEditing('endpoint', '');
+        component.stopEditing();
+
+        expect(component.isEditing('endpoint', '')).toBeFalse();
+    });
+
+
+    /* Keys from different parts must not collide - both a header and a body field may be `id`. */
+    it('tells a header apart from a body field of the same name', () => {
+        const component = new WizardStepFlowComponent();
+
+        component.startEditing('headers', 'id');
+
+        expect(component.isEditing('body', 'id')).toBeFalse();
     });
 });
