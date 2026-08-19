@@ -290,7 +290,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.warningModalOpen = true;
         const modalRef = this.modalService.open(CoreWarningModalComponent, {
             size: 'md',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.title = 'Confirm change';
@@ -377,7 +379,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private confirmSaveBeforePreview(objectId: number): void {
         const modalRef = this.modalService.open(CoreWarningModalComponent, {
             size: 'md',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.title = 'Save template for preview';
