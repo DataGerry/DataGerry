@@ -25,6 +25,9 @@ import { BuilderInteractionPolicy } from './builder-interaction-policy';
  * flagged as invalid, whether interactions should be locked, and the derived CSS 
  */
 export class BuilderHighlightHelper {
+    /** Shared by every draggable control, so the value is global rather than per item. */
+    private readonly draggableItemClass = { disabled: false };
+
     constructor(
         private readonly ctx: BuilderContext,
         private readonly policy: BuilderInteractionPolicy,
@@ -234,11 +237,15 @@ export class BuilderHighlightHelper {
 
     /**
      * Returns the CSS classes for a draggable item based on section state.
+     *
+     * The object is reused instead of rebuilt so the `[ngClass]` binding on every draggable
+     * control keeps a stable reference. NgClass diffs the object's keys on each check, so
+     * mutating it in place still applies the change.
      */
-    public getDraggableItemClass(): any {
-        return {
-            'disabled': this.isAnySectionHighlighted() || this.ctx.disableFields
-        };
+    public getDraggableItemClass(): { disabled: boolean } {
+        this.draggableItemClass.disabled = Boolean(this.isAnySectionHighlighted() || this.ctx.disableFields);
+
+        return this.draggableItemClass;
     }
 
     /**
