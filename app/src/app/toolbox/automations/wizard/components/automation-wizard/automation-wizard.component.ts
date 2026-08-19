@@ -577,9 +577,12 @@ export class AutomationWizardComponent implements OnInit {
             : this.internalConnector?.invoker;
         const lookup = this.catalog.resolveOperation(targetInvoker, 'list');
 
+        // The calls a step can make are the ones of the system being written to, which is the
+        // foreign one only while DataGerry is being read. Offering the foreign system's operations
+        // to an incoming automation listed calls that end up nowhere.
         this.targetOperations = keepIfUnchanged(
             this.targetOperations,
-            (this.connectorOf(this.definition.target.connectorId)?.invoker?.operations ?? [])
+            (targetInvoker?.operations ?? [])
                 .map((operation: any) => operation?.name)
                 .filter((name: string) => !!name),
             name => name
