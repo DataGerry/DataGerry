@@ -102,10 +102,11 @@
         <button
           type="button"
           class="tree__addbtn"
-          [disabled]="!selected"
-          [title]="selected?.kind === 'if' || selected?.kind === 'loop'
-            ? 'Runs inside the selected step'
-            : 'Runs after the selected step'"
+          [title]="!selected
+            ? 'Runs once per object read'
+            : (selected.kind === 'if' || selected.kind === 'loop'
+              ? 'Runs inside the selected step'
+              : 'Runs after the selected step')"
           (click)="startAdding()">
           + Add a step in the target system
         </button>
