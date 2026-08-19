@@ -829,3 +829,78 @@ describe('operator references', () => {
         expect(tokens[2].text).toContain('NotEmpty');
     });
 });
+
+
+/*
+ * The sequence is what says which calls a system receives, so it has to start with none of them
+ * and take a first one in either direction. Both were broken: an outgoing automation showed an
+ * empty list with no way to add to it, and an incoming one opened with a call nobody had chosen.
+ */
+describe('WizardStepFlowComponent starting from nothing', () => {
+
+    /** The skeleton on its own: the read that fetches the objects, and the loop over them. */
+    function mounted(direction: 'incoming' | 'outgoing'): WizardStepFlowComponent {
+        const component = new WizardStepFlowComponent();
+        const definition = createEmptyAutomationDefinition();
+        const skeleton = connection();
+
+        definition.direction = direction;
+        component.definition = definition;
+        component.connection = {
+            ...skeleton,
+            fromConnector: {
+                ...skeleton.fromConnector,
+                methods: [skeleton.fromConnector.methods[0]]
+            }
+        };
+        component.targetOperations = ['cmdb.object.create'];
+        component.ngDoCheck();
+
+        return component;
+    }
+
+
+    it('shows no step at all before one is added', () => {
+        expect(mounted('outgoing').steps).toEqual([]);
+        expect(mounted('incoming').steps).toEqual([]);
+    });
+
+
+    it('leaves the read that fetches the objects out of the sequence, whichever system answers it', () => {
+        for (const direction of ['incoming', 'outgoing'] as const) {
+            expect(mounted(direction).steps.some(step => step.id === 'method-0'))
+                .withContext(direction)
+                .toBeFalse();
+        }
+    });
+
+
+    /* Nothing to select means nothing to hang a step on, which is what stopped the first one. */
+    it('takes a first call with no step selected', () => {
+        const component = mounted('outgoing');
+
+        component.onAddCall('cmdb.object.create');
+
+        expect(component.definition.extras.length).toBe(1);
+        expect(component.definition.extras[0].operation).toBe('cmdb.object.create');
+    });
+
+
+    it('hangs that first call inside the container that runs per object', () => {
+        const component = mounted('outgoing');
+        const loop = component.connection!.fromConnector.operators.find(operator => operator.type === 'loop');
+
+        component.onAddCall('cmdb.object.create');
+
+        expect(component.definition.extras[0].after).toBe(loop!.index);
+    });
+
+
+    it('takes a first call for an incoming automation too', () => {
+        const component = mounted('incoming');
+
+        component.onAddCall('cmdb.object.create');
+
+        expect(component.definition.extras.length).toBe(1);
+    });
+});

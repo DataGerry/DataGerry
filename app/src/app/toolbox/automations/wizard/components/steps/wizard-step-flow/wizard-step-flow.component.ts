@@ -456,8 +456,10 @@ export class WizardStepFlowComponent implements DoCheck {
         const entries: FlowStep[] = [];
 
         for (const method of this.connection.fromConnector.methods) {
-            // The read on DataGerry's side is the one call the assistant owns entirely.
-            if (method === source && this.definition.direction === 'outgoing') {
+            // The read that fetches the objects is the automation itself, whichever system answers
+            // it: it follows from the object type and there is nothing to decide about it. Listing
+            // it made the sequence of an incoming automation start with a call nobody had chosen.
+            if (method === source) {
                 continue;
             }
 
@@ -1066,23 +1068,41 @@ export class WizardStepFlowComponent implements DoCheck {
 
     private addExtra(partial: Omit<AutomationExtraCall, 'id' | 'after'>): void {
         const after = this.selected;
+        // A step the user added is named by its own id; one from the skeleton by its position,
+        // which is stable because the skeleton is rebuilt the same way every time. With nothing in
+        // the sequence yet there is no step to name, so the first one hangs off the container the
+        // automation always has - which is also what makes it run once per object.
+        const anchor = after ? (this.extraFor(after)?.id ?? after.index) : this.perObjectContainer;
 
-        if (!after) {
+        if (!anchor) {
             return;
         }
 
         const extra: AutomationExtraCall = {
             ...partial,
             id: `extra-${this.definition.extras.length + 1}-${Date.now()}`,
-            // A step the user added is named by its own id; one from the skeleton by its position,
-            // which is stable because the skeleton is rebuilt the same way every time.
-            after: this.extraFor(after)?.id ?? after.index
+            after: anchor
         };
 
         this.definition.extras = [...this.definition.extras, extra];
         this.awaiting = nodeIdOf(extra);
         this.adding = '';
         this.definitionChange.emit(this.definition);
+    }
+
+
+    /**
+     * The container whose body runs once per object read.
+     *
+     * The restriction gate when the automation has one, because everything the loop does moves
+     * inside it, and the loop itself otherwise. Empty only while nothing compiles, which is when
+     * there is nothing to add a step to anyway.
+     */
+    private get perObjectContainer(): string {
+        const operators = this.connection?.fromConnector?.operators ?? [];
+        const gate = operators.find(operator => operator.id === 'if-gate');
+
+        return (gate ?? operators.find(operator => operator.type === 'loop'))?.index ?? '';
     }
 
 
