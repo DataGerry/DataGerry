@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, Renderer2 } from '@angular/core';
+import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, Renderer2, RendererStyleFlags2 } from '@angular/core';
 import { UntypedFormControl } from '@angular/forms';
 
 import { ReplaySubject, Subscription, takeUntil } from 'rxjs';
@@ -36,6 +36,9 @@ import { PremiumFeatureService } from 'src/app/settings/license-management/premi
 
 // Persists the user's collapsed-rail preference across reloads and layout re-renders.
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dg-sidebar-collapsed';
+
+// Published on :root so fixed overlays (sticky object action bars) can offset by the live sidebar width.
+const SIDEBAR_WIDTH_CSS_VARIABLE = '--dg-sidebar-width';
 
 @Component({
     selector: 'cmdb-sidebar',
@@ -153,6 +156,7 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
         this.filterTermSubscription?.unsubscribe();
     
         this.renderer?.removeClass(document?.body, 'sidebar-fixed');
+        this.renderer?.removeStyle(document?.documentElement, SIDEBAR_WIDTH_CSS_VARIABLE, RendererStyleFlags2.DashCase);
     }
 
     /* ------------------------------------------------ SIDEBAR HANDLING ------------------------------------------------ */
@@ -231,6 +235,8 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
 
 
     private updateDynamicStyles(newWidth: string) {
+        this.renderer.setStyle(document.documentElement, SIDEBAR_WIDTH_CSS_VARIABLE, newWidth, RendererStyleFlags2.DashCase);
+
         const styles = `
         .sidebar-fixed #main {
             margin-left: ${newWidth};
