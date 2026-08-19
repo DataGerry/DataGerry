@@ -375,6 +375,22 @@ export function ocCollectionElementPath(
 
 
 /**
+ * Splits a reference back into the parts a field binding names separately.
+ *
+ * A reference travels as one string - `#FFCFB5.(response).body.$.results[i].id` - because that is
+ * what a request value holds, but a binding wants the colour and the path apart. Returns null for
+ * anything that is not one, which is how a typed-in value is told from a reference.
+ */
+export function ocParseReference(
+    reference: string
+): { color: string; section: 'request' | 'response'; field: string } | null {
+    const match = /^(#[0-9A-Fa-f]{6})\.\((request|response)\)\.(.+)$/.exec(reference ?? '');
+
+    return match ? { color: match[1], section: match[2] as 'request' | 'response', field: match[3] } : null;
+}
+
+
+/**
  * Node and edge identities, shared between the connection body and its ui block.
  *
  * A position for the steps the assistant builds, which are numbered; the step's own id for the ones

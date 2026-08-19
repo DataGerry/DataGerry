@@ -202,6 +202,18 @@ export interface AutomationMatching {
  * nothing else, so reopening it would show an automation that writes nothing if the calls were not
  * derived. Anything written since lists its calls and is compiled as it stands.
  */
+/**
+ * Whether the compiler adds the call that writes into DataGerry.
+ *
+ * Only an incoming automation has one, and only since the calls stopped being derived: before
+ * that the write was one of the derived calls like any other. It is not part of the sequence
+ * because the sequence configures the other system, and this call is what the automation is for.
+ */
+export function writesIntoDataGerry(definition: AutomationDefinition): boolean {
+    return definition.direction === 'incoming' && !seedsItsOwnCalls(definition);
+}
+
+
 export function seedsItsOwnCalls(definition: AutomationDefinition): boolean {
     return definition.version <= AUTOMATION_DERIVED_CALLS_VERSION;
 }
@@ -237,6 +249,15 @@ export function requiresMatching(definition: AutomationDefinition): boolean {
 
 
 /** One value feeding a target field. */
+/**
+ * Where one of a target field's values comes from.
+ *
+ * Three kinds, and which are available follows from the direction. Reading DataGerry means a value
+ * is one of its fields, so `field` carries it. Writing DataGerry means the values come out of the
+ * answers the sequence collected, which are references rather than field names - and there is no
+ * DataGerry object to read them from, so a `literal` is the other option. A literal is offered in
+ * both directions, because a constant is a constant.
+ */
 export interface AutomationMappingSource {
     /** Field name on the source side, or the key of a system field such as '$type_id'. */
     field: string;
@@ -244,6 +265,42 @@ export interface AutomationMappingSource {
 
     /** Similarity score of an automatic suggestion, 0..1. Always 1 for a manual choice. */
     confidence: number;
+
+    /**
+     * An answer from an earlier call, as the reference that fetches it.
+     *
+     * Set instead of `field` when the value comes from the sequence rather than from a DataGerry
+     * object, which is every value of an automation that writes into DataGerry.
+     */
+    reference?: string;
+
+    /** A value typed in rather than read from anywhere. Set instead of `field`. */
+    literal?: string;
+
+    /**
+     * True when the reference was written out by hand rather than picked from what the invokers
+     * describe. Kept so the row reopens on the same choice; the reference itself is no different.
+     */
+    handWritten?: boolean;
+}
+
+
+/** What a source stands for, so a reader does not have to work it out from which key is set. */
+export type AutomationSourceKind = 'field' | 'reference' | 'literal';
+
+
+export function sourceKindOf(source: AutomationMappingSource): AutomationSourceKind {
+    if (source.literal !== undefined) {
+        return 'literal';
+    }
+
+    return source.reference ? 'reference' : 'field';
+}
+
+
+/** What the compiled request has to be given for this source, ready to put into the body. */
+export function sourceValueOf(source: AutomationMappingSource): string {
+    return source.literal ?? source.reference ?? '';
 }
 
 
@@ -278,7 +335,11 @@ export function entryForTarget(
 
 /** Every source field the mapping uses, in no particular order. */
 export function mappedSources(mapping: AutomationMappingEntry[]): Set<string> {
-    return new Set(mapping.flatMap(entry => entry.sources.map(source => source.field)));
+    // Only a source that names a DataGerry field counts: a reference or a literal is not one of
+    // the object's fields, and letting '' into the set would mark every unnamed field as used.
+    return new Set(
+        mapping.flatMap(entry => entry.sources.filter(source => !!source.field).map(source => source.field))
+    );
 }
 
 
@@ -954,9 +1015,18 @@ export function describeAutomation(definition: AutomationDefinition): string {
         webhook: 'whenever an external webhook fires'
     }[definition.trigger.type];
 
-    const flow = definition.direction === 'outgoing'
-        ? `${action} ${objectLabel} in ${targetLabel} from DataGerry`
-        : `${action} ${objectLabel} in DataGerry from ${targetLabel}`;
+    // An automation that lists its own calls has no single action to name, so the sentence says
+    // where the data travels and leaves what is done with it to the sequence.
+    const callCount = definition.extras.length;
+    const callPart = callCount === 1 ? '1 call' : `${callCount} calls`;
+
+    const flow = seedsItsOwnCalls(definition)
+        ? (definition.direction === 'outgoing'
+            ? `${action} ${objectLabel} in ${targetLabel} from DataGerry`
+            : `${action} ${objectLabel} in DataGerry from ${targetLabel}`)
+        : (definition.direction === 'outgoing'
+            ? `send ${objectLabel} from DataGerry to ${targetLabel} through ${callPart}`
+            : `collect ${objectLabel} from ${targetLabel} through ${callPart} and write them into DataGerry`);
 
     const conditionPart = definition.conditions.rules.length > 0
         ? `, limited to objects matching ${definition.conditions.rules.length} condition(s)`
