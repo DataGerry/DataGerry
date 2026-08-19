@@ -39,6 +39,7 @@ import {
     findSystemField,
     mappedSources,
     requiresMatching,
+    writesIntoDataGerry,
     systemFieldsFor
 } from '../../models/automation-definition.model';
 import {
@@ -49,6 +50,12 @@ import {
     WIZARD_GROUP_COUNT
 } from '../../models/automation-wizard-step.model';
 import { OcConnection } from '../../models/opencelium-connection.model';
+import {
+    SequenceCall,
+    sequenceCallsOf,
+    ValueSource,
+    valueSourcesAfterSequence
+} from '../steps/wizard-step-flow/wizard-step-flow.component';
 import { ResolvedOperation, TargetField } from '../../models/target-catalog.model';
 import { AutomationCompilerService, AutomationCompileContext } from '../../services/automation-compiler.service';
 import { AutomationDefinitionCodecService } from '../../services/automation-definition-codec.service';
@@ -128,6 +135,15 @@ export class AutomationWizardComponent implements OnInit {
 
     /** Operation names of the target system, for a call the user adds to the sequence. */
     public targetOperations: string[] = [];
+
+    /**
+     * What the sequence answered and which calls answered it, for the fields step.
+     *
+     * Built from the compiled connection - which is built from the invokers of the calls the user
+     * chose - so the values on offer are the ones those interfaces describe.
+     */
+    public writeValueSources: ValueSource[] = [];
+    public sequenceCalls: SequenceCall[] = [];
 
     /** Compilation results, recomputed whenever the definition changes. */
     public validationErrors: string[] = [];
@@ -513,6 +529,8 @@ export class AutomationWizardComponent implements OnInit {
             this.validationErrors = ['The internal DataGerry connector or the target system is not available.'];
             this.compiledPreview = '';
             this.compiledConnection = null;
+            this.writeValueSources = [];
+            this.sequenceCalls = [];
 
             return;
         }
@@ -527,6 +545,8 @@ export class AutomationWizardComponent implements OnInit {
             this.compileWarnings = [];
             this.compiledPreview = '';
             this.compiledConnection = null;
+            this.writeValueSources = [];
+            this.sequenceCalls = [];
 
             return;
         }
@@ -540,6 +560,11 @@ export class AutomationWizardComponent implements OnInit {
         this.compiledConnection = 'connection' in compiled.payload
             ? compiled.payload.connection
             : compiled.payload;
+
+        // Read off the connection, so they have to be taken after it is rebuilt: a call added now
+        // must offer its answers now, not after the next change.
+        this.writeValueSources = valueSourcesAfterSequence(this.compiledConnection);
+        this.sequenceCalls = sequenceCallsOf(this.compiledConnection);
     }
 
 
@@ -618,6 +643,14 @@ export class AutomationWizardComponent implements OnInit {
      * cleared one, a value adjustment - survives, because fillGaps only touches undecided pairs.
      */
     private reconcileMapping(): void {
+        // An automation that writes into DataGerry keeps a mapping of a different shape: its
+        // targets are DataGerry's own field names and its sources are references and typed-in
+        // values, neither of which is a field anybody offers. Reconciling would find nothing it
+        // recognises and throw the lot away, so it is left to the fields step that owns it.
+        if (writesIntoDataGerry(this.definition)) {
+            return;
+        }
+
         const sources = this.sourceFields;
 
         if (sources.length === 0) {

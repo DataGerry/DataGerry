@@ -117,6 +117,40 @@
   }
 }
 
+// What an incoming automation puts into one DataGerry field, if anything.
+.mapping-write {
+  &__picker,
+  &__literal {
+    font-size: 0.8rem;
+    max-width: 26rem;
+  }
+
+  &__literal {
+    margin-top: 0.35rem;
+  }
+
+  &__value {
+    display: block;
+    margin-top: 0.3rem;
+    font-size: 0.7rem;
+    color: $muted;
+  }
+
+  // The last segment of a reference; the whole route is the title, one hover away.
+  &__token {
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    background: #eef2ff;
+    color: #4338ca;
+    cursor: help;
+  }
+}
+
+// A field nobody writes is a decision too, so it reads quiet rather than unfinished.
+.mapping-table tbody tr.is-empty .mapping-target__name {
+  color: $muted;
+}
+
 // The value adjustment, folded out under the pair it belongs to.
 .mapping-transform {
   background: #f9fafb;
@@ -266,4 +300,20 @@
   .rule-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
+}
+
+/* A path written out by hand: which call answers it, and the path into that answer. */
+.mapping-write__path {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
+
+    select { flex: 0 0 40%; }
+    input { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+}
+
+.mapping-write__hint {
+    margin: 0.3rem 0 0;
+    font-size: 0.75rem;
+    color: #6c757d;
 }

@@ -1572,6 +1572,67 @@ function nodeIdOf(extra: AutomationExtraCall): string {
  * every other list is addressed by its first entry, which is what a lookup's answer is. The list
  * itself is offered too, as `[*]` - that is the one thing a new loop can be pointed at.
  */
+/** One call of the sequence, as something that answers - which is all a reference needs of it. */
+export interface SequenceCall {
+    label: string;
+    color: string;
+}
+
+
+/** The calls of a connection, for a reference that names its own path instead of picking one. */
+export function sequenceCallsOf(connection: OcConnection | null): SequenceCall[] {
+    return (connection?.fromConnector.methods ?? [])
+        .filter(method => method.methodType !== OC_FREE_REQUEST)
+        .map(method => ({
+            label: method.connector?.title ? `${method.connector.title} · ${method.name}` : method.name,
+            color: method.color
+        }));
+}
+
+
+/**
+ * Everything the sequence answered, for the call that runs after all of it.
+ *
+ * The fields step offers the same list as the sequence does, but for no particular step - the call
+ * it configures is the last thing inside the container. Built here rather than a second time, so a
+ * value carries the same name on both screens and a reference picked on one resolves on the other.
+ */
+export function valueSourcesAfterSequence(connection: OcConnection | null): ValueSource[] {
+    if (!connection) {
+        return [];
+    }
+
+    const operators = connection.fromConnector.operators ?? [];
+    const container = operators.find(operator => operator.id === 'if-gate')
+        ?? operators.find(operator => operator.type === 'loop');
+
+    if (!container) {
+        return [];
+    }
+
+    // A position inside the container, which is where the call sits - it decides which loops the
+    // references have to walk with an iterator.
+    const at = `${container.index}_0`;
+    const loops = operators
+        .filter(operator => operator.type === 'loop' && at.startsWith(`${operator.index}_`))
+        .sort((left, right) => compareIndex(left.index, right.index))
+        .map(operator => ({
+            path: /body\.\$\.(.+?)\[\*\]/.exec(operator.expression)?.[1] ?? '',
+            iterator: operator.iterator || OC_LOOP_ITERATOR
+        }))
+        .filter(loop => !!loop.path);
+
+    return connection.fromConnector.methods
+        .filter(method => method.methodType !== OC_FREE_REQUEST)
+        .flatMap(method => schemaPaths(method.response?.success?.body?.fields, loops).map(entry => ({
+            group: method.connector?.title ? `${method.connector.title} · ${method.name}` : method.name,
+            label: entry.path,
+            reference: ocFieldReference(method.color, 'response', entry.path),
+            isList: entry.isList
+        })));
+}
+
+
 function schemaPaths(
     node: unknown,
     loops: ReadonlyArray<{ path: string; iterator: string }>,

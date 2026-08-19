@@ -30,6 +30,8 @@ import {
     outcomeWrites,
     requiresMatching,
     seedsItsOwnCalls,
+    sourceValueOf,
+    writesIntoDataGerry,
     systemFieldValue
 } from '../models/automation-definition.model';
 import {
@@ -55,6 +57,7 @@ import {
     ocIfNodeId,
     ocLoopNodeId,
     ocMethodNodeId,
+    ocParseReference,
     ocPresenceExpression,
     ocPresenceField,
     ocSystemNodeId,
@@ -387,6 +390,16 @@ export class AutomationCompilerService {
         const fromExtras = this.appendExtras(definition, context, {
             palette, methods, operators, bindings, graph, warnings
         });
+
+        // An incoming automation exists to put objects into DataGerry, so the write is the
+        // automation itself in the same way the read is on the way out - the sequence only
+        // gathers what goes into it. It comes last inside the container, after everything the
+        // user added, because it needs their answers.
+        if (writesIntoDataGerry(definition)) {
+            this.appendDataGerryWrite(definition, context, container, {
+                palette, methods, operators, bindings, graph, warnings
+            });
+        }
 
         this.applyOverrides({ ...definition.overrides, ...fromExtras }, methods, bindings, warnings);
 
@@ -975,6 +988,118 @@ export class AutomationCompilerService {
         });
 
         return { id: gate.id, index: gate.index };
+    }
+
+
+    /**
+     * The call that puts what the sequence collected into DataGerry.
+     *
+     * Its body is the mapping: one entry per field of the object type the user filled in, each
+     * either a value read from an earlier answer or one typed in. The object type itself is the
+     * automation's own choice and goes in as a literal.
+     */
+    private appendDataGerryWrite(
+        definition: AutomationDefinition,
+        context: AutomationCompileContext,
+        container: { id: string; index: string },
+        out: Omit<BranchBuildContext, 'container'>
+    ): void {
+        const { palette, methods, bindings, graph, warnings } = out;
+        const operation = this.catalog.resolveOperation(context.internalConnector?.invoker, 'create');
+
+        if (!operation) {
+            warnings.push(
+                'DataGerry offers no operation for creating an object, so the collected data is not '
+                + 'written anywhere.'
+            );
+
+            return;
+        }
+
+        const written = definition.mapping.filter(entry => entry.target && entry.sources.length > 0);
+
+        if (written.length === 0) {
+            return;
+        }
+
+        const method = this.buildMethod(
+            operation,
+            context.internalConnector,
+            ocMethodNodeId(methods.length),
+            this.nextFreePosition(container.index, container.index.split('_').length + 1, out),
+            palette[methods.length % palette.length],
+            null
+        );
+
+        this.setBodyField(method.request, 'type_id', String(definition.objectType.typeId ?? ''));
+
+        // DataGerry takes an object's fields as an array of name/value pairs, which setBodyField
+        // cannot address - it walks dotted keys and would turn the array into an object.
+        method.request.body.fields.fields = written.map(entry => ({
+            name: entry.target,
+            value: sourceValueOf(entry.sources[0])
+        }));
+
+        methods.push(method);
+        graph.push({ id: method.id, kind: 'method', parent: container.id, method, below: true });
+
+        written.forEach((entry, position) => {
+            const binding = this.bindDataGerryField(entry, position, method, warnings);
+
+            if (binding) {
+                bindings.push(binding);
+            }
+        });
+    }
+
+
+    /**
+     * Wires one field of the written object to the answer it comes from.
+     *
+     * A value that was typed in needs no binding - it already stands in the body. One that came
+     * from an earlier call does, and unlike everywhere else the reference is stored whole, so it
+     * is taken apart again into the colour and the path a binding names separately.
+     */
+    private bindDataGerryField(
+        entry: AutomationMappingEntry,
+        position: number,
+        method: OcMethod,
+        warnings: string[]
+    ): OcFieldBinding | null {
+        const references = entry.sources
+            .map(source => ocParseReference(source.reference ?? ''))
+            .filter((parsed): parsed is { color: string; section: 'request' | 'response'; field: string } => !!parsed);
+        const script = entry.transform?.enabled ? entry.transform.script.trim() : '';
+
+        if (entry.transform?.enabled && !script) {
+            warnings.push(
+                `The value adjustment for "${entry.target}" has no content, so the value is `
+                + 'transferred unchanged.'
+            );
+        }
+
+        if (references.length === 0) {
+            return null;
+        }
+
+        const targetPath = `body.$.fields[${position}].value`;
+        const sources: SourceValue[] = references.map(reference => ({ kind: 'path', path: reference.field }));
+
+        return {
+            from: references.map(reference => ({
+                color: reference.color,
+                field: reference.field,
+                type: 'response' as const
+            })),
+            to: [{ color: method.color, field: targetPath, type: 'request' as const }],
+            enhancement: this.buildEnhancement(
+                references[0].field,
+                targetPath,
+                method.color,
+                sources,
+                script
+            )
+        };
     }
 
 

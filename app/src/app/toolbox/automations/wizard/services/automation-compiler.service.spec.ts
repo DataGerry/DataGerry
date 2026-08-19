@@ -1401,10 +1401,15 @@ describe('AutomationCompilerService sequence-defined automations', () => {
     });
 
 
-    /** The same automation, but written since the change - so it lists no calls of its own yet. */
+    /**
+     * Written since the change, and reading DataGerry - so nothing at all is derived beyond the
+     * read. The other direction does still get one call, but from the mapping rather than from an
+     * action; that is the 'writing into DataGerry' suite.
+     */
     function sequenceDefined(): AutomationDefinition {
         const definition = incomingDefinition();
         definition.version = 2;
+        definition.direction = 'outgoing';
 
         return definition;
     }
@@ -1414,7 +1419,7 @@ describe('AutomationCompilerService sequence-defined automations', () => {
         const { payload } = compiler.compileForCreate(sequenceDefined(), context());
 
         expect(payload.connection.fromConnector.methods.map(method => method.name))
-            .toEqual(['cmdb.objects.read']);
+            .toEqual(['GetObjects']);
     });
 
 
@@ -1489,5 +1494,120 @@ describe('AutomationCompilerService what blocks what', () => {
         definition.objectType = { typeId: null, name: '', label: '' };
 
         expect(compiler.structuralErrors(definition, context()).length).toBeGreaterThan(0);
+    });
+});
+
+
+/*
+ * An automation that writes into DataGerry gets that call from the compiler, not from the
+ * sequence: the sequence configures the other system, and this one is what the automation is for.
+ * What it writes is the mapping, which for this direction is filled in on the fields step.
+ */
+describe('AutomationCompilerService writing into DataGerry', () => {
+    let compiler: AutomationCompilerService;
+
+    beforeEach(() => {
+        compiler = new AutomationCompilerService(new TargetCatalogService());
+    });
+
+
+    const answer = '#FFCFB5.(response).body.$.result[i].title';
+
+
+    function collecting(...mapping: AutomationDefinition['mapping']): AutomationDefinition {
+        const definition = incomingDefinition();
+        definition.version = 2;
+        definition.mapping = mapping;
+
+        return definition;
+    }
+
+
+    function fromAnswer(target: string, reference = answer): AutomationDefinition['mapping'][number] {
+        return { target, sources: [{ field: '', origin: 'manual', confidence: 1, reference }] };
+    }
+
+
+    function typedIn(target: string, literal: string): AutomationDefinition['mapping'][number] {
+        return { target, sources: [{ field: '', origin: 'manual', confidence: 1, literal }] };
+    }
+
+
+    it('adds the call that creates the object', () => {
+        const { payload } = compiler.compileForCreate(collecting(fromAnswer('hostname')), context());
+
+        expect(payload.connection.fromConnector.methods.map(method => method.name))
+            .toEqual(['cmdb.objects.read', 'AddObject']);
+    });
+
+
+    it('writes the chosen object type, which nothing is read from', () => {
+        const { payload } = compiler.compileForCreate(collecting(fromAnswer('hostname')), context());
+        const write = payload.connection.fromConnector.methods[1];
+
+        expect(write.request.body.fields.type_id).toBe('1');
+    });
+
+
+    /* DataGerry takes an object's fields as name/value pairs, not as keys of the body. */
+    it('writes each mapped field as a name and a value', () => {
+        const { payload } = compiler.compileForCreate(
+            collecting(fromAnswer('hostname'), typedIn('location', 'Rack 4')),
+            context()
+        );
+
+        expect(payload.connection.fromConnector.methods[1].request.body.fields.fields).toEqual([
+            { name: 'hostname', value: answer },
+            { name: 'location', value: 'Rack 4' }
+        ]);
+    });
+
+
+    it('wires a value that came from an earlier answer', () => {
+        const { payload } = compiler.compileForCreate(collecting(fromAnswer('hostname')), context());
+        const [binding] = payload.connection.fieldBinding;
+
+        expect(binding.from[0]).toEqual({
+            color: '#FFCFB5',
+            field: 'body.$.result[i].title',
+            type: 'response'
+        });
+        expect(binding.to[0].field).toBe('body.$.fields[0].value');
+    });
+
+
+    /* A typed-in value already stands in the body; a binding would give it an origin it has not got. */
+    it('leaves a typed-in value unbound', () => {
+        const { payload } = compiler.compileForCreate(collecting(typedIn('location', 'Rack 4')), context());
+
+        expect(payload.connection.fieldBinding).toEqual([]);
+    });
+
+
+    it('runs the write once per object, inside the loop', () => {
+        const { payload } = compiler.compileForCreate(collecting(fromAnswer('hostname')), context());
+        const loop = payload.connection.fromConnector.operators.find(operator => operator.type === 'loop');
+
+        expect(payload.connection.fromConnector.methods[1].index.startsWith(`${loop!.index}_`)).toBeTrue();
+    });
+
+
+    it('writes nothing at all while nothing is mapped', () => {
+        const { payload } = compiler.compileForCreate(collecting(), context());
+
+        expect(payload.connection.fromConnector.methods.map(method => method.name))
+            .toEqual(['cmdb.objects.read']);
+    });
+
+
+    /* The other direction sends its values the other way; this call has no business there. */
+    it('adds no such call to an automation that reads DataGerry', () => {
+        const definition = collecting(fromAnswer('hostname'));
+        definition.direction = 'outgoing';
+
+        const { payload } = compiler.compileForCreate(definition, context());
+
+        expect(payload.connection.fromConnector.methods.some(method => method.name === 'AddObject'))
+            .toBeFalse();
     });
 });

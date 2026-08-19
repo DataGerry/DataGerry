@@ -18,10 +18,12 @@
 import {
     AutomationDefinition,
     AutomationMappingEntry,
+    AutomationMappingSource,
     createEmptyAutomationDefinition,
     hasActiveTransform
 } from '../../../models/automation-definition.model';
 import { TargetField } from '../../../models/target-catalog.model';
+import { ValueSource } from '../wizard-step-flow/wizard-step-flow.component';
 import { WizardStepMappingComponent } from './wizard-step-mapping.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -56,6 +58,43 @@ function mounted(mapping: AutomationMappingEntry[], sources = ['hostname', 'seri
     component.definition = definition;
     component.sourceFields = sources.map(name => ({ name, label: name.toUpperCase(), type: 'text' }));
     component.targetFields = [target('params.title'), target('params.sysid'), target('params.note')];
+    component.ngDoCheck();
+
+    return { component, definition };
+}
+
+
+/** An answer of an earlier call, spelled the way the sequence spells its references. */
+function answer(name: string): string {
+    return `#FFCFB5.(response).body.$.results[i].${name}`;
+}
+
+
+function offered(name: string, group = 'Zabbix \u00b7 list hosts'): ValueSource {
+    return { group, label: `results[*].${name}`, reference: answer(name) };
+}
+
+
+function writes(target: string, source: Partial<AutomationMappingSource>): AutomationMappingEntry {
+    return { target, sources: [{ field: '', origin: 'manual', confidence: 1, ...source }] };
+}
+
+
+/** A component on an automation that writes into DataGerry, already through its first check. */
+function writing(mapping: AutomationMappingEntry[] = [], sources = [offered('hostname'), offered('serial')]): {
+    component: WizardStepMappingComponent;
+    definition: AutomationDefinition;
+} {
+    const component = new WizardStepMappingComponent();
+    const definition = createEmptyAutomationDefinition();
+
+    definition.direction = 'incoming';
+    definition.mapping = mapping;
+
+    component.definition = definition;
+    component.objectTypeFields = ['hostname', 'serial', 'location']
+        .map(name => ({ name, label: name.toUpperCase(), type: 'text' }));
+    component.valueSources = sources;
     component.ngDoCheck();
 
     return { component, definition };
@@ -252,6 +291,187 @@ describe('WizardStepMappingComponent', () => {
             component.onRuleOperatorChanged(0, 'is_empty');
 
             expect(definition.conditions.rules[0].value).toBe('');
+        });
+    });
+
+
+    describe('the object type it writes into', () => {
+
+        /* Deciding means seeing the fields that stay empty as much as the ones that fill up. */
+        it('gives every field of the object type a row, written or not', () => {
+            const { component } = writing([writes('hostname', { reference: answer('hostname') })]);
+
+            expect(component.writeRows.map(row => row.field)).toEqual(['hostname', 'serial', 'location']);
+        });
+
+
+        it('leaves a field nobody writes standing on nothing', () => {
+            const { component } = writing();
+
+            expect(component.writeRows.map(row => row.choice)).toEqual(['', '', '']);
+            expect(component.writeRows.every(row => row.entry === null)).toBeTrue();
+        });
+
+
+        it('counts the fields that are given a value', () => {
+            const { component } = writing([
+                writes('hostname', { reference: answer('hostname') }),
+                writes('serial', { literal: 'unknown' })
+            ]);
+
+            expect(component.writtenCount).toBe(2);
+            expect(component.writeRows.length).toBe(3);
+        });
+
+
+        it('offers the answers under the call that gave them', () => {
+            const { component } = writing([], [
+                offered('hostname'),
+                offered('serial'),
+                offered('room', 'i-doit \u00b7 read location')
+            ]);
+
+            expect(component.valueGroups.map(group => group.name))
+                .toEqual(['Zabbix \u00b7 list hosts', 'i-doit \u00b7 read location']);
+            expect(component.valueGroups[0].items.length).toBe(2);
+        });
+
+
+        /* Nothing on this screen belongs to the direction that reads DataGerry. */
+        it('shows no target field rows and no leftover source fields', () => {
+            const { component } = writing([writes('hostname', { reference: answer('hostname') })]);
+
+            expect(component.rows).toEqual([]);
+            expect(component.spares).toEqual([]);
+        });
+    });
+
+
+    describe('deciding what a field is given', () => {
+
+        it('writes an answer of an earlier call into the field it was picked for', () => {
+            const { component, definition } = writing();
+
+            component.onWriteChoiceChanged(component.writeRows[0], answer('hostname'));
+
+            expect(definition.mapping).toEqual([
+                { target: 'hostname', sources: [{ field: '', origin: 'manual', confidence: 1, reference: answer('hostname') }] }
+            ]);
+        });
+
+
+        it('writes a value the user types in', () => {
+            const { component, definition } = writing();
+
+            component.onWriteChoiceChanged(component.writeRows[2], component.literalChoice);
+            component.ngDoCheck();
+            component.onWriteLiteralChanged(component.writeRows[2], 'Frankfurt');
+
+            expect(definition.mapping[0].sources[0].literal).toBe('Frankfurt');
+            expect(component.writeRows[2].choice).toBe(component.literalChoice);
+        });
+
+
+        /* A field takes one value, so picking again is a correction rather than a second source. */
+        it('replaces the value of a field instead of adding a second one', () => {
+            const { component, definition } = writing([writes('hostname', { literal: 'srv-1' })]);
+
+            component.onWriteChoiceChanged(component.writeRows[0], answer('serial'));
+
+            expect(definition.mapping.length).toBe(1);
+            expect(definition.mapping[0].sources).toEqual([
+                { field: '', origin: 'manual', confidence: 1, reference: answer('serial') }
+            ]);
+        });
+
+
+        /* Not being written is the absence of an entry, which is what the mapping means elsewhere. */
+        it('takes the field out of the automation when it is given nothing', () => {
+            const { component, definition } = writing([writes('hostname', { reference: answer('hostname') })]);
+
+            component.onWriteChoiceChanged(component.writeRows[0], '');
+
+            expect(definition.mapping).toEqual([]);
+        });
+
+
+        it('shows a picked answer by its field name, with the whole route behind it', () => {
+            const { component } = writing([writes('hostname', { reference: answer('serial') })]);
+            const tokens = component.writeRows[0].tokens;
+
+            expect(tokens.map(token => token.label)).toEqual(['serial']);
+            expect(tokens[0].text).toBe(answer('serial'));
+        });
+
+
+        /* A call the user moved must not silently unset the fields it fed. */
+        it('keeps standing on an answer the sequence no longer offers', () => {
+            const { component } = writing([writes('hostname', { reference: answer('gone') })]);
+
+            expect(component.writeRows[0].choice).toBe(answer('gone'));
+            expect(component.writeRows[0].unlisted).toBe('gone');
+        });
+    });
+
+
+    describe('adjusting a value on its way into DataGerry', () => {
+
+        it('adjusts the field the value lands in', () => {
+            const { component, definition } = writing([writes('hostname', { reference: answer('hostname') })]);
+
+            component.onToggleTransform(definition.mapping[0]);
+            component.onTransformScriptChanged(definition.mapping[0], 'value = value.trim();');
+
+            expect(component.isExpanded('hostname')).toBeTrue();
+            expect(hasActiveTransform(definition.mapping[0])).toBeTrue();
+        });
+
+
+        /* An adjustment without a value to adjust is not an adjustment anybody could run. */
+        it('drops the adjustment together with the value it adjusted', () => {
+            const { component, definition } = writing([
+                { ...writes('hostname', { literal: 'srv-1' }), transform: { enabled: true, script: 'value = 1;' } }
+            ]);
+
+            component.onWriteChoiceChanged(component.writeRows[0], '');
+
+            expect(definition.mapping).toEqual([]);
+            expect(component.isExpanded('hostname')).toBeFalse();
+        });
+    });
+
+
+    describe('what it hands the template', () => {
+
+        /* A fresh array every check makes the pickers rebuild, which is what once locked the step up. */
+        it('hands out the same rows until an input actually changes', () => {
+            const { component } = writing([writes('hostname', { literal: 'srv-1' })]);
+            const rows = component.writeRows;
+
+            component.ngDoCheck();
+            component.ngDoCheck();
+
+            expect(component.writeRows).toBe(rows);
+        });
+
+
+        it('leaves the picker options alone while only the mapping changes', () => {
+            const { component } = writing();
+            const groups = component.valueGroups;
+
+            component.onWriteChoiceChanged(component.writeRows[0], answer('hostname'));
+            component.ngDoCheck();
+
+            expect(component.valueGroups).toBe(groups);
+            expect(component.writeRows[0].choice).toBe(answer('hostname'));
+        });
+
+
+        it('builds no object type rows for an automation that reads DataGerry', () => {
+            const { component } = mounted([entry('params.title', 'hostname')]);
+
+            expect(component.incoming).toBeFalse();
+            expect(component.writeRows).toEqual([]);
         });
     });
 });

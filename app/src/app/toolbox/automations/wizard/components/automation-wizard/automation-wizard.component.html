@@ -15,7 +15,7 @@
       <button type="button" class="btn btn-secondary btn-sm" (click)="cancel()">Cancel</button>
       <button
         type="button"
-        class="btn btn-primary btn-sm"
+        class="btn btn-success btn-sm"
         [disabled]="validationErrors.length > 0 || legacyWithoutDefinition"
         (click)="save()">
         <i class="fas fa-check me-2"></i>
@@ -84,6 +84,9 @@
               [definition]="definition"
               [sourceFields]="sourceFields"
               [targetFields]="targetFields"
+              [objectTypeFields]="availableFields"
+              [valueSources]="writeValueSources"
+              [sequenceCalls]="sequenceCalls"
               (definitionChange)="onDefinitionChanged($event)">
             </app-wizard-step-mapping>
           }
@@ -116,7 +119,7 @@
         @if (!isLastGroup) {
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-success btn-sm"
             [disabled]="!canAdvance"
             (click)="onNext()">
             Next <i class="fas fa-arrow-right ms-2"></i>
