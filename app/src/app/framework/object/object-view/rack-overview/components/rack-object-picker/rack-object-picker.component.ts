@@ -55,6 +55,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 @Component({
     selector: 'cmdb-rack-object-picker',
     templateUrl: './rack-object-picker.component.html',
+    styleUrls: ['./rack-object-picker.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: true,
     imports: [CoreModule, ReactiveFormsModule],

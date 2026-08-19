@@ -1,0 +1,17 @@
+/* The shared select ships a full spacing block underneath; the hint has to read as part of the field. */
+:host ::ng-deep app-form-select .mb-3 {
+    margin-bottom: 0.3rem !important; // Bootstrap spacing utility
+}
+
+.rack-picker__hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+
+    > i {
+        margin-top: 0.1rem;
+    }
+}

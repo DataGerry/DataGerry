@@ -17,6 +17,7 @@
 */
 import { RACK_SLOT_AREAS, RackArea, RackRowView, RackViewSide } from '../models/rack-overview.types';
 import { occupiedSlots } from './rack-drop-rules';
+import { slotRangeText } from './rack-layout.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -32,12 +33,16 @@ export interface RackFreeRun {
 }
 
 
-/** A free stretch offered as a one click placement; choosing it anchors the row at the stretch's top. */
-export interface RackSlotSuggestion extends RackFreeRun {
-    /** The stretch as a rack is read, anchor first, with how much it holds. */
-    range: string;
-    /** Spelled out for the tooltip and for a reader that gets the label without its context. */
-    hint: string;
+/**
+ * One entry of the start slot list: either an anchor the row can be placed at, or a whole stretch of
+ * U that cannot take it, collapsed into a single line.
+ */
+export interface RackSlotOption {
+    /** Top U of the entry, which is the anchor a placement writes. */
+    slot: number;
+    /** The U range the row would occupy, or the blocked stretch and why it is blocked. */
+    label: string;
+    disabled: boolean;
 }
 
 
@@ -113,12 +118,6 @@ export function freeRuns(
 }
 
 
-/** The runs a row of this height still fits into, in the order `freeRuns` reports them. */
-export function runsThatFit(runs: RackFreeRun[], height: number): RackFreeRun[] {
-    return height > 0 ? runs.filter(run => run.size >= height) : runs;
-}
-
-
 /** Free U and longest unbroken stretch of an area, for the capacity read-out on the area itself. */
 export function measureArea(
     rows: RackRowView[],
@@ -138,4 +137,71 @@ export function measureArea(
 /** The run a slot falls into, or null when the slot is already taken. */
 export function runContaining(runs: RackFreeRun[], slot: number): RackFreeRun | null {
     return runs.find(run => slot >= run.from && slot <= run.to) ?? null;
+}
+
+
+/**
+ * Whether a row of this height can be anchored at a slot: the free stretch below the anchor has to
+ * swallow the whole span, not just the anchor itself.
+ */
+export function fitsAt(runs: RackFreeRun[], slot: number, height: number): boolean {
+    const run = runContaining(runs, slot);
+
+    return run !== null && slot - run.from + 1 >= Math.max(height, 1);
+}
+
+
+/**
+ * The area read top down - the order an elevation is read in - as the placements it offers.
+ *
+ * Every U the row can be anchored at is its own entry, labelled with the range a row of `height` would
+ * occupy from there. The U that cannot take it are kept rather than dropped, so the list still covers
+ * the whole area, but a stretch of them collapses into one disabled line - five taken U in a row read
+ * as `U25-U21 in use`, not as five entries saying the same thing. A stretch ends where the reason
+ * changes, so slots held by a row are never folded together with free ones a tall row outgrows.
+ */
+export function slotOptions(runs: RackFreeRun[], rackHeight: number, height: number): RackSlotOption[] {
+    const span = Math.max(height, 1);
+    const options: RackSlotOption[] = [];
+
+    /** The blocked stretch being collected: where it starts, and whether it is held by a row. */
+    let blocked: { top: number; taken: boolean } | null = null;
+
+    const closeBlocked = (bottom: number) => {
+        if (!blocked) {
+            return;
+        }
+
+        const size = blocked.top - bottom + 1;
+        // A free stretch that is only too short says how short: its own length is the room it leaves.
+        const reason = blocked.taken ? 'in use' : `only ${size}U free`;
+
+        options.push({
+            slot: blocked.top,
+            label: `${slotRangeText(blocked.top, size)} \u00b7 ${reason}`,
+            disabled: true
+        });
+
+        blocked = null;
+    };
+
+    for (let slot = rackHeight; slot >= 1; slot--) {
+        if (fitsAt(runs, slot, span)) {
+            closeBlocked(slot + 1);
+            options.push({ slot, label: slotRangeText(slot, span), disabled: false });
+            continue;
+        }
+
+        const taken = runContaining(runs, slot) === null;
+
+        if (blocked && blocked.taken !== taken) {
+            closeBlocked(slot + 1);
+        }
+
+        blocked = blocked ?? { top: slot, taken };
+    }
+
+    closeBlocked(1);
+
+    return options;
 }

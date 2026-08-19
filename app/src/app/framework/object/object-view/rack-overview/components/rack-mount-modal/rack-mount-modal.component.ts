@@ -53,13 +53,7 @@ import {
     toDayString
 } from '../../models/rack-overview.types';
 import { RackOverviewService } from '../../services/rack-overview.service';
-import {
-    RackSlotSuggestion,
-    freeRuns,
-    measureArea,
-    runContaining,
-    runsThatFit
-} from '../../utils/rack-availability.util';
+import { fitsAt, freeRuns, measureArea, runContaining, slotOptions } from '../../utils/rack-availability.util';
 import { slotRangeText } from '../../utils/rack-layout.util';
 import {
     buildInsertPayload,
@@ -167,7 +161,7 @@ export class RackMountModalComponent implements OnInit {
     @Input() public presetStartSlot: number | null = null;
     /**
      * The rack as it stands, so the form can work out what is still free. A snapshot taken when the
-     * modal opened: it drives the suggestions only, never what is written, which the backend re-checks.
+     * modal opened: it drives the slot list only, never what is written, which the backend re-checks.
      */
     @Input() public rows: RackRowView[] = [];
 
@@ -222,19 +216,13 @@ export class RackMountModalComponent implements OnInit {
     public readonly largestRun = computed(() =>
         this.areaRuns().reduce((largest, run) => Math.max(largest, run.size), 0));
 
-    /** The anchor the chips compare themselves against, so the chosen stretch reads as selected. */
-    public readonly pickedAnchor = computed(() => toNumber(this.formValue().startSlot));
-
-    /** The stretches the entered height still fits into, offered as one click placements. */
-    public readonly slotSuggestions = computed<RackSlotSuggestion[]>(() => {
-        const span = toNumber(this.formValue().height) ?? 1;
-
-        return runsThatFit(this.areaRuns(), span).map(run => ({
-            ...run,
-            range: `${slotRangeText(run.to, run.size)} · ${run.size}U`,
-            hint: `Place at U${run.to}; ${run.size}U free here`
-        }));
-    });
+    /**
+     * Every U of the area as a placement, top down, each labelled with the range the entered height
+     * would take from it. The taken ones are listed disabled, so the dropdown also reads as a map of
+     * where the area is already occupied.
+     */
+    public readonly startSlotOptions = computed(() =>
+        slotOptions(this.areaRuns(), this.rackHeight, toNumber(this.formValue().height) ?? 1));
 
     /**
      * A height the area cannot take anywhere. The validators only know the rack's own height, so
@@ -351,8 +339,14 @@ export class RackMountModalComponent implements OnInit {
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe((area) => {
                 this.applyAreaRules(area);
+                this.dropOutgrownStartSlot();
                 this.validationErrors.set([]);
             });
+
+        // A taller row, or the other face, can invalidate an anchor that was already picked.
+        this.form.controls.height.valueChanges
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe(() => this.dropOutgrownStartSlot());
 
         // Read-only without the right; silent, so the derived fields keep the values they show.
         if (!this.canEdit) {
@@ -367,12 +361,8 @@ export class RackMountModalComponent implements OnInit {
         this.validationErrors.set([]);
     }
 
-    /** Anchors the row at the top of the chosen stretch, which is where a rack is filled from. */
-    public onSuggestionPicked(run: RackSlotSuggestion): void {
-        const startSlot = this.form.controls.startSlot;
-
-        startSlot.setValue(run.to);
-        startSlot.markAsTouched();
+    /** A different anchor supersedes whatever the last dry run refused, so its summary goes with it. */
+    public onStartSlotPicked(): void {
         this.validationErrors.set([]);
     }
 
@@ -426,7 +416,7 @@ export class RackMountModalComponent implements OnInit {
 
         return control.hasError('required')
             ? 'A start slot is required in this area.'
-            : `Enter a slot between 1 and ${this.rackHeight}.`;
+            : `Pick a slot between 1 and ${this.rackHeight}.`;
     }
 
     public get heightError(): string {
@@ -489,6 +479,28 @@ export class RackMountModalComponent implements OnInit {
         const { free } = measureArea(this.rows, option.value, this.rackHeight, this.editedMountId);
 
         return free > 0 ? `${option.label} · ${free}U free` : `${option.label} · full`;
+    }
+
+    /**
+     * An anchor the row has outgrown is no longer a placement, and the list offers that U only as part
+     * of a blocked stretch - so the field would read back a stretch of taken space instead of where the
+     * row goes. Dropping it asks for the anchor again rather than holding a value that cannot be saved.
+     */
+    private dropOutgrownStartSlot(): void {
+        const startSlot = this.form.controls.startSlot;
+        const picked = toNumber(startSlot.value);
+
+        if (picked === null || startSlot.disabled) {
+            return;
+        }
+
+        // Read off the controls: a control emits before the form-wide value the derived signals watch.
+        const { area, height } = this.form.controls;
+        const runs = freeRuns(this.rows, area.value, this.rackHeight, this.editedMountId);
+
+        if (!fitsAt(runs, picked, toNumber(height.value) ?? 1)) {
+            startSlot.reset(null);
+        }
     }
 
     private seedForm(): void {
