@@ -260,7 +260,7 @@ describe('AutomationCompilerService', () => {
             definition.mapping = [{ target: '', sources: [{ field: 'id', origin: 'auto', confidence: 0 }] }];
 
             expect(compiler.validate(definition, context())
-                .some(error => error.includes('Map at least one field'))).toBeTrue();
+                .some(error => error.includes('No field is sent anywhere yet'))).toBeTrue();
         });
     });
 
@@ -1439,5 +1439,55 @@ describe('AutomationCompilerService sequence-defined automations', () => {
         const { payload } = compiler.compileForCreate(incomingDefinition(), context());
 
         expect(payload.connection.fromConnector.methods.length).toBeGreaterThan(1);
+    });
+});
+
+
+/*
+ * The sequence is built on top of a compiled connection, so anything that withholds the connection
+ * withholds the screen that would fix it. These two pull in opposite directions on purpose.
+ */
+describe('AutomationCompilerService what blocks what', () => {
+    let compiler: AutomationCompilerService;
+
+    beforeEach(() => {
+        compiler = new AutomationCompilerService(new TargetCatalogService());
+    });
+
+
+    function withoutMapping(): AutomationDefinition {
+        const definition = incomingDefinition();
+        definition.version = 2;
+        definition.mapping = [];
+
+        return definition;
+    }
+
+
+    it('compiles an automation that sends nothing yet', () => {
+        expect(compiler.structuralErrors(withoutMapping(), context())).toEqual([]);
+    });
+
+
+    /* Which is what the sequence step needs: a container to hang the first call inside. */
+    it('gives that automation a container to add a call to', () => {
+        const { payload } = compiler.compileForCreate(withoutMapping(), context());
+
+        expect(payload.connection.fromConnector.operators.some(operator => operator.type === 'loop'))
+            .toBeTrue();
+    });
+
+
+    it('still refuses to call it finished', () => {
+        expect(compiler.validate(withoutMapping(), context()))
+            .toContain(jasmine.stringContaining('No field is sent anywhere yet'));
+    });
+
+
+    it('reports a missing object type as structural, because nothing can be read without one', () => {
+        const definition = withoutMapping();
+        definition.objectType = { typeId: null, name: '', label: '' };
+
+        expect(compiler.structuralErrors(definition, context()).length).toBeGreaterThan(0);
     });
 });

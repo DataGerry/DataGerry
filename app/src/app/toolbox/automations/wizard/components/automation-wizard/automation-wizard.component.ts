@@ -519,7 +519,11 @@ export class AutomationWizardComponent implements OnInit {
 
         this.validationErrors = this.compiler.validate(this.definition, context);
 
-        if (this.validationErrors.length > 0) {
+        // Compiled as soon as it structurally can be, not once it is finished. The sequence is
+        // built on top of the compiled connection - a step is placed inside the container the
+        // compiler produces - so withholding it until nothing is left to complain about leaves the
+        // user with a screen that cannot take a first step.
+        if (this.compiler.structuralErrors(this.definition, context).length > 0) {
             this.compileWarnings = [];
             this.compiledPreview = '';
             this.compiledConnection = null;

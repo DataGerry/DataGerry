@@ -151,12 +151,31 @@ export class AutomationCompilerService {
 /* ------------------------------------------------------------------------------------------------------------------ */
 
     /**
-     * Collects everything that prevents compilation.
+     * Everything that stands between the automation and being saved.
      *
      * Returned as a list rather than thrown so the wizard can show all problems at once on the
      * summary step instead of revealing them one by one.
      */
     public validate(definition: AutomationDefinition, context: AutomationCompileContext): string[] {
+        const errors = this.structuralErrors(definition, context);
+
+        return errors.length > 0 ? errors : this.readinessErrors(definition);
+    }
+
+
+    /**
+     * What has to hold before the connection can be built at all.
+     *
+     * Kept apart from the rest because the sequence is put together on top of a compiled
+     * connection: a step is placed inside the container the compiler produces, so nothing can be
+     * added until there is one. Anything that merely makes the automation not worth running yet
+     * belongs in readinessErrors, or the wizard deadlocks - no calls without a mapping, and no
+     * mapping without calls to hang it on.
+     */
+    public structuralErrors(
+        definition: AutomationDefinition,
+        context: AutomationCompileContext
+    ): string[] {
         const errors: string[] = [];
 
         if (!definition.name?.trim()) {
@@ -211,8 +230,23 @@ export class AutomationCompilerService {
             errors.push('The source operation does not return a list of objects, so there is nothing to iterate.');
         }
 
+        return errors;
+    }
+
+
+    /**
+     * What has to hold before the automation is worth running.
+     *
+     * Checked when it is saved, not while it is being built. A field reaches the target system by
+     * a request value naming it, which is done on a call - so an automation that has no calls yet
+     * has no mapping yet either, and saying so while the calls are still being added would be
+     * telling the user off for not having finished.
+     */
+    private readinessErrors(definition: AutomationDefinition): string[] {
+        const errors: string[] = [];
+
         if (definition.mapping.filter(entry => entry.target).length === 0) {
-            errors.push('Map at least one field to the target system.');
+            errors.push('No field is sent anywhere yet. Give a request value a field reference on a call.');
         }
 
         // Without it the automation has no way of telling which object over there it means, so
@@ -223,7 +257,6 @@ export class AutomationCompilerService {
                 + 'can find the object it should act on.'
             );
         }
-
 
         return errors;
     }
