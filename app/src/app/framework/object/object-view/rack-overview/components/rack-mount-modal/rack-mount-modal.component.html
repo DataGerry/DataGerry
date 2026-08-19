@@ -51,7 +51,7 @@
           } @else {
             <div class="mount-form__cell--full">
               <cmdb-rack-object-picker [rackId]="rackId" [appendTo]="DROPDOWN_HOST" formControlName="objectId"
-                (objectSelected)="onObjectSelected()">
+                (objectSelected)="onObjectSelected($event)">
               </cmdb-rack-object-picker>
             </div>
           }
@@ -164,7 +164,7 @@
   <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" (clicked)="activeModal.dismiss()">
   </app-button>
 
-  <app-button dgModalFooter bootstrapClass="btn-primary" [label]="isEditMode ? 'Save' : 'Add'"
+  <app-button dgModalFooter bootstrapClass="btn-primary" [label]="submitLabel()"
     [disabled]="form.invalid || !canEdit" (clicked)="onSubmit()">
   </app-button>
 </dg-modal>

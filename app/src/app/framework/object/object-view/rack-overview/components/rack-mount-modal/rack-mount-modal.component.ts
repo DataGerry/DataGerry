@@ -44,6 +44,7 @@ import {
     RACK_OCCUPANT_KINDS,
     RACK_SLOT_AREAS,
     RackArea,
+    RackAssignableObject,
     RackMountKind,
     RackMountRow,
     RackMountValidationResponse,
@@ -268,6 +269,32 @@ export class RackMountModalComponent implements OnInit {
 
     public readonly subtitle = computed(() => (this.rackHeight ? `${this.rackHeight}U rack` : ''));
 
+    /** The object the picker currently holds, so the submit label can say what the write really does. */
+    private readonly pickedObject = signal<RackAssignableObject | null>(null);
+
+    /**
+     * An object that already sits in another rack is taken out of it, so the write replaces its
+     * placement instead of adding a second one. The picker warns about it; the button agrees.
+     */
+    public readonly replacesOtherRack = computed(() => {
+        const picked = this.pickedObject();
+
+        if (!picked?.assigned_rack_id || picked.assigned_rack_id === this.rackId) {
+            return false;
+        }
+
+        // A kind switch resets the control without telling the picker, so the form has the last word.
+        return this.isMount() && this.formValue().objectId === picked.public_id;
+    });
+
+    public readonly submitLabel = computed(() => {
+        if (this.isEditMode) {
+            return 'Save';
+        }
+
+        return this.replacesOtherRack() ? 'Replace' : 'Add';
+    });
+
     /**
      * Spells out the slots the current input would take, since the anchor extends downward. Until both
      * values are in it explains the counting direction, and it warns as soon as the span would run off
@@ -335,7 +362,8 @@ export class RackMountModalComponent implements OnInit {
 
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
-    public onObjectSelected(): void {
+    public onObjectSelected(picked: RackAssignableObject | null): void {
+        this.pickedObject.set(picked ?? null);
         this.validationErrors.set([]);
     }
 
