@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
 
@@ -29,6 +29,7 @@ import { ObjectPreviewModalComponent } from '../../../object/modals/object-previ
 import { CollectionParameters } from '../../../../services/models/api-parameter';
 import { APIGetMultiResponse } from '../../../../services/models/api-response';
 import { CmdbMode } from '../../../modes.enum';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -37,6 +38,8 @@ import { CmdbMode } from '../../../modes.enum';
     standalone: false
 })
 export class RefComponent extends RenderFieldComponent implements OnInit, OnDestroy {
+
+    private readonly fullscreenModalService = inject(FullscreenModalService);
 
     private modalRef: NgbModalRef;
     private unsubscribe: ReplaySubject<void> = new ReplaySubject<void>();
@@ -162,11 +165,15 @@ export class RefComponent extends RenderFieldComponent implements OnInit, OnDest
 
 
     public showReferencePreview() {
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, {
-            size: 'xl',
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop'
-        });
+        // Hosted inside the fullscreen element while one is open; a body-level modal is not painted there.
+        this.modalRef = this.modalService.open(
+            ObjectPreviewModalComponent,
+            this.fullscreenModalService.withFullscreenContainer({
+                size: 'xl',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            })
+        );
         this.modalRef.componentInstance.renderResult = this.refObject;
     }
 }
