@@ -8,6 +8,11 @@
   (selectedItemChange)="onOptionSelected($event)" (scrolledToEnd)="onScrollEnd()">
 </app-form-select>
 
+<small class="rack-picker__hint form-text text-muted">
+  <i class="fas fa-circle-info" aria-hidden="true"></i>
+  <span>Only objects whose type has the Location special control can be mounted here.</span>
+</small>
+
 @if (assignedRackNotice(); as notice) {
   <app-warning-alert title="Already mounted:" [message]="notice"></app-warning-alert>
 }

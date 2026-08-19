@@ -1,0 +1,9 @@
+@if (specialType) {
+<span [class]="badgeClass" [title]="description">
+  <span class="special-type-badge__dot" aria-hidden="true"></span>
+  <span class="special-type-badge__token">{{ displayToken }}</span>
+  @if (description) {
+  <span class="visually-hidden">&nbsp;&ndash; {{ description }}</span>
+  }
+</span>
+}

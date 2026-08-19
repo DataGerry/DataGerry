@@ -19,19 +19,21 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
-  inject,
   OnDestroy,
-  OnInit
+  OnInit,
+  inject
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { BehaviorSubject, Subject, finalize, takeUntil } from 'rxjs';
+import { BehaviorSubject, EMPTY, Observable, Subject, catchError, filter, finalize, switchMap, takeUntil } from 'rxjs';
 
+import { LoaderService } from 'src/app/core/services/loader.service';
 import { CmdbMode } from 'src/app/framework/modes.enum';
+import { ObjectChangeNotifierService } from 'src/app/framework/services/object-change-notifier.service';
+import { ObjectService } from 'src/app/framework/services/object.service';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { SpecialType } from 'src/app/framework/models/special-type';
-import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { RACK_VIEW_RIGHT } from './rack-overview/models/rack-overview.types';
 
 @Component({
@@ -52,6 +54,8 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   public renderResult: RenderResult;
   public currentObjectID: number;
   public isGraphView = false;
+  /** The section only frames the rack drawing, so it needs the rack view right. */
+  public readonly rackViewRight = RACK_VIEW_RIGHT;
 
   // Graph header object selector
   public allTypeIds: number[] = [];
@@ -71,18 +75,13 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     return this.renderResult?.object_information?.special_type === SpecialType.RACK;
   }
 
-  /** The tab only frames the rack drawing, so it needs the same view right. */
-  public get showRackView(): boolean {
-    return this.isRack && this.canViewRack;
-  }
-
   private pendingSelectedId: number | null = null;
   private readonly unsubscribe = new Subject<void>();
+  /** What the view is built from. Fed by the route on arrival, and by a re-read after a write. */
   private readonly objectViewSubject = new BehaviorSubject<RenderResult>(undefined);
-
-  private readonly permissionService = inject(PermissionService);
-  private readonly canViewRack = this.permissionService.hasRight(RACK_VIEW_RIGHT)
-    || this.permissionService.hasExtendedRight(RACK_VIEW_RIGHT);
+  private readonly objectService = inject(ObjectService);
+  private readonly objectChanges = inject(ObjectChangeNotifierService);
+  private readonly loaderService = inject(LoaderService);
 
   /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -117,6 +116,16 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
       },
       error: (err) => this.toastService.error(err?.error?.message)
     });
+
+    // Written from elsewhere on the page - the rack view saves the rack's notes - the object is read
+    // again and the whole view is rebuilt from the answer, rather than a value being copied into it.
+    this.objectChanges.changed$
+      .pipe(
+        filter((objectId) => objectId === this.currentObjectID),
+        switchMap((objectId) => this.readObject(objectId)),
+        takeUntil(this.unsubscribe)
+      )
+      .subscribe((result) => this.objectViewSubject.next(result));
 
     // Load all type IDs for the graph object selector
     const params = { filter: '', limit: 0, sort: 'public_id', order: 1, page: 1 } as any;
@@ -176,5 +185,25 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
       return;
     }
     this.router.navigate([`/framework/object/view/${objectId}`], { queryParams: { view: 'graph' } });
+  }
+
+  /* --------------------------------------------------- PRIVATE FUNCTIONS --------------------------------------------------- */
+
+  private readObject(objectId: number): Observable<RenderResult> {
+    this.loaderService.show();
+
+    return this.objectService.getObject<RenderResult>(objectId).pipe(
+      // An empty answer is dropped rather than shown: the view reads the object without guarding it,
+      // so handing it nothing would take the page down instead of leaving the old values up.
+      filter((result): result is RenderResult => !!result),
+      // Reported here rather than in the subscriber: an error reaching the outer stream would end it,
+      // and no later write would be picked up.
+      catchError((err) => {
+        this.toastService.error(err?.error?.message);
+
+        return EMPTY;
+      }),
+      finalize(() => this.loaderService.hide())
+    );
   }
 }

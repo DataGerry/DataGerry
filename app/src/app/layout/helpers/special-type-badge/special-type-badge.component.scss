@@ -1,0 +1,65 @@
+$badge-ink: #374151;
+$badge-surface: #ffffff;
+$badge-border: #e5e7eb;
+
+:host {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+// Neutral chip for every special type, so a long list reads as one family. The hue lives in the
+// leading dot only: coloured label text made the cell look like a link or a warning.
+.special-type-badge {
+  --accent: #64748b;
+  --accent-ring: rgba(100, 116, 139, 0.16);
+
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  max-width: 100%;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: $badge-ink;
+  background: $badge-surface;
+  border: 1px solid $badge-border;
+  border-radius: 0.6rem;
+  box-shadow: 0 1px 1.5px rgba(15, 23, 42, 0.05);
+}
+
+.special-type-badge__dot {
+  flex: 0 0 auto;
+  width: 0.380rem;
+  height: 0.380rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0.125rem var(--accent-ring);
+}
+
+.special-type-badge__token {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// One accent per special type, so the column stays scannable at a glance.
+.special-type-badge--supernet {
+  --accent: #4f46e5;
+  --accent-ring: rgba(79, 70, 229, 0.16);
+}
+
+.special-type-badge--subnet {
+  --accent: #2563eb;
+  --accent-ring: rgba(37, 99, 235, 0.16);
+}
+
+.special-type-badge--vlan {
+  --accent: #0d9488;
+  --accent-ring: rgba(13, 148, 136, 0.16);
+}
+
+.special-type-badge--rack {
+  --accent: #d97706;
+  --accent-ring: rgba(217, 119, 6, 0.18);
+}

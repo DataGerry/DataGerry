@@ -16,11 +16,21 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, inject, Input, OnChanges, SimpleChanges, ChangeDetectorRef } from '@angular/core';
+import { Component, inject, Input, OnChanges, ChangeDetectorRef } from '@angular/core';
 
 import { RenderResult } from '../../../models/cmdb-render';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+
+/** The tabs the footer card can show. */
+type ObjectFooterTab =
+  | 'risk-assessments'
+  | 'references'
+  | 'logs'
+  | 'relation-logs'
+  | 'summaries'
+  | 'metadata'
+  | 'qr';
 
 @Component({
   selector: 'cmdb-object-footer',
@@ -32,6 +42,9 @@ export class ObjectFooterComponent implements OnChanges {
 
   public objectID: number;
   public readonly LicenseFeature = LicenseFeature;
+
+  public activeTab: ObjectFooterTab = 'risk-assessments';
+
   private rr: RenderResult;
 
   private readonly premiumFeatureService = inject(PremiumFeatureService);
@@ -55,8 +68,14 @@ export class ObjectFooterComponent implements OnChanges {
 
   private readonly changesRef = inject(ChangeDetectorRef);
 
-  public ngOnChanges(changes: SimpleChanges): void {
+  public ngOnChanges(): void {
     this.objectID = this.renderResult.object_information.object_id;
     this.changesRef.markForCheck();
+  }
+
+  /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+  public selectTab(tab: ObjectFooterTab): void {
+    this.activeTab = tab;
   }
 }

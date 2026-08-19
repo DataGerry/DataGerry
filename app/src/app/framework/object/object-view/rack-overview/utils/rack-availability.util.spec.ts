@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { RackArea, RackRowView } from '../models/rack-overview.types';
-import { freeRuns, measureArea, runContaining, runsThatFit } from './rack-availability.util';
+import { freeRuns, measureArea, runContaining, slotOptions } from './rack-availability.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Only the fields the occupancy maths reads; the rest of a row view is irrelevant here. */
@@ -93,13 +93,59 @@ describe('rack availability', () => {
     });
 
 
-    describe('runsThatFit', () => {
+    describe('slotOptions', () => {
 
-        it('keeps only the stretches long enough, down to the exact boundary', () => {
-            const runs = freeRuns(rows, RackArea.FRONT, 42, null);
+        /** The 42U front from the fixture: U42-U41 and U20 are held, everything else is free. */
+        const optionsFor = (height: number) => slotOptions(freeRuns(rows, RackArea.FRONT, 42, null), 42, height);
 
-            expect(runsThatFit(runs, 20)).toEqual([{ from: 21, to: 40, size: 20 }]);
-            expect(runsThatFit(runs, 21)).toEqual([]);
+        it('offers every free U as its own placement, top down', () => {
+            const options = optionsFor(1);
+
+            expect(options[1]).toEqual({ slot: 40, label: 'U40', disabled: false });
+            expect(options[2]).toEqual({ slot: 39, label: 'U39', disabled: false });
+            expect(options[options.length - 1]).toEqual({ slot: 1, label: 'U1', disabled: false });
+        });
+
+
+        it('collapses a stretch of taken U into a single disabled entry', () => {
+            const options = optionsFor(1);
+
+            // U42 and U41 are held by one row, so they read as the range they cover, not as two lines.
+            expect(options[0]).toEqual({ slot: 42, label: 'U42\u2013U41 \u00b7 in use', disabled: true });
+            expect(options.filter(option => option.label.includes('in use')))
+                .toEqual([
+                    { slot: 42, label: 'U42\u2013U41 \u00b7 in use', disabled: true },
+                    { slot: 20, label: 'U20 \u00b7 in use', disabled: true }
+                ]);
+        });
+
+
+        it('names the range the entered height would take from each anchor', () => {
+            expect(optionsFor(3)[1]).toEqual({ slot: 40, label: 'U40\u2013U38', disabled: false });
+        });
+
+
+        it('collapses the tail of a stretch the height outgrows, and keeps it apart from taken U', () => {
+            const options = optionsFor(3);
+            const start = options.findIndex(option => option.slot === 23);
+            const around = options.slice(start, start + 4);
+
+            expect(around).toEqual([
+                { slot: 23, label: 'U23\u2013U21', disabled: false },
+                { slot: 22, label: 'U22\u2013U21 \u00b7 only 2U free', disabled: true },
+                { slot: 20, label: 'U20 \u00b7 in use', disabled: true },
+                { slot: 19, label: 'U19\u2013U17', disabled: false }
+            ]);
+        });
+
+
+        it('closes a blocked stretch that reaches the bottom of the rack', () => {
+            expect(optionsFor(3).pop()).toEqual({ slot: 2, label: 'U2\u2013U1 \u00b7 only 2U free', disabled: true });
+        });
+
+
+        it('treats a missing height as a single U', () => {
+            expect(optionsFor(0)).toEqual(optionsFor(1));
         });
     });
 

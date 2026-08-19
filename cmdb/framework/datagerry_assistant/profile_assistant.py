@@ -32,6 +32,7 @@ from cmdb.errors.dg_assistant.dg_assistant_errors import ProfileCreationError
 
 from .profile_name import ProfileName
 from .profile_user_management import UserManagementProfile
+from .profile_rack import RackProfile
 from .profile_location import LocationProfile
 from .profile_ipam import IPAMProfile
 from .profile_client_management import ClientManagementProfile
@@ -55,6 +56,9 @@ LOGGER: Logger = getLogger(__name__)
 # types created by earlier ones (e.g. conditional reference sections / dependent types)
 PROFILE_BUILDERS: list[tuple[ProfileName, type[ProfileBase]]] = [
     (ProfileName.USER_MANAGEMENT, UserManagementProfile),
+    # Runs before the location profile: both fill the RACK_ID slot, and the Rack View's SpecialType
+    # takes precedence over the basic Rack type the location profile would otherwise create
+    (ProfileName.RACK, RackProfile),
     (ProfileName.LOCATION, LocationProfile),
     (ProfileName.IPAM, IPAMProfile),
     (ProfileName.CLIENT_MANAGEMENT, ClientManagementProfile),

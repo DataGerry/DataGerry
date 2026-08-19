@@ -35,6 +35,10 @@ class LocationProfile(ProfileBase):
         """
         Creates all types of the 'Location' profile (Country, City, Building, Room, Rack)
 
+        The basic Rack type is skipped when the 'Rack View' profile already created its RACK
+        SpecialType under the same slot - a CmdbType name is unique and the Rack View's type is the
+        richer one.
+
         Returns:
             dict[str, int | None]: The shared slot map of created type ids
         """
@@ -44,7 +48,9 @@ class LocationProfile(ProfileBase):
         self.create_basic_type('city_id', self.get_city_type())
         self.create_basic_type('building_id', self.get_building_type())
         self.create_basic_type('room_id', self.get_room_type())
-        self.create_basic_type('rack_id', self.get_rack_type())
+
+        if self.get_created_id('rack_id') is None:
+            self.create_basic_type('rack_id', self.get_rack_type())
 
         return self.created_type_ids
 

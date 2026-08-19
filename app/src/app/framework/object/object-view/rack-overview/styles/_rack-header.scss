@@ -23,6 +23,15 @@
     padding: 0.45rem 0.6rem;
   }
 
+  /* Names the section, now that the drawing sits under the fields instead of behind a tab. */
+  &__title {
+    flex: none;
+    margin: 0 0.1rem 0 0.35rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: $ink;
+  }
+
   /* Marks where one cluster ends without drawing a box around each of them. */
   &__divider {
     flex: none;
@@ -58,12 +67,12 @@
   gap: 0.15rem;
   background: $sunk;
   border: 1px solid $hairline;
-  border-radius: 999px;
+  border-radius: $radius-control;
 
   &__option {
     padding: 0.25rem 0.85rem;
     border: 0;
-    border-radius: 999px;
+    border-radius: $radius-chip;
     background: transparent;
     color: $ink-3;
     font-size: 0.78rem;
@@ -95,7 +104,7 @@
   padding: 0.15rem;
   background: $sunk;
   border: 1px solid $hairline;
-  border-radius: 999px;
+  border-radius: $radius-control;
 
   &__step {
     display: inline-flex;
@@ -105,7 +114,7 @@
     width: 1.55rem;
     height: 1.55rem;
     border: 0;
-    border-radius: 50%;
+    border-radius: $radius-chip;
     background: transparent;
     color: $ink-3;
     font-size: 0.7rem;
@@ -132,7 +141,7 @@
     min-width: 3rem;
     padding: 0 0.25rem;
     border: 0;
-    border-radius: 999px;
+    border-radius: $radius-chip;
     background: transparent;
     color: $ink-2;
     font-size: 0.74rem;
@@ -202,7 +211,7 @@
   gap: 0.4rem;
   padding: 0.28rem 0.65rem;
   border: 1px solid $hairline;
-  border-radius: 999px;
+  border-radius: $radius-control;
   background: $paper;
   color: $ink-2;
   font-size: 0.75rem;
@@ -221,7 +230,7 @@
 
   &__count {
     padding: 0 0.35rem;
-    border-radius: 999px;
+    border-radius: $radius-chip;
     background: $sunk;
     color: $ink-3;
     font-size: 0.68rem;

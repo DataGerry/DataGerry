@@ -28,6 +28,12 @@
     [title]="item.label ? item.label : item.name"></cmdb-type-label>
 </ng-template>
 
+<ng-template #specialTypeTemplate let-data="data">
+  @if (data) {
+  <cmdb-special-type-badge [specialType]="data" [description]="resolveSpecialTypeLabel(data)"></cmdb-special-type-badge>
+  }
+</ng-template>
+
 <ng-template #actionsTemplate let-item="item">
   <cmdb-type-table-actions [publicID]="item.public_id"></cmdb-type-table-actions>
 </ng-template>
