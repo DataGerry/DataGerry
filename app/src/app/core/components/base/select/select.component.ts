@@ -82,6 +82,12 @@ import {
      * For making the component read-only or disabled 
      */
     @Input() disabled = false;
+
+    /**
+     * Validation text shown under the control. The host decides when it is worth showing, so an empty
+     * string keeps the message row out of the layout entirely.
+     */
+    @Input() errorMessage = '';
   
     /** The internal data model */
     value: any = null;

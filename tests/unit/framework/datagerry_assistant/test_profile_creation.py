@@ -31,6 +31,7 @@ from cmdb.models.special_type_model.ipam_constants import IpamSection, Interface
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import TypeSlotKey
 from cmdb.framework.datagerry_assistant.profile_user_management import UserManagementProfile
 from cmdb.framework.datagerry_assistant.profile_location import LocationProfile
+from cmdb.framework.datagerry_assistant.profile_rack import RackProfile
 from cmdb.framework.datagerry_assistant.profile_ipam import IPAMProfile
 from cmdb.framework.datagerry_assistant.profile_client_management import ClientManagementProfile
 from cmdb.framework.datagerry_assistant.profile_server_management import ServerManagementProfile
@@ -217,6 +218,25 @@ def test_virtual_server_references_server(
     virtual_server: dict[str, Any] = fake_types_manager.by_name('virtual_server')
     assert _ref_types_by_field_label(virtual_server, 'Server') == [server['public_id']]
 
+
+def test_location_profile_skips_its_basic_rack_when_the_rack_view_type_exists(
+    empty_slot_map: dict[str, int | None],
+    fake_types_manager: Any,
+    fake_section_templates_manager: Any,
+    type_constructor: Any,
+) -> None:
+    """With the Rack View profile selected the location profile leaves the created RACK type alone"""
+    RackProfile(empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor).create_profile()
+    rack_view_id: int | None = empty_slot_map[TypeSlotKey.RACK_ID]
+
+    LocationProfile(
+        empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor,
+    ).create_profile()
+
+    racks: list[dict[str, Any]] = [doc for doc in fake_types_manager.store.values() if doc['name'] == 'rack']
+    assert len(racks) == 1
+    assert empty_slot_map[TypeSlotKey.RACK_ID] == rack_view_id
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                    smoke: each profile builds its expected types                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -224,6 +244,7 @@ def test_virtual_server_references_server(
 @pytest.mark.parametrize('profile_cls, expected_names', [
     (UserManagementProfile, {'company', 'user', 'customer_user'}),
     (LocationProfile, {'country', 'city', 'building', 'room', 'rack'}),
+    (RackProfile, {'rack'}),
     (ClientManagementProfile, {'operating_system', 'client', 'printer', 'monitor'}),
     (ServerManagementProfile, {'server', 'appliance', 'virtual_server'}),
     (NetworkInfrastructureProfile, {'switch', 'router', 'patch_panel', 'wireless_access_point'}),

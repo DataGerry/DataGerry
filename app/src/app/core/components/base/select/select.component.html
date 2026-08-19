@@ -36,4 +36,10 @@
     
 }
   </ng-select>
+
+  @if (errorMessage) {
+    <div class="invalid-feedback d-block">
+      {{ errorMessage }}
+    </div>
+  }
 </div>

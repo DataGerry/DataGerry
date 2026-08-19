@@ -180,65 +180,6 @@ $panel-foot: #f7f9fb;
     }
 }
 
-/* -------------------------------------------------- SUGGESTIONS ---------------------------------------------------- */
-
-.mount-form__suggest {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    padding-top: 0.15rem;
-}
-
-.mount-form__suggest-label {
-    font-size: 0.8rem;
-    color: var(--dg-muted);
-
-    &--empty {
-        color: var(--dg-faint);
-    }
-}
-
-.mount-form__chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-}
-
-/*
- * The chips are the shared `app-button`, so the reach past encapsulation is the price of restyling it
- * in place - the same trade the inspector's action band makes. Scoped to this one row of chips.
- */
-.mount-form__chips ::ng-deep .mount-form__chip {
-    padding: 0.3rem 0.6rem;
-    border: 1px solid var(--dg-border);
-    border-radius: 0.5rem;
-    background: #fff;
-    color: var(--dg-label);
-    font-size: 0.78rem;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    line-height: 1.2;
-    transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
-
-    &:hover {
-        border-color: rgba(var(--dg-brand-rgb), 0.45);
-        background: rgba(var(--dg-brand-rgb), 0.06);
-        color: var(--dg-brand-ink);
-    }
-
-    &:focus-visible {
-        outline: none;
-        box-shadow: var(--dg-focus-ring);
-    }
-
-    /* The stretch the anchor currently sits in, so the chosen placement stays readable in the row. */
-    &--on {
-        border-color: rgba(var(--dg-brand-rgb), 0.55);
-        background: rgba(var(--dg-brand-rgb), 0.12);
-        color: var(--dg-brand-ink);
-    }
-}
-
 /* ----------------------------------------------------- COLOUR ------------------------------------------------------ */
 
 .mount-form__color {

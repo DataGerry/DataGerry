@@ -90,12 +90,18 @@
           <!-- Projected into the "Attributes" tab -->
           <cmdb-object-view-render [mode]="mode" [renderResult]="renderResult"></cmdb-object-view-render>
 
+          <!-- A special type brings a section of its own, set off from the fields by a rule. -->
           @if (isSupernet) {
-            <hr class="ipam-section-divider" />
+            <hr class="object-section-divider" />
             <cmdb-ipam-supernet-overview [publicId]="currentObjectID"></cmdb-ipam-supernet-overview>
           } @else if (isSubnet) {
-            <hr class="ipam-section-divider" />
+            <hr class="object-section-divider" />
             <cmdb-ipam-subnet-overview [publicId]="currentObjectID"></cmdb-ipam-subnet-overview>
+          } @else if (isRack) {
+            <ng-container *permissionLink="[rackViewRight]">
+              <hr class="object-section-divider" />
+              <cmdb-rack-overview [publicId]="currentObjectID"></cmdb-rack-overview>
+            </ng-container>
           }
         </cmdb-object-relations>
       </div>

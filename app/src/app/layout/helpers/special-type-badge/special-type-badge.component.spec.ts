@@ -59,6 +59,17 @@ describe('SpecialTypeBadgeComponent', () => {
         expect(badge().querySelector('i')).toBeNull();
     });
 
+    it('marks the accent dot as decorative', () => {
+        component.specialType = SpecialType.RACK;
+        fixture.detectChanges();
+
+        const dot = badge().querySelector('.special-type-badge__dot');
+
+        expect(dot).not.toBeNull();
+        expect(dot.getAttribute('aria-hidden')).toBe('true');
+        expect(dot.textContent).toBe('');
+    });
+
     it('gives every known special type its own variant class', () => {
         for (const specialType of Object.values(SpecialType)) {
             component.specialType = specialType;

@@ -30,6 +30,7 @@ import { CmdbMode } from '../../modes.enum';
 import { CmdbObject } from '../../models/cmdb-object';
 import { RenderResult } from '../../models/cmdb-render';
 import { CmdbType } from '../../models/cmdb-type';
+import { SpecialType } from '../../models/special-type';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { finalize } from 'rxjs';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -101,6 +102,14 @@ export class ObjectCopyComponent implements OnInit, OnDestroy {
     public ngOnDestroy(): void {
         this.locationService.locationTreeName = "";
     }
+
+    /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
+
+    /** Special type of the copied object, taken from its type and falling back to the source object. */
+    public get specialType(): SpecialType | null {
+        return this.typeInstance?.special_type ?? this.renderResult?.object_information?.special_type ?? null;
+    }
+
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                      API CALLS                                                     */
     /* ------------------------------------------------------------------------------------------------------------------ */
@@ -116,6 +125,11 @@ export class ObjectCopyComponent implements OnInit, OnDestroy {
             newObjectInstance.version = '1.0.0';
             newObjectInstance.author_id = this.userService.getCurrentUser().public_id;
             newObjectInstance.fields = [];
+
+            // Special-type objects (IPAM, rack) must keep their marker so the backend copies them as such
+            if (this.specialType) {
+                newObjectInstance.special_type = this.specialType;
+            }
 
             Object.keys(this.renderForm.controls).forEach(field => {
                 if (field == 'dg_location' && this.renderForm.get(field).value > 0) {

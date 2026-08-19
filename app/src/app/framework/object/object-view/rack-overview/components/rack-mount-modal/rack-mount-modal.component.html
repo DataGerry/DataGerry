@@ -51,7 +51,7 @@
           } @else {
             <div class="mount-form__cell--full">
               <cmdb-rack-object-picker [rackId]="rackId" [appendTo]="DROPDOWN_HOST" formControlName="objectId"
-                (objectSelected)="onObjectSelected()">
+                (objectSelected)="onObjectSelected($event)">
               </cmdb-rack-object-picker>
             </div>
           }
@@ -86,38 +86,17 @@
         }
 
         @if (isSlotArea()) {
-          <app-form-input label="Start slot" type="number" placeholder="Slot 1 is the bottom of the rack"
-            [required]="true" [errorMessage]="startSlotError" formControlName="startSlot">
-          </app-form-input>
+          <app-form-select label="Start slot" placeholder="Pick where it starts..."
+            bindLabel="label" bindValue="slot" [items]="startSlotOptions()" [required]="true"
+            [errorMessage]="startSlotError" [appendTo]="DROPDOWN_HOST" dropdownDirection="auto"
+            formControlName="startSlot" (selectedItemChange)="onStartSlotPicked()">
+          </app-form-select>
 
           <p class="mount-form__hint" [class.mount-form__hint--warn]="slotRange().warn">
             <i class="fas" [class.fa-circle-info]="!slotRange().warn"
               [class.fa-triangle-exclamation]="slotRange().warn" aria-hidden="true"></i>
             <span>{{ slotRange().text }}</span>
           </p>
-
-          <div class="mount-form__suggest mount-form__cell--full">
-            @if (slotSuggestions().length) {
-              <span class="mount-form__suggest-label" id="rack-slot-suggestions">
-                Free space &mdash; pick one to place it
-              </span>
-
-              <div class="mount-form__chips" role="group" aria-labelledby="rack-slot-suggestions">
-                @for (run of slotSuggestions(); track run.to) {
-                  <app-button [label]="run.range" [title]="run.hint" [ariaLabel]="run.hint"
-                    [ariaPressed]="pickedAnchor() === run.to"
-                    [bootstrapClass]="pickedAnchor() === run.to
-                      ? 'mount-form__chip mount-form__chip--on' : 'mount-form__chip'"
-                    (clicked)="onSuggestionPicked(run)">
-                  </app-button>
-                }
-              </div>
-            } @else {
-              <span class="mount-form__suggest-label mount-form__suggest-label--empty">
-                No free stretch in this area is tall enough.
-              </span>
-            }
-          </div>
         }
 
         @if (showsPosition()) {
@@ -164,7 +143,7 @@
   <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" (clicked)="activeModal.dismiss()">
   </app-button>
 
-  <app-button dgModalFooter bootstrapClass="btn-primary" [label]="isEditMode ? 'Save' : 'Add'"
+  <app-button dgModalFooter bootstrapClass="btn-primary" [label]="submitLabel()"
     [disabled]="form.invalid || !canEdit" (clicked)="onSubmit()">
   </app-button>
 </dg-modal>
