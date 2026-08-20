@@ -365,11 +365,16 @@ export interface AutomationCallOverride {
     /** Replaces the operation's endpoint, so a query parameter can be added or removed. */
     endpoint?: string;
 
-    /** Header values to set or replace, by header name. */
-    headers?: Record<string, string>;
+    /**
+     * Header values to set or replace, by header name. Null takes the header out entirely.
+     *
+     * An operation offers everything its interface accepts, and an automation rarely sends all of
+     * it - so a value has three states here, not two: left alone, replaced, or removed.
+     */
+    headers?: Record<string, string | null>;
 
-    /** Request body values to set, by dotted path inside the body's fields. */
-    body?: Record<string, string>;
+    /** Request body values by dotted path inside the body's fields; null removes the value. */
+    body?: Record<string, string | null>;
 }
 
 

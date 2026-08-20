@@ -918,13 +918,27 @@ export class AutomationCompilerService {
                 method.request.endpoint = override.endpoint;
             }
 
-            for (const [name, value] of Object.entries<string>(override.headers ?? {})) {
-                method.request.header = { ...(method.request.header ?? {}), [name]: value };
+            for (const [name, value] of Object.entries(override.headers ?? {})) {
+                const headers = { ...(method.request.header ?? {}) };
+
+                if (value === null) {
+                    delete headers[name];
+                } else {
+                    headers[name] = value;
+                }
+
+                method.request.header = headers;
             }
 
             const bound = boundOn(method.color);
 
-            for (const [path, value] of Object.entries<string>(override.body ?? {})) {
+            for (const [path, value] of Object.entries(override.body ?? {})) {
+                if (value === null) {
+                    this.removeBodyField(method.request, path);
+
+                    continue;
+                }
+
                 if (bound.has(path)) {
                     warnings.push(
                         `"${path}" on ${method.name} is written by the field assignment, so the value `
@@ -1901,6 +1915,76 @@ export class AutomationCompilerService {
 
 
     /** Writes a value into the request body's field tree, creating intermediate objects as needed. */
+    /**
+     * One segment of a body path: a key, and the array position when the key names an array.
+     *
+     * `fields[0].value` is three segments to a reader and two to a walker, and the difference is
+     * where an object stops and a list begins - which is exactly what DataGerry's own object body
+     * is made of, so it cannot be left out.
+     */
+    private pathSegments(dottedPath: string): Array<{ key: string; at: number | null }> {
+        return dottedPath.split('.').map(segment => {
+            const match = /^(.*?)\[(\d+)\]$/.exec(segment);
+
+            return match ? { key: match[1], at: Number(match[2]) } : { key: segment, at: null };
+        });
+    }
+
+
+    /**
+     * Walks to the container a path's last segment lives in, making what is missing on the way.
+     *
+     * Returns null when the walk cannot be made without destroying something - which only happens
+     * while reading, where inventing a node would report a value that is not there.
+     */
+    private containerFor(
+        fields: any,
+        segments: Array<{ key: string; at: number | null }>,
+        create: boolean
+    ): any {
+        let node = fields;
+
+        for (const segment of segments.slice(0, -1)) {
+            let next = node?.[segment.key];
+
+            if (segment.at === null) {
+                if (typeof next !== 'object' || next === null || Array.isArray(next)) {
+                    if (!create) {
+                        return null;
+                    }
+
+                    next = {};
+                    node[segment.key] = next;
+                }
+
+                node = next;
+                continue;
+            }
+
+            if (!Array.isArray(next)) {
+                if (!create) {
+                    return null;
+                }
+
+                next = [];
+                node[segment.key] = next;
+            }
+
+            if (typeof next[segment.at] !== 'object' || next[segment.at] === null) {
+                if (!create) {
+                    return null;
+                }
+
+                next[segment.at] = {};
+            }
+
+            node = next[segment.at];
+        }
+
+        return node;
+    }
+
+
     private setBodyField(
         request: any,
         dottedPath: string,
@@ -1915,30 +1999,65 @@ export class AutomationCompilerService {
             request.body.fields = {};
         }
 
-        const segments = dottedPath.split('.');
-        let node = request.body.fields;
-
-        for (const segment of segments.slice(0, -1)) {
-            if (typeof node[segment] !== 'object' || node[segment] === null || Array.isArray(node[segment])) {
-                node[segment] = {};
-            }
-
-            node = node[segment];
-        }
-
+        const segments = this.pathSegments(dottedPath);
+        const node = this.containerFor(request.body.fields, segments, true);
         const leaf = segments[segments.length - 1];
 
         if (pruneSiblings) {
             // The invoker template carries every filter key it supports; the reference keeps only
             // the one actually used, so unused keys are dropped rather than sent empty.
             Object.keys(node).forEach(key => {
-                if (key !== leaf) {
+                if (key !== leaf.key) {
                     delete node[key];
                 }
             });
         }
 
-        node[leaf] = value;
+        if (leaf.at === null) {
+            node[leaf.key] = value;
+
+            return;
+        }
+
+        if (!Array.isArray(node[leaf.key])) {
+            node[leaf.key] = [];
+        }
+
+        node[leaf.key][leaf.at] = value;
+    }
+
+
+    /**
+     * Takes a value the operation offers back out of the request.
+     *
+     * An invoker describes everything its operation accepts, and an automation rarely wants to send
+     * all of it - an empty key is not the same as an absent one to every API. Removing leaves no
+     * trace beyond its absence; the field is put back by adding it again under its own name.
+     */
+    private removeBodyField(request: any, dottedPath: string): void {
+        const fields = request?.body?.fields;
+
+        if (!fields) {
+            return;
+        }
+
+        const segments = this.pathSegments(dottedPath);
+        const node = this.containerFor(fields, segments, false);
+        const leaf = segments[segments.length - 1];
+
+        if (!node) {
+            return;
+        }
+
+        if (leaf.at === null) {
+            delete node[leaf.key];
+
+            return;
+        }
+
+        if (Array.isArray(node[leaf.key])) {
+            node[leaf.key].splice(leaf.at, 1);
+        }
     }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
