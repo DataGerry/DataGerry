@@ -134,16 +134,6 @@
 </div>
 
 
-@if (showCategoryManager) {
-<app-extendable-option-manager
-[options]="categoryOptions"   
-[optionType]= "'OBJECT_GROUP'" 
-[modalTitle]="'Manage Categories'"
-[itemLabel]="'Category'"
-[itemLabelPlural]="'Categories'"
-(close)="closeCategoryManager()">
-</app-extendable-option-manager>
-}
      
 
 <app-loading-popup

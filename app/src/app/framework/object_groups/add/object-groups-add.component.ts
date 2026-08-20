@@ -13,6 +13,8 @@ import { TypeService } from '../../services/type.service';
 
 import { ObjectGroup, ObjectGroupMode, ExtendableOption } from '../../models/object-group.model';
 import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { ExtendableOptionManagerComponent } from 'src/app/core/components/extendable_option_manager/extendable-option-manager.component';
 
 interface SelectOption {
   value: number;
@@ -33,6 +35,7 @@ export class ObjectGroupsAddComponent implements OnInit {
   private readonly objectGroupService = inject(ObjectGroupService);
   private readonly extendableOptionService = inject(ExtendableOptionService);
   private readonly typeService = inject(TypeService);
+  private readonly modalService = inject(NgbModal);
 
   public isEditMode = false;
   public isViewMode = false;
@@ -49,9 +52,6 @@ export class ObjectGroupsAddComponent implements OnInit {
 
   // Category options for the main form
   public categoryOptions: ExtendableOption[] = [];
-
-  // Show/hide the new Category Manager component
-  public showCategoryManager = false;
 
   // Track previous group type to handle changes
   private previousGroupType?: string;
@@ -223,16 +223,23 @@ export class ObjectGroupsAddComponent implements OnInit {
     this.router.navigate(['/framework/object_groups']);
   }
 
-  /* ---------------------- Category Manager toggles ---------------------- */
+  /* ---------------------- Category Manager ---------------------- */
 
   public openCategoryManager(): void {
-    this.showCategoryManager = true;
-  }
+    const modalRef = this.modalService.open(ExtendableOptionManagerComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
 
-  public closeCategoryManager(): void {
-    this.showCategoryManager = false;
+    modalRef.componentInstance.options = this.categoryOptions;
+    modalRef.componentInstance.optionType = OptionType.OBJECT_GROUP;
+    modalRef.componentInstance.modalTitle = 'Manage Categories';
+    modalRef.componentInstance.itemLabel = 'Category';
+    modalRef.componentInstance.itemLabelPlural = 'Categories';
+
     // Refresh main category list after closing
-    this.loadCategories();
+    modalRef.result.then(() => this.loadCategories(), () => this.loadCategories());
   }
 
   /* ---------------------- Validation Helpers ---------------------- */

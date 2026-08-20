@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { finalize } from 'rxjs/operators';
@@ -37,6 +37,8 @@ import { SortDirection } from 'src/app/layout/table/table.types';
 import { ExtendableOptionService } from '../../services/extendable-option.service';
 import { OptionType } from '../../models/option-type.enum';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { ExtendableOptionManagerComponent } from 'src/app/core/components/extendable_option_manager/extendable-option-manager.component';
 
 @Component({
     selector: 'app-risk-add',
@@ -49,11 +51,10 @@ export class RiskAddComponent implements OnInit {
     public isViewMode = false;
     public isLoading$ = this.loaderService.isLoading$;
 
-    // Show/hide the new Category Manager component
-    public showCategoryManager = false;
-
     // Category options for the main form
     public categoryOptions: ExtendableOption[] = [];
+
+    private readonly modalService = inject(NgbModal);
 
     // Main Reactive Form
     public riskForm: FormGroup;
@@ -392,13 +393,20 @@ export class RiskAddComponent implements OnInit {
     }
 
     public openCategoryManager(): void {
-        this.showCategoryManager = true;
-    }
+        const modalRef = this.modalService.open(ExtendableOptionManagerComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
 
-    public closeCategoryManager(): void {
-        this.showCategoryManager = false;
+        modalRef.componentInstance.options = this.categoryOptions;
+        modalRef.componentInstance.optionType = OptionType.RISK;
+        modalRef.componentInstance.modalTitle = 'Manage Categories';
+        modalRef.componentInstance.itemLabel = 'Category';
+        modalRef.componentInstance.itemLabelPlural = 'Categories';
+
         // Refresh main category list after closing
-        this.loadCategories();
+        modalRef.result.then(() => this.loadCategories(), () => this.loadCategories());
     }
 
 
