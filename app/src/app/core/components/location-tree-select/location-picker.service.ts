@@ -41,8 +41,10 @@ export class LocationPickerService {
 
     public open(options: LocationPickerOptions): Promise<LocationSelection | null> {
         const modalRef = this.modalService.open(LocationTreePickerModalComponent, {
+            size: 'lg',
             centered: true,
-            windowClass: 'dg-location-picker'
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.selectedId = options.selectedId;

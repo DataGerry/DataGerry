@@ -1,75 +1,77 @@
-<div class="option-manager-backdrop" (click)="closeModal()">
-  <!-- Modal Wrapper -->
-  <div class="option-manager-modal" (click)="$event.stopPropagation()">
-    <!-- Modal Header -->
-    <div class="modal-header">
-      <h5 class="modal-title mb-0">{{ modalTitle }}</h5>
-      <button type="button" class="close" (click)="closeModal()">
-        <span aria-hidden="true">×</span>
-      </button>
+<dg-modal icon="fas fa-sliders" eyebrow="Options" [title]="modalTitle"
+    subtitle="Create, rename or remove the entries available in this list." [scrollBody]="false"
+    (dismiss)="closeModal()">
+
+    <!-- Fixed zone: create a new option -->
+    <div class="eom-add">
+        <input ngbAutofocus type="text" class="form-control" name="newItemValue" [(ngModel)]="newItemValue"
+            [attr.aria-label]="'New ' + itemLabel + ' name'" placeholder="New {{ itemLabel.toLowerCase() }} name..." />
+
+        <app-button bootstrapClass="btn-success" label="Add" icon="fas fa-plus" type="button"
+            (clicked)="onAddNewItem()">
+        </app-button>
     </div>
 
-    <!-- Modal Body -->
-    <div class="modal-body">
-      <div class="d-flex align-items-center mb-3">
-        <input type="text" class="form-control" [(ngModel)]="newItemValue" name="newItemValue"
-          placeholder="New {{ itemLabel.toLowerCase() }} name..." />
-        <button class="btn btn-success ms-2" (click)="onAddNewItem()">
-          Add
-        </button>
-      </div>
+    <!-- Scroll region: only the option list scrolls -->
+    <div class="eom-list">
+        <table class="eom-table">
+            <thead>
+                <tr>
+                    <th scope="col">{{ itemLabelPlural }}</th>
+                    <th scope="col" class="eom-actions-col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (opt of localOptions; track opt.public_id) {
+                <tr [class.is-editing]="editingItemId === opt.public_id">
+                    <td>
+                        @if (editingItemId === opt.public_id) {
+                        <input type="text" class="form-control form-control-sm" [(ngModel)]="editingItemValue"
+                            [attr.aria-label]="itemLabel + ' name'" />
+                        } @else {
+                        {{ opt.value }}
+                        }
+                    </td>
+                    <td>
+                        @if (opt.predefined) {
+                        <span class="eom-badge">Predefined</span>
+                        } @else {
+                        <div class="eom-row-actions">
+                            @if (editingItemId === opt.public_id) {
+                            <app-button bootstrapClass="btn-link btn-sm text-success p-0" label="" icon="fas fa-check"
+                                type="button" [ariaLabel]="'Save ' + itemLabel" title="Save"
+                                (clicked)="saveEditItem(opt)">
+                            </app-button>
 
-      <div class="table-responsive">
-        <table class="table table-sm mb-0">
-          <thead>
-            <tr>
-              <th>{{ itemLabelPlural }}</th>
-              <th style="width: 90px;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let opt of localOptions">
-              <td>
-                <ng-container *ngIf="editingItemId === opt.public_id; else readMode">
-                  <input type="text" class="form-control form-control-sm" [(ngModel)]="editingItemValue" />
-                </ng-container>
-                <ng-template #readMode>
-                  {{ opt.value }}
-                </ng-template>
-              </td>
-              <td>
-                <ng-container *ngIf="opt.predefined; else normalActions">
-                  <!-- Show Predefined Tag -->
-                  <span class="badge bg-secondary">Predefined</span>
-                </ng-container>
-                <ng-template #normalActions>
-                  <ng-container *ngIf="editingItemId === opt.public_id; else actionButtons">
-                    <button class="btn btn-link btn-sm text-success p-0 me-2" (click)="saveEditItem(opt)">
-                      <i class="fas fa-check"></i>
-                    </button>
-                    <button class="btn btn-link btn-sm text-secondary p-0" (click)="cancelEditItem()">
-                      <i class="fas fa-ban"></i>
-                    </button>
-                  </ng-container>
-                  <ng-template #actionButtons>
-                    <button class="btn btn-link btn-sm text-primary p-0 me-2" (click)="onEditItem(opt)">
-                      <i class="far fa-edit"></i>
-                    </button>
-                    <button class="btn btn-link btn-sm text-danger p-0" (click)="onDeleteItem(opt)">
-                      <i class="far fa-trash-alt"></i>
-                    </button>
-                  </ng-template>
-                </ng-template>
-              </td>
-            </tr>
-          </tbody>
+                            <app-button bootstrapClass="btn-link btn-sm text-secondary p-0" label="" icon="fas fa-ban"
+                                type="button" ariaLabel="Cancel editing" title="Cancel" (clicked)="cancelEditItem()">
+                            </app-button>
+                            } @else {
+                            <app-button bootstrapClass="btn-link btn-sm text-primary p-0" label="" icon="far fa-edit"
+                                type="button" [ariaLabel]="'Edit ' + itemLabel" title="Edit"
+                                (clicked)="onEditItem(opt)">
+                            </app-button>
+
+                            <app-button bootstrapClass="btn-link btn-sm text-danger p-0" label=""
+                                icon="far fa-trash-alt" type="button" [ariaLabel]="'Delete ' + itemLabel" title="Delete"
+                                (clicked)="onDeleteItem(opt)">
+                            </app-button>
+                            }
+                        </div>
+                        }
+                    </td>
+                </tr>
+                } @empty {
+                <tr>
+                    <td colspan="2" class="eom-empty">
+                        No {{ itemLabel.toLowerCase() }} yet — add the first one above.
+                    </td>
+                </tr>
+                }
+            </tbody>
         </table>
-      </div>
     </div>
 
-    <!-- Modal Footer -->
-    <div class="modal-footer">
-      <button class="btn btn-warning" (click)="closeModal()">Done</button>
-    </div>
-  </div>
-</div>
+    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Done" type="button" (clicked)="closeModal()">
+    </app-button>
+</dg-modal>

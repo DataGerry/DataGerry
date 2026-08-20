@@ -1,0 +1,33 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.passwd-lead {
+    margin: 0 0 1.1rem;
+    font-size: 0.95rem;
+    color: var(--dg-label);
+}
+
+.form-label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--dg-label);
+}
+
+.passwd-toggle {
+    appearance: none;
+    cursor: pointer;
+    color: var(--dg-muted);
+
+    &:hover {
+        color: var(--dg-label);
+    }
+}
+
+.passwd-meter {
+    display: block;
+    margin-top: 0.75rem;
+}

@@ -18,6 +18,7 @@ import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
+import { ChangesModalComponent } from 'src/app/framework/object/modals/object-relation-changes-modal/changes-modal.component';
 
 @Component({
     selector: 'relation-log-list',
@@ -54,10 +55,6 @@ export class RelationLogListComponent implements OnInit, OnChanges {
   public loading = false;
   public filter: string;
   public isLoading$ = this.loaderService.isLoading$;
-
-  // "View Changes" popup
-  public showChangesModal = false;
-  public selectedLog: RelationLog | null = null;
 
   private unsubscribe$ = new ReplaySubject<void>(1);
 
@@ -265,19 +262,16 @@ export class RelationLogListComponent implements OnInit, OnChanges {
   }
 
   /**
-   * "View" button: open popup to see changes
+   * "View" button: open the modal to see the logged changes
    */
   public onViewClick(log: RelationLog): void {
-    this.selectedLog = log;
-    this.showChangesModal = true;
-  }
+    const modalRef = this.modalService.open(ChangesModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
 
-  /**
-   * Closes the changes popup
-   */
-  public closeChangesModal(): void {
-    this.selectedLog = null;
-    this.showChangesModal = false;
+    modalRef.componentInstance.log = log;
   }
 
   /**

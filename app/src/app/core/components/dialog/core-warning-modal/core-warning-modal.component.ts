@@ -23,6 +23,7 @@ import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 @Component({
     selector: 'core-warning-modal',
     templateUrl: './core-warning-modal.component.html',
+    styleUrls: ['./core-warning-modal.component.scss'],
     standalone: false
 })
 export class CoreWarningModalComponent {

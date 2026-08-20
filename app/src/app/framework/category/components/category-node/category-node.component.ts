@@ -61,7 +61,11 @@ export class CategoryNodeComponent implements OnDestroy {
   }
 
   public onDelete(category: CmdbCategory) {
-    this.deleteRef = this.deleteModal.open(DeleteCategoryModalComponent);
+    this.deleteRef = this.deleteModal.open(DeleteCategoryModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.deleteRef.componentInstance.category = category;
     this.deleteRef.result.then((result) => {
       if (result === 'delete') {

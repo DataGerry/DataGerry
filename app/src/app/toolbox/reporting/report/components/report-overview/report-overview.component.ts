@@ -267,7 +267,11 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
    * Opens the Add Report modal and reloads reports on successful addition.
    */
   public openAddReportModal(): void {
-    const modalRef = this.modalService.open(AddCategoryModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(AddCategoryModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.result.then(
       (result) => {
         if (result === 'success') {

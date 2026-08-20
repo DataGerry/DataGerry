@@ -25,6 +25,7 @@ import { SearchRoutingModule } from './search-routing.module';
 import { LayoutModule } from '../../layout/layout.module';
 import { RenderModule } from '../../framework/render/render.module';
 import { TableModule } from '../../layout/table/table.module';
+import { CoreModule } from 'src/app/core/core.module';
 
 import { SearchComponent } from './search.component';
 import { SearchResultComponent } from './components/search-result/search-result.component';
@@ -49,7 +50,8 @@ import { SearchResultBarComponent } from './components/search-result-bar/search-
         ReactiveFormsModule,
         RenderModule,
         NgSelectModule,
-        TableModule
+        TableModule,
+        CoreModule
     ]
 })
 export class SearchModule {}

@@ -1,35 +1,32 @@
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">
-        <i class="fas fa-exclamation-triangle"></i> Session timeout! <b>{{remainingTime}}</b>
-    </h4>
-    <button type="button" class="btn btn-close btn-close-white" aria-label="Close"
-        (click)="activeModal.dismiss('Close')">
-        <span aria-hidden="true"></span>
-    </button>
-</div>
+<dg-modal
+    icon="fas fa-exclamation-triangle"
+    eyebrow="Session"
+    title="Session timeout"
+    (dismiss)="activeModal.dismiss('Close')">
 
-<div class="modal-body">
-    Your session will expire shortly. You will then be logged out automatically.
-    If you want to extend your session, enter your password in the field below.
-    <hr />
+    <div class="timeout-countdown">
+        <i class="fas fa-clock" aria-hidden="true"></i>
+        <span class="timeout-countdown__label">Time remaining</span>
+        <span class="timeout-countdown__value">{{ remainingTime }}</span>
+    </div>
+
+    <p class="timeout-lead">
+        Your session will expire shortly. You will then be logged out automatically.
+        If you want to extend your session, enter your password in the field below.
+    </p>
+
     <form [formGroup]="form" class="needs-validation" novalidate>
-        <div class="row">
-            <div class="col-9">
-                <input type="password" formControlName="password" class="form-control"
-                    placeholder="Enter your password..." aria-label="Password" autocomplete="off" required>
-                <span>
-                    @if (error) {
-                    <small class="text-danger">
-                        {{error}}
-                    </small>
-                    }
-                </span>
-            </div>
-            <div class="col-3">
-                <button type="button" class="btn w-100 btn-primary" (click)="onRenew()" [disabled]="form.invalid">
-                    Renew
-                </button>
-            </div>
-        </div>
+        <label class="form-label" for="sessionTimeoutPassword">Password</label>
+        <input id="sessionTimeoutPassword" type="password" formControlName="password" class="form-control"
+            placeholder="Enter your password..." aria-label="Password" autocomplete="off" required>
+        @if (error) {
+        <small class="text-danger timeout-error">
+            {{error}}
+        </small>
+        }
     </form>
-</div>
+
+    <app-button dgModalFooter [bootstrapClass]="'btn-primary'" label="Renew" type="button" icon="fas fa-rotate-right"
+        [disabled]="form.invalid" (clicked)="onRenew()">
+    </app-button>
+</dg-modal>

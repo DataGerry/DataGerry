@@ -23,53 +23,8 @@ import { AbstractControl, UntypedFormControl, UntypedFormGroup, ValidatorFn, Val
 
 @Component({
     selector: 'cmdb-category-delete',
-    template: `
-    <div class="modal-header bg-primary text-white">
-      <h4 class="modal-title" id="modal-title">Delete Category:</h4>
-      <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="modal.dismiss('cancel')"></button>
-    </div>
-    <div class="modal-body">
-      <strong>Do you want to <b>delete</b> the Category <b>"{{ category.name }}"</b>?</strong>
-      <p>
-        All types inside this category will be unassigned.
-        <span class="text-danger">This operation cannot be undone!</span>
-      </p>
-      <form id="deleteCategoryModalForm" [formGroup]="deleteCategoryModalForm" class="needs-validation" novalidate
-            autocomplete="off">
-        <div class="form-group">
-          <label for="categoryNameInput">Type in the name: {{ category.name }} <span class="required">*</span></label>
-          <input type="text" formControlName="name" class="form-control"
-                 [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
-                 'is-invalid': name.invalid && (name.dirty || name.touched)}"
-                 id="categoryNameInput" required>
-          <small id="categoryNameInputHelp" class="form-text text-muted">Type in the name of the category to confirm the
-            deletion.</small>
-          @if (name.invalid && (name.dirty || name.touched)) {
-<div
-               class="invalid-feedback">
-            @if (name.errors.required) {
-<div class="text-end">
-              Name is required
-            </div>
-}
-            @if (name.errors.notequal) {
-<div class="text-end">
-              Your answer is not equal!
-            </div>
-}
-          </div>
-}
-          <div class="clearfix"></div>
-        </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button type="button" class="btn btn-outline-dark" (click)="modal.dismiss('cancel')">Close</button>
-      <button type="button" class="btn btn-danger" [disabled]="deleteCategoryModalForm.invalid"
-              (click)="modal.close('delete')">Delete
-      </button>
-    </div>
-  `,
+    templateUrl: './delete-category-modal.component.html',
+    styleUrls: ['./delete-category-modal.component.scss'],
     standalone: false
 })
 export class DeleteCategoryModalComponent implements OnDestroy {

@@ -1,27 +1,41 @@
-<div class="modal-content">
-    <div class="modal-header">
-        <h4 class="modal-title">
-            <fa-icon icon="{{modalIcon}}"></fa-icon> <span class="mx-3">{{title}}</span>
-        </h4>
-      <button type="button" class="btn-close btn-close-white" aria-hidden="true" (click)="activeModal.close('cancel')"></button>
-    </div>
-    <div class="modal-body">
-      <blockquote class="blockquote text-center">
-        <p class="mb-0">This object has a location which holds at least one sub location and can't be deleted alone.</p>
-        <hr>
-        <p class="mb-0">
-            If you want to delete this object and all sub objects press:<br>
-            <b>'Delete with sub objects'</b>.</p>
-        <br>
-        <p class="mb-0">
-            If you only want to delete the location attribute from the sub objects press:<br>
-            <b>'Remove locations from sub objects'</b>.
-        </p>
-      </blockquote>
-    </div>
-    <div class="modal-footer">
-        <button type="button" class="btn btn-primary"  (click)="activeModal.close('objects')">{{deleteObjectsButton}}</button>
-        <button type="button" class="btn btn-primary"  (click)="activeModal.close('locations')">{{deleteChildrenButton}}</button>
-        <button type="button" class="btn btn-secondary me-1" (click)="activeModal.close('cancel')">{{cancelButton}}</button>
-    </div>
-  </div>
+<dg-modal [icon]="iconClass" eyebrow="Location" [title]="title" (dismiss)="activeModal.close('cancel')">
+
+    <p class="locations-lead">
+        This object has a location which holds at least one sub location and can't be deleted alone.
+    </p>
+
+    <ul class="locations-options">
+        <li>
+            If you want to delete this object and all sub objects press
+            <b>'{{ deleteObjectsButton }}'</b>.
+        </li>
+        <li>
+            If you only want to delete the location attribute from the sub objects press
+            <b>'{{ deleteChildrenButton }}'</b>.
+        </li>
+    </ul>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        type="button"
+        [label]="cancelButton"
+        (clicked)="activeModal.close('cancel')">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-primary"
+        type="button"
+        [label]="deleteChildrenButton"
+        (clicked)="activeModal.close('locations')">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-danger"
+        type="button"
+        [label]="deleteObjectsButton"
+        (clicked)="activeModal.close('objects')">
+    </app-button>
+</dg-modal>

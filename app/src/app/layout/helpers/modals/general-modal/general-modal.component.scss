@@ -1,0 +1,19 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.general-lead {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--dg-label);
+}
+
+.general-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.825rem;
+    line-height: 1.45;
+    color: var(--dg-muted);
+}

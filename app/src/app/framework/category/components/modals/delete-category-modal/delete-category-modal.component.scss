@@ -5,11 +5,13 @@
     min-height: 0;
 }
 
-.cat-field:not(:last-child) {
-    margin-bottom: 1.1rem;
+.delete-lead {
+    margin: 0 0 1rem;
+    font-size: 0.95rem;
+    color: var(--dg-label);
 }
 
-.cat-label {
+.confirm-label {
     display: block;
     margin-bottom: 0.35rem;
     font-size: 0.85rem;
@@ -17,12 +19,12 @@
     color: var(--dg-label);
 }
 
-.cat-required {
+.confirm-required {
     margin-left: 0.15rem;
     color: var(--dg-danger);
 }
 
-.cat-hint {
+.confirm-hint {
     display: block;
     margin-top: 0.35rem;
     font-size: 0.78rem;

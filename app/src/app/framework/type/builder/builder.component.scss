@@ -543,3 +543,12 @@ $tb-dur: 200ms;
     flex: 1 1 auto;
   }
 }
+
+/* -------------------------------------------- COLLAPSE PERFORMANCE -------------------------------------------- */
+
+#controlsPanel,
+#form-content {
+  .collapsing {
+    transition: none;
+  }
+}

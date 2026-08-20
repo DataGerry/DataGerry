@@ -1,145 +1,145 @@
-@use "sass:color";
-
-$dg-primary-color: #e94d18;
-$dg-border-color: rgba(#dee2e6, 0.5);
-$dg-error-message-color: #dc3545;
-
-.option-manager-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1050;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 2rem;
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
-// MODAL WRAPPER
-.option-manager-modal {
-  background: white;
-  width: 100%;
-  max-width: 700px;
-  max-height: calc(100vh - 4rem);
-  border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-  position: relative;
-  
-  display: flex;
-  flex-direction: column;
-}
+/* ---------------------------------------------------- ADD ROW ------------------------------------------------------ */
 
-// MODAL HEADER
-.modal-header {
-  background: linear-gradient(
-    195deg,
-    color.scale($dg-primary-color, $lightness: -5%),
-    $dg-primary-color
-  );
-  color: white;
-  padding: 1.5rem 2rem;
-  border-bottom: none;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.eom-add {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
+    gap: 0.6rem;
+    margin-bottom: 0.9rem;
 
-  .modal-title {
-    font-weight: 600;
-    font-size: 1.25rem;
-    margin: 0;
-  }
+    /* The input takes the free space; the button keeps its intrinsic width so its
+       icon and label never wrap. */
+    .form-control {
+        flex: 1 1 auto;
+        min-width: 0;
+        border: 1px solid var(--dg-border);
+        border-radius: var(--dg-radius-md);
+        background: var(--dg-surface);
+        font-size: 0.9rem;
 
-  .close {
-    background: transparent;
-    border: none;
-    font-size: 1.75rem;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    transition: opacity 0.2s ease;
+        &::placeholder {
+            color: var(--dg-faint);
+        }
 
-    &:hover {
-      opacity: 0.8;
+        &:focus {
+            background: #fff;
+            border-color: var(--dg-brand);
+            box-shadow: var(--dg-focus-ring);
+        }
     }
-  }
+
+    app-button {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
 }
 
-// MODAL BODY
-.modal-body {
-  padding: 2rem;
-  background: white;
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
+/* ----------------------------------------------------- LIST -------------------------------------------------------- */
 
-  .add-option-inline {
-    input.form-control {
-      border: 1px solid $dg-border-color;
-      padding: 0.75rem 1rem;
-      font-size: 0.9rem;
-      transition: border-color 0.2s ease;
-
-      &:focus {
-        border-color: $dg-primary-color;
-        box-shadow: 0 0 0 0.2rem rgba($dg-primary-color, 0.25);
-      }
-    }
-  }
-
-  .option-table-container {
-    max-height: 300px;
-    overflow-y: auto;
-    margin-top: 1rem;
-  }
-
-  .table-responsive {
+.eom-list {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-  }
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+    background: #fff;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(15, 23, 42, 0.15) transparent;
 
-  .invalid-feedback {
-    color: $dg-error_message_color;
-    font-size: 0.85rem;
-    margin-top: 0.25rem;
-  }
+    &::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        border-radius: 4px;
+        background: rgba(15, 23, 42, 0.15);
+    }
 }
 
-// MODAL FOOTER
-.modal-footer {
-  border-top: 1px solid rgba(#dee2e6, 0.3);
-  padding: 1.25rem 2rem;
-  background: white;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  flex-shrink: 0;
+.eom-table {
+    width: 100%;
+    margin: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.9rem;
+
+    th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: 0.6rem 1rem;
+        background: var(--dg-surface);
+        border-bottom: 1px solid var(--dg-border);
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--dg-muted);
+        text-align: left;
+    }
+
+    td {
+        padding: 0.55rem 1rem;
+        border-bottom: 1px solid var(--dg-hairline);
+        color: var(--dg-label);
+        vertical-align: middle;
+    }
+
+    tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    tbody tr:hover td {
+        background: rgba(var(--dg-brand-rgb), 0.03);
+    }
+
+    tbody tr.is-editing td {
+        background: rgba(var(--dg-brand-rgb), 0.05);
+    }
 }
 
-// RESPONSIVE TWEAKS
-@media (max-width: 576px) {
-  .option-manager-backdrop {
-    padding-top: 1rem;
-    align-items: flex-start;
-  }
-  
-  .modal-header,
-  .modal-body,
-  .modal-footer {
-    padding: 1rem;
-  }
+.eom-actions-col {
+    width: 6rem;
+}
 
-  .modal-title {
-    font-size: 1.1rem;
-  }
+.eom-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
 
-  .option-manager-modal {
-    max-width: 95%;
-    max-height: calc(100vh - 2rem);
-  }
+.eom-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: var(--dg-radius-sm);
+    background: var(--dg-surface);
+    border: 1px solid var(--dg-border);
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--dg-muted);
+}
+
+.eom-empty {
+    padding: 1.75rem 1rem;
+    text-align: center;
+    color: var(--dg-muted);
+}
+
+/* ------------------------------------------------- RESPONSIVE ------------------------------------------------------ */
+
+@media (max-width: 575.98px) {
+    .eom-add {
+        flex-wrap: wrap;
+
+        app-button {
+            flex: 1 0 100%;
+        }
+    }
 }
