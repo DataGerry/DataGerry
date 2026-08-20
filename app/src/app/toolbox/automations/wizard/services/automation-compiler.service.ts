@@ -2500,13 +2500,13 @@ export class AutomationCompilerService {
             );
         }
 
-        // The answer to "what if it is already there" cannot be honoured without something to
-        // recognise the object by, so the automation creates again on every run.
-        if (!definition.matching.identifyBy) {
+        // Recognising an object is a lookup in the sequence now, not a marker on a step, so this
+        // is only worth saying where the compiler still derives the calls - anywhere else it would
+        // name a control that is not on any screen.
+        if (seedsItsOwnCalls(definition) && !definition.matching.identifyBy) {
             warnings.push(
                 'Nothing identifies the object in the target system, so this automation cannot tell '
-                + 'a new object from one it already wrote and creates again on every run. Mark the '
-                + 'identifying field on the assignment step to change that.'
+                + 'a new object from one it already wrote and creates again on every run.'
             );
         }
 
