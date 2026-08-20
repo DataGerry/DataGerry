@@ -417,8 +417,6 @@ export interface AutomationExtraCall {
     /** HTTP verb, for a free request only; an operation brings its own. */
     verb?: string;
 
-    /** Where the identifier of the object the previous call touched goes, if it needs it. */
-    parentIdPath?: string;
 
     /** Request body values, by dotted path inside the body's fields. */
     body?: Record<string, string>;

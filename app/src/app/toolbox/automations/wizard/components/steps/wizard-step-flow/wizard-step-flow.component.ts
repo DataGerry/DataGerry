@@ -1454,37 +1454,10 @@ export class WizardStepFlowComponent implements DoCheck {
     }
 
 
-    /**
-     * Hands an added call the identifier of the object the step before it touched.
-     *
-     * The reason such a call exists at all: it belongs to an object that has only just been created
-     * or found, so until the call before it ran, that object had no id to name.
-     */
-    public onUseParentId(step: FlowStep, path: string): void {
-        const extra = this.extraFor(step);
-
-        if (!extra) {
-            return;
-        }
-
-        this.definition.extras = this.definition.extras.map(candidate =>
-            candidate.id === extra.id ? { ...candidate, parentIdPath: path || undefined } : candidate
-        );
-        this.definitionChange.emit(this.definition);
-    }
 
 
-    public parentIdPathOf(step: FlowStep): string {
-        return this.extraFor(step)?.parentIdPath ?? '';
-    }
 
 
-    /** Body paths of an added call, offered as the place its parent's identifier can go. */
-    public idCandidatesOf(step: FlowStep): string[] {
-        return this.bodyOf(step)
-            .filter(pair => !pair.reference)
-            .map(pair => pair.key);
-    }
 
 
     private extraFor(step: FlowStep): AutomationExtraCall | undefined {
@@ -1783,7 +1756,12 @@ function pairsOf(node: unknown, prefix = ''): WirePair[] {
     }
 
     if (Array.isArray(node)) {
-        return node.flatMap((item, index) => pairsOf(item, `${prefix}[${index}]`));
+        // An empty list still gets a row, at the position a value would take. An operation that
+        // describes a list it does not fill - i-doit's params.filter.type is one - would otherwise
+        // be invisible here and unfillable, while still being part of what the call sends.
+        return node.length === 0
+            ? pairsOf('', `${prefix}[0]`)
+            : node.flatMap((item, index) => pairsOf(item, `${prefix}[${index}]`));
     }
 
     return Object.entries(node as Record<string, unknown>)
