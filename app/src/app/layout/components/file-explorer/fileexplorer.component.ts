@@ -201,7 +201,11 @@ export class FileExplorerComponent implements OnInit, OnDestroy {
   }
 
   public showMetadataInfo(value: FileElement) {
-    this.modalRef = this.modalService.open(MetadataInfoComponent);
+    this.modalRef = this.modalService.open(MetadataInfoComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.fileElement = value;
     this.modalRef.componentInstance.folderTree = this.fileTree;
     this.modalRef.result.then(() => {});
