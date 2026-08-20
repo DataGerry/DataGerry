@@ -620,3 +620,18 @@ $muted: #6b7280;
     font-style: italic;
     font-weight: 500;
 }
+
+/* A path written out, under the list it is not in. */
+.pick__written {
+    border-top: 1px solid $border;
+    padding-top: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.pick__written-row {
+    display: flex;
+    gap: 0.4rem;
+
+    select { flex: 0 0 40%; }
+    input { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+}

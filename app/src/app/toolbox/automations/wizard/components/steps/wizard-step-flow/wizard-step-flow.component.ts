@@ -30,6 +30,7 @@ import {
     OcMethod,
     OcOperator,
     ocFieldReference,
+    ocParseReference,
     ocIfNodeId,
     ocLoopNodeId,
     ocMethodNodeId,
@@ -274,6 +275,9 @@ export class WizardStepFlowComponent implements DoCheck {
     /** What the selected step could read, grouped by the step that answers it. */
     public valueSources: ValueSource[] = [];
 
+    /** The same for a step added at the selected one - see buildValueSources. */
+    public addSources: ValueSource[] = [];
+
     /** The address of the selected call, cut up the same way as the pairs. */
     public endpointTokens: ValueToken[] = [];
 
@@ -284,6 +288,10 @@ export class WizardStepFlowComponent implements DoCheck {
      * because the box has to hold the whole reference for editing to be honest about what is sent.
      */
     private editingField = '';
+
+    /** A path into an answer, written out rather than picked - see onUseWrittenPath. */
+    public writtenCall = '';
+    public writtenPath = '';
 
     /** Which value the picker is currently filling in, and what it is being filtered by. */
     public picking: { part: 'headers' | 'body' | 'endpoint'; key: string } | null = null;
@@ -362,6 +370,7 @@ export class WizardStepFlowComponent implements DoCheck {
         this.bodyRows = step ? this.bodyOf(step) : [];
         this.endpointTokens = step ? tokensOf(this.endpointOf(step)) : [];
         this.valueSources = this.buildValueSources(step);
+        this.addSources = this.buildValueSources(step, true);
 
         if (moved) {
             this.editingField = '';
@@ -631,11 +640,32 @@ export class WizardStepFlowComponent implements DoCheck {
      * the value back to what the interface description says, which is the only thing "remove" can
      * mean there - the call would send the field either way.
      */
+    /**
+     * Takes a value out of the request, or takes back a change made to one.
+     *
+     * Two different things behind one button, and which it is follows from where the value came
+     * from. A value the user set is dropped, so the operation's own comes back. One the operation
+     * offers is marked as removed, because an empty key is not the same as an absent one to every
+     * API - and it is put back by adding it again under its own name.
+     */
     public onRemovePair(step: FlowStep, part: 'headers' | 'body', key: string): void {
         const current = this.valuesOf(step);
-        const { [key]: _dropped, ...rest } = current[part] ?? {};
 
-        this.writeValues(step, { ...current, [part]: rest });
+        if (this.isOwn(step, part, key)) {
+            const { [key]: _dropped, ...rest } = current[part] ?? {};
+
+            this.writeValues(step, { ...current, [part]: rest });
+
+            return;
+        }
+
+        this.writeValues(step, { ...current, [part]: { ...(current[part] ?? {}), [key]: null } });
+    }
+
+
+    /** True when the value is one the operation offers and the automation does not send. */
+    public isRemoved(step: FlowStep, part: 'headers' | 'body', key: string): boolean {
+        return this.valuesOf(step)[part]?.[key] === null;
     }
 
 
@@ -732,6 +762,54 @@ export class WizardStepFlowComponent implements DoCheck {
     }
 
 
+    /**
+     * Puts a path somebody wrote out into the value being filled in.
+     *
+     * The list is what the invokers of the chosen calls describe, and an API answers with more than
+     * its description covers often enough that stopping there would be a dead end. Whether the
+     * field arrives is the installation's business - OpenCelium reports a reference it cannot
+     * resolve rather than failing the run.
+     */
+    public onUseWrittenPath(): void {
+        const path = this.writtenPath.trim();
+        const color = this.writtenCall || this.answeringCalls[0]?.color;
+
+        if (!path || !color) {
+            return;
+        }
+
+        const source: ValueSource = {
+            group: 'Written out',
+            label: path,
+            reference: ocFieldReference(color, 'response', path)
+        };
+
+        if (this.picking?.key || this.picking?.part === 'endpoint') {
+            this.onPick(source);
+        } else {
+            this.onPickIntoDraft(source);
+        }
+
+        this.writtenPath = '';
+    }
+
+
+    /** The calls a written-out path can read, which is every one that answers before this point. */
+    public get answeringCalls(): SequenceCall[] {
+        const seen = new Map<string, SequenceCall>();
+
+        for (const source of this.addSources) {
+            const color = ocParseReference(source.reference)?.color;
+
+            if (color && !seen.has(color)) {
+                seen.set(color, { label: source.group, color });
+            }
+        }
+
+        return [...seen.values()];
+    }
+
+
     public get filteredSources(): ValueSource[] {
         const needle = this.pickFilter.trim().toLowerCase();
 
@@ -746,7 +824,7 @@ export class WizardStepFlowComponent implements DoCheck {
     public get sourceGroups(): Array<{ name: string; items: ValueSource[] }> {
         const groups: Array<{ name: string; items: ValueSource[] }> = [];
 
-        for (const source of this.plainSources) {
+        for (const source of this.addableSources) {
             const group = groups.find(candidate => candidate.name === source.group);
 
             if (group) {
@@ -780,7 +858,15 @@ export class WizardStepFlowComponent implements DoCheck {
      * points at follows from the same rule the compiler uses - the list the loop walks is addressed
      * by its iterator, so every pass reads its own object, and anything else by position.
      */
-    private buildValueSources(step: FlowStep | undefined): ValueSource[] {
+    /**
+     * What is readable at a point in the sequence.
+     *
+     * `forNewStep` moves that point one along: a step being added runs after the selected one, so
+     * it can read the selected one's answer - which is the whole reason for adding it there. Built
+     * as a second list rather than by moving the first, because the request of the selected step
+     * cannot read its own answer and its picker must not offer it.
+     */
+    private buildValueSources(step: FlowStep | undefined, forNewStep = false): ValueSource[] {
         if (!this.connection || !step) {
             return [];
         }
@@ -790,7 +876,8 @@ export class WizardStepFlowComponent implements DoCheck {
         const sources: ValueSource[] = [];
 
         for (const method of methods) {
-            if (compareIndex(method.index, step.index) >= 0 || method.methodType === OC_FREE_REQUEST) {
+            if (compareIndex(method.index, step.index) >= (forNewStep ? 1 : 0)
+                || method.methodType === OC_FREE_REQUEST) {
                 continue;
             }
 
@@ -1009,18 +1096,31 @@ export class WizardStepFlowComponent implements DoCheck {
 
     /** The collections on offer, which is what a loop can be pointed at. */
     public get listSources(): ValueSource[] {
-        return this.valueSources.filter(source => source.isList);
+        return this.addSources.filter(source => source.isList);
     }
 
 
     /** The values on offer - everything that is not a collection. */
+    /**
+     * Everything readable, lists included.
+     *
+     * A list used to be held back here because only a loop walks one - but a condition asks whether
+     * one is empty, and a request value sometimes carries the list itself. Whether a list makes
+     * sense in a place is a question for that place, not for the list.
+     */
     public get plainSources(): ValueSource[] {
-        return this.valueSources.filter(source => !source.isList);
+        return this.valueSources;
+    }
+
+
+    /** The same, for the step about to be added. */
+    public get addableSources(): ValueSource[] {
+        return this.addSources;
     }
 
 
     private get firstValue(): ValueSource | undefined {
-        return this.plainSources[0];
+        return this.addableSources[0];
     }
 
 

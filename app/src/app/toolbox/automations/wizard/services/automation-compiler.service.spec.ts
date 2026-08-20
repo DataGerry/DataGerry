@@ -1666,3 +1666,74 @@ describe('AutomationCompilerService fields the link step does not ask for', () =
             .toEqual(['cmdb.objects.read', 'AddObject']);
     });
 });
+
+
+/*
+ * A request body is not a flat set of keys. DataGerry takes an object's fields as a list, so a path
+ * has to be able to name a position in one - and an operation offers everything its interface
+ * accepts, which is rarely all an automation wants to send.
+ */
+describe('AutomationCompilerService request values', () => {
+    let compiler: AutomationCompilerService;
+
+    beforeEach(() => {
+        compiler = new AutomationCompilerService(new TargetCatalogService());
+    });
+
+
+    function corrected(body: Record<string, string | null>): AutomationDefinition {
+        const definition = incomingDefinition();
+        definition.overrides = { '1_0': { body } };
+
+        return definition;
+    }
+
+
+    function targetBody(definition: AutomationDefinition): any {
+        const { payload } = compiler.compileForCreate(definition, context());
+
+        return payload.connection.fromConnector.methods
+            .find(method => method.index === '1_0')!.request.body.fields;
+    }
+
+
+    it('writes into a position of a list, not into a key that looks like one', () => {
+        const body = targetBody(corrected({ 'fields[0].name': 'hostname' }));
+
+        expect(body.fields).toEqual([{ name: 'hostname' }]);
+    });
+
+
+    it('fills the list up to the position asked for', () => {
+        const body = targetBody(corrected({ 'fields[1].name': 'serial' }));
+
+        expect(body.fields.length).toBe(2);
+        expect(body.fields[1]).toEqual({ name: 'serial' });
+    });
+
+
+    /* An empty key is not the same as an absent one to every API, so removing has to mean absent. */
+    it('takes a value the operation offers out of the request', () => {
+        const body = targetBody(corrected({ version: null }));
+
+        expect('version' in body).toBeFalse();
+    });
+
+
+    it('leaves everything else where it is', () => {
+        const body = targetBody(corrected({ version: null }));
+
+        expect('type_id' in body).toBeTrue();
+    });
+
+
+    it('takes a header out the same way', () => {
+        const definition = incomingDefinition();
+        definition.overrides = { '1_0': { headers: { Authorization: null } } };
+
+        const { payload } = compiler.compileForCreate(definition, context());
+        const write = payload.connection.fromConnector.methods.find(method => method.index === '1_0');
+
+        expect('Authorization' in write!.request.header).toBeFalse();
+    });
+});

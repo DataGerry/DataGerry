@@ -282,12 +282,17 @@ describe('WizardStepFlowComponent', () => {
         });
 
 
-        it('keeps collections apart from values, because only a loop can use one', () => {
+        /*
+         * A loop needs a collection and nothing else, so its own list still holds only those. The
+         * value picker no longer holds them back: a condition asks whether a collection is empty,
+         * and a request value sometimes carries the collection itself.
+         */
+        it('offers a collection to a loop, and to a value as well', () => {
             component.openStep = 'method-1';
             component.ngDoCheck();
 
             expect(component.listSources.map(source => source.label)).toContain('results[*]');
-            expect(component.plainSources.some(source => source.label.endsWith('[*]'))).toBeFalse();
+            expect(component.plainSources.some(source => source.label.endsWith('[*]'))).toBeTrue();
         });
 
 
@@ -902,5 +907,55 @@ describe('WizardStepFlowComponent starting from nothing', () => {
         component.onAddCall('cmdb.object.create');
 
         expect(component.definition.extras.length).toBe(1);
+    });
+});
+
+
+/*
+ * Sources are worked out for a point in the sequence, and a step being added is not at the same
+ * point as the one selected - it runs after it. Reading them for the selected step left a condition
+ * added behind the first call with nothing to compare, which is the only thing it could compare.
+ */
+describe('WizardStepFlowComponent what a new step can read', () => {
+
+    function afterOneCall(): WizardStepFlowComponent {
+        const component = new WizardStepFlowComponent();
+        const definition = createEmptyAutomationDefinition();
+
+        definition.direction = 'outgoing';
+        component.definition = definition;
+        component.connection = connection();
+        component.ngDoCheck();
+        component.select(component.steps[component.steps.length - 1]);
+        component.ngDoCheck();
+
+        return component;
+    }
+
+
+    it('offers the selected call its own answer to a step added after it', () => {
+        const component = afterOneCall();
+        const selected = component.steps[component.steps.length - 1];
+
+        expect(component.addSources.some(source => source.reference.includes(selected.method!.color)))
+            .toBeTrue();
+    });
+
+
+    /* The selected call's own request cannot read its own answer, so its picker must not offer it. */
+    it('keeps that answer out of the picker of the call it belongs to', () => {
+        const component = afterOneCall();
+        const selected = component.steps[component.steps.length - 1];
+
+        expect(component.valueSources.some(source => source.reference.includes(selected.method!.color)))
+            .toBeFalse();
+    });
+
+
+    /* A condition asks whether a list is empty, and a value sometimes carries the list itself. */
+    it('offers a whole list, not only what is inside it', () => {
+        const component = afterOneCall();
+
+        expect(component.plainSources.some(source => source.isList)).toBeTrue();
     });
 });

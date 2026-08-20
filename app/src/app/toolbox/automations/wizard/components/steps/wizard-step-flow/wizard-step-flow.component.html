@@ -328,15 +328,15 @@
                           (click)="openPicker('headers', pair.key)">
                           <i class="fas fa-link"></i>
                         </button>
-                        @if (isOwn(step, 'headers', pair.key)) {
-                          <button
-                            type="button"
-                            class="wire__drop"
-                            [title]="isAdded(step) ? 'Remove this header' : 'Put it back as it was'"
-                            (click)="onRemovePair(step, 'headers', pair.key)">
-                            <i class="fas fa-times"></i>
-                          </button>
-                        }
+                        <button
+                          type="button"
+                          class="wire__drop"
+                          [title]="isOwn(step, 'headers', pair.key)
+                            ? 'Put it back as the operation has it'
+                            : 'Do not send this header at all'"
+                          (click)="onRemovePair(step, 'headers', pair.key)">
+                          <i class="fas fa-times"></i>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -434,15 +434,15 @@
                             (click)="openPicker('body', pair.key)">
                             <i class="fas fa-link"></i>
                           </button>
-                          @if (isOwn(step, 'body', pair.key)) {
-                            <button
-                              type="button"
-                              class="wire__drop"
-                              [title]="isAdded(step) ? 'Remove this field' : 'Put it back as it was'"
-                              (click)="onRemovePair(step, 'body', pair.key)">
-                              <i class="fas fa-times"></i>
-                            </button>
-                          }
+                          <button
+                            type="button"
+                            class="wire__drop"
+                            [title]="isOwn(step, 'body', pair.key)
+                              ? 'Put it back as the operation has it'
+                              : 'Do not send this field at all'"
+                            (click)="onRemovePair(step, 'body', pair.key)">
+                            <i class="fas fa-times"></i>
+                          </button>
                         </div>
                       }
                     </td>
@@ -728,6 +728,36 @@
                 </p>
               }
             </div>
+
+            @if (answeringCalls.length > 0) {
+              <div class="pick__written">
+                <div class="pick__group">Not in the list?</div>
+                <p class="sheet__lead mb-2">
+                  Write the path out. It is not checked against the interface description — if the
+                  answer does not carry it, OpenCelium reports the reference as unresolved rather
+                  than failing the run.
+                </p>
+
+                <div class="pick__written-row">
+                  <select class="form-select form-select-sm" [(ngModel)]="writtenCall"
+                          aria-label="Call answering the written path">
+                    @for (call of answeringCalls; track call.color) {
+                      <option [value]="call.color">{{ call.label }}</option>
+                    }
+                  </select>
+
+                  <input type="text" class="form-control form-control-sm"
+                         placeholder="body.$.result[i].title"
+                         aria-label="Path written out"
+                         [(ngModel)]="writtenPath"
+                         (keyup.enter)="onUseWrittenPath()">
+
+                  <button type="button" class="btn btn-success btn-sm"
+                          [disabled]="!writtenPath.trim()"
+                          (click)="onUseWrittenPath()">Use</button>
+                </div>
+              </div>
+            }
           </div>
 
           <div class="sheet__foot">
