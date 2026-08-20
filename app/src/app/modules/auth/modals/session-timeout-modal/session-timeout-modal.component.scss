@@ -1,0 +1,46 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.timeout-countdown {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--dg-hairline);
+    border-radius: var(--dg-radius-md);
+    background: var(--dg-surface);
+    font-size: 0.875rem;
+    color: var(--dg-label);
+
+    i {
+        color: var(--dg-brand);
+    }
+}
+
+.timeout-countdown__label {
+    font-weight: 500;
+}
+
+.timeout-countdown__value {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--dg-ink);
+}
+
+.timeout-lead {
+    margin: 0 0 1.1rem;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--dg-label);
+}
+
+.timeout-error {
+    display: block;
+    margin-top: 0.35rem;
+}

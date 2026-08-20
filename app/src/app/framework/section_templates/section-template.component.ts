@@ -224,6 +224,7 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      */
     public showTemplatePreview(sectionTemplate: CmdbSectionTemplate) {
         const previewModal = this.modalService.open(PreviewModalComponent, {
+            size: 'lg',
             scrollable: true,
             windowClass: 'dg-modal-window',
             backdropClass: 'dg-modal-window-backdrop'
