@@ -490,22 +490,6 @@
               </p>
             </div>
 
-            @if (isAdded(step) && idCandidatesOf(step).length > 0) {
-              <div class="wire__block">
-                <div class="wire__label">Identifier of the object before it</div>
-                <app-form-select
-                  label=""
-                  placeholder="Not used"
-                  [items]="idCandidatesOf(step)"
-                  [ngModel]="parentIdPathOf(step)"
-                  (ngModelChange)="onUseParentId(step, $event)">
-                </app-form-select>
-                <p class="wizard-section__hint mb-0">
-                  The object this call belongs to was created or found by the step before it, so
-                  until then it had no identifier to name.
-                </p>
-              </div>
-            }
           }
         }
       </div>

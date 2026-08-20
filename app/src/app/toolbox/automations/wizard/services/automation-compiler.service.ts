@@ -518,7 +518,6 @@ export class AutomationCompilerService {
             });
 
             if (anchor.method) {
-                this.bindParentId(extra, anchor.method, method, out.bindings, out.warnings);
             }
 
             placed.set(extra.id, { id: method.id, index: method.index, method });
@@ -815,73 +814,51 @@ export class AutomationCompilerService {
     }
 
 
+
+
+
+
     /**
-     * Hands an added call the identifier of the object the previous call touched.
+     * Wires a value somebody put a reference into.
      *
-     * A create answers with the new object's id, a lookup with the one it found - both under the
-     * response path the invoker declares, which is why this reads the anchor's own schema rather
-     * than assuming a name.
+     * A request value carrying a reference is only half of it: every capture pairs one with a
+     * binding, and without it the reference sits in the body as text. The value is written either
+     * way, so this adds what was missing rather than replacing anything.
+     *
+     * A value that is part text and part reference - `Bearer` and then a token - keeps the whole
+     * value in the body and names every reference in it as an origin.
      */
-    private bindParentId(
-        extra: AutomationExtraCall,
-        anchor: OcMethod,
+    private bindWrittenReferences(
         method: OcMethod,
-        bindings: OcFieldBinding[],
-        warnings: string[]
+        path: string,
+        value: string,
+        bindings: OcFieldBinding[]
     ): void {
-        if (!extra.parentIdPath) {
+        const references = (value.match(/#[0-9A-Fa-f]{6}\.\([a-z]+\)[^\s,;)"']*/g) ?? [])
+            .map(reference => ocParseReference(reference))
+            .filter((parsed): parsed is { color: string; section: 'request' | 'response'; field: string } => !!parsed);
+
+        if (references.length === 0) {
             return;
         }
 
-        const idPath = this.responseIdPath(anchor);
-
-        if (!idPath) {
-            warnings.push(
-                `"${anchor.name}" does not say where it returns an identifier, so the added call `
-                + `"${extra.operation}" gets none. Enter the value by hand instead.`
-            );
-
-            return;
-        }
-
-        const sourcePath = `body.$.${idPath}`;
-        const targetPath = `body.$.${extra.parentIdPath}`;
-
-        this.setBodyField(
-            method.request,
-            extra.parentIdPath,
-            ocFieldReference(anchor.color, 'response', idPath)
-        );
+        const targetPath = `body.$.${path}`;
 
         bindings.push({
-            from: [{ color: anchor.color, field: sourcePath, type: 'response' }],
-            to: [{ color: method.color, field: targetPath, type: 'request' }],
+            from: references.map(reference => ({
+                color: reference.color,
+                field: reference.field,
+                type: 'response' as const
+            })),
+            to: [{ color: method.color, field: targetPath, type: 'request' as const }],
             enhancement: this.buildEnhancement(
-                sourcePath, targetPath, method.color, [{ kind: 'path', path: idPath }], ''
+                references[0].field,
+                targetPath,
+                method.color,
+                references.map(reference => ({ kind: 'path' as const, path: reference.field })),
+                ''
             )
         });
-    }
-
-
-    /** Where a call says it answers with an identifier, taken from its own response schema. */
-    private responseIdPath(method: OcMethod): string {
-        const fields = method.response?.success?.body?.fields;
-
-        if (!fields || typeof fields !== 'object') {
-            return '';
-        }
-
-        for (const [key, value] of Object.entries(fields as Record<string, any>)) {
-            if (value && typeof value === 'object' && !Array.isArray(value) && 'id' in value) {
-                return `${key}.id`;
-            }
-
-            if (key === 'id') {
-                return 'id';
-            }
-        }
-
-        return '';
     }
 
 
@@ -949,6 +926,7 @@ export class AutomationCompilerService {
                 }
 
                 this.setBodyField(method.request, path, value);
+                this.bindWrittenReferences(method, path, value, bindings);
             }
         }
     }

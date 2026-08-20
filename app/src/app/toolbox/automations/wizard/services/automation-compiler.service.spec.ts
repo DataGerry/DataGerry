@@ -733,19 +733,46 @@ describe('AutomationCompilerService', () => {
         });
 
 
-        it('hands it the identifier of the object the step before it touched', () => {
+        /*
+         * A request value carrying a reference used to be written into the body and left there;
+         * every capture pairs one with a binding, so without it the reference is only text.
+         */
+        it('wires a reference somebody put into one of its values', () => {
+            const anchorColor = compiler.compileForCreate(withExtra(), context())
+                .payload.connection.fromConnector.methods[1].color;
+            const reference = `${anchorColor}.(response).body.$.result.id`;
+
             const { payload } = compiler.compileForCreate(
-                withExtra({ parentIdPath: 'params.id' }),
+                withExtra({ body: { 'params.id': reference } }),
                 context()
             );
-            const anchor = payload.connection.fromConnector.methods[1];
             const added = payload.connection.fromConnector.methods
                 .find(method => method.name === 'cmdb.object.update');
             const binding = payload.connection.fieldBinding
                 .find(entry => entry.to[0].field === 'body.$.params.id');
 
-            expect(added?.request.body.fields.params.id).toContain(anchor.color);
-            expect(binding?.from[0].color).toBe(anchor.color);
+            expect(added?.request.body.fields.params.id).toBe(reference);
+            expect(binding?.from[0]).toEqual({
+                color: anchorColor,
+                field: 'body.$.result.id',
+                type: 'response'
+            });
+        });
+
+
+        /* Checked against the added call's own colour: the same path on another call is bound by
+           the field assignment, and finding that one would prove nothing. */
+        it('leaves a value that is only text unwired', () => {
+            const { payload } = compiler.compileForCreate(
+                withExtra({ body: { 'params.title': 'by hand' } }),
+                context()
+            );
+            const added = payload.connection.fromConnector.methods
+                .find(method => method.name === 'cmdb.object.update')!;
+
+            expect(payload.connection.fieldBinding.some(entry =>
+                entry.to[0].color === added.color && entry.to[0].field === 'body.$.params.title'))
+                .toBeFalse();
         });
 
 
