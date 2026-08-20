@@ -109,9 +109,18 @@ function definitionUnderTest(targetTitle: string, targetConnectorId: number): Au
         { target: 'params.title', sources: [{ field: 'text-98758', origin: 'manual', confidence: 1 }] }
     ];
     definition.extras = [
+        // The chain has to start at a step that exists. Since the calls stopped being derived
+        // there is nothing at 1_0 until the sequence puts it there, so the sequence does.
+        {
+            id: 'extra-call',
+            after: '1',
+            kind: 'operation',
+            operation: 'cmdb.object.create',
+            body: { 'params.title': '#FFCFB5.(response).body.$.results[i].fields[0].value' }
+        },
         {
             id: 'extra-if',
-            after: '1_0',
+            after: 'extra-call',
             kind: 'if',
             operation: '',
             condition: {

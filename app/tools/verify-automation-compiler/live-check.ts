@@ -63,8 +63,36 @@ definition.target = {
     connectorId: 1, connectorTitle: 'idoit', invokerName: 'i-doit',
     operation: 'update', remoteObjectTypeId: ''
 };
-definition.mapping = [{ source: 'text-98758', target: 'params.title', origin: 'manual', confidence: 1 }];
-definition.matching = { identifyBy: 'text-98758', whenMissing: 'create', whenPresent: 'update' };
+definition.mapping = [{
+    target: 'params.title',
+    sources: [{ field: 'text-98758', origin: 'manual', confidence: 1 }]
+}];
+
+// The calls come from the sequence, which is what an automation written since the change looks
+// like: a lookup in the target system and a write that reads its answer. Deriving them from an
+// action is what this stopped doing, so asking for it back here would check a design nobody has.
+const lookupStep = 'extra-lookup';
+const writeStep = 'extra-write';
+
+// Which field ends up where is a reference in a request value, which is what the sequence screen
+// writes - not an entry in `mapping`, which is only applied where the compiler still derives a
+// call. Colours are handed out by position: the read is the first, the lookup the second.
+const readColour = '#FFCFB5';
+const lookupColour = '#C77E7E';
+
+definition.extras = [
+    { id: lookupStep, after: '1', kind: 'operation', operation: 'cmdb.objects.read' },
+    {
+        id: writeStep,
+        after: lookupStep,
+        kind: 'operation',
+        operation: 'cmdb.object.update',
+        body: {
+            'params.id': `${lookupColour}.(response).body.$.result[0].id`,
+            'params.title': `${readColour}.(response).body.$.results[i].fields[0].value`
+        }
+    }
+] as AutomationDefinition['extras'];
 
 const context = { internalConnector: dg, targetConnector: idoit, objectTypeFieldOrder: ['text-98758'] };
 const errors = compiler.validate(definition, context);
@@ -75,13 +103,14 @@ if (errors.length === 0) {
     const c = payload.connection;
     check('fromConnector.connectorId', c.fromConnector.connectorId === -1, String(c.fromConnector.connectorId));
     check('toConnector null', c.toConnector === null, String(c.toConnector));
-    check('Methoden', c.fromConnector.methods.length >= 3,
+    check('Methoden', c.fromConnector.methods.length === 3,
         c.fromConnector.methods.map(m => `${m.index}:${m.name}`).join('  '));
-    check('Operatoren', c.fromConnector.operators.length >= 2,
+    check('Operatoren', c.fromConnector.operators.length >= 1,
         c.fromConnector.operators.map(o => `${o.index}:${o.type}`).join('  '));
-    check('Bindungen', c.fieldBinding.length >= 2, String(c.fieldBinding.length));
-    const idBinding = c.fieldBinding.find(b => b.to[0].field.endsWith('params.id'));
-    check('ID-Bindung aus der Suche', idBinding, idBinding ? `${idBinding.from[0].field} → ${idBinding.to[0].field}` : 'fehlt');
+    check('Bindungen', c.fieldBinding.length >= 1, String(c.fieldBinding.length));
+    const written = c.fromConnector.methods.filter(m => m.name !== 'Get Objects');
+    check('Die Sequenz liefert die Aufrufe', written.length === 2,
+        written.map(m => m.name).join(', ') || 'keine');
     const iteratorRefs = JSON.stringify(c).match(/results\[i\]/g) ?? [];
     check('Iterator-Referenzen', iteratorRefs.length > 0, `${iteratorRefs.length}× results[i]`);
     fs.writeFileSync(`${dir}/compiled.json`, JSON.stringify(payload, null, 2));
