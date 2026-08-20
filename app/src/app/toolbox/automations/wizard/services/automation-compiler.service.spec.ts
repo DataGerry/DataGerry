@@ -1611,3 +1611,58 @@ describe('AutomationCompilerService writing into DataGerry', () => {
             .toBeFalse();
     });
 });
+
+
+/*
+ * The link step asks which fields to transfer only where they are what gets read. Writing into
+ * DataGerry it says so - "the mapping chooses the fields" - and never fills them in, so requiring
+ * them left an automation that could be built, could not be saved, and had no screen that would
+ * have fixed it.
+ */
+describe('AutomationCompilerService fields the link step does not ask for', () => {
+    let compiler: AutomationCompilerService;
+
+    beforeEach(() => {
+        compiler = new AutomationCompilerService(new TargetCatalogService());
+    });
+
+
+    function writingDataGerry(): AutomationDefinition {
+        const definition = incomingDefinition();
+        definition.version = 2;
+        definition.fields = [];
+        definition.mapping = [{
+            target: 'hostname',
+            sources: [{
+                field: '',
+                origin: 'manual',
+                confidence: 1,
+                reference: '#FFCFB5.(response).body.$.result[i].title'
+            }]
+        }];
+
+        return definition;
+    }
+
+
+    it('lets an automation that writes DataGerry be saved without them', () => {
+        expect(compiler.validate(writingDataGerry(), context())).toEqual([]);
+    });
+
+
+    it('still asks for them where they are what gets read', () => {
+        const definition = writingDataGerry();
+        definition.direction = 'outgoing';
+
+        expect(compiler.validate(definition, context()))
+            .toContain(jasmine.stringContaining('at least one field to transfer'));
+    });
+
+
+    it('compiles the write even so, because the mapping is what it needs', () => {
+        const { payload } = compiler.compileForCreate(writingDataGerry(), context());
+
+        expect(payload.connection.fromConnector.methods.map(method => method.name))
+            .toEqual(['cmdb.objects.read', 'AddObject']);
+    });
+});

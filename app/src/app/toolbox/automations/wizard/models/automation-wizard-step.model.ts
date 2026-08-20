@@ -182,9 +182,11 @@ export function isGroupComplete(group: WizardGroup, definition: AutomationDefini
                 && (definition.trigger.type !== 'scheduled' || !!definition.trigger.cronExp.trim());
 
         // Both ends at once: the step holds both poles, so neither alone finishes it.
+        // Fields are picked here only when they are what the automation reads; writing DataGerry,
+        // the object type is the whole answer and the mapping step decides what lands in it.
         case WizardGroup.LINK:
             return !!definition.objectType.typeId
-                && definition.fields.length > 0
+                && (definition.direction !== 'outgoing' || definition.fields.length > 0)
                 && !!definition.target.connectorId;
 
         // Nothing to fill in - the sequence follows from the connection.
