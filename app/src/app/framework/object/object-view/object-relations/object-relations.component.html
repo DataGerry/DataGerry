@@ -71,20 +71,4 @@
   </div>
 </div>
 
-<!-- Relation role dialog (create / edit / view / copy) -->
-@if (showRoleDialog()) {
-  <relation-role-dialog
-    [chosenRole]="chosenRole"
-    [currentObjectTypeID]="typeId()"
-    [parentTypeIDs]="roleParentTypeIDs"
-    [childTypeIDs]="roleChildTypeIDs"
-    [currentObjectID]="objectId()"
-    [relation]="chosenRelation"
-    [mode]="dialogMode"
-    [relationInstance]="selectedInstance"
-    (onConfirm)="onRoleDialogConfirm()"
-    (onCancel)="onRoleDialogCancel()">
-  </relation-role-dialog>
-}
-
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

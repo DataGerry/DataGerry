@@ -1,127 +1,116 @@
-<div class="modal-backdrop show" style="display: block;"></div>
-<div class="modal fade show" tabindex="-1" style="display: block;" aria-modal="true" role="dialog">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h4 class="modal-title">
-          {{ mode === CmdbMode.View ? 'View Relation' : mode === CmdbMode.Edit ? 'Edit Relation' : 'Create Relation' }}
-        </h4>
-        <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="back()"></button>
-      </div>
+<dg-modal
+  icon="fas fa-diagram-project"
+  [eyebrow]="relation?.relation_name"
+  [title]="mode === CmdbMode.View ? 'View Relation' : mode === CmdbMode.Edit ? 'Edit Relation' : 'Create Relation'"
+  [scrollBody]="false"
+  (dismiss)="back()">
 
-      <div class="modal-body" #modalBody>
-        <div class="modal-layout">
-          <aside class="modal-sidebar">
-            <form class="relation-configuration" [formGroup]="form">
-              @if (chosenRole === 'parent' || chosenRole === 'both') {
-              <section class="config-section parent-config">
-                <h5 class="config-heading"><i class="fas fa-project-diagram"></i>Parent Settings</h5>
-                <div class="config-content">
-                  <div class="mb-3">
-                    <label class="form-label">Parent Object</label>
-                    <input class="form-control parent-id" type="text" [disabled]="true"
-                      [value]="'Object #' + form.get('parent')?.value" />
-                  </div>
-                  <div class="mb-3">
-                    <label class="form-label">Child Selection</label>
-                    <app-object-selector [typeIds]="childSelectorTypeIds" [multiple]="false"
-                      [selectedIds]="childSelectedIds" [excludeIds]="[currentObjectID]"
-                      [isViewMode]="mode === CmdbMode.View" [useInlineLoader]="true" [closeOnSelect]="true"
-                      (selectionChange)="onChildSelectionChange($event)"
-                      (fullSelectionChange)="onChildObjectChange($event)"></app-object-selector>
-                  </div>
-                </div>
-              </section>
-              }
-
-              @if (chosenRole === 'child' || chosenRole === 'both') {
-              <section class="config-section child-config">
-                <h5 class="config-heading"><i class="fas fa-sitemap"></i>Child Settings</h5>
-                <div class="config-content">
-                  <div class="mb-3">
-                    <label class="form-label">Child Object</label>
-                    <input class="form-control child-id" type="text" [disabled]="true"
-                      [value]="'Object #' + form.get('child')?.value" />
-                  </div>
-                  <div class="mb-3">
-                    <label class="form-label">Parent Selection</label>
-                    <app-object-selector [typeIds]="parentSelectorTypeIds" [multiple]="false"
-                      [selectedIds]="parentSelectedIds" [excludeIds]="[currentObjectID]"
-                      [isViewMode]="mode === CmdbMode.View" [useInlineLoader]="true" [closeOnSelect]="true"
-                      (selectionChange)="onParentSelectionChange($event)"
-                      (fullSelectionChange)="onParentObjectChange($event)"></app-object-selector>
-                  </div>
-                </div>
-              </section>
-              }
-            </form>
-          </aside>
-
-          <main class="modal-content-main">
-            <div class="content-resize-handle" dgHorizontalResize [dgHorizontalResize]="modalBody"
-              [dgResizeCssVar]="'--content-width'" [dgResizeMin]="320" [dgResizeMax]="920" [dgResizeMinOpposite]="240"
-              dgResizeAnchor="right" aria-hidden="true" title="Drag to resize">
-              <span class="resize-grip" aria-hidden="true"></span>
+  <div class="relation-layout" #relationLayout>
+    <aside class="relation-sidebar">
+      <form class="relation-configuration" [formGroup]="form">
+        @if (chosenRole === 'parent' || chosenRole === 'both') {
+        <section class="config-section parent-config">
+          <h5 class="config-heading"><i class="fas fa-project-diagram" aria-hidden="true"></i>Parent Settings</h5>
+          <div class="config-content">
+            <div class="mb-3">
+              <label class="form-label">Parent Object</label>
+              <input class="form-control parent-id" type="text" [disabled]="true"
+                [value]="'Object #' + form.get('parent')?.value" />
             </div>
-            @if (sections.length > 0) {
-            <hr>
-            }
-            @if (sections.length > 0 || (relationInstance?.field_values && relationInstance.field_values.length > 0)) {
-            <form class="renderForm" [formGroup]="relationForm">
-              @for (section of sections; track section) {
-              <fieldset class="form-fieldset">
-                <legend class="form-legend">{{ section?.label }}</legend>
-                @for (fieldName of section.fields; track fieldName) {
-                <div class="form-field">
-                  <cmdb-render-element [useInitialValueFromParent]="true" [mode]="getViewMode()"
-                    [parentFormGroup]="relationForm" [data]="getFieldObject(fieldName)"></cmdb-render-element>
-                </div>
-                }
-              </fieldset>
-              }
-            </form>
-            } @else {
-
-            <div class="empty-attributes-state">
-              <div class="empty-icon"><i class="fas fa-info-circle"></i></div>
-              <h4>No Configurable Attributes for This Relation</h4>
-              <p class="text-muted">This relation has no attributes available for configuration.</p>
+            <div class="mb-3">
+              <label class="form-label">Child Selection</label>
+              <app-object-selector [typeIds]="childSelectorTypeIds" [multiple]="false"
+                [selectedIds]="childSelectedIds" [excludeIds]="[currentObjectID]"
+                [isViewMode]="mode === CmdbMode.View" [useInlineLoader]="true" [closeOnSelect]="true"
+                (selectionChange)="onChildSelectionChange($event)"
+                (fullSelectionChange)="onChildObjectChange($event)"></app-object-selector>
             </div>
-
-            }
-
-
-            @if (chosenRole === 'both' && isBidirectional()) {
-            <section class="bidirectional-section">
-              <fieldset class="relation-status">
-                <legend class="status-legend"><i class="fas fa-exchange-alt"></i>Connection Status</legend>
-                <div class="status-content">
-                  <div class="status-item">
-                    <label class="status-label">Bidirectional Relation</label>
-                    <p class="status-value">
-                      <span class="status-indicator" [class.active]="currentObjectID">
-                        {{ currentObjectID ? 'Active' : 'Inactive' }}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </fieldset>
-            </section>
-            }
-          </main>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn btn-secondary" (click)="back()">Cancel</button>
-        @if (mode !== CmdbMode.View) {
-        <button class="btn btn-success" (click)="confirm()" [disabled]="isConfirmDisabled()">
-          {{ mode === CmdbMode.Edit ? 'Update' : 'Confirm' }}
-        </button>
+          </div>
+        </section>
         }
-      </div>
+
+        @if (chosenRole === 'child' || chosenRole === 'both') {
+        <section class="config-section child-config">
+          <h5 class="config-heading"><i class="fas fa-sitemap" aria-hidden="true"></i>Child Settings</h5>
+          <div class="config-content">
+            <div class="mb-3">
+              <label class="form-label">Child Object</label>
+              <input class="form-control child-id" type="text" [disabled]="true"
+                [value]="'Object #' + form.get('child')?.value" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Parent Selection</label>
+              <app-object-selector [typeIds]="parentSelectorTypeIds" [multiple]="false"
+                [selectedIds]="parentSelectedIds" [excludeIds]="[currentObjectID]"
+                [isViewMode]="mode === CmdbMode.View" [useInlineLoader]="true" [closeOnSelect]="true"
+                (selectionChange)="onParentSelectionChange($event)"
+                (fullSelectionChange)="onParentObjectChange($event)"></app-object-selector>
+            </div>
+          </div>
+        </section>
+        }
+      </form>
+    </aside>
+
+    <div class="content-resize-handle" dgHorizontalResize [dgHorizontalResize]="relationLayout"
+      [dgResizeCssVar]="'--content-width'" [dgResizeMin]="320" [dgResizeMax]="920" [dgResizeMinOpposite]="240"
+      dgResizeAnchor="right" aria-hidden="true" title="Drag to resize">
+      <span class="resize-grip" aria-hidden="true"></span>
     </div>
+
+    <section class="relation-main">
+      @if (sections.length > 0 || (relationInstance?.field_values && relationInstance.field_values.length > 0)) {
+      <form class="renderForm" [formGroup]="relationForm">
+        @for (section of sections; track section) {
+        <fieldset class="form-fieldset">
+          <legend class="form-legend">{{ section?.label }}</legend>
+          @for (fieldName of section.fields; track fieldName) {
+          <div class="form-field">
+            <cmdb-render-element [useInitialValueFromParent]="true" [mode]="getViewMode()"
+              [parentFormGroup]="relationForm" [data]="getFieldObject(fieldName)"></cmdb-render-element>
+          </div>
+          }
+        </fieldset>
+        }
+      </form>
+      } @else {
+      <div class="empty-attributes-state">
+        <div class="empty-icon"><i class="fas fa-info-circle" aria-hidden="true"></i></div>
+        <h4>No Configurable Attributes for This Relation</h4>
+        <p class="text-muted">This relation has no attributes available for configuration.</p>
+      </div>
+      }
+
+      @if (chosenRole === 'both' && isBidirectional()) {
+      <section class="bidirectional-section">
+        <fieldset class="relation-status">
+          <legend class="status-legend"><i class="fas fa-exchange-alt" aria-hidden="true"></i>Connection Status</legend>
+          <div class="status-content">
+            <div class="status-item">
+              <label class="status-label">Bidirectional Relation</label>
+              <p class="status-value">
+                <span class="status-indicator" [class.active]="currentObjectID">
+                  {{ currentObjectID ? 'Active' : 'Inactive' }}
+                </span>
+              </p>
+            </div>
+          </div>
+        </fieldset>
+      </section>
+      }
+    </section>
   </div>
-</div>
+
+  <div class="dg-modal-actions" dgModalFooter>
+    <app-button bootstrapClass="btn-secondary" label="Cancel" type="button" (clicked)="back()">
+    </app-button>
+
+    @if (mode !== CmdbMode.View) {
+    <app-button bootstrapClass="btn-primary text-white" [label]="mode === CmdbMode.Edit ? 'Update' : 'Confirm'"
+      type="button" [disabled]="isConfirmDisabled()" (clicked)="confirm()">
+    </app-button>
+    }
+  </div>
+</dg-modal>
 
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>
