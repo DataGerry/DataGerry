@@ -27,3 +27,35 @@
     color: #666;
   }
 }
+
+/* ---------------------------------------------------- HEADER ------------------------------------------------------- */
+
+.table thead th {
+  border-bottom-color: var(--dg-border);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dg-label);
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------- SELECTION ----------------------------------------------------- */
+
+
+.table {
+  --bs-table-active-bg: rgba(var(--dg-brand-rgb), 0.09);
+  --bs-table-active-color: var(--dg-ink);
+}
+
+
+.table tbody tr.table-active > td:first-child {
+  box-shadow:
+    inset 3px 0 0 var(--dg-brand),
+    inset 0 0 0 9999px var(--bs-table-bg-state, var(--bs-table-bg-type, var(--bs-table-accent-bg)));
+  color: var(--dg-brand-ink);
+}
+
+.table tbody tr.table-active:hover > * {
+  --bs-table-bg-state: rgba(var(--dg-brand-rgb), 0.13);
+}
