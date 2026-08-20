@@ -52,6 +52,7 @@ import { RenderFieldComponent } from './fields/components.fields';
 import { RefSectionComponent } from './fields/section/ref-section.component';
 import { FieldSectionComponent } from './sections/field-section/field-section.component';
 import { MultiDataSectionComponent } from './sections/multi-data-section/multi-data-section.component';
+import { DeleteEntryModalComponent } from './sections/modals/delete-entry-modal.component';
 import { BaseSectionComponent } from './sections/base-section/base-section.component';
 import { ReferenceSectionComponent } from './sections/reference-section/reference-section.component';
 import { SectionsFactoryComponent } from './sections/sections-factory/sections-factory.component';
@@ -107,6 +108,7 @@ import { CoreModule } from '../../core/core.module';
         RefSectionComponent,
         FieldSectionComponent,
         MultiDataSectionComponent,
+        DeleteEntryModalComponent,
         BaseSectionComponent,
         ReferenceSectionComponent,
         SectionsFactoryComponent,

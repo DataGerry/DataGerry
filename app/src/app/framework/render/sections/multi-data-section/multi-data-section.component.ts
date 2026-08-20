@@ -539,7 +539,11 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     public onRowDelete(rowIndex: number): void {
         this.modalRef = this.modalService.open(
             DeleteEntryModalComponent,
-            this.fullscreenModalService.withFullscreenContainer()
+            this.fullscreenModalService.withFullscreenContainer({
+                size: 'lg',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            })
         );
 
         this.modalRef.result.then((deleteConfirm: boolean) => {
