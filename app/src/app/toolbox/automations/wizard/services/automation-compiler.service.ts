@@ -197,7 +197,10 @@ export class AutomationCompilerService {
             errors.push('Select the DataGerry object type the data belongs to.');
         }
 
-        if (definition.fields.length === 0) {
+        // Only asked for where they are what gets read. Writing DataGerry, the link step says as
+        // much - "the mapping chooses the fields" - and never fills them in, so demanding them
+        // here left an automation that could not be finished and no screen that would fix it.
+        if (definition.direction === 'outgoing' && definition.fields.length === 0) {
             errors.push('Select at least one field to transfer.');
         }
 
