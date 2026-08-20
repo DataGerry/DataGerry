@@ -139,7 +139,10 @@ export class FileViewListComponent implements OnChanges {
   }
 
   public moveFile(value: FileElement) {
-    const folderModal = this.modalService.open(MoveDialogComponent);
+    const folderModal = this.modalService.open(MoveDialogComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.updateSelectedFileList(value);
     folderModal.result.then((result) => {
       if (result) {

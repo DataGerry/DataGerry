@@ -249,7 +249,10 @@ export class FileExplorerComponent implements OnInit, OnDestroy {
   }
 
   public moveFiles(value: FileElement[]) {
-    this.modalRef = this.modalService.open(MoveDialogComponent);
+    this.modalRef = this.modalService.open(MoveDialogComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.result.then((result) => {
       if (result) {
         for (const file of value) {
@@ -264,7 +267,10 @@ export class FileExplorerComponent implements OnInit, OnDestroy {
     });
   }
   public moveFile() {
-    this.modalRef = this.modalService.open(MoveDialogComponent);
+    this.modalRef = this.modalService.open(MoveDialogComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.result.then((result) => {
       if (result) {
         this.postFileChanges(result, 'moved');
