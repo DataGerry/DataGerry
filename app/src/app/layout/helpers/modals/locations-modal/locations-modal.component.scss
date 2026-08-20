@@ -1,10 +1,28 @@
-.modal-content {
-    width: 1000px;
-    margin: 0 -50%;
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
+.locations-lead {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--dg-label);
+}
 
-.modal-header {
-    background: linear-gradient(135deg, #e74c3c, #c0392b);
-    color: white;
-  }
+.locations-options {
+    margin: 1rem 0 0;
+    padding-left: 1.15rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--dg-muted);
+
+    li:not(:last-child) {
+        margin-bottom: 0.5rem;
+    }
+
+    b {
+        color: var(--dg-label);
+    }
+}

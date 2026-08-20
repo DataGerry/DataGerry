@@ -1,38 +1,52 @@
-<div class="modal-content">
-  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
-    <h4 class="modal-title">
-      <i class="far fa-folder"></i> <span class="mx-3">Create a new folder</span>
-    </h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close"
-      (click)="activeModal.close(false)"></button>
-  </div>
-  <form [formGroup]="basicForm">
-    <div class="modal-body">
-      <div class="mb-3">
-        <label class="mb-2" for="folderNameInput">Folder Name: <span class="required">*</span></label>
-        <input type="text" formControlName="name" class="form-control" [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
-                 'is-invalid': name.invalid && (name.dirty || name.touched) }" id="folderNameInput" required>
+<dg-modal
+    icon="far fa-folder"
+    eyebrow="File Explorer"
+    title="Create a new folder"
+    (dismiss)="activeModal.close(false)">
+
+    <form [formGroup]="basicForm">
+        <label class="form-label" for="folderNameInput">
+            Folder name <span class="text-danger">*</span>
+        </label>
+
+        <input
+            id="folderNameInput"
+            type="text"
+            class="form-control"
+            formControlName="name"
+            [class.is-valid]="name.valid && (name.dirty || name.touched)"
+            [class.is-invalid]="name.invalid && (name.dirty || name.touched)"
+            required>
+
         <small id="folderNameInputHelp" class="form-text text-muted">Folder name must be unique</small>
+
         @if (name.invalid && (name.dirty || name.touched)) {
         <div class="invalid-feedback">
-          @if (name.errors.required) {
-          <div class="text-end">
-            Name is required.
-          </div>
-          }
-          @if (name.errors.nameAlreadyTaken) {
-          <div class="text-end">
-            A folder with this name already exists.
-          </div>
-          }
+            @if (name.errors.required) {
+            <div>Name is required.</div>
+            }
+            @if (name.errors.nameAlreadyTaken) {
+            <div>A folder with this name already exists.</div>
+            }
         </div>
         }
-        <div class="clearfix"></div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button type="button" class="btn btn-secondary me-1" (click)="activeModal.close(false)">Cancel</button>
-      <button type="button" class="btn btn-success" [disabled]="!name.valid" (click)="createFolder()">OK</button>
-    </div>
-  </form>
-</div>
+    </form>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        label="Cancel"
+        type="button"
+        (clicked)="activeModal.close(false)">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-primary"
+        label="Create folder"
+        type="button"
+        icon="far fa-folder"
+        [disabled]="!name.valid"
+        (clicked)="createFolder()">
+    </app-button>
+</dg-modal>

@@ -471,7 +471,10 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
         buttonDeny: string,
         buttonAccept: string) {
 
-        const modalComponent = this.modalService.open(GeneralModalComponent);
+        const modalComponent = this.modalService.open(GeneralModalComponent, {
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalComponent.componentInstance.title = title;
         modalComponent.componentInstance.modalMessage = modalMessage;
         modalComponent.componentInstance.buttonDeny = buttonDeny;
@@ -488,7 +491,11 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
      * @returns 
      */
     public openLocationModalComponent() {
-        return this.modalService.open(LocationsModalComponent);
+        return this.modalService.open(LocationsModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
     }
 
     /* ------------------------------------------------------------------------------------------------------------------ */

@@ -191,7 +191,10 @@ export class FileExplorerComponent implements OnInit, OnDestroy {
   }
 
   public addFolder() {
-    this.modalRef = this.modalService.open(NewFolderDialogComponent);
+    this.modalRef = this.modalService.open(NewFolderDialogComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.selectedFileFolder = this.selectedFolderElement;
     this.modalRef.result.then((result) => {
       if (result) {
@@ -230,7 +233,10 @@ export class FileExplorerComponent implements OnInit, OnDestroy {
 
   public uploadFile() {
     const metadata = this.generateMetadata();
-    this.modalRef = this.modalService.open(AddAttachmentsModalComponent);
+    this.modalRef = this.modalService.open(AddAttachmentsModalComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.metadata = metadata;
     this.modalRef.result.then(() => {
       this.loadFiles(this.apiViewListParameter);
@@ -239,7 +245,10 @@ export class FileExplorerComponent implements OnInit, OnDestroy {
 
   public renameFile(value?: FileElement) {
     if (value) { this.selectedFolderElement.next(value); }
-    this.modalRef = this.modalService.open(RenameDialogComponent);
+    this.modalRef = this.modalService.open(RenameDialogComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.selectedFileFolder = this.selectedFolderElement;
     this.modalRef.result.then((result) => {
       if (result) {
@@ -302,7 +311,10 @@ export class FileExplorerComponent implements OnInit, OnDestroy {
   }
 
   private deleteFileModal(filename: string) {
-    this.modalRef = this.modalService.open(GeneralModalComponent);
+    this.modalRef = this.modalService.open(GeneralModalComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.title = `Delete ${filename}`;
     this.modalRef.componentInstance.modalMessage =
       `Are you sure you want to delete ${filename} Folder?`;

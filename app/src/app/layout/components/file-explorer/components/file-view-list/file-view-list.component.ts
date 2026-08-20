@@ -127,7 +127,10 @@ export class FileViewListComponent implements OnChanges {
   }
 
   public renameFile(value: any) {
-    const folderModal = this.modalService.open(RenameDialogComponent);
+    const folderModal = this.modalService.open(RenameDialogComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     folderModal.componentInstance.selectedFileFolder = new BehaviorSubject<any>(value);
     folderModal.result.then((result) => {
       if (result) {
