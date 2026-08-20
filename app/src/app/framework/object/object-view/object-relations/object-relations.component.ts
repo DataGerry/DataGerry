@@ -36,6 +36,7 @@ import { RelationService } from 'src/app/framework/services/relaion.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
+import { ObjectRelationSelectModalComponent } from './object-relation-select-modal/object-relation-select-modal.component';
 import { ExtendedRelation } from 'src/app/framework/models/object.model';
 import {
   ObjectRelationRole,
@@ -100,7 +101,6 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
     return key === ATTRIBUTES_KEY || (!this.isHostTab(key) && !this.activeTab());
   });
 
-  public readonly showSelectModal = signal(false);
   public readonly showRoleDialog = signal(false);
 
   // Relation role dialog bindings (read during the change detection triggered
@@ -148,11 +148,22 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
   }
 
   public openSelectModal(): void {
-    this.showSelectModal.set(true);
+    const modalRef = this.modalService.open(ObjectRelationSelectModalComponent, {
+      size: 'lg',
+      scrollable: true,
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
+    modalRef.componentInstance.typeId = this.typeId();
+    modalRef.componentInstance.existingTabs = this.tabs();
+
+    modalRef.result.then(
+      (selection: RelationSelection) => this.onRelationSelected(selection),
+      () => { }
+    );
   }
 
   public onRelationSelected(selection: RelationSelection): void {
-    this.showSelectModal.set(false);
     const { relation, role } = selection;
 
     this.chosenRelation = relation;
@@ -260,10 +271,6 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
     this.showRoleDialog.set(false);
     this.pendingFocus = null;
     this.selectedInstance = null;
-  }
-
-  public onSelectModalCancel(): void {
-    this.showSelectModal.set(false);
   }
 
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

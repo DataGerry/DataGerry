@@ -71,16 +71,6 @@
   </div>
 </div>
 
-<!-- Relation selection modal -->
-@if (showSelectModal()) {
-  <cmdb-object-relation-select-modal
-    [typeId]="typeId()"
-    [existingTabs]="tabs()"
-    (select)="onRelationSelected($event)"
-    (cancel)="onSelectModalCancel()">
-  </cmdb-object-relation-select-modal>
-}
-
 <!-- Relation role dialog (create / edit / view / copy) -->
 @if (showRoleDialog()) {
   <relation-role-dialog
