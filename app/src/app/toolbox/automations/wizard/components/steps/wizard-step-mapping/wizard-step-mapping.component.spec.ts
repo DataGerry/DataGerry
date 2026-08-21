@@ -19,18 +19,13 @@ import {
     AutomationDefinition,
     AutomationMappingEntry,
     AutomationMappingSource,
+    AutomationValueTransform,
     createEmptyAutomationDefinition,
     hasActiveTransform
 } from '../../../models/automation-definition.model';
-import { TargetField } from '../../../models/target-catalog.model';
-import { ValueSource } from '../wizard-step-flow/wizard-step-flow.component';
+import { SequenceBinding, ValueSource } from '../wizard-step-flow/wizard-step-flow.component';
 import { WizardStepMappingComponent } from './wizard-step-mapping.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-function target(path: string): TargetField {
-    return { path, name: path.split('.').pop() ?? path, type: 'string' };
-}
-
 
 function entry(targetPath: string, ...fields: string[]): AutomationMappingEntry {
     return {
@@ -40,24 +35,37 @@ function entry(targetPath: string, ...fields: string[]): AutomationMappingEntry 
 }
 
 
-function adjusted(base: AutomationMappingEntry, script: string): AutomationMappingEntry {
-    return { ...base, transform: { enabled: true, script } };
+/** One value the sequence writes: the call that writes it, the path it lands on, what it reads. */
+function binding(callIndex: string, call: string, path: string, ...fields: string[]): SequenceBinding {
+    return {
+        key: `${callIndex}:${path}`,
+        call,
+        callIndex,
+        path,
+        field: path.split('.').pop() ?? path,
+        sources: fields.map(field => ({
+            label: field,
+            reference: answer(field),
+            call: 'DataGerry \u00b7 read objects'
+        }))
+    };
 }
 
 
-/** A component wired the way the wizard shell wires it, already through its first check. */
-function mounted(mapping: AutomationMappingEntry[], sources = ['hostname', 'serial', 'location']): {
+/** A component on an automation that writes into the target system, already through its check. */
+function sending(bindings: SequenceBinding[], adjustments: Record<string, AutomationValueTransform> = {}): {
     component: WizardStepMappingComponent;
     definition: AutomationDefinition;
 } {
     const component = new WizardStepMappingComponent();
     const definition = createEmptyAutomationDefinition();
 
-    definition.mapping = mapping;
+    definition.adjustments = adjustments;
 
     component.definition = definition;
-    component.sourceFields = sources.map(name => ({ name, label: name.toUpperCase(), type: 'text' }));
-    component.targetFields = [target('params.title'), target('params.sysid'), target('params.note')];
+    component.sourceFields = ['hostname', 'serial', 'location']
+        .map(name => ({ name, label: name.toUpperCase(), type: 'text' }));
+    component.sequenceBindings = bindings;
     component.ngDoCheck();
 
     return { component, definition };
@@ -103,62 +111,88 @@ function writing(mapping: AutomationMappingEntry[] = [], sources = [offered('hos
 
 describe('WizardStepMappingComponent', () => {
 
-    describe('the mapping it shows', () => {
+    describe('the values the sequence writes', () => {
 
-        it('shows one row per target field the automation writes', () => {
-            const { component } = mounted([entry('params.title', 'hostname'), entry('params.note', 'serial')]);
+        it('shows one row per value the sequence writes', () => {
+            const { component } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname'),
+                binding('1_1', 'i-doit \u00b7 add category', 'params.data.sysid', 'serial')
+            ]);
 
-            expect(component.rows.map(row => row.target)).toEqual(['params.title', 'params.note']);
+            expect(component.bindingRows.map(row => row.path))
+                .toEqual(['params.data.title', 'params.data.sysid']);
         });
 
 
-        it('names the target field the way the target system names it', () => {
-            const { component } = mounted([entry('params.title', 'hostname')]);
+        /* The bug this view was rebuilt for: the calls the user added wrote fields nobody could see. */
+        it('shows the values of every call, not only the ones an old mapping guessed', () => {
+            const { component, definition } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname'),
+                binding('1_1', 'i-doit \u00b7 add category', 'params.data.sysid', 'serial'),
+                binding('1_2', 'i-doit \u00b7 add contact', 'params.data.room', 'location')
+            ]);
 
-            expect(component.rows[0].targetName).toBe('title');
+            definition.mapping = [entry('params.data.title', 'hostname')];
+            component.ngDoCheck();
+
+            expect(component.bindingRows.length).toBe(3);
         });
 
 
-        /* The whole point of keying by target: two fields feeding one is an ordinary row. */
-        it('names the sources of a combined field in the order the script sees them', () => {
-            const { component } = mounted([entry('params.sysid', 'serial', 'location')]);
-            const row = component.rows[0];
+        /* Two calls can write the same path, so a row that does not name its call says nothing. */
+        it('puts the rows under the call that writes them', () => {
+            const { component } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.sysid', 'serial'),
+                binding('1_1', 'i-doit \u00b7 add category', 'params.data.sysid', 'hostname'),
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')
+            ]);
+
+            expect(component.bindingGroups.map(group => group.call))
+                .toEqual(['i-doit \u00b7 create object', 'i-doit \u00b7 add category']);
+            expect(component.bindingGroups[0].rows.map(row => row.field)).toEqual(['sysid', 'title']);
+        });
+
+
+        it('names the target field by the last segment of the path it lands on', () => {
+            const { component } = sending([binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')]);
+
+            expect(component.bindingRows[0].field).toBe('title');
+        });
+
+
+        it('names the sources of a combined value in the order the script sees them', () => {
+            const { component } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.sysid', 'serial', 'location')
+            ]);
+            const row = component.bindingRows[0];
 
             expect(row.combined).toBeTrue();
             expect(row.sources.map(source => source.variable)).toEqual(['value1', 'value2']);
-            expect(row.sources.map(source => source.field)).toEqual(['serial', 'location']);
-        });
-
-
-        /* The script refers to the sources by name, so a name has to say which field it stands for. */
-        it('says which field each variable of a combined row stands for', () => {
-            const { component } = mounted([entry('params.sysid', 'serial', 'location')]);
-
-            expect(component.rows[0].sources.map(source => `${source.variable}=${source.label}`))
-                .toEqual(['value1=SERIAL', 'value2=LOCATION']);
+            expect(row.sources.map(source => source.label)).toEqual(['serial', 'location']);
         });
 
 
         it('calls the single source of a plain copy just value', () => {
-            const { component } = mounted([entry('params.title', 'hostname')]);
+            const { component } = sending([binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')]);
 
-            expect(component.rows[0].combined).toBeFalse();
-            expect(component.rows[0].sources[0].variable).toBe('value');
+            expect(component.bindingRows[0].combined).toBeFalse();
+            expect(component.bindingRows[0].sources[0].variable).toBe('value');
         });
 
 
-        it('lists the source fields that reach no target field', () => {
-            const { component } = mounted([entry('params.title', 'hostname')]);
+        /* The name is what fits in the row; the route it stands for is one hover away. */
+        it('keeps the whole route behind the name a source is shown by', () => {
+            const { component } = sending([binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')]);
 
-            expect(component.spares.map(field => field.name)).toEqual(['serial', 'location']);
+            expect(component.bindingRows[0].sources[0].reference).toBe(answer('hostname'));
         });
 
 
-        it('counts the rows that combine and the rows that adjust', () => {
-            const { component } = mounted([
-                adjusted(entry('params.sysid', 'serial', 'location'), 'value = value1 + value2;'),
-                entry('params.title', 'hostname')
-            ]);
+        it('counts the values that combine and the values that adjust', () => {
+            const { component } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.sysid', 'serial', 'location'),
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')
+            ], { '1_0:params.data.sysid': { enabled: true, script: 'value = value1 + value2;' } });
 
             expect(component.combinedCount).toBe(1);
             expect(component.adjustedCount).toBe(1);
@@ -167,104 +201,132 @@ describe('WizardStepMappingComponent', () => {
 
         /* An empty draft is a row somebody opened and left, not an adjustment the automation runs. */
         it('does not count an adjustment with nothing in it', () => {
-            const { component } = mounted([adjusted(entry('params.title', 'hostname'), '   ')]);
+            const { component } = sending(
+                [binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')],
+                { '1_0:params.data.title': { enabled: true, script: '   ' } }
+            );
 
             expect(component.adjustedCount).toBe(0);
         });
-    });
 
 
-    describe('what it leaves to the sequence', () => {
+        /* Nothing on this screen belongs to the direction that writes DataGerry. */
+        it('builds no object type rows for an automation that reads DataGerry', () => {
+            const { component } = sending([binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')]);
 
-        /* Which field goes where is settled where the request value gets its reference. */
-        it('never changes which source feeds which target', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
-
-            component.onToggleTransform(definition.mapping[0]);
-            component.onTransformScriptChanged(definition.mapping[0], 'value = value.trim();');
-            component.onRemoveTransform(definition.mapping[0]);
-
-            expect(definition.mapping.length).toBe(1);
-            expect(definition.mapping[0].target).toBe('params.title');
-            expect(definition.mapping[0].sources.map(source => source.field)).toEqual(['hostname']);
-        });
-
-
-        it('leaves the fields nobody sends where they are', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
-
-            component.onToggleTransform(definition.mapping[0]);
-
-            expect(definition.unmapped).toEqual([]);
-            expect(component.spares.map(field => field.name)).toEqual(['serial', 'location']);
+            expect(component.incoming).toBeFalse();
+            expect(component.writeRows).toEqual([]);
         });
     });
 
 
-    describe('the value adjustment', () => {
+    describe('adjusting a value on its way out', () => {
 
         it('opens with an empty draft the user can type into', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+            const { component, definition } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')
+            ]);
 
-            component.onToggleTransform(definition.mapping[0]);
+            component.onAdjustmentToggled(component.bindingRows[0]);
 
-            expect(component.isExpanded('params.title')).toBeTrue();
-            expect(definition.mapping[0].transform).toEqual({ enabled: true, script: '' });
+            expect(component.isExpanded('1_0:params.data.title')).toBeTrue();
+            expect(definition.adjustments).toEqual({ '1_0:params.data.title': { enabled: true, script: '' } });
         });
 
 
         it('keeps what was typed into it', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+            const { component, definition } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')
+            ]);
 
-            component.onToggleTransform(definition.mapping[0]);
-            component.onTransformScriptChanged(definition.mapping[0], 'value = value.toUpperCase();');
+            component.onAdjustmentToggled(component.bindingRows[0]);
+            component.ngDoCheck();
+            component.onAdjustmentScriptChanged(component.bindingRows[0], 'value = value.trim();');
+            component.ngDoCheck();
 
-            expect(hasActiveTransform(definition.mapping[0])).toBeTrue();
-            expect(definition.mapping[0].transform?.script).toBe('value = value.toUpperCase();');
+            expect(definition.adjustments['1_0:params.data.title'].script).toBe('value = value.trim();');
+            expect(component.bindingRows[0].adjusted).toBeTrue();
+        });
+
+
+        /* Two calls can write the same path, and an adjustment belongs to exactly one of them. */
+        it('leaves the same path on another call alone', () => {
+            const { component, definition } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.sysid', 'serial'),
+                binding('1_1', 'i-doit \u00b7 add category', 'params.data.sysid', 'hostname')
+            ]);
+
+            component.onAdjustmentScriptChanged(component.bindingRows[0], 'value = value.trim();');
+
+            expect(Object.keys(definition.adjustments)).toEqual(['1_0:params.data.sysid']);
         });
 
 
         /* Switching it off is not the same as throwing it away - the script has to survive. */
         it('remembers the script of an adjustment that was switched off', () => {
-            const { component, definition } = mounted([adjusted(entry('params.title', 'hostname'), 'value = 1;')]);
+            const { component, definition } = sending(
+                [binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')],
+                { '1_0:params.data.title': { enabled: true, script: 'value = 1;' } }
+            );
 
-            component.onTransformEnabledChanged(definition.mapping[0], false);
+            component.onAdjustmentEnabledChanged(component.bindingRows[0], false);
 
-            expect(hasActiveTransform(definition.mapping[0])).toBeFalse();
-            expect(definition.mapping[0].transform?.script).toBe('value = 1;');
+            expect(definition.adjustments['1_0:params.data.title'])
+                .toEqual({ enabled: false, script: 'value = 1;' });
         });
 
 
         it('removing it leaves the row without any adjustment at all', () => {
-            const { component, definition } = mounted([adjusted(entry('params.title', 'hostname'), 'value = 1;')]);
+            const { component, definition } = sending(
+                [binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')],
+                { '1_0:params.data.title': { enabled: true, script: 'value = 1;' } }
+            );
 
-            component.onRemoveTransform(definition.mapping[0]);
+            component.onAdjustmentRemoved(component.bindingRows[0]);
 
-            expect('transform' in definition.mapping[0]).toBeFalse();
-            expect(component.isExpanded('params.title')).toBeFalse();
+            expect('1_0:params.data.title' in definition.adjustments).toBeFalse();
+            expect(component.isExpanded('1_0:params.data.title')).toBeFalse();
         });
 
 
         /* An adjustment folded away is an adjustment nobody reviews, and reviewing is the point. */
         it('shows an adjustment the automation already carries', () => {
-            const { component } = mounted([
-                adjusted(entry('params.title', 'hostname'), 'value = 1;'),
-                entry('params.note', 'serial')
-            ]);
+            const { component } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname'),
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.note', 'serial')
+            ], { '1_0:params.data.title': { enabled: true, script: 'value = 1;' } });
 
-            expect(component.isExpanded('params.title')).toBeTrue();
-            expect(component.isExpanded('params.note')).toBeFalse();
+            expect(component.isExpanded('1_0:params.data.title')).toBeTrue();
+            expect(component.isExpanded('1_0:params.data.note')).toBeFalse();
         });
 
 
         it('leaves an adjustment the user folded away folded', () => {
-            const { component, definition } = mounted([adjusted(entry('params.title', 'hostname'), 'value = 1;')]);
+            const { component } = sending(
+                [binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')],
+                { '1_0:params.data.title': { enabled: true, script: 'value = 1;' } }
+            );
 
-            component.onToggleTransform(definition.mapping[0]);
-            definition.mapping = [...definition.mapping];
+            component.onAdjustmentToggled(component.bindingRows[0]);
+            component.sequenceBindings = [...component.sequenceBindings];
             component.ngDoCheck();
 
-            expect(component.isExpanded('params.title')).toBeFalse();
+            expect(component.isExpanded('1_0:params.data.title')).toBeFalse();
+        });
+
+
+        /* Which value feeds which field is settled where the request value gets its reference. */
+        it('never changes what the sequence writes where', () => {
+            const { component, definition } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')
+            ]);
+
+            component.onAdjustmentToggled(component.bindingRows[0]);
+            component.onAdjustmentScriptChanged(component.bindingRows[0], 'value = value.trim();');
+            component.onAdjustmentRemoved(component.bindingRows[0]);
+
+            expect(definition.mapping).toEqual([]);
+            expect(component.bindingRows.map(row => row.path)).toEqual(['params.data.title']);
         });
     });
 
@@ -272,7 +334,7 @@ describe('WizardStepMappingComponent', () => {
     describe('conditions', () => {
 
         it('adds a rule on the first source field', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+            const { component, definition } = sending([]);
 
             component.onAddRule();
 
@@ -284,7 +346,7 @@ describe('WizardStepMappingComponent', () => {
 
         /* An operator that compares against nothing must not carry a value nobody can see. */
         it('drops the value when the comparison stops needing one', () => {
-            const { component, definition } = mounted([entry('params.title', 'hostname')]);
+            const { component, definition } = sending([]);
 
             component.onAddRule();
             component.onRuleValueChanged(0, 'srv-1');
@@ -338,11 +400,11 @@ describe('WizardStepMappingComponent', () => {
 
 
         /* Nothing on this screen belongs to the direction that reads DataGerry. */
-        it('shows no target field rows and no leftover source fields', () => {
+        it('shows no rows for the values a sequence writes elsewhere', () => {
             const { component } = writing([writes('hostname', { reference: answer('hostname') })]);
 
-            expect(component.rows).toEqual([]);
-            expect(component.spares).toEqual([]);
+            expect(component.bindingRows).toEqual([]);
+            expect(component.bindingGroups).toEqual([]);
         });
     });
 
@@ -467,11 +529,33 @@ describe('WizardStepMappingComponent', () => {
         });
 
 
-        it('builds no object type rows for an automation that reads DataGerry', () => {
-            const { component } = mounted([entry('params.title', 'hostname')]);
+        /* Same reason as the write rows: a fresh array makes every row rebuild for nothing. */
+        it('hands out the same rows the sequence writes until an input actually changes', () => {
+            const { component } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')
+            ]);
+            const rows = component.bindingRows;
+            const groups = component.bindingGroups;
 
-            expect(component.incoming).toBeFalse();
-            expect(component.writeRows).toEqual([]);
+            component.ngDoCheck();
+            component.ngDoCheck();
+
+            expect(component.bindingRows).toBe(rows);
+            expect(component.bindingGroups).toBe(groups);
+        });
+
+
+        /* Stored somewhere no array of the definition covers, so the check has to watch it too. */
+        it('rebuilds the rows when an adjustment is stored', () => {
+            const { component } = sending([
+                binding('1_0', 'i-doit \u00b7 create object', 'params.data.title', 'hostname')
+            ]);
+
+            component.onAdjustmentScriptChanged(component.bindingRows[0], 'value = value.trim();');
+            component.ngDoCheck();
+
+            expect(component.bindingRows[0].adjusted).toBeTrue();
+            expect(component.bindingRows[0].transform?.script).toBe('value = value.trim();');
         });
     });
 });

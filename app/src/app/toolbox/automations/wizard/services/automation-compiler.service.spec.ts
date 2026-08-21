@@ -1764,3 +1764,59 @@ describe('AutomationCompilerService request values', () => {
         expect('Authorization' in write!.request.header).toBeFalse();
     });
 });
+
+
+/*
+ * Which field ends up where is a reference in a request value, so an adjustment for it cannot hang
+ * on a mapping entry - there is none. It is keyed by the call and the path instead, because two
+ * calls can write the same path and an adjustment belongs to exactly one of them.
+ */
+describe('AutomationCompilerService adjusting what the sequence writes', () => {
+    let compiler: AutomationCompilerService;
+
+    beforeEach(() => {
+        compiler = new AutomationCompilerService(new TargetCatalogService());
+    });
+
+
+    const reference = '#FFCFB5.(response).body.$.results[i].fields[0].value';
+
+
+    function adjustedAt(key: string, script: string): AutomationDefinition {
+        const definition = incomingDefinition();
+        definition.overrides = { '1_0': { body: { 'params.title': reference } } };
+        definition.adjustments = { [key]: { enabled: true, script } };
+
+        return definition;
+    }
+
+
+    function enhancementFor(definition: AutomationDefinition): string {
+        const { payload } = compiler.compileForCreate(definition, context());
+
+        return payload.connection.fieldBinding
+            .find(entry => entry.to[0].field === 'body.$.params.title')!
+            .enhancement.expertCode;
+    }
+
+
+    it('runs the script on the value the call was given', () => {
+        expect(enhancementFor(adjustedAt('1_0:params.title', "value = value + '!';")))
+            .toBe("var value = VAR_0;\nvalue = value + '!';\nRESULT_VAR = value;");
+    });
+
+
+    /* Keyed by the call as well: the same path on another call is a different value. */
+    it('leaves the value alone when the adjustment names another call', () => {
+        expect(enhancementFor(adjustedAt('9_9:params.title', "value = value + '!';")))
+            .toBe('RESULT_VAR = VAR_0;');
+    });
+
+
+    it('leaves it alone while the adjustment is switched off', () => {
+        const definition = adjustedAt('1_0:params.title', "value = value + '!';");
+        definition.adjustments['1_0:params.title'].enabled = false;
+
+        expect(enhancementFor(definition)).toBe('RESULT_VAR = VAR_0;');
+    });
+});

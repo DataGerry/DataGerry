@@ -25,6 +25,7 @@ import {
     AutomationMappingEntry,
     AutomationMatchOutcome,
     AutomationRuleOperator,
+    AutomationValueTransform,
     findSystemField,
     isTriggerSupported,
     outcomeWrites,
@@ -404,7 +405,13 @@ export class AutomationCompilerService {
             });
         }
 
-        this.applyOverrides({ ...definition.overrides, ...fromExtras }, methods, bindings, warnings);
+        this.applyOverrides(
+            { ...definition.overrides, ...fromExtras },
+            definition.adjustments ?? {},
+            methods,
+            bindings,
+            warnings
+        );
 
         return {
             title: definition.name,
@@ -832,7 +839,8 @@ export class AutomationCompilerService {
         method: OcMethod,
         path: string,
         value: string,
-        bindings: OcFieldBinding[]
+        bindings: OcFieldBinding[],
+        adjustments: Record<string, AutomationValueTransform>
     ): void {
         const references = (value.match(/#[0-9A-Fa-f]{6}\.\([a-z]+\)[^\s,;)"']*/g) ?? [])
             .map(reference => ocParseReference(reference))
@@ -843,6 +851,10 @@ export class AutomationCompilerService {
         }
 
         const targetPath = `body.$.${path}`;
+        // Keyed by the call as well as the path: two calls can write the same one, and an
+        // adjustment belongs to exactly one of them.
+        const adjustment = adjustments[`${method.index}:${path}`];
+        const script = adjustment?.enabled ? adjustment.script.trim() : '';
 
         bindings.push({
             from: references.map(reference => ({
@@ -856,7 +868,7 @@ export class AutomationCompilerService {
                 targetPath,
                 method.color,
                 references.map(reference => ({ kind: 'path' as const, path: reference.field })),
-                ''
+                script
             )
         });
     }
@@ -872,6 +884,7 @@ export class AutomationCompilerService {
      */
     private applyOverrides(
         overrides: Record<string, AutomationCallOverride>,
+        adjustments: Record<string, AutomationValueTransform>,
         methods: OcMethod[],
         bindings: OcFieldBinding[],
         warnings: string[]
@@ -926,7 +939,7 @@ export class AutomationCompilerService {
                 }
 
                 this.setBodyField(method.request, path, value);
-                this.bindWrittenReferences(method, path, value, bindings);
+                this.bindWrittenReferences(method, path, value, bindings, adjustments);
             }
         }
     }

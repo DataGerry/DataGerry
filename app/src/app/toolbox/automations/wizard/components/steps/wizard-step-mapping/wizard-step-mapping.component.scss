@@ -51,16 +51,6 @@
     white-space: nowrap;
   }
 
-  &__fixed {
-    display: block;
-    font-size: 0.7rem;
-    color: $muted;
-
-    code {
-      color: #374151;
-    }
-  }
-
   &__adjust {
     color: $muted;
     text-decoration: none;
@@ -100,6 +90,33 @@
 
   &__name {
     color: #374151;
+    cursor: help;
+  }
+
+  // Where the value is read: quiet, because the name is what the row is scanned for.
+  &__from {
+    font-size: 0.7rem;
+    color: $muted;
+  }
+}
+
+// The call a group of rows belongs to: two calls can write the same path, so this carries meaning.
+.mapping-call {
+  background: #f9fafb;
+
+  > td {
+    padding: 0.45rem 0.9rem;
+  }
+
+  &__name {
+    font-weight: 600;
+    color: #374151;
+  }
+
+  &__count {
+    margin-left: 0.5rem;
+    font-size: 0.7rem;
+    color: $muted;
   }
 }
 
@@ -234,32 +251,6 @@
       margin-right: 0.5rem;
       color: #374151;
     }
-  }
-}
-
-.mapping-spares {
-  margin-top: 0.5rem;
-
-  &__title {
-    font-size: 0.85rem;
-    margin-bottom: 0.25rem;
-  }
-
-  &__list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  &__name {
-    font-size: 0.75rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    background: #f3f4f6;
-    color: $muted;
   }
 }
 
