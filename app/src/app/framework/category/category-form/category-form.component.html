@@ -1,217 +1,334 @@
-<div class="row">
-    <div class="col-lg-3 col-md-12 mb-md-3">
-        <div class="card">
-            <div class="card-header">
-                Unassigned types
-            </div>
-            <div class="card-body">
-                @if (unAssignedTypes.length == 0) {
-<div class="alert alert-warning alert-dismissible fade show mb-0" role="alert">
-                    <strong>No types!</strong> All existing types are assigned.
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
-}
-                @if (unAssignedTypes.length > 0) {
-<div class="list-group">
-                    @for (type of unAssignedTypes; track type) {
-
-                        <div
-                            *permissionLink="'base.framework.type.view',acl:type?.acl;requirements:'READ'"
-                            class="list-group-item list-group-item-action mt-2"
-                        >
-                            <div
-                                [dndDraggable]="type"
-                                [dndEffectAllowed]="effect"
-                                (dndMoved)="onDragged(type, unAssignedTypes, 'move')"
-                                class="d-flex w-100 justify-content-between"
-                            >
-                                {{type.label}} #{{type.public_id}}
-                                <span class="dnd-handle" dndHandle><i class="fa fa-arrows-alt"></i></span>
-                            </div>
-                        </div>
-                    
-}
-                </div>
-}
-            </div>
-            <div class="card-footer">
-                <small>A type can only be assigned to one category.</small>
-            </div>
+<section class="cf-page">
+    <header class="cf-page__head">
+        <span class="cf-page__icon" aria-hidden="true"><i [class]="iconPreview"></i></span>
+        <div class="cf-page__titles">
+            <h1 class="cf-page__title">{{ pageTitle }}</h1>
+            <p class="cf-page__sub">{{ pageSubtitle }}</p>
         </div>
-    </div>
-    <form [formGroup]="categoryForm" (ngSubmit)="onSubmit()" class="col-lg-9 col-md-12 needs-validation" novalidate>
-        <div class="card">
-            <div class="card-header">
-                Basic information
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-12">
-                        <div class="mb-3">
-                            <label class="mb-2" for="category-name">Identifier<span class="required">*</span>:</label>
-                            <input
-                                [formControl]="name"
-                                type="text"
-                                class="form-control"
-                                id="category-name"
-                                placeholder="Enter a unique identifier"
-                                [value]="name.value | nameGuide"
-                                [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched),
-                                        'is-invalid': name.invalid && (name.dirty || name.touched)}"
-                            >
-                            <small class="form-text text-muted text-start">Unique identifier for the category</small>
-                            @if (name.invalid && (name.dirty || name.touched)) {
-<div class="invalid-feedback">
-                                @if (name.errors.required) {
-<div class="text-end">
-                                    This field is required
-                                </div>
-}
-                                @if (name.errors.categoryExists) {
-<div class="text-end">
-                                    A category with this name already exists
-                                </div>
-}
-                            </div>
-}
-                            <div class="clearfix"></div>
-                        </div>
-                    </div>
-                    <div class="col-md-12">
-                        <div class="mb-3">
-                            <label class="mb-2" for="category-label">Label:</label>
-                            <input
-                                formControlName="label"
-                                type="text"
-                                class="form-control"
-                                id="category-label"
-                                placeholder="Enter a display label"
-                                [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched),
-                                            'is-invalid': label.invalid && (label.dirty || label.touched)}"
-                            >
-                            <small class="form-text text-muted">
-                                If the field is left blank, a titled variant of the identifier is displayed.
-                            </small>
-                        </div>
-                    </div>
-                    <div class="col-md-12">
-                        <div class="mb-3">
-                            <label class="mb-2" for="category-meta-icon">Icon:</label>
-                            <div class="input-group" formGroupName="meta">
-                                    <span
-                                        class="input-group-text"
-                                        id="category-meta-icon-addon"
-                                    >
-                                        <i [ngClass]="icon.value"></i>
-                                    </span>
-                                <input
-                                    [iconPicker]
-                                    [ipPosition]="'bottom'"
-                                    [ipFallbackIcon]="fallBackIcon"
-                                    [ipIconPack]="['fa5', 'fa6']"
-                                    [ipPlaceHolder]="'Choose an icon'"
-                                    (iconPickerSelect)="onIconSelect($event)"
-                                    formControlName="icon"
-                                    class="form-control"
-                                    id="category-meta-icon"
-                                    placeholder="Choose an icon"
-                                    [ngClass]="{ 'is-valid': icon.valid && (icon.dirty || icon.touched),
-                                                'is-invalid': icon.invalid && (icon.dirty || icon.touched)}"
-                                    >
-                            </div>
-                            <small class="form-text text-muted">
-                                The icon is a meta value, which will only be visible in the frontend.
-                            </small>
-                        </div>
-                    </div>
-                    <div class="col-md-12">
-                        <div class="mb-3">
-                            <label class="mb-2" for="category-name">Parent:</label>
-                            <ng-select
-                                formControlName="parent"
-                                placeholder="No parent category"
-                                [items]="categories"
-                                [virtualScroll]="true"
-                                [loading]="categoriesLoading"
-                                bindValue="public_id"
-                                bindLabel="label"
-                                class="form-control"
-                            
-                                (scrollToEnd)="onScrollToEnd()"
-                                [ngClass]="{ 'is-valid': parent.valid && (parent.dirty || parent.touched),
-                                            'is-invalid': parent.invalid && (parent.dirty || parent.touched)}"
-                            >
-                                <ng-template ng-header-tmp>
-                                    @if (totalCategories) {
-<small class="form-text text-muted">
-                                        Loaded {{categories.length}} of {{totalCategories}}
-                                    </small>
-}
-                                </ng-template>
-                            </ng-select>
-                        </div>
-                    </div>
-                </div>
-                <hr/>
-                <div class="row">
-                    <div class="col-md-12 dnd">
-                        <label class="mb-3 mt-2" for="category-types">Types:</label>
-                        <section
-                            id="category-types"
-                            dndDropzone
-                            class="drop-zone"
-                            data-content="Drop types here"
-                            (dndDrop)="onDrop($event, assignedTypes, true)"
-                        >
-                            <div class="drop-zone" dndPlaceholderRef data-content="Drop types here">
-                            </div>
-                            @for (type of assignedTypes; track type) {
+    </header>
 
-                                <li
-                                    *permissionLink="'base.framework.type.view',acl:type?.acl;requirements:'READ'"
-                                    [dndDraggable]="type"
-                                    [dndEffectAllowed]="effect"
-                                    (dndMoved)="onDragged(type, assignedTypes, 'move', true)"
-                                    class="card p-3 mb-2"
+    <form [formGroup]="categoryForm" (ngSubmit)="onSubmit()" novalidate>
+        <div class="cf-canvas">
+            <aw-wizard
+                dgStepper
+                [invalidSteps]="invalidSteps"
+                [navBarLayout]="'large-empty-symbols'"
+            >
+                <!-- ------------------------------------- STEP 1: DETAILS ------------------------------------- -->
+                <aw-wizard-step stepId="1" stepTitle="Details" [canExit]="isDetailsValid">
+                    <ng-template awWizardStepSymbol><i class="fas fa-sliders-h"></i></ng-template>
+
+                    <div class="cf-step">
+                        <div class="cf-fields">
+                            <div class="cf-field">
+                                <label class="cf-field__label" for="category-name">
+                                    Identifier<span class="cf-field__required" aria-hidden="true">*</span>
+                                </label>
+                                <input
+                                    [formControl]="name"
+                                    type="text"
+                                    class="form-control"
+                                    id="category-name"
+                                    placeholder="Enter a unique identifier"
+                                    aria-required="true"
+                                    aria-describedby="category-name-hint"
+                                    [value]="name.value | nameGuide"
+                                    [attr.aria-invalid]="name.invalid && (name.dirty || name.touched) ? true : null"
+                                    [class.is-valid]="name.valid && (name.dirty || name.touched)"
+                                    [class.is-invalid]="name.invalid && (name.dirty || name.touched)"
                                 >
-                                    <div class="container">
-                                        <div class="row">
-                                            <div class="col-auto me-auto">
-                                                {{type?.label}} # {{type?.public_id}}
-                                            </div>
-                                            <div class="col-auto">
-                                                <i class="fa fa-arrows-alt dnd-handle" dndHandle></i>
-                                                <i class="fa fa-trash-alt ms-2 pointer" (click)="clickRemoveAssignedType(type)"></i>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </li>
-                            
-}
-                        </section>
+                                @if (name.invalid && (name.dirty || name.touched)) {
+                                    <p class="cf-field__error" id="category-name-hint">
+                                        @if (name.errors?.required) {
+                                            This field is required
+                                        } @else if (name.errors?.categoryExists) {
+                                            A category with this name already exists
+                                        }
+                                    </p>
+                                } @else if (isEditMode) {
+                                    <p class="cf-field__hint" id="category-name-hint">
+                                        The identifier cannot be changed after creation.
+                                    </p>
+                                } @else {
+                                    <p class="cf-field__hint" id="category-name-hint">
+                                        Unique identifier for the category.
+                                    </p>
+                                }
+                            </div>
+
+                            <div class="cf-field">
+                                <label class="cf-field__label" for="category-label">Label</label>
+                                <input
+                                    formControlName="label"
+                                    type="text"
+                                    class="form-control"
+                                    id="category-label"
+                                    placeholder="Enter a display label"
+                                    [class.is-valid]="label.valid && (label.dirty || label.touched)"
+                                    [class.is-invalid]="label.invalid && (label.dirty || label.touched)"
+                                >
+                                <p class="cf-field__hint">If left blank, a titled variant of the identifier is displayed.</p>
+                            </div>
+
+                            <div class="cf-field">
+                                <label class="cf-field__label" for="category-meta-icon">Icon</label>
+                                <div class="input-group" formGroupName="meta">
+                                    <span class="input-group-text" id="category-meta-icon-addon">
+                                        <i [class]="iconPreview" aria-hidden="true"></i>
+                                    </span>
+                                    <input
+                                        [iconPicker]
+                                        [ipPosition]="'bottom'"
+                                        [ipFallbackIcon]="fallBackIcon"
+                                        [ipIconPack]="['fa5', 'fa6']"
+                                        [ipPlaceHolder]="'Choose an icon'"
+                                        (iconPickerSelect)="onIconSelect($event)"
+                                        formControlName="icon"
+                                        class="form-control"
+                                        id="category-meta-icon"
+                                        placeholder="Choose an icon"
+                                        [class.is-valid]="icon.valid && (icon.dirty || icon.touched)"
+                                        [class.is-invalid]="icon.invalid && (icon.dirty || icon.touched)"
+                                    >
+                                </div>
+                                <p class="cf-field__hint">Shown next to the category in the sidebar.</p>
+                            </div>
+
+                            <div class="cf-field">
+                                <label class="cf-field__label" for="category-parent">Parent</label>
+                                <ng-select
+                                    formControlName="parent"
+                                    placeholder="No parent category"
+                                    labelForId="category-parent"
+                                    [items]="categories"
+                                    [virtualScroll]="true"
+                                    [loading]="categoriesLoading"
+                                    bindValue="public_id"
+                                    bindLabel="label"
+                                    class="form-control"
+                                    (scrollToEnd)="onScrollToEnd()"
+                                >
+                                    <ng-template ng-header-tmp>
+                                        @if (totalCategories) {
+                                            <small class="cf-field__hint">
+                                                Loaded {{ categories.length }} of {{ totalCategories }}
+                                            </small>
+                                        }
+                                    </ng-template>
+                                </ng-select>
+                                <p class="cf-field__hint">Nest this category below an existing one.</p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div class="card-footer">
-                <div class="btn-group text-end" role="group">
-                    <button
-                        class="btn btn-warning me-2"
-                        type="button"
-                        routerLink="/framework/category"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="submit"
-                        class="btn btn-success"
-                        [disabled]="categoryForm.invalid"
-                    >
-                        Save
-                    </button>
-                </div>
-                <div class="clearfix"></div>
-            </div>
+
+                    <div class="cf-stepbar">
+                        <span class="cf-stepbar__hint">
+                            @if (!isDetailsValid) {
+                                <i class="fas fa-info-circle" aria-hidden="true"></i> {{ saveBlockedHint }}
+                            } @else {
+                                <i class="fas fa-check-circle" aria-hidden="true"></i> Next, choose the types to group here.
+                            }
+                        </span>
+
+                        <app-button
+                            label="Cancel"
+                            [bootstrapClass]="'btn-sm btn-secondary'"
+                            (clicked)="onCancel()"
+                        ></app-button>
+                        <app-button
+                            awNextStep
+                            label="Next Step"
+                            icon="fas fa-angle-double-right"
+                            [bootstrapClass]="'btn-sm btn-primary'"
+                            [disabled]="!isDetailsValid"
+                        ></app-button>
+                    </div>
+                </aw-wizard-step>
+
+                <!-- ----------------------------------- STEP 2: ASSIGN TYPES ---------------------------------- -->
+                <aw-wizard-step stepId="2" stepTitle="Assign types">
+                    <ng-template awWizardStepSymbol><i class="fas fa-cubes"></i></ng-template>
+
+                    <div class="cf-step">
+                        <p class="cf-note">
+                            <i class="fas fa-info-circle" aria-hidden="true"></i>
+                            Optional — a type can only be assigned to one category.
+                        </p>
+
+                        <div class="cf-transfer">
+                            <section class="cf-col" aria-labelledby="cf-col-source">
+                                <header class="cf-col__head">
+                                    <h3 class="cf-col__title" id="cf-col-source">Unassigned types</h3>
+                                    <span class="cf-count">{{ unAssignedTypes.length }}</span>
+                                </header>
+
+                                @if (hasUnassignedTypes) {
+                                    <div class="cf-search">
+                                        <i class="fas fa-search cf-search__icon" aria-hidden="true"></i>
+                                        <input
+                                            class="cf-search__input"
+                                            type="text"
+                                            autocomplete="off"
+                                            placeholder="Search types"
+                                            aria-label="Search unassigned types"
+                                            [value]="typeSearch"
+                                            (input)="onTypeSearchInput($event)"
+                                        >
+                                        @if (isTypeSearchActive) {
+                                            <app-button
+                                                class="cf-search__clear"
+                                                label=""
+                                                icon="fas fa-times"
+                                                [bootstrapClass]="''"
+                                                ariaLabel="Clear the type search"
+                                                (clicked)="clearTypeSearch()"
+                                            ></app-button>
+                                        }
+                                    </div>
+                                }
+
+                                <ul class="cf-list" dndDropzone (dndDrop)="onDropToSource($event)">
+                                    @if (!hasUnassignedTypes) {
+                                        <li class="cf-empty">
+                                            <span class="cf-empty__icon" aria-hidden="true"><i class="fas fa-check"></i></span>
+                                            <span class="cf-empty__title">Nothing left over</span>
+                                            <span class="cf-empty__text">Every existing type already belongs to a category.</span>
+                                        </li>
+                                    } @else if (!filteredUnassignedTypes.length) {
+                                        <li class="cf-empty">
+                                            <span class="cf-empty__icon" aria-hidden="true"><i class="fas fa-search"></i></span>
+                                            <span class="cf-empty__title">No match</span>
+                                            <span class="cf-empty__text">No unassigned type matches "{{ typeSearch }}".</span>
+                                        </li>
+                                    }
+
+                                    @for (type of filteredUnassignedTypes; track type.public_id) {
+                                        <li
+                                            *permissionLink="'base.framework.type.view',acl:type?.acl;requirements:'READ'"
+                                            class="cf-type"
+                                            [dndDraggable]="type"
+                                            [dndEffectAllowed]="effect"
+                                            (dndMoved)="onDragged(type, unAssignedTypes, 'move')"
+                                        >
+                                            <span class="cf-type__grip" dndHandle aria-hidden="true">
+                                                <i class="fas fa-grip-vertical"></i>
+                                            </span>
+                                            <span class="cf-type__chip" aria-hidden="true"><i [class]="typeIcon(type)"></i></span>
+                                            <span class="cf-type__label" [title]="type.label">{{ type.label }}</span>
+                                            <span class="cf-type__id">#{{ type.public_id }}</span>
+                                            <app-button
+                                                class="cf-type__action"
+                                                label=""
+                                                icon="fas fa-arrow-right"
+                                                [bootstrapClass]="''"
+                                                [ariaLabel]="'Assign ' + type.label + ' to this category'"
+                                                title="Assign to this category"
+                                                (clicked)="clickAssignType(type)"
+                                            ></app-button>
+                                        </li>
+                                    }
+                                </ul>
+
+                                <p class="cf-col__foot">
+                                    @if (isTypeSearchActive && filteredUnassignedTypes.length) {
+                                        Showing {{ filteredUnassignedTypes.length }} of {{ unAssignedTypes.length }}
+                                    }
+                                </p>
+                            </section>
+
+                            <div class="cf-transfer__sep" aria-hidden="true">
+                                <i class="fas fa-arrow-right"></i>
+                            </div>
+
+                            <section class="cf-col" aria-labelledby="cf-col-target">
+                                <header class="cf-col__head">
+                                    <h3 class="cf-col__title" id="cf-col-target">In this category</h3>
+                                    <span class="cf-count cf-count--brand">{{ assignedTypes.length }}</span>
+                                </header>
+
+                                @if (hasUnassignedTypes) {
+                                    <!-- Mirrors the search row opposite, so both lists line up. -->
+                                    <div class="cf-col__strut" aria-hidden="true"></div>
+                                }
+
+                                <ul
+                                    id="category-types"
+                                    class="cf-list cf-list--drop"
+                                    dndDropzone
+                                    (dndDrop)="onDrop($event, assignedTypes, true)"
+                                >
+                                    <li class="cf-type cf-type--placeholder" dndPlaceholderRef></li>
+
+                                    @if (!assignedTypes.length) {
+                                        <li class="cf-empty">
+                                            <span class="cf-empty__icon" aria-hidden="true"><i class="fas fa-hand-pointer"></i></span>
+                                            <span class="cf-empty__title">No types yet</span>
+                                            <span class="cf-empty__text">Drag types across or use the arrow next to a type.</span>
+                                        </li>
+                                    }
+
+                                    @for (type of assignedTypes; track type.public_id) {
+                                        <li
+                                            *permissionLink="'base.framework.type.view',acl:type?.acl;requirements:'READ'"
+                                            class="cf-type"
+                                            [dndDraggable]="type"
+                                            [dndEffectAllowed]="effect"
+                                            (dndMoved)="onDragged(type, assignedTypes, 'move', true)"
+                                        >
+                                            <span class="cf-type__grip" dndHandle aria-hidden="true">
+                                                <i class="fas fa-grip-vertical"></i>
+                                            </span>
+                                            <span class="cf-type__chip" aria-hidden="true"><i [class]="typeIcon(type)"></i></span>
+                                            <span class="cf-type__label" [title]="type?.label">{{ type?.label }}</span>
+                                            <span class="cf-type__id">#{{ type?.public_id }}</span>
+                                            <app-button
+                                                class="cf-type__action cf-type__action--remove"
+                                                label=""
+                                                icon="fas fa-arrow-left"
+                                                [bootstrapClass]="''"
+                                                [ariaLabel]="'Remove ' + type?.label + ' from this category'"
+                                                title="Remove from this category"
+                                                (clicked)="clickRemoveAssignedType(type)"
+                                            ></app-button>
+                                        </li>
+                                    }
+                                </ul>
+
+                                <p class="cf-col__foot">
+                                    @if (assignedTypes.length > 1) {
+                                        Drag by the grip to change the order in the sidebar.
+                                    }
+                                </p>
+                            </section>
+                        </div>
+                    </div>
+
+                    <div class="cf-stepbar">
+                        <app-button
+                            awPreviousStep
+                            class="cf-stepbar__back"
+                            label="Previous Step"
+                            icon="fas fa-angle-double-left"
+                            [bootstrapClass]="'btn-sm btn-primary'"
+                        ></app-button>
+
+                        <span class="cf-stepbar__spacer"></span>
+
+                        <app-button
+                            label="Cancel"
+                            [bootstrapClass]="'btn-sm btn-secondary'"
+                            (clicked)="onCancel()"
+                        ></app-button>
+                        <app-button
+                            label="Save category"
+                            icon="fas fa-check"
+                            type="submit"
+                            [bootstrapClass]="'btn-sm btn-success'"
+                            [disabled]="categoryForm.invalid"
+                        ></app-button>
+                    </div>
+                </aw-wizard-step>
+            </aw-wizard>
         </div>
     </form>
-</div>
-
+</section>

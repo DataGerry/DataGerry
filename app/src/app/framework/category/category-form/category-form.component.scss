@@ -1,0 +1,631 @@
+@import "src/scss/variables";
+
+$cf-shadow: 0 6px 16px -8px rgba(28, 25, 23, 0.16), 0 2px 6px -3px rgba(28, 25, 23, 0.08);
+$cf-head-surface: #f7f8fa;
+$cf-control-height: 2.25rem;
+$cf-row-height: 2rem;
+
+/* -------------------------------------------------- PAGE HEAD ------------------------------------------------------ */
+
+.cf-page__head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.9rem;
+}
+
+.cf-page__icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 0.6rem;
+    background: rgba(var(--dg-brand-rgb), 0.12);
+    color: var(--dg-brand);
+    font-size: 0.9rem;
+    box-shadow: inset 0 0 0 1px rgba(var(--dg-brand-rgb), 0.14);
+}
+
+.cf-page__titles {
+    min-width: 0;
+}
+
+.cf-page__title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--dg-ink);
+}
+
+.cf-page__sub {
+    margin: 0.1rem 0 0;
+    font-size: 0.85rem;
+    color: var(--dg-muted);
+}
+
+/* --------------------------------------------------- CANVAS -------------------------------------------------------- */
+
+/* One card holds the stepper and whichever step is open, matching the import wizards. */
+.cf-canvas {
+    padding: 0.9rem 1.25rem 0.85rem;
+    background: #fff;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-lg);
+    box-shadow: $cf-shadow;
+
+    ::ng-deep aw-wizard-step:not([hidden]) {
+        display: block;
+        padding-top: 1rem;
+    }
+
+    /* The vendor bar reserves a full marker height above the labels; a little less is enough
+       here and keeps the save bar in view on a laptop. */
+    ::ng-deep ul.steps-indicator {
+        padding-top: calc(2.5rem + 0.55rem);
+        padding-bottom: 0;
+    }
+
+    /* Two steps spread over a full-width bar read as two stray markers, so the bar is centred at
+       the width the indicator needs. The width has to be definite: an auto margin in a flex
+       container's cross axis stops the item from stretching, collapsing it onto its content. */
+    ::ng-deep aw-wizard-navigation-bar.horizontal {
+        display: block;
+        width: min(28rem, 100%);
+        margin: 0 auto;
+    }
+}
+
+.cf-step {
+    min-width: 0;
+}
+
+/* -------------------------------------------------- STEP NOTE ------------------------------------------------------ */
+
+/* One line instead of a section header: the stepper label already names the step. */
+.cf-note {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0 0 0.7rem;
+    font-size: 0.8rem;
+    color: var(--dg-muted);
+
+    i {
+        color: var(--dg-brand);
+    }
+}
+
+/* ---------------------------------------------------- FIELDS ------------------------------------------------------- */
+
+.cf-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem 1.1rem;
+}
+
+.cf-field {
+    min-width: 0;
+}
+
+.cf-field__label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--dg-label);
+}
+
+.cf-field__required {
+    margin-left: 0.1rem;
+    color: var(--dg-danger);
+}
+
+.cf-field__hint {
+    margin: 0.25rem 0 0;
+    font-size: 0.8rem;
+    color: var(--dg-muted);
+}
+
+.cf-field__error {
+    margin: 0.25rem 0 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--dg-danger);
+}
+
+.cf-fields {
+    .form-control {
+        border: 1px solid var(--dg-border);
+        border-radius: var(--dg-radius-sm);
+        background: var(--dg-surface);
+        color: var(--dg-ink);
+        font-size: 0.85rem;
+        transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+
+        &::placeholder {
+            color: var(--dg-muted);
+        }
+
+        &:focus,
+        &:focus-within {
+            outline: none;
+            background: #fff;
+            border-color: var(--dg-brand);
+            box-shadow: var(--dg-focus-ring);
+        }
+
+        &.is-invalid {
+            border-color: var(--dg-danger);
+        }
+
+        &.is-valid {
+            border-color: rgba(var(--dg-success-rgb), 0.55);
+        }
+
+        &:disabled {
+            color: var(--dg-muted);
+            background: var(--dg-hairline);
+        }
+    }
+
+    input.form-control {
+        height: $cf-control-height;
+        padding: 0 0.6rem;
+    }
+
+    /* The wrapping .form-control draws the frame, the inner container only sets the height. */
+    ng-select.form-control {
+        height: auto;
+        padding: 0;
+
+        ::ng-deep .ng-select-container {
+            min-height: calc(#{$cf-control-height} - 2px);
+            height: calc(#{$cf-control-height} - 2px);
+            background: transparent;
+            font-size: 0.85rem;
+        }
+    }
+
+    .input-group {
+        .input-group-text {
+            width: 2.4rem;
+            justify-content: center;
+            border: 1px solid var(--dg-border);
+            border-right: 0;
+            border-radius: var(--dg-radius-sm) 0 0 var(--dg-radius-sm);
+            background: $cf-head-surface;
+            color: var(--dg-brand);
+            font-size: 0.8rem;
+        }
+
+        .form-control {
+            border-radius: 0 var(--dg-radius-sm) var(--dg-radius-sm) 0;
+        }
+    }
+}
+
+/* -------------------------------------------------- TRANSFER ------------------------------------------------------- */
+
+.cf-transfer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0.55rem;
+    padding: 0.7rem;
+}
+
+/* One defined, viewport-aware height for both columns, so the two cards are always the same size
+   whatever they hold, and the save bar stays in view on a laptop. The subtracted budget covers the
+   app shell (navbar, breadcrumb, content padding, page footer) plus this page's own chrome, so it
+   is deliberately larger than what this component alone occupies. */
+.cf-col {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: clamp(10.5rem, calc(100vh - #{$navbar-height} - 28rem), 26rem);
+}
+
+/* The source column carries a search row; the target reserves the same strip so both list
+   frames start and end on exactly the same line. */
+.cf-col__strut {
+    flex: 0 0 auto;
+    height: 2.35rem;
+}
+
+.cf-col__head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0 0.15rem 0.35rem;
+}
+
+.cf-col__title {
+    margin: 0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--dg-muted);
+}
+
+/* Always present at a fixed height, so a hint appearing on one side cannot make that list
+   a pixel shorter than the other. */
+.cf-col__foot {
+    flex: 0 0 auto;
+    height: 1.15rem;
+    margin: 0.35rem 0 0;
+    padding: 0 0.15rem;
+    overflow: hidden;
+    font-size: 0.75rem;
+    line-height: 1.15rem;
+    color: var(--dg-muted);
+}
+
+.cf-count {
+    min-width: 1.4rem;
+    padding: 0 0.35rem;
+    border: 1px solid var(--dg-border);
+    border-radius: 999px;
+    background: var(--dg-surface);
+    color: var(--dg-label);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+.cf-count--brand {
+    border-color: rgba(var(--dg-brand-rgb), 0.24);
+    background: rgba(var(--dg-brand-rgb), 0.1);
+    color: var(--dg-brand-ink);
+}
+
+.cf-transfer__sep {
+    align-self: center;
+    display: grid;
+    place-items: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border: 1px solid var(--dg-border);
+    border-radius: 50%;
+    background: var(--dg-surface);
+    color: var(--dg-faint);
+    font-size: 0.68rem;
+}
+
+/* ---------------------------------------------------- SEARCH ------------------------------------------------------- */
+
+.cf-search {
+    position: relative;
+    margin-bottom: 0.35rem;
+}
+
+.cf-search__icon {
+    position: absolute;
+    top: 50%;
+    left: 0.65rem;
+    transform: translateY(-50%);
+    color: var(--dg-muted);
+    font-size: 0.75rem;
+    pointer-events: none;
+}
+
+.cf-search__input {
+    width: 100%;
+    height: 2rem;
+    padding: 0 1.9rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-sm);
+    background: var(--dg-surface);
+    color: var(--dg-ink);
+    font-size: 0.82rem;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+
+    &::placeholder {
+        color: var(--dg-muted);
+    }
+
+    &:focus {
+        outline: none;
+        background: #fff;
+        border-color: var(--dg-brand);
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+.cf-search__clear {
+    position: absolute;
+    top: 50%;
+    right: 0.25rem;
+    transform: translateY(-50%);
+
+    ::ng-deep .btn {
+        display: grid;
+        place-items: center;
+        width: 1.4rem;
+        height: 1.4rem;
+        padding: 0;
+        border: 0;
+        border-radius: 0.35rem;
+        background: transparent;
+        color: var(--dg-muted);
+        font-size: 0.7rem;
+
+        &:hover {
+            color: var(--dg-muted);
+            background: var(--dg-hairline);
+        }
+
+        &:focus-visible {
+            outline: none;
+            box-shadow: var(--dg-focus-ring);
+        }
+    }
+}
+
+/* ----------------------------------------------------- LISTS ------------------------------------------------------- */
+
+.cf-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0.25rem;
+    list-style: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--dg-hairline);
+    border-radius: var(--dg-radius-md);
+    background: var(--dg-surface-tint);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(15, 23, 42, 0.18) transparent;
+    transition: border-color 180ms ease, background-color 180ms ease;
+
+    &::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        border-radius: 4px;
+        background: rgba(15, 23, 42, 0.18);
+    }
+
+    /* Both directions accept drops, so both react while a type hovers over them. */
+    &.dndDragover {
+        border-color: rgba(var(--dg-brand-rgb), 0.45);
+        background: rgba(var(--dg-brand-rgb), 0.05);
+    }
+}
+
+/* The category list advertises itself as the primary target with a dashed frame. */
+.cf-list--drop {
+    border-style: dashed;
+    border-color: var(--dg-border);
+}
+
+.cf-type {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: $cf-row-height;
+    padding: 0.15rem 0.3rem;
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    background: #fff;
+    color: var(--dg-ink);
+    font-size: 0.84rem;
+    line-height: 1.3;
+    transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+
+    + .cf-type {
+        margin-top: 0.2rem;
+    }
+
+    &:hover,
+    &:focus-within {
+        border-color: rgba(var(--dg-brand-rgb), 0.22);
+        background: rgba(var(--dg-brand-rgb), 0.05);
+
+        .cf-type__grip {
+            opacity: 1;
+            color: var(--dg-label);
+        }
+    }
+
+    &.dndDraggingSource {
+        opacity: 0.45;
+    }
+}
+
+.cf-type__grip {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 0.9rem;
+    color: var(--dg-faint);
+    font-size: 0.7rem;
+    cursor: grab;
+    opacity: 0.55;
+    transition: opacity 160ms ease, color 160ms ease;
+
+    &:active {
+        cursor: grabbing;
+    }
+}
+
+.cf-type__chip {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 0.4rem;
+    background: rgba(var(--dg-brand-rgb), 0.1);
+    color: var(--dg-brand);
+    font-size: 0.68rem;
+}
+
+.cf-type__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-type__id {
+    flex: 0 0 auto;
+    color: var(--dg-muted);
+    font-size: 0.72rem;
+}
+
+.cf-type__action ::ng-deep .btn {
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 1px solid var(--dg-border);
+    border-radius: 0.4rem;
+    background: #fff;
+    color: var(--dg-muted);
+    font-size: 0.68rem;
+    box-shadow: none;
+    transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
+
+    &:hover {
+        border-color: rgba(var(--dg-brand-rgb), 0.35);
+        background: rgba(var(--dg-brand-rgb), 0.1);
+        color: var(--dg-brand);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+.cf-type__action--remove ::ng-deep .btn:hover {
+    border-color: rgba(var(--dg-danger-rgb), 0.32);
+    background: rgba(var(--dg-danger-rgb), 0.08);
+    color: var(--dg-danger);
+}
+
+/* Insertion preview of ngx-drag-drop, styled as a slot the row will land in. */
+.cf-type--placeholder {
+    min-height: $cf-row-height;
+    border: 1px dashed rgba(var(--dg-brand-rgb), 0.5);
+    background: rgba(var(--dg-brand-rgb), 0.07);
+}
+
+/* ------------------------------------------------- EMPTY STATES ---------------------------------------------------- */
+
+.cf-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-height: 7.5rem;
+    height: 100%;
+    padding: 1rem;
+    text-align: center;
+}
+
+.cf-empty__icon {
+    display: grid;
+    place-items: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    margin-bottom: 0.15rem;
+    border-radius: 0.65rem;
+    background: rgba(var(--dg-brand-rgb), 0.1);
+    color: var(--dg-brand);
+    font-size: 0.9rem;
+}
+
+.cf-empty__title {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--dg-ink);
+}
+
+.cf-empty__text {
+    margin: 0;
+    max-width: 15rem;
+    font-size: 0.78rem;
+    color: var(--dg-muted);
+}
+
+/* -------------------------------------------------- STEP FOOTER ---------------------------------------------------- */
+
+/* Footer of the open step: the hint says why the primary action is blocked or what comes next.
+   Sticky, so Save stays reachable even when a short viewport forces the page to scroll. */
+.cf-stepbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.8rem;
+    padding: 0.7rem 0 0.2rem;
+    border-top: 1px solid var(--dg-hairline);
+    background: #fff;
+}
+
+.cf-stepbar__spacer {
+    flex: 1 1 auto;
+}
+
+.cf-stepbar__back {
+    margin-right: 0.6rem;
+}
+
+.cf-stepbar__hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-right: auto;
+    color: var(--dg-muted);
+    font-size: 0.78rem;
+
+    i {
+        color: var(--dg-faint);
+    }
+}
+
+/* -------------------------------------------------- RESPONSIVE ----------------------------------------------------- */
+
+@media (max-width: 767.98px) {
+    .cf-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .cf-canvas {
+        padding: 0.9rem;
+    }
+
+
+    .cf-transfer {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* Stacked lists keep a fixed height instead of following the viewport. */
+    .cf-col {
+        height: auto;
+    }
+
+    .cf-col__strut {
+        display: none;
+    }
+
+    .cf-list {
+        height: 14rem;
+        flex: 0 0 auto;
+    }
+
+    .cf-transfer__sep {
+        transform: rotate(90deg);
+    }
+}

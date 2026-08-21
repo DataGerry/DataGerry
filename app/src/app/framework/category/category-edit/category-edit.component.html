@@ -1,5 +1,13 @@
-<h1>Edit category: {{category?.label}}</h1>
-<hr/>
-<cmdb-category-form [mode]="mode" [category]="category" [unAssignedTypes]="unAssignedTypes"
-                    [assignedTypes]="assignedTypes" (validationEmitter)="formValid = $event"
-                    (submitEmitter)="onSave($event)"></cmdb-category-form>
+<cmdb-category-form
+    [mode]="mode"
+    [category]="category"
+    [unAssignedTypes]="unAssignedTypes"
+    [assignedTypes]="assignedTypes"
+    (validationEmitter)="formValid = $event"
+    (submitEmitter)="onSave($event)"
+></cmdb-category-form>
+
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+></app-loading-popup>
