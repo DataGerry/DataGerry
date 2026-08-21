@@ -593,8 +593,15 @@ export class WizardStepFlowComponent implements DoCheck {
                 .map(binding => binding.to[0].field.replace('body.$.', ''))
         );
 
-        return pairsOf(step.method?.request?.body?.fields ?? {})
-            .map(pair => ({ ...this.decorate(step, pair, 'body'), bound: bound.has(pair.key) }));
+        return pairsOf(step.method?.request?.body?.fields ?? {}).map(pair => {
+            const decorated = this.decorate(step, pair, 'body');
+
+            // A binding no longer means somebody else owns the value. A reference put here makes
+            // one too, and locking those left the reader with a value they had just chosen, a
+            // note telling them to change it elsewhere, and nowhere else to change it. What makes
+            // a value someone else's is that this step never set it.
+            return { ...decorated, bound: bound.has(pair.key) && !decorated.changed };
+        });
     }
 
 
@@ -1645,6 +1652,76 @@ function nodeIdOf(extra: AutomationExtraCall): string {
  * every other list is addressed by its first entry, which is what a lookup's answer is. The list
  * itself is offered too, as `[*]` - that is the one thing a new loop can be pointed at.
  */
+/**
+ * One value the sequence writes, and where it reads it from.
+ *
+ * Derived from the compiled connection rather than from the definition: which field ends up where
+ * is a reference in a request value, and `mapping` only carries the assignment where a call is
+ * still derived. Reading the bindings is therefore the only account that covers every call.
+ */
+export interface SequenceBinding {
+    /** `<call index>:<request path>`, which is what an adjustment for this value is keyed by. */
+    key: string;
+
+    /** The call this value belongs to, named the way the sequence names it. */
+    call: string;
+    callIndex: string;
+
+    /** Where the value lands, as the path and its last segment. */
+    path: string;
+    field: string;
+
+    /** What it is read from, in the order the adjustment sees them. */
+    sources: Array<{ label: string; reference: string; call: string }>;
+}
+
+
+/**
+ * Everything the sequence writes, one entry per value.
+ *
+ * Two calls may write the same path, so an entry is keyed by the call as well - otherwise an
+ * adjustment made for one would silently apply to the other.
+ */
+export function sequenceBindingsOf(connection: OcConnection | null): SequenceBinding[] {
+    const methods = connection?.fromConnector.methods ?? [];
+    const byColour = new Map(methods.map(method => [method.color, method]));
+    const nameOf = (method: OcMethod | undefined) => method
+        ? (method.connector?.title ? `${method.connector.title} · ${method.name}` : method.name)
+        : 'an earlier call';
+
+    return (connection?.fieldBinding ?? []).flatMap(binding => {
+        const target = byColour.get(binding.to[0].color);
+
+        if (!target) {
+            return [];
+        }
+
+        const path = binding.to[0].field.replace('body.$.', '');
+
+        return [{
+            key: `${target.index}:${path}`,
+            call: nameOf(target),
+            callIndex: target.index,
+            path,
+            field: lastSegment(path),
+            sources: binding.from.map(from => ({
+                label: lastSegment(from.field.replace('body.$.', '')),
+                reference: from.field,
+                call: nameOf(byColour.get(from.color))
+            }))
+        }];
+    });
+}
+
+
+/** The part of a path that carries the meaning, which is the only part a row has room for. */
+function lastSegment(path: string): string {
+    const last = path.split('.').filter(Boolean).pop() ?? path;
+
+    return last.replace(/\[[^\]]*\]$/, '') || last;
+}
+
+
 /** One call of the sequence, as something that answers - which is all a reference needs of it. */
 export interface SequenceCall {
     label: string;

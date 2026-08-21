@@ -51,6 +51,8 @@ import {
 } from '../../models/automation-wizard-step.model';
 import { OcConnection } from '../../models/opencelium-connection.model';
 import {
+    SequenceBinding,
+    sequenceBindingsOf,
     SequenceCall,
     sequenceCallsOf,
     ValueSource,
@@ -144,6 +146,9 @@ export class AutomationWizardComponent implements OnInit {
      */
     public writeValueSources: ValueSource[] = [];
     public sequenceCalls: SequenceCall[] = [];
+
+    /** Everything the sequence writes, which is what the fields step shows when DataGerry is read. */
+    public sequenceBindings: SequenceBinding[] = [];
 
     /** Compilation results, recomputed whenever the definition changes. */
     public validationErrors: string[] = [];
@@ -531,6 +536,7 @@ export class AutomationWizardComponent implements OnInit {
             this.compiledConnection = null;
             this.writeValueSources = [];
             this.sequenceCalls = [];
+            this.sequenceBindings = [];
 
             return;
         }
@@ -547,6 +553,7 @@ export class AutomationWizardComponent implements OnInit {
             this.compiledConnection = null;
             this.writeValueSources = [];
             this.sequenceCalls = [];
+            this.sequenceBindings = [];
 
             return;
         }
@@ -565,6 +572,7 @@ export class AutomationWizardComponent implements OnInit {
         // must offer its answers now, not after the next change.
         this.writeValueSources = valueSourcesAfterSequence(this.compiledConnection);
         this.sequenceCalls = sequenceCallsOf(this.compiledConnection);
+        this.sequenceBindings = sequenceBindingsOf(this.compiledConnection);
     }
 
 

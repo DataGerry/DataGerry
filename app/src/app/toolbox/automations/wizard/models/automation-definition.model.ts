@@ -667,6 +667,15 @@ export interface AutomationDefinition {
     mapping: AutomationMappingEntry[];
 
     /**
+     * Value adjustments for what the sequence writes, keyed by `<call index>:<request path>`.
+     *
+     * Kept apart from `mapping` because the two answer different questions. Reading DataGerry, the
+     * assignment is a reference in a request value and there is no mapping entry to hang a script
+     * on; and two calls can write the same path, so the path alone would not say which one is meant.
+     */
+    adjustments: Record<string, AutomationValueTransform>;
+
+    /**
      * Source fields the user deliberately left unassigned.
      *
      * Without this a cleared field would be suggested again on the next pass, undoing the decision.
@@ -730,6 +739,7 @@ export function createEmptyAutomationDefinition(): AutomationDefinition {
         },
         mapping: [],
         unmapped: [],
+        adjustments: {},
         matching: defaultMatchingFor('create'),
         overrides: {},
         extras: [],
@@ -769,6 +779,7 @@ export function normalizeAutomationDefinition(raw: Partial<AutomationDefinition>
         unmapped: Array.isArray(raw.unmapped) ? raw.unmapped : legacyUnmapped(raw.mapping as unknown),
         overrides: normalizeOverrides(raw.overrides),
         extras: Array.isArray(raw.extras) ? raw.extras.filter(isUsableExtra).map(normalizeExtra) : [],
+        adjustments: raw.adjustments ?? {},
         matching: { ...defaultMatchingFor(raw.target?.operation ?? 'create'), ...(raw.matching ?? {}) },
         conditions: {
             ...base.conditions,

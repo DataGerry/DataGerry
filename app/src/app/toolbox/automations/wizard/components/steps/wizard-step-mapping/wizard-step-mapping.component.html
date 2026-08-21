@@ -113,22 +113,22 @@
                 }
               </td>
               <td class="mapping-table__actions">
-                @if (row.entry; as entry) {
+                @if (row.entry) {
                   <button
                     type="button"
                     class="btn btn-link btn-sm mapping-table__adjust"
-                    [class.is-active]="hasActiveTransform(entry)"
-                    [attr.aria-expanded]="isExpanded(row.field)"
-                    [title]="hasActiveTransform(entry) ? 'Edit the value adjustment' : 'Adjust the value before it is written'"
-                    (click)="onToggleTransform(entry)">
+                    [class.is-active]="row.adjusted"
+                    [attr.aria-expanded]="isExpanded(row.key)"
+                    [title]="row.adjusted ? 'Edit the value adjustment' : 'Adjust the value before it is written'"
+                    (click)="onAdjustmentToggled(row)">
                     <i class="fas fa-sliders me-1"></i>
-                    {{ hasActiveTransform(entry) ? 'Adjusted' : 'Adjust' }}
+                    {{ row.adjusted ? 'Adjusted' : 'Adjust' }}
                   </button>
                 }
               </td>
             </tr>
 
-            @if (row.entry && isExpanded(row.field)) {
+            @if (row.entry && isExpanded(row.key)) {
               <tr class="mapping-transform">
                 <td colspan="4">
                   <ng-container *ngTemplateOutlet="adjustment; context: { $implicit: row }"></ng-container>
@@ -151,17 +151,19 @@
   <section class="wizard-section">
     <div class="mapping-head">
       <div>
-        <h5 class="wizard-section__title">1. Every field the automation writes</h5>
+        <h5 class="wizard-section__title">1. Every value the automation writes</h5>
         <p class="wizard-section__hint mb-0">
-          Which source field ends up in which target field is decided in the sequence, by giving a
-          request value a field reference. Here you see the result - and you can change how a value
-          looks on its way over.
+          Which value ends up where is decided in the sequence, by giving a request value a field
+          reference. Here you see the result, call by call - and you can change how a value looks on
+          its way over.
         </p>
       </div>
     </div>
 
     <div class="mapping-status">
-      <span class="mapping-status__pill mapping-status__pill--ok">{{ rows.length }} target fields</span>
+      <span class="mapping-status__pill mapping-status__pill--ok">
+        {{ bindingRows.length }} values written across {{ bindingGroups.length }} calls
+      </span>
 
       @if (combinedCount > 0) {
         <span class="mapping-status__pill">{{ combinedCount }} combined</span>
@@ -170,49 +172,45 @@
       @if (adjustedCount > 0) {
         <span class="mapping-status__pill">{{ adjustedCount }} adjusted</span>
       }
-
-      @if (spares.length > 0) {
-        <span class="mapping-status__pill mapping-status__pill--open">{{ spares.length }} not sent</span>
-      }
     </div>
 
-    @if (targetFields.length === 0) {
-      <p class="text-muted">
-        The chosen action offers no fields to write to. Pick a different action on the previous step.
-      </p>
-    } @else {
-      <table class="table mapping-table">
-        <thead>
-          <tr>
-            <th scope="col">Source fields</th>
-            <th scope="col" class="mapping-table__arrow"></th>
-            <th scope="col">Target field</th>
-            <th scope="col" class="mapping-table__actions">Value adjustment</th>
+    <table class="table mapping-table">
+      <thead>
+        <tr>
+          <th scope="col">Value it sends</th>
+          <th scope="col" class="mapping-table__arrow"></th>
+          <th scope="col">Where it lands</th>
+          <th scope="col" class="mapping-table__actions">Value adjustment</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (group of bindingGroups; track group.callIndex) {
+          <tr class="mapping-call">
+            <td colspan="4">
+              <span class="mapping-call__name">{{ group.call }}</span>
+              <span class="mapping-call__count">{{ group.rows.length }} written</span>
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          @for (row of rows; track row.target) {
+
+          @for (row of group.rows; track row.key) {
             <tr>
               <td>
-                @for (source of row.sources; track source.field) {
+                @for (source of row.sources; track $index) {
                   <div class="mapping-source">
                     <code class="mapping-source__var">{{ source.variable }}</code>
-                    <span class="mapping-source__name">{{ source.label }}</span>
-
-                    @if (source.fixed) {
-                      <span class="mapping-table__fixed">fixed: <code>{{ source.fixed }}</code></span>
-                    }
+                    <span class="mapping-source__name" [title]="source.reference">{{ source.label }}</span>
+                    <span class="mapping-source__from">from {{ source.call }}</span>
                   </div>
                 }
               </td>
               <td class="mapping-table__arrow"><i class="fas fa-arrow-right"></i></td>
               <td>
-                <span class="mapping-target__name">{{ row.targetName }}</span>
-                <span class="mapping-target__path">{{ row.target }}</span>
+                <span class="mapping-target__name">{{ row.field }}</span>
+                <span class="mapping-target__path">{{ row.path }}</span>
 
                 @if (row.combined) {
                   <span class="mapping-target__combined">
-                    built from {{ row.sources.length }} fields
+                    built from {{ row.sources.length }} values
                   </span>
                 }
               </td>
@@ -220,50 +218,34 @@
                 <button
                   type="button"
                   class="btn btn-link btn-sm mapping-table__adjust"
-                  [class.is-active]="hasActiveTransform(row.entry)"
-                  [attr.aria-expanded]="isExpanded(row.target)"
-                  [title]="hasActiveTransform(row.entry) ? 'Edit the value adjustment' : 'Adjust the value before sending'"
-                  (click)="onToggleTransform(row.entry)">
+                  [class.is-active]="row.adjusted"
+                  [attr.aria-expanded]="isExpanded(row.key)"
+                  [title]="row.adjusted ? 'Edit the value adjustment' : 'Adjust the value before sending'"
+                  (click)="onAdjustmentToggled(row)">
                   <i class="fas fa-sliders me-1"></i>
-                  {{ hasActiveTransform(row.entry) ? 'Adjusted' : 'Adjust' }}
+                  {{ row.adjusted ? 'Adjusted' : 'Adjust' }}
                 </button>
               </td>
             </tr>
 
-            @if (isExpanded(row.target)) {
+            @if (isExpanded(row.key)) {
               <tr class="mapping-transform">
                 <td colspan="4">
                   <ng-container *ngTemplateOutlet="adjustment; context: { $implicit: row }"></ng-container>
                 </td>
               </tr>
             }
-          } @empty {
-            <tr>
-              <td colspan="4" class="text-muted">
-                The sequence does not write any field yet. Give a request value a field reference on
-                the sequence step, and the field turns up here.
-              </td>
-            </tr>
           }
-        </tbody>
-      </table>
-
-      @if (spares.length > 0) {
-        <div class="mapping-spares">
-          <h6 class="mapping-spares__title">Not sent anywhere</h6>
-          <p class="wizard-section__hint">
-            These fields are selected, but no request value refers to them - nothing is sent for them.
-            Give one a field reference on the sequence step if it should travel too.
-          </p>
-
-          <ul class="mapping-spares__list">
-            @for (spare of spares; track spare.name) {
-              <li class="mapping-spares__name">{{ spare.label }}</li>
-            }
-          </ul>
-        </div>
-      }
-    }
+        } @empty {
+          <tr>
+            <td colspan="4" class="text-muted">
+              The sequence does not write any field yet. Give a request value a field reference on
+              the sequence step, and the value turns up here.
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
   </section>
 }
 
@@ -359,7 +341,7 @@
 
       @if (row.combined) {
         <ul class="mapping-transform__legend">
-          @for (source of row.sources; track source.field) {
+          @for (source of row.sources; track $index) {
             <li>
               <code>{{ source.variable }}</code>
               <span>{{ source.label }}</span>
@@ -372,8 +354,8 @@
     <label class="mapping-transform__toggle">
       <input
         type="checkbox"
-        [checked]="row.entry.transform?.enabled"
-        (change)="onTransformEnabledChanged(row.entry, !row.entry.transform?.enabled)">
+        [checked]="row.transform?.enabled"
+        (change)="onAdjustmentEnabledChanged(row, !row.transform?.enabled)">
       <span>Active</span>
     </label>
   </div>
@@ -383,8 +365,8 @@
     rows="4"
     spellcheck="false"
     [attr.placeholder]="row.combined ? 'value = value1 + \' - \' + value2;' : 'value = value.toUpperCase();'"
-    [ngModel]="row.entry.transform?.script"
-    (ngModelChange)="onTransformScriptChanged(row.entry, $event)"></textarea>
+    [ngModel]="row.transform?.script"
+    (ngModelChange)="onAdjustmentScriptChanged(row, $event)"></textarea>
 
   <div class="mapping-transform__footer">
     <span class="mapping-transform__examples">
@@ -392,7 +374,7 @@
       <code>value = 'SRV-' + value;</code>
     </span>
 
-    <button type="button" class="btn btn-link btn-sm" (click)="onRemoveTransform(row.entry)">
+    <button type="button" class="btn btn-link btn-sm" (click)="onAdjustmentRemoved(row)">
       <i class="fas fa-times me-1"></i> Remove adjustment
     </button>
   </div>
