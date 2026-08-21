@@ -23,8 +23,8 @@ import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { CategoryService } from '../../../services/category.service';
 import { Router } from '@angular/router';
 import { DeleteCategoryModalComponent } from '../modals/delete-category-modal/delete-category-modal.component';
-import {ReplaySubject} from "rxjs";
-import {takeUntil} from "rxjs/operators";
+import { ReplaySubject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 
 @Component({
     selector: 'cmdb-category-node',
@@ -45,9 +45,41 @@ export class CategoryNodeComponent implements OnDestroy {
   @Input() public node: CmdbCategoryNode;
 
   /**
+   * Whether the children of this node are hidden
+   */
+  @Input() public collapsed: boolean = false;
+
+  /**
+   * Whether this category can become a child of the row above it.
+   */
+  @Input() public canIndent: boolean = false;
+
+  /**
+   * Whether this category can be moved one level out again.
+   */
+  @Input() public canOutdent: boolean = false;
+
+  /**
+   * Tooltips naming the target of the nesting controls.
+   */
+  @Input() public indentHint: string = '';
+  @Input() public outdentHint: string = '';
+
+  /**
+   * Nesting requests for this category.
+   */
+  @Output() public indent: EventEmitter<void> = new EventEmitter<void>();
+  @Output() public outdent: EventEmitter<void> = new EventEmitter<void>();
+
+  /**
    * Node change emitter
    */
-  @Output() public change: EventEmitter<{ type: string, value: any }>;
+  @Output() public change: EventEmitter<{ type: string, value: any }> = new EventEmitter<{ type: string, value: any }>();
+
+  /**
+   * Request to show or hide the children of this node
+   */
+  @Output() public toggle: EventEmitter<void> = new EventEmitter<void>();
 
   /**
    * Global unsubscriber for http calls to the rest backend.
@@ -57,10 +89,43 @@ export class CategoryNodeComponent implements OnDestroy {
   private deleteRef: NgbModalRef;
 
   public constructor(private deleteModal: NgbModal, private router: Router, private categoryService: CategoryService) {
-    this.change = new EventEmitter<{ type: string, value: any }>();
   }
 
-  public onDelete(category: CmdbCategory) {
+  public get isOrganizing(): boolean {
+    return this.mode === CmdbMode.Edit;
+  }
+
+  public get hasChildren(): boolean {
+    return this.node?.children?.length > 0;
+  }
+
+  public get iconClass(): string {
+    return this.node?.category?.meta?.icon || 'far fa-folder-open';
+  }
+
+  public get toggleLabel(): string {
+    const action = this.collapsed ? 'Expand' : 'Collapse';
+    return `${action} ${this.node?.category?.label}`;
+  }
+
+  /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
+  public ngOnDestroy(): void {
+    this.unSubscribe?.next();
+    this.unSubscribe?.complete();
+  }
+
+  /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+  public onToggle(): void {
+    this.toggle.emit();
+  }
+
+  public onEdit(): void {
+    this.router.navigate(['/', 'framework', 'category', 'edit', this.node.category.public_id]);
+  }
+
+  public onDelete(category: CmdbCategory): void {
     this.deleteRef = this.deleteModal.open(DeleteCategoryModalComponent, {
       size: 'lg',
       windowClass: 'dg-modal-window',
@@ -72,14 +137,8 @@ export class CategoryNodeComponent implements OnDestroy {
         this.categoryService.deleteCategory(category.public_id).pipe(takeUntil(this.unSubscribe))
           .subscribe(() => {
             this.change.emit();
-        });
+          });
       }
-    });
+    }, () => undefined);
   }
-
-  public ngOnDestroy(): void {
-    this.unSubscribe?.next();
-    this.unSubscribe?.complete();
-  }
-
 }
