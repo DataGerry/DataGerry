@@ -5,46 +5,6 @@ $cf-head-surface: #f7f8fa;
 $cf-control-height: 2.25rem;
 $cf-row-height: 2rem;
 
-/* -------------------------------------------------- PAGE HEAD ------------------------------------------------------ */
-
-.cf-page__head {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    margin-bottom: 0.9rem;
-}
-
-.cf-page__icon {
-    flex: 0 0 auto;
-    display: grid;
-    place-items: center;
-    width: 2.1rem;
-    height: 2.1rem;
-    border-radius: 0.6rem;
-    background: rgba(var(--dg-brand-rgb), 0.12);
-    color: var(--dg-brand);
-    font-size: 0.9rem;
-    box-shadow: inset 0 0 0 1px rgba(var(--dg-brand-rgb), 0.14);
-}
-
-.cf-page__titles {
-    min-width: 0;
-}
-
-.cf-page__title {
-    margin: 0;
-    font-size: 1.35rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    color: var(--dg-ink);
-}
-
-.cf-page__sub {
-    margin: 0.1rem 0 0;
-    font-size: 0.85rem;
-    color: var(--dg-muted);
-}
-
 /* --------------------------------------------------- CANVAS -------------------------------------------------------- */
 
 /* One card holds the stepper and whichever step is open, matching the import wizards. */
@@ -223,7 +183,7 @@ $cf-row-height: 2rem;
     display: flex;
     flex-direction: column;
     min-width: 0;
-    height: clamp(10.5rem, calc(100vh - #{$navbar-height} - 28rem), 26rem);
+    height: clamp(9.5rem, calc(100vh - #{$navbar-height} - 29rem), 26rem);
 }
 
 /* The source column carries a search row; the target reserves the same strip so both list

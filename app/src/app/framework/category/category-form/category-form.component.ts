@@ -423,21 +423,14 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
 
     public get pageTitle(): string {
         if (this.isEditMode) {
-            return this.category?.label ? `Edit ${this.category.label}` : 'Edit category';
+            return `Edit category: ${this.category?.label ?? ''}`.trim();
         }
 
         if (this.mode === CmdbMode.View) {
-            return this.category?.label ?? 'Category';
+            return `Category: ${this.category?.label ?? ''}`.trim();
         }
 
         return 'Add a new category';
-    }
-
-
-    public get pageSubtitle(): string {
-        return this.mode === CmdbMode.Create
-            ? 'Name the category and pick the object types it should group in the sidebar.'
-            : 'Update the details and the object types assigned to this category.';
     }
 
 

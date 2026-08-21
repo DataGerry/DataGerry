@@ -1,11 +1,6 @@
 <section class="cf-page">
-    <header class="cf-page__head">
-        <span class="cf-page__icon" aria-hidden="true"><i [class]="iconPreview"></i></span>
-        <div class="cf-page__titles">
-            <h1 class="cf-page__title">{{ pageTitle }}</h1>
-            <p class="cf-page__sub">{{ pageSubtitle }}</p>
-        </div>
-    </header>
+    <h1>{{ pageTitle }}</h1>
+    <hr />
 
     <form [formGroup]="categoryForm" (ngSubmit)="onSubmit()" novalidate>
         <div class="cf-canvas">
