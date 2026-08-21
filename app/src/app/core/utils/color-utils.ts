@@ -28,3 +28,19 @@ export function getTextColorBasedOnBackground(hexColor: string): string {
     const b = bigint & 255;
     return [r, g, b];
   }
+
+  const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+  /**
+   * Validates a hex color coming from the backend and expands the short form to #RRGGBB.
+   * @returns The normalized color, or null when the value is not a plain hex color.
+   */
+  export function normalizeHexColor(value: string | null | undefined): string | null {
+    const hex = value?.trim().toLowerCase();
+
+    if (!hex || !HEX_COLOR_PATTERN.test(hex)) {
+      return null;
+    }
+
+    return hex.length === 4 ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}` : hex;
+  }
