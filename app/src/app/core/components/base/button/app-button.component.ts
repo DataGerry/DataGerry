@@ -74,6 +74,12 @@ export class ButtonComponent implements OnInit {
    */
   @Input() ariaPressed: boolean | null = null;
 
+  /**
+   * Expanded state for buttons that reveal or hide a region, mapped to aria-expanded.
+   * Leave null for regular buttons.
+   */
+  @Input() ariaExpanded: boolean | null = null;
+
 
   /**
    * Emitted when the button is clicked (unless disabled).

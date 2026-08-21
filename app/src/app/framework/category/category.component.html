@@ -1,64 +1,180 @@
-<h1>Categories Overview</h1>
-<div class="text-end">
-  <ng-container *permissionLink="['base.framework.category.add']">
-    <button [routerLink]="['/framework/category/add']" type="button" class="btn btn-sm btn-success">
-      <i class="fas fa-plus"></i> Add
-    </button>
-  </ng-container>
-  <ng-container *permissionLink="['base.framework.category.edit']">
-    @if (mode != 2) {
-    <button [routerLink]="['/framework/category/edit']" type="button" class="btn btn-sm btn-secondary ms-2 text-white">
-      <i class="fas fa-edit"></i> Edit
-    </button>
-    } @else {
-    
-    <button [routerLink]="['/framework/category/']" type="button" class="btn btn-sm btn-secondary ms-2 text-white">
-      <i class="fas fa-list"></i> List
-    </button>
-    
-    }
-    </ng-container>
-</div>
-<div class="clearfix"></div>
-<hr/>
-<div class="row">
-  <div id="category-tree" class="col-sm-12 col-md-4 border-end">
-    <div class="card">
-      <div class="card-header">
-        Category-Tree
-      </div>
-      <div class="card-body">
-        <div class="tree-view">
-          <cmdb-category-tree [mode]="mode" [tree]="categoryTree" (change)="onTreeChange()"></cmdb-category-tree>
+<section class="cat-page">
+  <header class="cat-page__head">
+    <h1 class="cat-page__title">Categories</h1>
+    <p class="cat-page__sub">Group your object types and control the order they appear in the sidebar.</p>
+  </header>
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-5 col-xxl-4">
+      <div class="cat-structure">
+        <div class="cat-panel cat-panel--tree" [class.is-organizing]="organizing">
+          <div class="cat-panel__head">
+            <span class="cat-panel__icon" aria-hidden="true"><i class="fas fa-sitemap"></i></span>
+            <div class="cat-panel__titles">
+              <h2 class="cat-panel__title">Structure</h2>
+              <span class="cat-panel__meta">Sidebar order</span>
+            </div>
+
+            <div class="cat-panel__actions">
+              @if (organizing) {
+                <span class="cat-flag">
+                  <i class="fas fa-arrows-alt" aria-hidden="true"></i> Organizing
+                </span>
+              } @else {
+                <ng-container *permissionLink="['base.framework.category.add']">
+                  <app-button
+                    label="Add category"
+                    icon="fas fa-plus"
+                    [bootstrapClass]="'btn-sm btn-success'"
+                    title="Create a new category"
+                    (clicked)="onAddCategory()"
+                  ></app-button>
+                </ng-container>
+                @if (hasCategories) {
+                  <ng-container *permissionLink="['base.framework.category.edit']">
+                    <app-button
+                      label="Organize"
+                      icon="fas fa-arrows-alt"
+                      [bootstrapClass]="'btn-sm btn-outline-primary'"
+                      title="Rearrange the structure by drag and drop"
+                      (clicked)="startOrganize()"
+                    ></app-button>
+                  </ng-container>
+                }
+              }
+            </div>
+          </div>
+
+          @if (organizing) {
+            <p class="cat-panel__note">
+              <i class="fas fa-info-circle" aria-hidden="true"></i>
+              Drag a row by its grip to change the order, and use the indent buttons to nest it under
+              the row above or move it back out.
+            </p>
+          } @else if (hasCategories) {
+            <div class="cat-panel__toolbar">
+              <div class="cat-search">
+                <i class="fas fa-search cat-search__icon" aria-hidden="true"></i>
+                <input
+                  class="cat-search__input"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="Filter categories"
+                  aria-label="Filter categories"
+                  [value]="searchTerm"
+                  (input)="onSearchInput($event)"
+                />
+                @if (isFiltered) {
+                  <app-button
+                    class="cat-search__clear"
+                    label=""
+                    icon="fas fa-times"
+                    [bootstrapClass]="''"
+                    ariaLabel="Clear the category filter"
+                    (clicked)="clearSearch()"
+                  ></app-button>
+                }
+              </div>
+
+              @if (hasNestedCategories) {
+                <app-button
+                  class="cat-panel__toolbar-action"
+                  [label]="isEverythingExpanded ? 'Collapse all' : 'Expand all'"
+                  [icon]="isEverythingExpanded ? 'fas fa-angle-double-up' : 'fas fa-angle-double-down'"
+                  [bootstrapClass]="'btn-sm btn-light'"
+                  (clicked)="toggleAllNodes()"
+                ></app-button>
+              }
+            </div>
+          }
+
+          <div class="cat-tree" [class.cat-tree--dragging]="!!draggedNode" #treeScroll
+               (drop)="onTreeDragEnd()" (dragend)="onTreeDragEnd()">
+            @if (!hasCategories) {
+              <div class="cat-empty">
+                <span class="cat-empty__icon" aria-hidden="true"><i class="fas fa-folder-open"></i></span>
+                <p class="cat-empty__title">No categories yet</p>
+                <p class="cat-empty__text">Categories group your object types in the sidebar.</p>
+                <ng-container *permissionLink="['base.framework.category.add']">
+                  <app-button
+                    label="Add your first category"
+                    icon="fas fa-plus"
+                    [bootstrapClass]="'btn-sm btn-success'"
+                    (clicked)="onAddCategory()"
+                  ></app-button>
+                </ng-container>
+              </div>
+            } @else if (!visibleTree?.length) {
+              <div class="cat-empty">
+                <span class="cat-empty__icon" aria-hidden="true"><i class="fas fa-search"></i></span>
+                <p class="cat-empty__title">No match</p>
+                <p class="cat-empty__text">No category matches "{{ searchTerm }}".</p>
+              </div>
+            } @else {
+              <cmdb-category-tree
+                [root]="true"
+                [mode]="treeMode"
+                [tree]="visibleTree"
+                [collapsed]="collapsedNodes"
+                [draggedNode]="draggedNode"
+                (change)="onTreeChange()"
+                (reorder)="onTreeReorder()"
+                (dragStarted)="onTreeDragStarted($event)"
+              ></cmdb-category-tree>
+            }
+          </div>
+
+          @if (organizing) {
+            <div class="cat-panel__foot">
+              <span class="cat-panel__foot-hint" [class.is-dirty]="hasPendingChanges">
+                @if (hasPendingChanges) {
+                  <i class="fas fa-exclamation-circle" aria-hidden="true"></i> Unsaved changes
+                } @else {
+                  <i class="fas fa-hand-pointer" aria-hidden="true"></i> Nothing moved yet
+                }
+              </span>
+              <app-button
+                label="Cancel"
+                [bootstrapClass]="'btn-sm btn-light'"
+                (clicked)="cancelOrganize()"
+              ></app-button>
+              <app-button
+                label="Save structure"
+                icon="fas fa-check"
+                [bootstrapClass]="'btn-sm btn-success'"
+                [disabled]="!hasPendingChanges"
+                (clicked)="onSave()"
+              ></app-button>
+            </div>
+          }
         </div>
       </div>
-      @if (mode == 2;) {
-      <div class="card-footer">
-        <div class="btn-group text-end" role="group">
-          <button type="submit" class="btn btn-success" (click)="onSave()">Save</button>
+    </div>
+
+    <div class="col-12 col-lg-7 col-xxl-8">
+      <div class="cat-panel">
+        <div class="cat-panel__head">
+          <span class="cat-panel__icon" aria-hidden="true"><i class="fas fa-list-ul"></i></span>
+          <div class="cat-panel__titles">
+            <h2 class="cat-panel__title">All categories</h2>
+          </div>
+        </div>
+
+        <div class="cat-panel__body">
+          <cmdb-table [id]="id" [items]="categories" [columns]="tableColumns" [stateEnabled]="true"
+                      [sort]="sort" [totalItems]="totalResults" [pageSize]="apiParameters.limit"
+                      [page]="apiParameters.page" [emptyMessage]="'There are no categories for this list yet!'"
+                      [sortable]="true" [searchEnabled]="false" [pageSizeEnabled]="true"
+                      (sortChange)="onSortChange($event)" (stateReset)="onStateReset()" (stateSelect)="onStateSelect($event)"
+                      (pageSizeChange)="onPageSizeChange($event)" (pageChange)="onPageChange($event)">
+          </cmdb-table>
         </div>
       </div>
-      }
     </div>
   </div>
-  <div id="category-list" class="col-sm-12 col-md-8">
-    <div class="card">
-      <div class="card-header">Category-List</div>
-      <div class="card-body">
-        <cmdb-table [id]="id" [items]="categories" [columns]="tableColumns" [stateEnabled]="true"
-                    [sort]="sort" [totalItems]="totalResults" [pageSize]="apiParameters.limit"
-                    [page]="apiParameters.page" [emptyMessage]="'There are no categories for this list yet!'"
-                    [sortable]="true" [searchEnabled]="false" [pageSizeEnabled]="true"
-                    (sortChange)="onSortChange($event)" (stateReset)="onStateReset()" (stateSelect)="onStateSelect($event)"
-                    (pageSizeChange)="onPageSizeChange($event)" (pageChange)="onPageChange($event)">
-        </cmdb-table>
-      </div>
-    </div>
-  </div>
-</div>
+</section>
 
-
-<app-loading-popup 
+<app-loading-popup
   [isVisible]="isLoading$ | async"
   message="We're Loading the Categories..."
 ></app-loading-popup>
