@@ -1,15 +1,5 @@
-<div class="modal-header ltp-header">
-    <div class="ltp-header-main">
-        <span class="ltp-header-chip"><i class="fas fa-sitemap" aria-hidden="true"></i></span>
-        <div class="ltp-header-titles">
-            <h4 class="modal-title ltp-title">{{ title }}</h4>
-            <p class="ltp-subtitle">Choose where this object sits in the hierarchy</p>
-        </div>
-    </div>
-    <button type="button" class="btn-close" aria-label="Close" (click)="activeModal.dismiss()"></button>
-</div>
-
-<div class="modal-body ltp-body">
+<dg-modal icon="fas fa-sitemap" eyebrow="Locations" [title]="title"
+    subtitle="Choose where this object sits in the hierarchy" [scrollBody]="false" (dismiss)="activeModal.dismiss()">
 
     <!-- Fixed toolbar: search + the top-level choice + a label for the tree below -->
     <div class="ltp-toolbar">
@@ -80,8 +70,8 @@
                 <div class="ltp-node" [class.is-selected]="node.public_id === selectedId"
                     [class.is-disabled]="!node.selectable || node.excluded"
                     [attr.title]="!node.selectable ? nonSelectableHint : null" (click)="selectNode(node)">
-                    <button type="button" class="ltp-toggle" [class.is-open]="treeControl.isExpanded(node)" tabindex="-1"
-                        [disabled]="node.loading"
+                    <button type="button" class="ltp-toggle" [class.is-open]="treeControl.isExpanded(node)"
+                        tabindex="-1" [disabled]="node.loading"
                         [attr.aria-label]="(treeControl.isExpanded(node) ? 'Collapse ' : 'Expand ') + node.name"
                         (click)="toggleNode(node); $event.stopPropagation()">
                         @if (node.loading) {
@@ -113,9 +103,13 @@
         </div>
         }
     </div>
-</div>
 
-<div class="modal-footer ltp-footer">
-    <span class="ltp-footer-hint">Click a location to select it</span>
-    <button type="button" class="btn btn-secondary" (click)="activeModal.dismiss()">Cancel</button>
-</div>
+    <span dgModalFooter class="ltp-footer-hint">
+        <i class="fas fa-hand-pointer" aria-hidden="true"></i>
+        Click a location to select it
+    </span>
+
+    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
+        (clicked)="activeModal.dismiss()">
+    </app-button>
+</dg-modal>

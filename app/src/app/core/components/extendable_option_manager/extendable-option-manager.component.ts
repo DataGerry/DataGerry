@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, inject, EventEmitter, Input, OnInit, Output } from '@angular/core';
+import { Component, inject, Input, OnInit } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
@@ -23,7 +23,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CoreDeleteConfirmationModalComponent } from '../dialog/delete-dialog/core-delete-confirmation-modal.component';
 
 const DEFAULT_MODAL_TITLE = 'Manage Options';
@@ -59,11 +59,6 @@ export class ExtendableOptionManagerComponent implements OnInit {
 
   @Input() itemLabelPlural: string;
 
-  /**
-   * Fires when user closes the manager (so the parent can do any refresh if needed).
-   */
-  @Output() close = new EventEmitter<void>();
-
   // Internal copy for local edits
   public localOptions: ExtendableOption[] = [];
   public newItemValue = '';
@@ -74,6 +69,7 @@ export class ExtendableOptionManagerComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly loaderService = inject(LoaderService);
   private readonly modalService = inject(NgbModal);
+  public readonly activeModal = inject(NgbActiveModal);
 
   ngOnInit(): void {
     // Make a local copy so user can edit them freely
@@ -81,10 +77,10 @@ export class ExtendableOptionManagerComponent implements OnInit {
   }
 
   /**
-   * Close (emit event so parent can do any refresh if needed)
+   * Close the modal so the parent can do any refresh if needed
    */
   public closeModal(): void {
-    this.close.emit();
+    this.activeModal.close();
   }
 
   /**

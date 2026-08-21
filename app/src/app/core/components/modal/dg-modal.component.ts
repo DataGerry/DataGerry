@@ -36,6 +36,8 @@ export class DgModalComponent {
     public readonly subtitle = input<string>();
     /** When false the body is a flex column that clips overflow, letting a child own the scroll. */
     public readonly scrollBody = input(true);
+    /** Blocks the header close button, e.g. while an upload is still running. */
+    public readonly dismissDisabled = input(false);
 
     /** Emitted when the header close button is pressed; the host decides how to dismiss. */
     public readonly dismiss = output<void>();

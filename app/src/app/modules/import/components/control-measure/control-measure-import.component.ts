@@ -56,7 +56,11 @@ export class ImportControlMeasureComponent {
             .subscribe({
                 next: (response) => {
                     // this.toastService.success('Threat objects imported successfully!');
-                    const modalRef = this.modalService.open(ImportSummaryModalComponent, { size: 'lg' });
+                    const modalRef = this.modalService.open(ImportSummaryModalComponent, {
+                        size: 'xl',
+                        windowClass: 'dg-modal-window',
+                        backdropClass: 'dg-modal-window-backdrop'
+                    });
                     modalRef.componentInstance.summary = response;
                 },
                 error: (error) => {

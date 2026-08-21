@@ -1,47 +1,52 @@
- <div class="modal-content">
-    <div class="modal-header">
-      <h3 class="modal-title">Add new Category</h3>
-      <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('Cross click')"></button>
-    </div>
-    <div class="modal-body">
-      <form [formGroup]="catAddForm">
-        <div class="mb-3">
-          <label for="category-name">Name<span class="required">*</span>:</label>
-          <input [formControl]="name" type="text" class="form-control" id="category-name"
-                 placeholder="Enter a unique name" [value]="name.value | nameGuide"
-                 [ngClass]="{ 'is-valid': name.valid && (name.dirty || name.touched), 'is-invalid': name.invalid && (name.dirty || name.touched)}">
-          <small class="form-text text-muted text-start">Unique name with which the category can be
-            identified</small>
-          @if (name.invalid && (name.dirty || name.touched)) {
-<div class="invalid-feedback">
-            @if (name.errors.required) {
-<div class="text-end">
-              This field is required
+<dg-modal icon="far fa-folder-open" eyebrow="Category" title="Add new Category"
+    subtitle="Name the category and optionally give it a display label."
+    (dismiss)="activeModal.dismiss('Cross click')">
+
+    <form [formGroup]="catAddForm">
+        <div class="cat-field">
+            <label class="cat-label" for="category-name">Name<span class="cat-required">*</span></label>
+
+            <input [formControl]="name" type="text" class="form-control" id="category-name"
+                placeholder="Enter a unique name" [value]="name.value | nameGuide"
+                aria-describedby="category-name-hint"
+                [class.is-valid]="name.valid && (name.dirty || name.touched)"
+                [class.is-invalid]="name.invalid && (name.dirty || name.touched)">
+
+            <small class="cat-hint" id="category-name-hint">
+                Unique name with which the category can be identified
+            </small>
+
+            @if (name.invalid && (name.dirty || name.touched)) {
+            <div class="invalid-feedback">
+                @if (name.errors.required) {
+                <span>This field is required</span>
+                }
+                @if (name.errors.categoryExists) {
+                <span>A category with this name already exists</span>
+                }
             </div>
-}
-            @if (name.errors.categoryExists) {
-<div class="text-end">
-              A category with this name already exists
-            </div>
-}
-          </div>
-}
-          <div class="clearfix"></div>
+            }
         </div>
-        <div class="mb-3">
-          <label for="category-label">Label:</label>
-          <input formControlName="label" type="text" class="form-control" id="category-label"
-                 placeholder="Enter a display label"
-                 [ngClass]="{ 'is-valid': label.valid && (label.dirty || label.touched), 'is-invalid': label.invalid && (label.dirty || label.touched)}">
-          <small class="form-text text-muted">If the field is left blank, a titled variant of the name is
-            displayed.</small>
+
+        <div class="cat-field">
+            <label class="cat-label" for="category-label">Label</label>
+
+            <input formControlName="label" type="text" class="form-control" id="category-label"
+                placeholder="Enter a display label" aria-describedby="category-label-hint"
+                [class.is-valid]="label.valid && (label.dirty || label.touched)"
+                [class.is-invalid]="label.invalid && (label.dirty || label.touched)">
+
+            <small class="cat-hint" id="category-label-hint">
+                If the field is left blank, a titled variant of the name is displayed.
+            </small>
         </div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button type="button" class="btn btn-success" data-bs-dismiss="modal" [disabled]="!catAddForm.valid"
-              (click)="activeModal.close(catAddForm)">Save
-      </button>
-      <button type="button" class="btn btn-secondary" (click)="activeModal.close(null)">Cancel</button>
-    </div>
-  </div>
+    </form>
+
+    <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" type="button"
+        (clicked)="activeModal.close(null)">
+    </app-button>
+
+    <app-button dgModalFooter bootstrapClass="btn-success" label="Save" type="button" icon="fas fa-check"
+        [disabled]="!catAddForm.valid" (clicked)="activeModal.close(catAddForm)">
+    </app-button>
+</dg-modal>

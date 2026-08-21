@@ -18,6 +18,8 @@
 
 import { Component, Input } from '@angular/core';
 
+import { hexToRgb, normalizeHexColor } from '../../../core/utils/color-utils';
+
 
 /**
  * Pill marking a type as one of the framework's special types.
@@ -33,6 +35,19 @@ export class SpecialTypeBadgeComponent {
 
     @Input() specialType: string | null;
     @Input() description: string = '';
+
+    /** Accent of the leading dot, taken from the type's CI Explorer color. */
+    public accentColor: string | null = null;
+    public accentRing: string | null = null;
+
+
+    /** Only a plain hex value may reach the style binding, the rest keeps the per-token accent. */
+    @Input() set color(value: string | null) {
+        const hex = normalizeHexColor(value);
+
+        this.accentColor = hex;
+        this.accentRing = hex ? `rgba(${hexToRgb(hex).join(', ')}, 0.18)` : null;
+    }
 
 
     /** The backend stores the token in upper case; the list reads better with sentence casing. */

@@ -34,7 +34,8 @@ $badge-border: #e5e7eb;
   height: 0.380rem;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 0.125rem var(--accent-ring);
+  // Inset edge keeps a pale CI Explorer color readable on the white chip
+  box-shadow: 0 0 0 0.125rem var(--accent-ring), inset 0 0 0 1px rgba(15, 23, 42, 0.16);
 }
 
 .special-type-badge__token {
@@ -43,7 +44,7 @@ $badge-border: #e5e7eb;
   white-space: nowrap;
 }
 
-// One accent per special type, so the column stays scannable at a glance.
+// Fallback accent per special type, used when the type carries no CI Explorer color.
 .special-type-badge--supernet {
   --accent: #4f46e5;
   --accent-ring: rgba(79, 70, 229, 0.16);

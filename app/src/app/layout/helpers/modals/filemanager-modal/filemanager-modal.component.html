@@ -1,14 +1,21 @@
-<div class="modal-content">
-  <div class="modal-header">
-    <h4 class="modal-title">
-      <i class="far fa-folder"></i><span class="mx-3">File Explorer</span>
-    </h4>
-    <button type="button" class="btn-close" (click)="activeModal.close(true)" aria-hidden="true"></button>
-  </div>
-  <div class="modal-body">
-    <cmdb-fileexplorer [localMetadata]="localMetadata" [selectedFileElements]="selectedFileElements"></cmdb-fileexplorer>
-  </div>
-  <div class="modal-footer">
-    <button type="button" class="btn btn-primary" (click)="postFileOnDone()">Done</button>
-  </div>
-</div>
+<dg-modal
+    icon="far fa-folder"
+    eyebrow="Attachments"
+    title="File Explorer"
+    [scrollBody]="false"
+    (dismiss)="activeModal.close(true)">
+
+    <cmdb-fileexplorer
+        class="filemanager-explorer"
+        [localMetadata]="localMetadata"
+        [selectedFileElements]="selectedFileElements">
+    </cmdb-fileexplorer>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-primary"
+        label="Done"
+        type="button"
+        (clicked)="postFileOnDone()">
+    </app-button>
+</dg-modal>

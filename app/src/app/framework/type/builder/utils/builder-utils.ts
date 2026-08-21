@@ -84,6 +84,7 @@ export class BuilderUtils {
      */
     static openPreview(modalService: NgbModal, sections: Array<any>): void {
         const previewModal = modalService.open(PreviewModalComponent, {
+            size: 'lg',
             scrollable: true,
             windowClass: 'dg-modal-window',
             backdropClass: 'dg-modal-window-backdrop'
@@ -98,6 +99,7 @@ export class BuilderUtils {
      */
     static openDiagnostic(modalService: NgbModal, sections: Array<any>): void {
         const diagnosticModal = modalService.open(DiagnosticModalComponent, {
+            size: 'lg',
             scrollable: true,
             windowClass: 'dg-modal-window',
             backdropClass: 'dg-modal-window-backdrop'

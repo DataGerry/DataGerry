@@ -18,15 +18,15 @@
 import {
   Component,
   Input,
-  Output,
-  EventEmitter,
   OnInit,
   OnDestroy,
   computed,
+  inject,
   ChangeDetectionStrategy,
   ChangeDetectorRef
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
+import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { finalize, Subject } from 'rxjs';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -39,7 +39,7 @@ import { UserService } from 'src/app/management/services/user.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 /**
- * Component for managing relationships between CMDB objects.
+ * Modal for managing relationships between CMDB objects.
  * Supports creating, editing, and viewing relationships based on user selection.
  *
  * Object selection is delegated to the reusable app-object-selector, which
@@ -62,12 +62,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   @Input() mode: CmdbMode = CmdbMode.Create;
   @Input() relationInstance: any = null; // Pre-filled relation instance
 
-  @Output() onConfirm = new EventEmitter<{
-    parentObjID: number;
-    childObjID: number;
-    relationData?: any;
-  }>();
-  @Output() onCancel = new EventEmitter<void>();
+  public readonly activeModal = inject(NgbActiveModal);
 
   public form: FormGroup;
   public relationForm: FormGroup;
@@ -187,7 +182,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
         .subscribe({
           next: (res) => {
             this.toastService.success(`Relation updated successfully`);
-            this.onConfirm.emit({ parentObjID, childObjID, relationData: res });
+            this.activeModal.close({ parentObjID, childObjID, relationData: res });
           },
           error: (err) => {
             this.toastService.error(err?.error?.message);
@@ -200,7 +195,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
         .subscribe({
           next: (res) => {
             this.toastService.success(`Relation created successfully`);
-            this.onConfirm.emit({ parentObjID, childObjID, relationData: res });
+            this.activeModal.close({ parentObjID, childObjID, relationData: res });
           },
           error: (err) => {
             this.toastService.error(err?.error?.message);
@@ -227,10 +222,10 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Emits a cancel event to close the dialog.
+   * Dismisses the dialog without persisting anything.
    */
   back(): void {
-    this.onCancel.emit();
+    this.activeModal.dismiss('cancel');
   }
 
   /**

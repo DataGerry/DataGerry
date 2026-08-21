@@ -42,6 +42,7 @@ import {
     MdsRowValidatorHandle
 } from '../multi-data-section/mds-row-validator';
 import { getNextMultiDataId } from './mds-id.util';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -118,6 +119,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         private modalService: NgbModal,
         private objectService: ObjectService,
         private cdr: ChangeDetectorRef,
+        private fullscreenModalService: FullscreenModalService,
         @Optional() @Inject(MDS_ROW_VALIDATORS) private rowValidators: ReadonlyArray<MdsRowValidator> | null
     ) {
         super();
@@ -471,12 +473,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      */
     public onAddRowClicked(): void{
         this.resetModalValues();
-        this.modalRef = this.modalService.open(PreviewModalComponent, {
-            scrollable: true,
-            size: 'lg',
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop'
-        });
+        this.modalRef = this.openRowModal();
         this.modalRef.componentInstance.sections = [this.modalSection];
         this.modalRef.componentInstance.saveValues = true;
         this.applyCandidateValidatorToModal(this.modalRef, null);
@@ -508,12 +505,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * @param rowIndex (number): multiDataID of MultiDataSet
      */
     public onRowPreview(rowIndex: number): void {
-        this.modalRef = this.modalService.open(PreviewModalComponent, {
-            scrollable: true,
-            size: 'lg',
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop'
-        });
+        this.modalRef = this.openRowModal();
         this.modalRef.componentInstance.activateViewMode = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
     }
@@ -525,12 +517,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * @param rowIndex (number): MultiDataID of MultiDataSet
      */
     public onRowEdit(rowIndex: number): void {
-        this.modalRef = this.modalService.open(PreviewModalComponent, {
-            scrollable: true,
-            size: 'lg',
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop'
-        });
+        this.modalRef = this.openRowModal();
         this.modalRef.componentInstance.editValues = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
         this.applyCandidateValidatorToModal(this.modalRef, rowIndex);
@@ -550,7 +537,14 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * @param rowIndex (number): MultiDataID of MultiDataSet
      */
     public onRowDelete(rowIndex: number): void {
-        this.modalRef = this.modalService.open(DeleteEntryModalComponent);
+        this.modalRef = this.modalService.open(
+            DeleteEntryModalComponent,
+            this.fullscreenModalService.withFullscreenContainer({
+                size: 'lg',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            })
+        );
 
         this.modalRef.result.then((deleteConfirm: boolean) => {
             if(deleteConfirm){
@@ -569,6 +563,24 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     public onPageChange(newPage: number) {
         this.currentPage = newPage;
         this.setValuesForPagination();
+    }
+
+/* ---------------------------------------------- ROW MODAL HELPER -------------------------------------------------- */
+
+    /**
+     * Opens the shared add/preview/edit popup. While a fullscreen element is open the modal has to
+     * be hosted inside it, otherwise the browser never paints it.
+     */
+    private openRowModal(): NgbModalRef {
+        return this.modalService.open(
+            PreviewModalComponent,
+            this.fullscreenModalService.withFullscreenContainer({
+                scrollable: true,
+                size: 'lg',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            })
+        );
     }
 
 /* ------------------------------------------- ADD NEW TABLE ENTRY HELPER ------------------------------------------- */

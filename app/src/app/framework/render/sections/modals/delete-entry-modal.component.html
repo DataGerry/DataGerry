@@ -1,18 +1,27 @@
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">Delete Data Set</h4>
-    <button 
-    type="button" 
-    class="btn-close btn-close-white" 
-    aria-label="Close" 
-    (click)="activeModal.close(false)">
-  </button>  
-</div>
+<dg-modal
+    icon="fas fa-trash-can"
+    eyebrow="Data Set"
+    title="Delete Data Set"
+    (dismiss)="activeModal.close(false)">
 
-<div class="modal-body">
-    Are you sure you want to delete this data set?
-</div>
+    <p class="delete-lead">
+        Are you sure you want to <b>delete</b> this data set?
+    </p>
 
-<div class="modal-footer">
-    <button type="button" class="btn btn-outline-dark" (click)="activeModal.close(false)">Close</button>
-    <button type="submit" class="btn btn-danger" (click)="activeModal.close(true)">Delete</button>
-</div>
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.close(false)">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-danger"
+        label="Delete"
+        type="button"
+        icon="fas fa-trash-can"
+        (clicked)="activeModal.close(true)">
+    </app-button>
+</dg-modal>

@@ -13,7 +13,8 @@
     </div>
     <div class="dg-modal__actions">
         <ng-content select="[dgModalHeaderAction]"></ng-content>
-        <button type="button" class="dg-modal__close" aria-label="Close" (click)="dismiss.emit()">
+        <button type="button" class="dg-modal__close" aria-label="Close" [disabled]="dismissDisabled()"
+            (click)="dismiss.emit()">
             <i class="fas fa-times" aria-hidden="true"></i>
         </button>
     </div>

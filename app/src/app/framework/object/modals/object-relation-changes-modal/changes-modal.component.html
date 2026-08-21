@@ -1,109 +1,86 @@
-<div class="modal-backdrop show" (click)="close.emit()"></div>
+<dg-modal icon="fas fa-clock-rotate-left" eyebrow="Relation Log" title="Relation Log Details"
+    (dismiss)="activeModal.dismiss()">
 
-<div class="modal show d-block" tabindex="-1" role="dialog">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Relation Log Details</h5>
-        <button type="button" class="btn-close btn-close-white" (click)="close.emit()" aria-label="Close"></button>
-      </div>
-
-      <div class="modal-body">
-        @if (log) {
-        <div class="log-details">
-          <div class="row mb-3">
-            <div class="col-6">
-              <div class="detail-item">
-                <label>Object Relation ID:</label>
-                <div>{{ log.object_relation_id }}</div>
-              </div>
-              <div class="detail-item">
-                <label>Action:</label>
-                <div>{{ log.action }}</div>
-              </div>
-            </div>
-            <div class="col-6">
-              <div class="detail-item">
-                <label>Log Time:</label>
-                <div>{{ log.log_time | dateFormatter }}</div>
-              </div>
-              <div class="detail-item">
-                <label>Author:</label>
-                <div>{{ log.author_name }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="changes-section">
-            @if (log.action === 'CREATE') {
-            <div>
-              <h6 class="section-title">Relation Attributes</h6>
-              @if (hasCreateChanges()) {
-              <div>
-                @for (field of objectKeys(log.changes); track field) {
-                <div class="change-item create-item">
-                  <div class="field-line">
-                    <span class="field-name">{{ field }}:</span>
-                    <span class="change-value">{{ log.changes[field] || 'Not set' }}</span>
-                  </div>
-                </div>
-                }
-              </div>
-              } @else {
-
-              <div class="no-changes">No initial values recorded</div>
-
-              }
-
-            </div>
-            }
-
-            @if (log.action === 'EDIT') {
-            <div>
-              <h6 class="section-title">Attribute Modifications</h6>
-              @if (hasEditChanges()) {
-              <div>
-                @for (field of objectKeys(log.changes?.modified || {}); track field) {
-                <div class="change-item">
-                  <div class="field-name">{{ field }}</div>
-                  <div class="change-details">
-                    <div class="change-before">
-                      <span class="badge before">Before</span>
-                      <div class="value">{{ log.changes.modified[field].before || 'Empty' }}</div>
-                    </div>
-                    <div class="change-after">
-                      <span class="badge after">After</span>
-                      <div class="value">{{ log.changes.modified[field].after || 'Empty' }}</div>
-                    </div>
-                  </div>
-                </div>
-                }
-              </div>
-              } @else {
-
-              <div class="no-changes">No attribute modifications recorded</div>
-
-              }
-
-            </div>
-            }
-
-            @if (log.action === 'DELETE') {
-            <div>
-              <div class="delete-warning">
-                <i class="fas fa-exclamation-triangle"></i>
-                This relation was permanently deleted
-              </div>
-            </div>
-            }
-          </div>
+    @if (log) {
+    <div class="rlog-summary">
+        <div class="rlog-summary__item">
+            <span class="rlog-summary__label">Object Relation ID</span>
+            <span class="rlog-summary__value">{{ log.object_relation_id }}</span>
         </div>
-        }
-      </div>
 
-      <div class="modal-footer">
-        <button type="button" class="btn close-btn" (click)="close.emit()">Close</button>
-      </div>
+        <div class="rlog-summary__item">
+            <span class="rlog-summary__label">Log Time</span>
+            <span class="rlog-summary__value">{{ log.log_time | dateFormatter }}</span>
+        </div>
+
+        <div class="rlog-summary__item">
+            <span class="rlog-summary__label">Action</span>
+            <span class="rlog-summary__value">{{ log.action }}</span>
+        </div>
+
+        <div class="rlog-summary__item">
+            <span class="rlog-summary__label">Author</span>
+            <span class="rlog-summary__value">{{ log.author_name }}</span>
+        </div>
     </div>
-  </div>
-</div>
+
+    @if (log.action === 'CREATE') {
+    <section class="rlog-section">
+        <h3 class="rlog-section__title">Relation Attributes</h3>
+
+        @if (hasCreateChanges()) {
+        <ul class="rlog-fields">
+            @for (field of objectKeys(log.changes); track field) {
+            <li class="rlog-field">
+                <span class="rlog-field__name">{{ field }}</span>
+                <span class="rlog-field__value">{{ log.changes[field] || 'Not set' }}</span>
+            </li>
+            }
+        </ul>
+        } @else {
+        <p class="rlog-empty">No initial values recorded</p>
+        }
+    </section>
+    }
+
+    @if (log.action === 'EDIT') {
+    <section class="rlog-section">
+        <h3 class="rlog-section__title">Attribute Modifications</h3>
+
+        @if (hasEditChanges()) {
+        <ul class="rlog-diffs">
+            @for (field of objectKeys(log.changes?.modified || {}); track field) {
+            <li class="rlog-diff">
+                <span class="rlog-diff__name">{{ field }}</span>
+
+                <div class="rlog-diff__panes">
+                    <div class="rlog-pane">
+                        <span class="rlog-pane__badge">Before</span>
+                        <div class="rlog-pane__value">{{ log.changes.modified[field].before || 'Empty' }}</div>
+                    </div>
+
+                    <div class="rlog-pane rlog-pane--after">
+                        <span class="rlog-pane__badge">After</span>
+                        <div class="rlog-pane__value">{{ log.changes.modified[field].after || 'Empty' }}</div>
+                    </div>
+                </div>
+            </li>
+            }
+        </ul>
+        } @else {
+        <p class="rlog-empty">No attribute modifications recorded</p>
+        }
+    </section>
+    }
+
+    @if (log.action === 'DELETE') {
+    <app-warning-alert iconClass="fas fa-triangle-exclamation" title="Deleted:"
+        message="This relation was permanently deleted.">
+    </app-warning-alert>
+    }
+    }
+
+    <app-button dgModalFooter bootstrapClass="btn-secondary" label="Close" type="button"
+        (clicked)="activeModal.dismiss()">
+    </app-button>
+</dg-modal>

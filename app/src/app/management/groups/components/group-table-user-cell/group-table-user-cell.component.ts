@@ -54,7 +54,11 @@ export class GroupTableUserCellComponent implements OnDestroy {
   private readonly modalService = inject(NgbModal);
 
   public openUserListModal(group: Group): void {
-    this.modalRef = this.modalService.open(GroupUsersModalComponent);
+    this.modalRef = this.modalService.open(GroupUsersModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.group = group;
   }
 

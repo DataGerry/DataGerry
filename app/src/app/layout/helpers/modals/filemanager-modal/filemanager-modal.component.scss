@@ -1,0 +1,14 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* The explorer owns its own scrolling panes, so it only needs the room. */
+.filemanager-explorer {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}

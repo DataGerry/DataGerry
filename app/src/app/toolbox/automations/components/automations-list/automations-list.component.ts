@@ -642,7 +642,11 @@ export class AutomationsListComponent implements OnInit, OnDestroy {
   }
 
   private showWarningModal(message: string): void {
-    const modalRef = this.modalService.open(CoreWarningModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreWarningModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Attention';
     modalRef.componentInstance.message = message;
     modalRef.componentInstance.warningTitle = 'Error message:';

@@ -372,9 +372,21 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
                 windowClass: 'dg-modal-window',
                 backdropClass: 'dg-modal-window-backdrop'
             }),
-            onExternalObjectsRequested: () => this.openModalAndInsertContent(ExternalObjectSelectorModalComponent, { size: 'xl' }),
-            onRelationTemplateRequested: () => this.openModalAndInsertContent(RelationTemplateSelectorModalComponent, { size: 'lg' }, { rootTypeId: this.templateTypeId }),
-            onReportTemplateRequested: () => this.openModalAndInsertContent(ReportTemplateSelectorModalComponent, { size: 'xl' })
+            onExternalObjectsRequested: () => this.openModalAndInsertContent(ExternalObjectSelectorModalComponent, {
+                size: 'xl',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            }),
+            onRelationTemplateRequested: () => this.openModalAndInsertContent(RelationTemplateSelectorModalComponent, {
+                size: 'xl',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            }, { rootTypeId: this.templateTypeId }),
+            onReportTemplateRequested: () => this.openModalAndInsertContent(ReportTemplateSelectorModalComponent, {
+                size: 'xl',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            })
         });
     }
 
@@ -449,7 +461,8 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
         const modalRef = this.modalService.open(DocapiDocumentOptionsModalComponent, {
             size: 'xl',
             backdrop: 'static',
-            scrollable: true
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         Object.assign(modalRef.componentInstance, {

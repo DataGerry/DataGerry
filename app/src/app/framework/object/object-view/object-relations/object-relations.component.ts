@@ -36,6 +36,8 @@ import { RelationService } from 'src/app/framework/services/relaion.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
+import { ObjectRelationSelectModalComponent } from './object-relation-select-modal/object-relation-select-modal.component';
+import { RelationRoleDialogComponent } from '../relation-role-dialog/relation-role-dialog.component';
 import { ExtendedRelation } from 'src/app/framework/models/object.model';
 import {
   ObjectRelationRole,
@@ -100,18 +102,6 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
     return key === ATTRIBUTES_KEY || (!this.isHostTab(key) && !this.activeTab());
   });
 
-  public readonly showSelectModal = signal(false);
-  public readonly showRoleDialog = signal(false);
-
-  // Relation role dialog bindings (read during the change detection triggered
-  // by toggling the showRoleDialog signal).
-  public dialogMode: CmdbMode = CmdbMode.Create;
-  public chosenRelation: ExtendedRelation | null = null;
-  public chosenRole: ObjectRelationRole | null = null;
-  public roleParentTypeIDs: number[] = [];
-  public roleChildTypeIDs: number[] = [];
-  public selectedInstance: any = null;
-
   private pendingFocus: RelationFocus | null = null;
   private readonly destroy$ = new Subject<void>();
 
@@ -148,21 +138,23 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
   }
 
   public openSelectModal(): void {
-    this.showSelectModal.set(true);
+    const modalRef = this.modalService.open(ObjectRelationSelectModalComponent, {
+      size: 'lg',
+      scrollable: true,
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
+    modalRef.componentInstance.typeId = this.typeId();
+    modalRef.componentInstance.existingTabs = this.tabs();
+
+    modalRef.result.then(
+      (selection: RelationSelection) => this.onRelationSelected(selection),
+      () => { }
+    );
   }
 
   public onRelationSelected(selection: RelationSelection): void {
-    this.showSelectModal.set(false);
-    const { relation, role } = selection;
-
-    this.chosenRelation = relation;
-    this.chosenRole = role;
-    this.roleParentTypeIDs = role === 'parent' ? [] : (relation.parent_type_ids || []);
-    this.roleChildTypeIDs = role === 'child' ? [] : (relation.child_type_ids || []);
-    this.selectedInstance = null;
-    this.dialogMode = CmdbMode.Create;
-    this.pendingFocus = { relationId: relation.public_id, role };
-    this.showRoleDialog.set(true);
+    this.openRelationDialog(selection.relation, selection.role, CmdbMode.Create, null);
   }
 
   public onAddForTab(tab: ObjectRelationTab): void {
@@ -248,28 +240,49 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
     );
   }
 
-  public onRoleDialogConfirm(): void {
-    this.showRoleDialog.set(false);
-    const focus = this.pendingFocus;
-    this.pendingFocus = null;
-    this.selectedInstance = null;
-    this.reloadTabs(focus);
-  }
-
-  public onRoleDialogCancel(): void {
-    this.showRoleDialog.set(false);
-    this.pendingFocus = null;
-    this.selectedInstance = null;
-  }
-
-  public onSelectModalCancel(): void {
-    this.showSelectModal.set(false);
-  }
-
   /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
   private isHostTab(key: string): boolean {
     return this.hostTabs().some((tab) => tab.key() === key);
+  }
+
+  /**
+   * Opens the create/edit/view/copy dialog for a relation and refreshes the tab
+   * strip once an instance has been written.
+   */
+  private openRelationDialog(
+    relation: ExtendedRelation,
+    role: ObjectRelationRole,
+    mode: CmdbMode,
+    instance: any | null
+  ): void {
+    const modalRef = this.modalService.open(RelationRoleDialogComponent, {
+      size: 'xl',
+      backdrop: 'static',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
+    modalRef.componentInstance.chosenRole = role;
+    modalRef.componentInstance.currentObjectID = this.objectId();
+    modalRef.componentInstance.currentObjectTypeID = this.typeId();
+    modalRef.componentInstance.parentTypeIDs = role === 'parent' ? [] : (relation.parent_type_ids || []);
+    modalRef.componentInstance.childTypeIDs = role === 'child' ? [] : (relation.child_type_ids || []);
+    modalRef.componentInstance.relation = relation;
+    modalRef.componentInstance.mode = mode;
+    modalRef.componentInstance.relationInstance = instance;
+
+    this.pendingFocus = { relationId: relation.public_id, role };
+
+    modalRef.result.then(
+      () => {
+        const focus = this.pendingFocus;
+        this.pendingFocus = null;
+        this.reloadTabs(focus);
+      },
+      () => {
+        this.pendingFocus = null;
+      }
+    );
   }
 
   /**
@@ -288,14 +301,8 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
             return;
           }
           const isParent = tab.role === 'parent';
-          this.chosenRelation = { ...definition, canBeParent: isParent, canBeChild: !isParent };
-          this.chosenRole = tab.role;
-          this.roleParentTypeIDs = tab.role === 'parent' ? [] : (definition.parent_type_ids || []);
-          this.roleChildTypeIDs = tab.role === 'child' ? [] : (definition.child_type_ids || []);
-          this.selectedInstance = row ? this.buildInstance(row, tab) : null;
-          this.dialogMode = mode;
-          this.pendingFocus = { relationId: tab.relation_id, role: tab.role };
-          this.showRoleDialog.set(true);
+          const relation: ExtendedRelation = { ...definition, canBeParent: isParent, canBeChild: !isParent };
+          this.openRelationDialog(relation, tab.role, mode, row ? this.buildInstance(row, tab) : null);
         },
         error: (err) => this.toastService.error(err?.error?.message)
       });
