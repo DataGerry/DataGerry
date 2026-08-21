@@ -89,6 +89,30 @@ describe('SpecialTypeBadgeComponent', () => {
         expect(component.badgeClass).toBe('special-type-badge special-type-badge--rackonmouseoverx');
     });
 
+    it('paints the dot with the CI Explorer color of the type', () => {
+        component.specialType = SpecialType.RACK;
+        component.color = '#123ABC';
+        fixture.detectChanges();
+
+        expect(badge().style.getPropertyValue('--accent')).toBe('#123abc');
+        expect(badge().style.getPropertyValue('--accent-ring')).toBe('rgba(18, 58, 188, 0.18)');
+    });
+
+    it('expands a short hex color', () => {
+        component.color = '#0a3';
+
+        expect(component.accentColor).toBe('#00aa33');
+    });
+
+    it('keeps the fallback accent when the type carries no usable color', () => {
+        for (const color of [null, '', '  ', 'red', 'rgb(1,2,3)', '#12345', 'url(x)#fff']) {
+            component.color = color;
+
+            expect(component.accentColor).withContext(`color: ${color}`).toBeNull();
+            expect(component.accentRing).toBeNull();
+        }
+    });
+
     it('exposes the backend description to assistive technology', () => {
         component.specialType = SpecialType.SUBNET;
         component.description = 'IPAM - Subnet class';

@@ -28,9 +28,10 @@
     [title]="item.label ? item.label : item.name"></cmdb-type-label>
 </ng-template>
 
-<ng-template #specialTypeTemplate let-data="data">
+<ng-template #specialTypeTemplate let-data="data" let-item="item">
   @if (data) {
-  <cmdb-special-type-badge [specialType]="data" [description]="resolveSpecialTypeLabel(data)"></cmdb-special-type-badge>
+  <cmdb-special-type-badge [specialType]="data" [color]="item?.ci_explorer_color"
+    [description]="resolveSpecialTypeLabel(data)"></cmdb-special-type-badge>
   }
 </ng-template>
 
