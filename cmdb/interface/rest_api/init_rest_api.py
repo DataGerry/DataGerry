@@ -189,7 +189,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     """
     #pylint: disable=import-outside-toplevel
     from cmdb.interface.rest_api.routes.auth_routes import auth_blueprint
-    from cmdb.interface.rest_api.routes.system_routes.setup_routes import setup_blueprint
+    from cmdb.interface.rest_api.routes.setup_routes.setup_routes import setup_blueprint
     from cmdb.interface.rest_api.routes.settings_routes.date_routes import date_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import objects_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint

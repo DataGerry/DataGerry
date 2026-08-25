@@ -47,7 +47,6 @@ class CmdbUserSetting:
     """
 
     COLLECTION = 'management.users.settings'
-    MODEL = 'UserSetting'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('resource', 1), ('user_id', 1)], 'name': 'resource-user', 'unique': True}

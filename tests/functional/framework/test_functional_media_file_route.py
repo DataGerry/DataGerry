@@ -19,12 +19,17 @@ Functional coverage for the /media_file routes
 Covers the list envelope, upload (multipart) + the no-file -> 400 guard (the fixed
 get_file_in_request + HTTPException re-raise), get-single, delete, and the manager-error -> 400 / 500
 mappings.
+
+Since 2026-08-25 also the answers for a file that is NOT there - every route says 404 rather than a 200
+with an empty body or a 500 - the replace-on-upload ordering, and the update route's required
+``attachment`` parameter.
 """
 import json
 from io import BytesIO
 from http import HTTPStatus
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import MediaFilesManager
@@ -32,6 +37,7 @@ from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.errors.manager.media_files_manager import (
     MediaFileManagerGetError,
     MediaFileManagerInsertError,
+    MediaFileManagerUpdateError,
     MediaFileManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -214,3 +220,257 @@ class TestErrorMapping:
 
         assert rest_api.get(f'{BASE_URL}/?metadata={EMPTY_METADATA}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+MISSING_ID: int = 998877
+MISSING_NAME: str = 'dg-func-does-not-exist.txt'
+# non-empty metadata: generate_metadata_filter treats an empty dict as "not provided"
+AUTHOR_METADATA: str = json.dumps({'author_id': AUTHOR_ID})
+
+
+class TestMissingFileIsNotFound:
+    """
+    Every route answers 404 for a file that is not there
+
+    Before this the read handed out 200 + null, the download 200 with an EMPTY body (the caller saved a
+    0-byte file), the update 500 (None reached the next subscript) and the delete 200 + null.
+    """
+
+    def test_get_single_missing_returns_404(self, rest_api) -> None:
+        """A name nothing carries is a 404, not a 200 with null."""
+        response = rest_api.get(f'{BASE_URL}/{MISSING_NAME}?metadata={AUTHOR_METADATA}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_download_missing_returns_404(self, rest_api) -> None:
+        """The empty 200 was the worst of them: the browser saved an empty file."""
+        response = rest_api.get(f'{BASE_URL}/download/{MISSING_NAME}?metadata={AUTHOR_METADATA}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.get_data() != b''
+
+    def test_update_missing_returns_404(self, rest_api) -> None:
+        """Editing a file someone else deleted is a 404, not a 500."""
+        body = {'public_id': MISSING_ID, 'filename': MISSING_NAME, 'metadata': {'author_id': AUTHOR_ID}}
+        attachment = json.dumps({'reference': True})
+
+        response = rest_api.put(f'{BASE_URL}/?attachment={attachment}', json=body)
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_missing_returns_404(self, rest_api) -> None:
+        """Deleting nothing is a 404 rather than a 200 reporting null."""
+        assert rest_api.delete(f'{BASE_URL}/{MISSING_ID}').status_code == HTTPStatus.NOT_FOUND
+
+
+class TestUpdateRequestGuards:
+    """The update route's parameter and body are checked before anything is written."""
+
+    def test_missing_attachment_parameter_returns_400(self, rest_api) -> None:
+        """It used to be a TypeError from json.loads(None) on the way to a 500."""
+        public_id = _upload(rest_api, 'dg-func-attach.txt')
+        body = {'public_id': public_id, 'filename': 'dg-func-attach.txt', 'metadata': {'author_id': AUTHOR_ID}}
+
+        assert rest_api.put(f'{BASE_URL}/', json=body).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_malformed_attachment_parameter_returns_400(self, rest_api) -> None:
+        """A value that is not JSON is a client error, not a server one."""
+        public_id = _upload(rest_api, 'dg-func-attach-bad.txt')
+        body = {'public_id': public_id, 'filename': 'dg-func-attach-bad.txt', 'metadata': {'author_id': AUTHOR_ID}}
+
+        assert rest_api.put(f'{BASE_URL}/?attachment=not-json', json=body).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_non_object_attachment_parameter_returns_400(self, rest_api) -> None:
+        """A bare JSON value would break the reference lookup."""
+        public_id = _upload(rest_api, 'dg-func-attach-list.txt')
+        body = {'public_id': public_id, 'filename': 'dg-func-attach-list.txt', 'metadata': {'author_id': AUTHOR_ID}}
+
+        response = rest_api.put(f'{BASE_URL}/?attachment=[1]', json=body)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_body_without_public_id_returns_400(self, rest_api) -> None:
+        """No identity in the body, so there is nothing to update - a KeyError -> 500 before."""
+        attachment = json.dumps({'reference': True})
+        body = {'filename': 'dg-func-nobody.txt', 'metadata': {'author_id': AUTHOR_ID}}
+
+        assert rest_api.put(f'{BASE_URL}/?attachment={attachment}', json=body).status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_body_without_filename_returns_400(self, rest_api) -> None:
+        """The merge needs a filename and metadata; a missing one was a KeyError -> 500."""
+        public_id = _upload(rest_api, 'dg-func-nofilename.txt')
+        attachment = json.dumps({'reference': True})
+        body = {'public_id': public_id, 'metadata': {'author_id': AUTHOR_ID}}
+
+        assert rest_api.put(f'{BASE_URL}/?attachment={attachment}', json=body).status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_rename_keeps_the_name_unique_in_the_folder(self, rest_api) -> None:
+        """
+        Outside reference mode a clashing name is renamed rather than duplicated
+
+        This is the branch create_attachment_name exists for.
+        """
+        _upload(rest_api, 'dg-func-taken.txt')
+        public_id = _upload(rest_api, 'dg-func-renamed.txt')
+        attachment = json.dumps({'reference': False})
+        body = {
+            'public_id': public_id,
+            'filename': 'dg-func-taken.txt',
+            'metadata': {'author_id': AUTHOR_ID, 'parent': None},
+        }
+
+        response = rest_api.put(f'{BASE_URL}/?attachment={attachment}', json=body)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert response.get_json()['filename'].startswith('copy_(1)_')
+
+
+class TestUploadReplacement:
+    """Uploading over an existing entry replaces it - and keeps what pointed at it."""
+
+    def test_replacement_carries_the_previous_reference(self, rest_api, database_manager, database_name) -> None:
+        """
+        The replaced entry's reference survives, because it is the same library entry with new content
+        """
+        files = database_manager.get_collection(FILES_COLLECTION, database_name)
+        public_id = _upload(rest_api, 'dg-func-ref.txt')
+        files.update_one(
+            {'public_id': public_id},
+            {'$set': {'metadata.reference': 4711, 'metadata.reference_type': 'object'}},
+        )
+
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_upload_form('dg-func-ref.txt'), content_type='multipart/form-data',
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        stored = response.get_json()['raw']
+        assert stored['metadata']['reference'] == 4711
+        assert stored['metadata']['reference_type'] == 'object'
+
+    def test_a_failing_replacement_keeps_the_previous_file(self, rest_api, monkeypatch,
+                                                           database_manager, database_name) -> None:
+        """
+        The old entry is removed only after the new one exists (regression)
+
+        It used to be deleted first, so a failing insert lost both.
+        """
+        files = database_manager.get_collection(FILES_COLLECTION, database_name)
+        _upload(rest_api, 'dg-func-keep.txt')
+        monkeypatch.setattr(MediaFilesManager, 'insert_file', _raiser(MediaFileManagerInsertError('boom')))
+
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_upload_form('dg-func-keep.txt'), content_type='multipart/form-data',
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert files.find_one({'filename': 'dg-func-keep.txt'}) is not None
+
+    def test_replacement_of_a_file_without_reference_keys_succeeds(self, rest_api, database_manager,
+                                                                   database_name) -> None:
+        """
+        A stored entry written before the reference keys existed carries neither - a KeyError -> 500 before
+        """
+        files = database_manager.get_collection(FILES_COLLECTION, database_name)
+        public_id = _upload(rest_api, 'dg-func-legacy.txt')
+        files.update_one({'public_id': public_id}, {'$unset': {'metadata.reference': '',
+                                                               'metadata.reference_type': ''}})
+
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_upload_form('dg-func-legacy.txt'), content_type='multipart/form-data',
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+
+class TestDownloadHeader:
+    """The Content-Disposition header survives an awkward filename."""
+
+    def test_filename_with_a_quote_is_quoted_in_the_header(self, rest_api) -> None:
+        """Interpolated bare, such a name broke the header the browser parses."""
+        awkward_name: str = 'dg-func-a b.txt'
+        _upload(rest_api, awkward_name)
+
+        response = rest_api.get(f'{BASE_URL}/download/{awkward_name}?metadata={AUTHOR_METADATA}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.headers['Content-Disposition'] == 'attachment; filename="dg-func-a b.txt"'
+
+
+class TestRouteErrorMapping:
+    """Every route maps a manager failure to a status instead of leaking it as a 500."""
+
+    def test_upload_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A failure while looking for the file the upload would replace is a 400."""
+        monkeypatch.setattr(MediaFilesManager, 'file_exists', _raiser(MediaFileManagerGetError('boom')))
+
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_upload_form('dg-func-get-err.txt'), content_type='multipart/form-data',
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_upload_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """Anything unmapped while storing is a 500."""
+        monkeypatch.setattr(MediaFilesManager, 'insert_file', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{BASE_URL}/', data=_upload_form('dg-func-boom.txt'), content_type='multipart/form-data',
+        )
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A MediaFileManagerUpdateError while writing is a 400."""
+        public_id = _upload(rest_api, 'dg-func-upd-err.txt')
+        monkeypatch.setattr(MediaFilesManager, 'update_file', _raiser(MediaFileManagerUpdateError('boom')))
+        attachment = json.dumps({'reference': True})
+        body = {'public_id': public_id, 'filename': 'dg-func-upd-err.txt', 'metadata': {'author_id': AUTHOR_ID}}
+
+        response = rest_api.put(f'{BASE_URL}/?attachment={attachment}', json=body)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """Anything unmapped while updating is a 500."""
+        public_id = _upload(rest_api, 'dg-func-upd-boom.txt')
+        monkeypatch.setattr(MediaFilesManager, 'update_file', _raiser(RuntimeError('boom')))
+        attachment = json.dumps({'reference': True})
+        body = {'public_id': public_id, 'filename': 'dg-func-upd-boom.txt', 'metadata': {'author_id': AUTHOR_ID}}
+
+        response = rest_api.put(f'{BASE_URL}/?attachment={attachment}', json=body)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """A read failure is a 500, not an empty 200."""
+        monkeypatch.setattr(MediaFilesManager, 'get_file', _raiser(RuntimeError('boom')))
+
+        response = rest_api.get(f'{BASE_URL}/{MISSING_NAME}?metadata={AUTHOR_METADATA}')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_download_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """A failure while reading the bytes is a 500."""
+        monkeypatch.setattr(MediaFilesManager, 'get_file', _raiser(RuntimeError('boom')))
+
+        response = rest_api.get(f'{BASE_URL}/download/{MISSING_NAME}?metadata={AUTHOR_METADATA}')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """A failure while collecting the subtree is a 500."""
+        public_id = _upload(rest_api, 'dg-func-del-boom.txt')
+        monkeypatch.setattr(MediaFilesManager, 'get_many_media_files', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{BASE_URL}/{public_id}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_http_exception_keeps_its_status(self, rest_api, monkeypatch) -> None:
+        """An HTTPException raised by a collaborator passes through instead of becoming a 500."""
+        monkeypatch.setattr(MediaFilesManager, 'get_many_media_files', _raiser(NotFound()))
+
+        response = rest_api.get(f'{BASE_URL}/?metadata={AUTHOR_METADATA}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND

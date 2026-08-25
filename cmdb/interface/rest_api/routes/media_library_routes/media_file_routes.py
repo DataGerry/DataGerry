@@ -15,6 +15,15 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for the MediaFiles
+
+The media library is a tree of files and folders kept in GridFS: a folder is a MediaFile whose metadata
+says ``folder: true``, and every entry names its ``metadata.parent``. The pair (filename, parent) is what
+has to stay unique, which is why the upload route replaces a file of the same name in the same folder and
+the update route renames a clashing one to ``copy_(n)_<name>``
+
+Six routes: list, upload, update, read one, download the bytes, delete a subtree. They borrow the
+CmdbObject rights (see ``MediaFileRight``) - the library has no right family of its own - and a missing
+file is a 404 on every one of them
 """
 import json
 from logging import Logger, getLogger
@@ -22,27 +31,31 @@ from bson import json_util
 from flask import abort, request, Response
 from werkzeug.wrappers.response import Response as Resp
 from werkzeug.exceptions import HTTPException
+from werkzeug.http import quote_header_value
 
 from cmdb.interface.rest_api.responses.gridfs_response import GridFsResponse
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import MediaFilesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import (
-    insert_request_user,
-    right_required,
-    verify_api_access,
-)
+from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
-    generate_metadata_filter,
-    recursive_delete_filter,
-    generate_collection_parameters,
-    create_attachment_name,
+from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
+    MediaFileKey,
+    MediaFileMetadataKey,
+    MediaFileRequestKey,
+    MediaFileRight,
 )
-from cmdb.interface.rest_api.routes.routes_helper import (
-    get_file_in_request,
-    get_element_from_data_request,
+from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
+    build_updated_file_data,
+    build_upload_metadata,
+    create_attachment_name,
+    generate_collection_parameters,
+    generate_metadata_filter,
+    get_reference_attachment_or_abort,
+    get_stored_file_or_abort,
+    get_upload_from_request,
+    recursive_delete_filter,
 )
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
@@ -69,18 +82,28 @@ media_file_blueprint = APIBlueprint('media_file_blueprint', __name__, url_prefix
 @media_file_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@media_file_blueprint.protect(auth=True, right='base.framework.object.view')
+@media_file_blueprint.protect(auth=True, right=MediaFileRight.VIEW.value)
 @media_file_blueprint.parse_collection_parameters()
 def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
     """
-    Get all objects in database
+    HTTP `GET`/`HEAD` route to list the MediaFiles of the library
+
+    Requires the ``base.framework.object.view`` right. The optional ``metadata`` parameter narrows the
+    listing to one folder; ``searchTerm`` searches filenames, reference types and mime types instead
+
+    Note that the paging parameters are NOT applied to the GridFS query yet, so every matching file is
+    loaded and ``total`` is the length of that list - a filed decision, not an oversight
 
     Args:
-        params (CollectionParameters): Passed parameters over the http query string + optional `view` parameter
+        params (CollectionParameters): Filter, sort and paging parameters
+        request_user (CmdbUser): The authenticated user issuing the request
+
     Raises:
-        MediaFileManagerGetError: If the files could not be found
+        HTTPException: 403 when the user lacks the right; 400 when the files could not be retrieved;
+            500 on an unexpected error
+
     Returns:
-        list of files
+        GetMultiResponse: The MediaFiles matching the parameters
     """
     try:
         media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES, request_user)
@@ -105,73 +128,55 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
 @media_file_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required('base.framework.object.edit')
+@media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
 def add_new_file(request_user: CmdbUser) -> Resp:
     """
-    This method saves a file to the specified section of the document for storing workflow data.
-    Any existing value that matches filename and the metadata is deleted. Before saving a value.
-    GridFS document under the specified key is deleted.
+    HTTP `POST` route to upload a MediaFile into the library
 
-    For Example:
-        Create a unique media file element:
-            - Folders in the same directory are unique.
-            - The Folder-Name can exist in different directories
+    Requires the ``base.framework.object.edit`` right. The file arrives as the ``file`` form part and its
+    metadata as the ``metadata`` one; ``author_id`` and ``mime_type`` are server-owned
 
-        Create sub-folders:
-            - Selected folder is considered as parent
-
-        This also applies for files
-
-    File:
-        File is stored under 'request.files.get('files')'
-
-    Metadata:
-        Metadata are stored under 'request.form["Metadata"]'
-
-    Raises:
-        MediaFileManagerGetError: If the file could not be found.
-        MediaFileManagerInsertError: If something went wrong during insert
+    Uploading over an entry of the same name in the same folder REPLACES it: the new content is written
+    first and the old entry is removed only afterwards, so a refused or failing upload leaves the
+    previous file intact. The replaced entry's reference and reference_type are carried over, because
+    what points at the library entry must survive its content being replaced
 
     Args:
-        request_user (CmdbUser): the instance of the started user
+        request_user (CmdbUser): The authenticated user issuing the request
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 400 when the request carries no usable file or
+            metadata, or the insert fails; 500 on an unexpected error
 
     Returns:
-        New MediaFile.
+        InsertSingleResponse: The stored MediaFile and its public_id
     """
     try:
         media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
                                                                             request_user)
 
-        file = get_file_in_request('file')
-        filter_metadata = generate_metadata_filter('metadata', request)
-        filter_metadata.update({'filename': file.filename})
-        metadata = get_element_from_data_request('metadata', request)
+        upload, existing_filter, metadata = get_upload_from_request(request)
 
-        # Check if file exists
-        file_exists = media_files_manager.file_exists(filter_metadata)
-        exist = None
+        replaced_file: dict | None = None
 
-        if file_exists:
-            exist = media_files_manager.get_file(filter_metadata)
-            if exist:
-                media_files_manager.delete_file(exist['public_id'])
+        if media_files_manager.file_exists(existing_filter):
+            replaced_file = media_files_manager.get_file(existing_filter)
 
-        # If file exist overwrite the references from previous file
-        if exist:
-            metadata['reference'] = exist['metadata']['reference']
-            metadata['reference_type'] = exist['metadata']['reference_type']
+        result = media_files_manager.insert_file(
+            data=upload,
+            metadata=build_upload_metadata(metadata, upload, request_user.public_id, replaced_file),
+        )
 
-        metadata['author_id'] = request_user.public_id
-        metadata['mime_type'] = file.mimetype
+        # Only now: the replacement exists, so removing the previous entry can no longer lose both
+        if replaced_file:
+            media_files_manager.delete_file(replaced_file[MediaFileKey.PUBLIC_ID.value])
 
-        result = media_files_manager.insert_file(data=file, metadata=metadata)
-
-        return InsertSingleResponse(result, result['public_id']).make_response()
+        return InsertSingleResponse(result, result[MediaFileKey.PUBLIC_ID.value]).make_response()
     except HTTPException as http_err:
         raise http_err
     except MediaFileManagerGetError as err:
         LOGGER.error("[add_new_file] MediaFileManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the FilesList from the database!")
+        abort(400, "Failed to retrieve the File which would be replaced from the database!")
     except MediaFileManagerInsertError as err:
         LOGGER.error("[add_new_file] MediaFileManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the File in the database!")
@@ -183,58 +188,54 @@ def add_new_file(request_user: CmdbUser) -> Resp:
 @media_file_blueprint.route('/', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required('base.framework.object.edit')
+@media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
 def update_file(request_user: CmdbUser) -> Resp:
     """
-    This method updates a file to the specified section in the document.
-    Any existing value that matches the file name and metadata is taken into account.
-    Furthermore, it is checked whether the current file name already exists in the directory.
-    If this is the case, 'copy_(index)_' is appended as prefix. The method is executed recursively.
-    Exception, if the parameter 'attachment' is passed with the value '{reference':true}', the name is not checked.
+    HTTP `PUT` route to update a MediaFile's name, folder or metadata
 
-    Note:
-        Create a unique media file element:
-            - Folders in the same directory are unique.
-            - The folder name can exist in different directories
+    Requires the ``base.framework.object.edit`` right. The body is the whole MediaFile document; the
+    identity comes from the stored file, so a payload public_id can not rewrite it, and the author is
+    stamped as the last modifier
 
-        Create sub-folders:
-            - Selected folder is considered as parent folder
-
-        This also applies to files
-
-    Changes:
-        Is stored under 'request.json'
-
-    Raises:
-        MediaFileManagerUpdateError: If something went wrong during update.
+    The ``attachment`` query parameter is required. With ``{"reference": true}`` the write only re-points
+    a reference and the filename is taken as given; otherwise the name has to stay unique inside its
+    folder, so a clashing one is renamed to ``copy_(n)_<name>``
 
     Args:
-        Args:
-        request_user (User): the instance of the started user (last modifier)
+        request_user (CmdbUser): The authenticated user issuing the request
 
-    Returns: MediaFile as JSON
+    Raises:
+        HTTPException: 403 when the user lacks the right; 400 when the body or the ``attachment``
+            parameter is unusable, or the update fails; 404 when no MediaFile carries the public_id;
+            500 on an unexpected error
 
+    Returns:
+        DefaultResponse: The updated MediaFile
     """
     try:
         media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
-                                                                         request_user)
+                                                                            request_user)
 
-        add_data_dump = json.dumps(request.json)
-        new_file_data = json.loads(add_data_dump, object_hook=json_util.object_hook)
-        reference_attachment = json.loads(request.args.get('attachment'))
+        new_file_data = json.loads(json.dumps(request.json), object_hook=json_util.object_hook)
+        reference_attachment = get_reference_attachment_or_abort()
 
-        data = media_files_manager.get_file(metadata={'public_id': new_file_data['public_id']})
+        if MediaFileKey.PUBLIC_ID.value not in new_file_data:
+            abort(400, f"The request body is missing '{MediaFileKey.PUBLIC_ID.value}'!")
 
-        data['public_id'] = new_file_data['public_id']
-        data['filename'] = new_file_data['filename']
-        data['metadata'] = new_file_data['metadata']
-        data['metadata']['author_id'] = new_file_data['metadata']['author_id'] = request_user.get_public_id()
+        stored_file = get_stored_file_or_abort(media_files_manager, new_file_data[MediaFileKey.PUBLIC_ID.value])
+        data = build_updated_file_data(stored_file, new_file_data, request_user.get_public_id())
 
-        # Check if file / folder exist in folder
-        if not reference_attachment['reference']:
-            checker = {'filename': new_file_data['filename'], 'metadata.parent': new_file_data['metadata']['parent']}
-            copied_name = create_attachment_name(new_file_data['filename'], 0, checker, media_files_manager)
-            data['filename'] = copied_name
+        # A file keeps its own name only where nothing else in the folder claims it - unless this write
+        # merely re-points a reference, which leaves the name alone
+        if not reference_attachment.get(MediaFileRequestKey.REFERENCE.value):
+            checker = {
+                MediaFileKey.FILENAME.value: data[MediaFileKey.FILENAME.value],
+                f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.PARENT.value}':
+                    data[MediaFileKey.METADATA.value].get(MediaFileMetadataKey.PARENT.value),
+            }
+            data[MediaFileKey.FILENAME.value] = create_attachment_name(
+                data[MediaFileKey.FILENAME.value], 0, checker, media_files_manager,
+            )
 
         media_files_manager.update_file(data)
 
@@ -253,31 +254,37 @@ def update_file(request_user: CmdbUser) -> Resp:
 @media_file_blueprint.route('/<string:filename>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@media_file_blueprint.protect(auth=True, right='base.framework.object.view')
+@media_file_blueprint.protect(auth=True, right=MediaFileRight.VIEW.value)
 def get_file(filename: str, request_user: CmdbUser) -> Resp:
     """
-    This method fetch a file to the specified section of the document.
-    Any existing value that matches the file name and metadata will be considered.
+    HTTP `GET` route to retrieve a single MediaFile by name
 
-    Raises:
-        MediaFileManagerGetError: If the file could not be found.
+    Requires the ``base.framework.object.view`` right. The optional ``metadata`` query parameter narrows
+    the lookup to one folder, which is what makes the name unambiguous - the same name may exist in
+    several folders
 
     Args:
-        filename: name must be unique
+        filename (str): Name of the MediaFile, unique within its folder
+        request_user (CmdbUser): The authenticated user issuing the request
 
-    Returns: MediaFile as JSON
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when no MediaFile of that name exists in
+            the addressed folder; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: The requested MediaFile
     """
     try:
         media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
-                                                                         request_user)
+                                                                            request_user)
 
-        filter_metadata = generate_metadata_filter('metadata', request)
-        filter_metadata.update({'filename': filename})
+        filter_metadata = generate_metadata_filter(MediaFileRequestKey.METADATA.value, request)
+        filter_metadata.update({MediaFileKey.FILENAME.value: filename})
 
-        if media_files_manager.file_exists(filter_metadata):
-            result = media_files_manager.get_file(metadata=filter_metadata)
-        else:
-            result = None
+        result = media_files_manager.get_file(metadata=filter_metadata)
+
+        if not result:
+            abort(404, f"The File with the name: {filename} was not found!")
 
         return DefaultResponse(result).make_response()
     except HTTPException as http_err:
@@ -290,35 +297,47 @@ def get_file(filename: str, request_user: CmdbUser) -> Resp:
 @media_file_blueprint.route('/download/<path:filename>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@media_file_blueprint.protect(auth=True, right='base.framework.object.view')
+@media_file_blueprint.protect(auth=True, right=MediaFileRight.VIEW.value)
 def download_file(filename: str, request_user: CmdbUser) -> Resp:
     """
-    This method download a file to the specified section of the document.
-    Any existing value that matches the file name and metadata will be considered.
+    HTTP `GET` route to download a MediaFile's content
 
-    Raises:
-        MediaFileManagerGetError: If the file could not be found.
+    Requires the ``base.framework.object.view`` right. The optional ``metadata`` query parameter narrows
+    the lookup to one folder, as it does for the metadata read
+
+    The filename is quoted in the Content-Disposition header rather than interpolated bare, so a name
+    carrying a quote or a semicolon can not break the header the browser parses. Note the whole file is
+    read into memory before it is sent - a filed decision, not an oversight
 
     Args:
-        filename (str): name must be unique
+        filename (str): Name of the MediaFile to download
+        request_user (CmdbUser): The authenticated user issuing the request
 
-    Returns: File
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when no MediaFile of that name exists in
+            the addressed folder; 500 on an unexpected error
+
+    Returns:
+        Response: The file content as an attachment
     """
     try:
         media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
-                                                                         request_user)
+                                                                            request_user)
 
-        filter_metadata = generate_metadata_filter('metadata', request)
-        filter_metadata.update({'filename': filename})
+        filter_metadata = generate_metadata_filter(MediaFileRequestKey.METADATA.value, request)
+        filter_metadata.update({MediaFileKey.FILENAME.value: filename})
         result = media_files_manager.get_file(metadata=filter_metadata, blob=True)
+
+        if result is None:
+            # Without this the empty body went out as a 200 - the caller saved a 0-byte file
+            abort(404, f"The File with the name: {filename} was not found!")
 
         return Response(
             result,
             mimetype="application/octet-stream",
             headers={
-                "Content-Disposition":
-                    f"attachment; filename={filename}"
-            }
+                "Content-Disposition": f'attachment; filename={quote_header_value(filename)}',
+            },
         )
     except HTTPException as http_err:
         raise http_err
@@ -331,31 +350,33 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
 @media_file_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@media_file_blueprint.protect(auth=True, right='base.framework.object.edit')
+@media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
 def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
     """
-    This method deletes a file in the specified section of the document for storing workflow data.
-    Any existing value that matches the file name and metadata is deleted. Before saving a value.
-    GridFS document under the specified key is deleted.
+    HTTP `DELETE` route to delete a MediaFile or a whole folder
 
-    Raises:
-        MediaFileManagerDeleteError: When something went wrong during the deletion
+    Requires the ``base.framework.object.edit`` right. Deleting a folder deletes what it holds: the
+    subtree below the addressed entry is collected first and then removed, the addressed entry included
 
     Args:
-        public_id (int): Public ID of the File
+        public_id (int): public_id of the MediaFile to delete
+        request_user (CmdbUser): The authenticated user issuing the request
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when no MediaFile carries the public_id;
+            400 when the deletion fails; 500 on an unexpected error
 
     Returns:
-         Delete result with the deleted File as JSON.
+        DefaultResponse: The MediaFile which was deleted
     """
     try:
         media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
-                                                                         request_user)
+                                                                            request_user)
 
-        file_to_delete = media_files_manager.get_file(metadata={'public_id': public_id})
+        file_to_delete = get_stored_file_or_abort(media_files_manager, public_id)
 
-        if file_to_delete:
-            for _id in recursive_delete_filter(public_id, media_files_manager):
-                media_files_manager.delete_file(_id)
+        for _id in recursive_delete_filter(public_id, media_files_manager):
+            media_files_manager.delete_file(_id)
 
         return DefaultResponse(file_to_delete).make_response()
     except HTTPException as http_err:

@@ -38,7 +38,6 @@ class CmdbReportCategory(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.reportCategories'
-    MODEL = 'Report_Category'
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS = ['name', 'predefined']
 

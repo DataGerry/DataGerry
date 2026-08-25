@@ -31,7 +31,6 @@ class DocapiTemplate(TemplateManagementBase):
     Docapi Template
     """
     COLLECTION = 'docapi.templates'
-    MODEL = 'DocapiTemplate'
 
     INDEX_KEYS: list[Any] = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}

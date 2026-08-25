@@ -75,7 +75,8 @@ from cmdb.framework.ipam.enforcement import (
 )
 from cmdb.framework.object_invariants import enforce_object_write_invariants
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
-    guard_member_location_change,
+    guard_rack_location_change,
+    reconcile_object_rack_membership,
     handle_object_deleted as handle_rack_object_deleted,
     handle_rack_object_updated,
 )
@@ -901,6 +902,10 @@ def apply_object_insert(
         validate_object_location_change(
             new_object_data[CmdbObjectKey.PUBLIC_ID.value], location_parent, locations_manager,
         )
+        # A new object is nobody's rack member yet, so only the Racks-do-not-nest half can bite here
+        guard_rack_location_change(
+            request_user, new_object_data[CmdbObjectKey.PUBLIC_ID.value], location_parent, locations_manager,
+        )
 
     new_object_id: int = objects_manager.insert_object(
         new_object_data,
@@ -918,6 +923,10 @@ def apply_object_insert(
             request_user,
             objects_manager,
             locations_manager,
+        )
+        # A location pointing at a Rack's node means membership of it, so the new object joins that Rack
+        reconcile_object_rack_membership(
+            request_user, new_object_id, location_parent, objects_manager, types_manager, locations_manager,
         )
 
     created_object: dict[str, Any] | None = objects_manager.get_object(new_object_id)
@@ -1105,9 +1114,10 @@ def apply_object_update(  # pylint: disable=too-many-locals
     if has_location_field:
         locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
         validate_object_location_change(obj_id, location_parent, locations_manager)
-        # A Rack owns where its members sit, so a member may not be pointed somewhere else from the object
-        # form - the way to move the device is to take it out of the Rack first
-        guard_member_location_change(request_user, obj_id, location_parent, locations_manager)
+        # A Rack owns where its PLACED members sit, so one may not be pointed somewhere else from the
+        # object form - unplace it in the Rack view first. An unassigned member may leave (its membership
+        # follows below), and a Rack may not be pointed into another Rack at all
+        guard_rack_location_change(request_user, obj_id, location_parent, locations_manager)
 
     previous_object: dict[str, Any] = CmdbObject.to_json(current_object_instance)
 
@@ -1150,6 +1160,13 @@ def apply_object_update(  # pylint: disable=too-many-locals
     handle_rack_object_updated(
         request_user, obj_id, new_data, previous_object, objects_manager, types_manager, locations_manager,
     )
+
+    # The other direction: a location pointing at a Rack's node IS membership of that Rack, so the mount
+    # row is created, moved or removed to match what the object's location now says
+    if has_location_field:
+        reconcile_object_rack_membership(
+            request_user, obj_id, location_parent, objects_manager, types_manager, locations_manager,
+        )
 
     object_after: dict[str, Any] | None = objects_manager.get_object(obj_id, request_user, AccessControlPermission.READ)
 

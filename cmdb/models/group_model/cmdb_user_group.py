@@ -42,7 +42,6 @@ class CmdbUserGroup(CmdbDAO):
     Implementation of CmdbUserGroup. Every CmdbUser is part of a CmdbUserGroup in DataGerry
     """
     COLLECTION = 'management.groups'
-    MODEL = 'Group'
     INDEX_KEYS = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]

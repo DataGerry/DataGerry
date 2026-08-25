@@ -38,7 +38,6 @@ class CmdbWebhookEvent(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.webhookEvents'
-    MODEL = 'Webhook_Event'
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = [
         'event_time',

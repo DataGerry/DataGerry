@@ -675,6 +675,29 @@ def test_update_object_raises_when_type_missing() -> None:
         ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []})
 
 
+def test_update_object_partial_writes_only_the_given_keys() -> None:
+    """A partial update reads the type from the STORED object and $sets just the payload keys"""
+    mock_self = MagicMock()
+    mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'fields': []}
+
+    with patch(f'{PATH}.verify_access'):
+        ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'ci_explorer_tooltip': 'hint'}, partial=True)
+
+    mock_self.get_object_type.assert_called_once_with(OWNER_TYPE_ID)
+    mock_self.update.assert_called_once_with({'public_id': OWNER_OBJECT_ID}, {'ci_explorer_tooltip': 'hint'})
+
+
+def test_update_object_partial_raises_for_a_missing_object() -> None:
+    """A partial update of an unknown id fails with the manager error, not an AttributeError"""
+    mock_self = MagicMock()
+    mock_self.get_one.return_value = None
+
+    with pytest.raises(ObjectsManagerUpdateError):
+        ObjectsManager.update_object(mock_self, 9999, {'ci_explorer_tooltip': 'hint'}, partial=True)
+
+    mock_self.update.assert_not_called()
+
+
 def test_delete_object_returns_false_for_missing_object() -> None:
     """A missing object short-circuits to False before any type/permission work"""
     mock_self = MagicMock()

@@ -37,7 +37,6 @@ class CmdbSectionTemplate(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.sectionTemplates'
-    MODEL = 'Section_Template'
     DEFAULT_VERSION = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = ['name', 'label','type', 'fields']
 

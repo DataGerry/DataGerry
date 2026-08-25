@@ -404,6 +404,32 @@ class TypesManager(BaseManager):
             LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerUpdateError(str(err)) from err
 
+    def update_type_field(self, public_id: int, field: str, value: Any) -> UpdateResult:
+        """
+        Sets ONE top-level field of a CmdbType, leaving every other key untouched
+
+        Use this for a presentation-level key such as ``ci_explorer_label`` or ``ci_explorer_color``.
+        Unlike update_type it writes a targeted `$set` instead of the whole document, so a concurrent
+        edit of the type's fields or sections can not be overwritten. It must never be used for
+        ``fields`` / ``render_meta``, whose changes have to run through update_type and its cascades
+
+        Args:
+            public_id (int): public_id of the CmdbType to update
+            field (str): The top-level document key to set
+            value (Any): The value to store
+
+        Raises:
+            TypesManagerUpdateError: If the update fails
+
+        Returns:
+            UpdateResult: The outcome of the update, including the matched and modified counts
+        """
+        try:
+            return self.update(criteria={TypeSchemaKey.PUBLIC_ID.value: public_id}, data={field: value})
+        except Exception as err:
+            LOGGER.error("[update_type_field] Exception: %s. Type: %s", err, type(err))
+            raise TypesManagerUpdateError(str(err)) from err
+
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
     def delete_type(self, public_id: int) -> None:

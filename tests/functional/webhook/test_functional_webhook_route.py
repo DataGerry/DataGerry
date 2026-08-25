@@ -29,12 +29,12 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.webhooks_manager import WebhooksManager
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
-from cmdb.errors.manager import (
-    BaseManagerInsertError,
-    BaseManagerGetError,
-    BaseManagerUpdateError,
-    BaseManagerDeleteError,
-    BaseManagerIterationError,
+from cmdb.errors.manager.webhooks_manager import (
+    WebhooksManagerInsertError,
+    WebhooksManagerGetError,
+    WebhooksManagerUpdateError,
+    WebhooksManagerDeleteError,
+    WebhooksManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -194,8 +194,8 @@ class TestErrorMapping:
     """The routes map manager failures to the documented HTTP statuses."""
 
     def test_create_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A BaseManagerInsertError on create surfaces as 400."""
-        monkeypatch.setattr(WebhooksManager, 'insert_item', _raiser(BaseManagerInsertError('boom')))
+        """A WebhooksManagerInsertError on create surfaces as 400."""
+        monkeypatch.setattr(WebhooksManager, 'insert_item', _raiser(WebhooksManagerInsertError('boom')))
 
         assert rest_api.post(f'{ROUTE_URL}/?{_webhook_query()}').status_code == HTTPStatus.BAD_REQUEST
 
@@ -206,14 +206,14 @@ class TestErrorMapping:
         assert rest_api.post(f'{ROUTE_URL}/?{_webhook_query()}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_get_single_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A BaseManagerGetError on get-single surfaces as 400."""
-        monkeypatch.setattr(WebhooksManager, 'get_item', _raiser(BaseManagerGetError('boom')))
+        """A WebhooksManagerGetError on get-single surfaces as 400."""
+        monkeypatch.setattr(WebhooksManager, 'get_item', _raiser(WebhooksManagerGetError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/{WEBHOOK_ID_FOR_GET}').status_code == HTTPStatus.BAD_REQUEST
 
     def test_list_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A BaseManagerIterationError on list surfaces as 400."""
-        monkeypatch.setattr(WebhooksManager, 'iterate_items', _raiser(BaseManagerIterationError('boom')))
+        """A WebhooksManagerIterationError on list surfaces as 400."""
+        monkeypatch.setattr(WebhooksManager, 'iterate_items', _raiser(WebhooksManagerIterationError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.BAD_REQUEST
 
@@ -225,17 +225,17 @@ class TestErrorMapping:
 
     def test_update_error_returns_400(self, rest_api, monkeypatch,
                                      database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """A BaseManagerUpdateError on update surfaces as 400."""
+        """A WebhooksManagerUpdateError on update surfaces as 400."""
         _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_UPDATE)
-        monkeypatch.setattr(WebhooksManager, 'update_item', _raiser(BaseManagerUpdateError('boom')))
+        monkeypatch.setattr(WebhooksManager, 'update_item', _raiser(WebhooksManagerUpdateError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/{WEBHOOK_ID_FOR_UPDATE}?{_webhook_query()}').status_code \
             == HTTPStatus.BAD_REQUEST
 
     def test_delete_error_returns_400(self, rest_api, monkeypatch,
                                      database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """A BaseManagerDeleteError on delete surfaces as 400."""
+        """A WebhooksManagerDeleteError on delete surfaces as 400."""
         _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_DELETE)
-        monkeypatch.setattr(WebhooksManager, 'delete_item', _raiser(BaseManagerDeleteError('boom')))
+        monkeypatch.setattr(WebhooksManager, 'delete_item', _raiser(WebhooksManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{WEBHOOK_ID_FOR_DELETE}/').status_code == HTTPStatus.BAD_REQUEST

@@ -841,7 +841,8 @@ class ObjectsManager(BaseManager):
                       public_id: int,
                       data: CmdbObject | dict,
                       user: CmdbUser | None = None,
-                      permission: AccessControlPermission | None = None) -> None:
+                      permission: AccessControlPermission | None = None,
+                      partial: bool = False) -> None:
         """
         Updates a CmdbObject in the database
 
@@ -850,6 +851,10 @@ class ObjectsManager(BaseManager):
             data: (CmdbObject | dict): The new data for the CmdbObject
             user (CmdbUser): Request user
             permission (AccessControlPermission): ACL permission
+            partial (bool): If True, `data` holds only the top-level keys to set - a targeted $set
+                instead of a full-document write, so a concurrent edit of another field survives. The
+                type_id then comes from the stored object, both guards below still apply, and the
+                caller owns the pipeline this skips (version bump, log, webhook). Defaults to False
 
         Raises:
             ObjectsManagerUpdateError: If the update operation fails
@@ -861,7 +866,17 @@ class ObjectsManager(BaseManager):
             else:
                 instance = json.loads(json.dumps(data, default=json_util.default), object_hook=object_hook)
 
-            object_type = self.get_object_type(instance.get('type_id'))
+            if partial:
+                stored_object = self.get_one(public_id)
+
+                if not stored_object:
+                    raise ObjectsManagerUpdateError(f"No CmdbObject with ID: {public_id} found!")
+
+                type_id = stored_object.get('type_id')
+            else:
+                type_id = instance.get('type_id')
+
+            object_type = self.get_object_type(type_id)
 
             if not object_type:
                 raise ObjectsManagerUpdateError("CmdbType of CmdbObject not found in database!")

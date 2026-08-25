@@ -45,7 +45,6 @@ class CmdbRelation(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.relations"
-    MODEL = 'Relation'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {

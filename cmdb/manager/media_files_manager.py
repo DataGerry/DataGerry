@@ -85,7 +85,7 @@ class MediaFilesManager(BaseManager):
             with self.fs.new_file(filename=data.filename) as media_file:
                 media_file.write(data)
                 media_file.public_id = self.get_new_media_file_id()
-                media_file.metadata = FileMetadata(**metadata).__dict__
+                media_file.metadata = FileMetadata.to_json(FileMetadata(**metadata))
 
             return media_file._file
         except Exception as err:

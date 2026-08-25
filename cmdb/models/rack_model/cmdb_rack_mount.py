@@ -63,7 +63,6 @@ class CmdbRackMount(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.rackMounts'
-    MODEL = 'RackMount'
     # object_id is deliberately absent: an occupant row has none. That a MOUNT requires one is a
     # per-kind rule, checked by the occupant validator where the kind is known
     REQUIRED_INIT_KEYS: list[str] = ['rack_id', 'area']

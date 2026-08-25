@@ -45,7 +45,6 @@ class CmdbUser(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'management.users'
-    MODEL = 'User'
     INDEX_KEYS: list[dict[str, Any]] = [
         {
             'keys': [('user_name', CmdbDAO.DAO_ASCENDING)],
