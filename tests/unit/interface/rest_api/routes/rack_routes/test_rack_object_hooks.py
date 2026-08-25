@@ -20,7 +20,8 @@ Three things worth asserting here rather than further in. That the seam is **che
 not a Rack** - the object write path runs for every object in the product, so a non-rack must cost one type
 lookup and nothing else. That the delete ORDER holds - the members' location nodes are removed while the
 mount rows still exist, since the mount rows are the only record of who the members are. And that the
-member-location guard refuses exactly the moves it should
+location guard refuses exactly the moves it should, and that the membership reconcile writes the mount
+row a location change now implies
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -30,10 +31,13 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.rack_model.rack_mount_constants import RackArea
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
-    guard_member_location_change,
+    guard_rack_location_change,
     handle_object_deleted,
     handle_rack_object_updated,
+    reconcile_object_rack_membership,
+    resolve_rack_of_location_node,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -166,21 +170,73 @@ def test_a_malformed_document_is_a_no_op(public_id: Any) -> None:
     rows.assert_not_called()
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                     guard_member_location_change                                                     #
+#                                       guard_rack_location_change                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def _mounts_manager(mount: dict[str, Any] | None) -> MagicMock:
-    """A RackMountsManager reporting the given membership for the object"""
-    manager = MagicMock()
-    manager.get_mount_of_object.return_value = mount
+OTHER_NODE_ID: int = 32
+OTHER_RACK_ID: int = 701
+
+
+def _managers(mount: dict[str, Any] | None, candidate_type_id: int = PLAIN_TYPE_ID) -> MagicMock:
+    """
+    A ManagerProvider.get_manager stand-in serving the three managers the guard resolves
+
+    The objects/types pair answers "is the object being moved a Rack?", the mounts manager answers
+    "is it a member, and is it placed?"
+    """
+    objects_manager = MagicMock(name='objects_manager')
+    objects_manager.get_object.return_value = {'public_id': MEMBER_ID, 'type_id': candidate_type_id}
+
+    types_manager = MagicMock(name='types_manager')
+    types_manager.get_type.return_value = {
+        'public_id': candidate_type_id,
+        'special_type': SpecialType.RACK.value if candidate_type_id == RACK_TYPE_ID else None,
+    }
+
+    mounts_manager = MagicMock(name='rack_mounts_manager')
+    mounts_manager.get_mount_of_object.return_value = mount
+
+    def _get_manager(manager_type, _request_user=None):
+        name: str = getattr(manager_type, 'name', str(manager_type))
+
+        if name == 'OBJECTS':
+            return objects_manager
+        if name == 'TYPES':
+            return types_manager
+
+        return mounts_manager
+
+    provider = MagicMock(side_effect=_get_manager)
+    provider.objects_manager = objects_manager
+    provider.types_manager = types_manager
+    provider.mounts_manager = mounts_manager
+
+    return provider
+
+
+def _locations_manager(rack_node_id: int | None = RACK_NODE_ID,
+                       node_owner_id: int | None = None) -> MagicMock:
+    """A LocationsManager reporting the rack's own node and, optionally, who owns a requested node"""
+    manager = MagicMock(name='locations_manager')
+    manager.get_location_for_object.return_value = (
+        {'public_id': rack_node_id} if rack_node_id is not None else None
+    )
+    manager.get_location.return_value = (
+        {'public_id': OTHER_NODE_ID, 'object_id': node_owner_id} if node_owner_id is not None else None
+    )
 
     return manager
 
 
+def _mount(area: str = RackArea.UNASSIGNED.value, rack_id: int = RACK_ID) -> dict[str, Any]:
+    """A membership row for MEMBER_ID in the given area"""
+    return {'public_id': 900, 'rack_id': rack_id, 'object_id': MEMBER_ID, 'area': area}
+
+
 def test_an_object_that_is_not_a_member_may_be_moved_freely() -> None:
-    """The guard only speaks for rack members"""
-    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=_mounts_manager(None)):
-        guard_member_location_change(MagicMock(), MEMBER_ID, 12, MagicMock())
+    """The guard only speaks for rack members and for Racks"""
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None)):
+        guard_rack_location_change(MagicMock(), MEMBER_ID, 12, _locations_manager())
 
 
 def test_a_member_pointed_at_its_own_rack_is_allowed() -> None:
@@ -189,57 +245,246 @@ def test_a_member_pointed_at_its_own_rack_is_allowed() -> None:
 
     Refusing it would make the feature fight itself.
     """
-    locations_manager = MagicMock()
-    locations_manager.get_location_for_object.return_value = {'public_id': RACK_NODE_ID}
-    mount = {'public_id': 900, 'rack_id': RACK_ID, 'object_id': MEMBER_ID}
-
-    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=_mounts_manager(mount)):
-        guard_member_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, locations_manager)
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))):
+        guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager())
 
 
-def test_moving_a_member_elsewhere_is_refused() -> None:
+def test_a_member_re_pointed_at_its_own_rack_needs_no_license_check() -> None:
     """
-    W9e: the rack owns where its members sit
+    Nothing is being ADDED to a rack, so the licensed-surface check does not apply
 
-    Without this a user could point a member anywhere from the object form and the tree would disagree with
-    the rack until something re-reconciled it.
+    This is what an ordinary edit of a member sends back, on an instance that may well be unlicensed.
     """
-    locations_manager = MagicMock()
-    locations_manager.get_location_for_object.return_value = {'public_id': RACK_NODE_ID}
-    mount = {'public_id': 900, 'rack_id': RACK_ID, 'object_id': MEMBER_ID}
+    locations_manager = _locations_manager(rack_node_id=OTHER_NODE_ID, node_owner_id=RACK_ID)
 
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))), \
+         patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=RACK_ID), \
+         patch(f'{HOOKS_PATH}.abort_if_feature_locked') as feature_gate:
+        guard_rack_location_change(MagicMock(), MEMBER_ID, OTHER_NODE_ID, locations_manager)
+
+    feature_gate.assert_not_called()
+
+
+def test_moving_a_placed_member_elsewhere_is_refused() -> None:
+    """
+    A placed member's slot is layout the rack view owns, and a location change cannot say what becomes
+    of it - so the move is refused with the placement named
+    """
     with app.test_request_context():
-        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=_mounts_manager(mount)):
+        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))):
             with pytest.raises(HTTPException) as err:
-                guard_member_location_change(MagicMock(), MEMBER_ID, 12, locations_manager)
+                guard_rack_location_change(MagicMock(), MEMBER_ID, 12, _locations_manager())
 
     assert err.value.code == 400
     assert str(RACK_ID) in err.value.description
+    assert RackArea.FRONT.value in err.value.description
 
 
-def test_clearing_a_members_location_is_refused() -> None:
-    """Removing it from the tree by hand is a move like any other - take it out of the rack instead"""
-    locations_manager = MagicMock()
-    locations_manager.get_location_for_object.return_value = {'public_id': RACK_NODE_ID}
-    mount = {'public_id': 900, 'rack_id': RACK_ID, 'object_id': MEMBER_ID}
-
+def test_clearing_a_placed_members_location_is_refused() -> None:
+    """Clearing is a move like any other for a member that occupies slots"""
     with app.test_request_context():
-        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=_mounts_manager(mount)):
+        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FULL_DEPTH.value))):
             with pytest.raises(HTTPException) as err:
-                guard_member_location_change(MagicMock(), MEMBER_ID, None, locations_manager)
+                guard_rack_location_change(MagicMock(), MEMBER_ID, None, _locations_manager())
 
     assert err.value.code == 400
 
 
-def test_a_member_of_a_rack_without_a_location_may_be_cleared() -> None:
+def test_moving_an_unassigned_member_is_allowed() -> None:
     """
-    Its rack is not in the tree, so None is what the rack's own mirroring would produce
+    Membership without placement has nothing to lose
 
-    Nothing to conflict with.
+    The membership row follows the location afterwards - that is reconcile_object_rack_membership's job,
+    not the guard's.
     """
-    locations_manager = MagicMock()
-    locations_manager.get_location_for_object.return_value = None
-    mount = {'public_id': 900, 'rack_id': RACK_ID, 'object_id': MEMBER_ID}
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount())):
+        guard_rack_location_change(MagicMock(), MEMBER_ID, 12, _locations_manager())
 
-    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=_mounts_manager(mount)):
-        guard_member_location_change(MagicMock(), MEMBER_ID, None, locations_manager)
+
+def test_clearing_an_unassigned_members_location_is_allowed() -> None:
+    """Same case with no new parent: the object simply leaves the rack"""
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount())):
+        guard_rack_location_change(MagicMock(), MEMBER_ID, None, _locations_manager())
+
+
+def test_a_placed_member_of_a_rack_without_a_location_may_be_saved() -> None:
+    """
+    Its rack is not in the tree, so its own location is empty and every edit sends None
+
+    Reading that as "left the rack" would refuse ordinary edits of the object.
+    """
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.BACK.value))):
+        guard_rack_location_change(MagicMock(), MEMBER_ID, None, _locations_manager(rack_node_id=None))
+
+
+def test_a_rack_pointed_into_another_rack_is_refused() -> None:
+    """Racks do not nest, so the placement that would have to mean membership is refused instead"""
+    locations_manager = _locations_manager(node_owner_id=OTHER_RACK_ID)
+
+    with app.test_request_context():
+        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None, RACK_TYPE_ID)):
+            with pytest.raises(HTTPException) as err:
+                guard_rack_location_change(MagicMock(), MEMBER_ID, OTHER_NODE_ID, locations_manager)
+
+    assert err.value.code == 400
+    assert 'nest' in err.value.description
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    reconcile_object_rack_membership                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def _reconcile_managers(mount: dict[str, Any] | None) -> tuple[MagicMock, MagicMock, MagicMock]:
+    """The (objects, types, mounts) trio the reconcile works with, mounts reporting the given membership"""
+    objects_manager = MagicMock(name='objects_manager')
+    types_manager = MagicMock(name='types_manager')
+    mounts_manager = MagicMock(name='rack_mounts_manager')
+    mounts_manager.get_mount_of_object.return_value = mount
+
+    return objects_manager, types_manager, mounts_manager
+
+
+def test_pointing_an_object_at_a_rack_creates_an_unassigned_membership() -> None:
+    """The gap this closes: a location that names a rack now really puts the object in it"""
+    objects_manager, types_manager, mounts_manager = _reconcile_managers(None)
+    locations_manager = _locations_manager()
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager), \
+         patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=RACK_ID), \
+         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=(MEMBER_ID, None)):
+        reconcile_object_rack_membership(
+            _request_user(), MEMBER_ID, OTHER_NODE_ID, objects_manager, types_manager, locations_manager,
+        )
+
+    written = mounts_manager.insert_item.call_args.args[0]
+    assert written['rack_id'] == RACK_ID
+    assert written['object_id'] == MEMBER_ID
+    assert written['area'] == RackArea.UNASSIGNED.value
+    mounts_manager.delete_item.assert_not_called()
+
+
+def test_clearing_the_location_of_an_unassigned_member_removes_the_membership() -> None:
+    """The symmetric half: leaving the rack's node in the tree means leaving the rack"""
+    objects_manager, types_manager, mounts_manager = _reconcile_managers(_mount())
+    locations_manager = _locations_manager()
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager), \
+         patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=None):
+        reconcile_object_rack_membership(
+            _request_user(), MEMBER_ID, None, objects_manager, types_manager, locations_manager,
+        )
+
+    mounts_manager.delete_item.assert_called_once_with(900)
+    mounts_manager.insert_item.assert_not_called()
+
+
+def test_moving_an_unassigned_member_to_another_rack_moves_the_membership() -> None:
+    """One membership at a time: the old row goes before the new one is written"""
+    objects_manager, types_manager, mounts_manager = _reconcile_managers(_mount())
+    locations_manager = _locations_manager()
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager), \
+         patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=OTHER_RACK_ID), \
+         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=(MEMBER_ID, None)):
+        reconcile_object_rack_membership(
+            _request_user(), MEMBER_ID, OTHER_NODE_ID, objects_manager, types_manager, locations_manager,
+        )
+
+    mounts_manager.delete_item.assert_called_once_with(900)
+    assert mounts_manager.insert_item.call_args.args[0]['rack_id'] == OTHER_RACK_ID
+
+
+def test_a_member_still_under_its_own_rack_is_left_alone() -> None:
+    """An ordinary edit re-sends the same parent; nothing about the membership changed"""
+    objects_manager, types_manager, mounts_manager = _reconcile_managers(_mount())
+    locations_manager = _locations_manager()
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager):
+        reconcile_object_rack_membership(
+            _request_user(), MEMBER_ID, RACK_NODE_ID, objects_manager, types_manager, locations_manager,
+        )
+
+    mounts_manager.delete_item.assert_not_called()
+    mounts_manager.insert_item.assert_not_called()
+
+
+def test_a_placed_member_of_a_location_less_rack_keeps_its_membership() -> None:
+    """
+    Its rack is not in the tree, so an edit sends None - and dropping the row would silently unmount it
+
+    The guard lets this write through precisely because it changes nothing, so the reconcile must agree.
+    """
+    objects_manager, types_manager, mounts_manager = _reconcile_managers(_mount(RackArea.FRONT.value))
+    locations_manager = _locations_manager(rack_node_id=None)
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager):
+        reconcile_object_rack_membership(
+            _request_user(), MEMBER_ID, None, objects_manager, types_manager, locations_manager,
+        )
+
+    mounts_manager.delete_item.assert_not_called()
+    mounts_manager.insert_item.assert_not_called()
+
+
+def test_an_object_the_rack_view_would_refuse_gets_no_membership() -> None:
+    """
+    The picker's own rules decide who may be a member, so no membership is invented behind its back
+
+    The location still stands - the one case where the tree says more than the rack does.
+    """
+    objects_manager, types_manager, mounts_manager = _reconcile_managers(None)
+    locations_manager = _locations_manager()
+
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager), \
+         patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=RACK_ID), \
+         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=(None, 'no location field')):
+        reconcile_object_rack_membership(
+            _request_user(), MEMBER_ID, OTHER_NODE_ID, objects_manager, types_manager, locations_manager,
+        )
+
+    mounts_manager.insert_item.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      resolve_rack_of_location_node                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_a_node_owned_by_a_rack_resolves_to_that_rack() -> None:
+    """The rack's OWN node is what membership is read from"""
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': RACK_ID, 'type_id': RACK_TYPE_ID}
+    types_manager = MagicMock()
+    types_manager.get_type.return_value = {'public_id': RACK_TYPE_ID, 'special_type': SpecialType.RACK.value}
+
+    resolved = resolve_rack_of_location_node(
+        OTHER_NODE_ID, objects_manager, types_manager, _locations_manager(node_owner_id=RACK_ID),
+    )
+
+    assert resolved == RACK_ID
+
+
+def test_a_node_owned_by_an_ordinary_object_resolves_to_nothing() -> None:
+    """A location under a rack, or anywhere else, says nothing about membership"""
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': 55, 'type_id': PLAIN_TYPE_ID}
+    types_manager = MagicMock()
+    types_manager.get_type.return_value = {'public_id': PLAIN_TYPE_ID, 'special_type': None}
+
+    resolved = resolve_rack_of_location_node(
+        OTHER_NODE_ID, objects_manager, types_manager, _locations_manager(node_owner_id=55),
+    )
+
+    assert resolved is None
+
+
+def test_no_requested_parent_resolves_to_nothing() -> None:
+    """Nothing was asked for, so no rack is named"""
+    assert resolve_rack_of_location_node(None, MagicMock(), MagicMock(), MagicMock()) is None
+
+
+def _request_user() -> MagicMock:
+    """A CmdbUser stub answering the accessor the membership row records"""
+    request_user = MagicMock()
+    request_user.get_public_id.return_value = 1
+
+    return request_user

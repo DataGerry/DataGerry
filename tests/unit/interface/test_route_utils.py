@@ -22,7 +22,7 @@ managers, TokenValidator/TokenGenerator, AuthModule, ``requests`` and ``os.geten
 module path - no Mongo, no service-portal HTTP. The ``cloud_mode`` / ``local_mode`` flags on the app
 select the branch under test.
 
-These pin: the rights checks (``user_has_right`` / ``validate_right_cloud_api`` / ``right_required``),
+These pin: the rights checks (``user_has_right`` / ``validate_right_cloud_api``),
 the error-mapping decorators (``handle_db_errors`` 503/423, ``handle_oc_errors`` 500s), the
 request-user injection / API-access decorators, the Authorization-header parsing and Basic/Bearer
 authentication, the service-portal check with its cache-sync helpers, and the small DB/user helpers.
@@ -42,7 +42,6 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.errors.database import (
     SetDatabaseError,
-    DatabaseNotFoundError,
     DocumentNetworkError,
     DocumentLockTimeoutError,
 )
@@ -529,86 +528,6 @@ class TestCheckApiLevel:
         """A user dict missing the expected keys fails safely."""
         with _app(cloud_mode=True).test_request_context():
             assert _check_api_level({'subscriptions': []}, ApiLevel.ADMIN) is False
-
-
-# ================================================== right_required ================================================== #
-
-class TestRightRequired:
-    """``right_required`` gates a route on a group right (requires insert_request_user)."""
-
-    def test_missing_request_user_aborts_400(self) -> None:
-        """Without a request_user kwarg the decorator aborts with 400."""
-        with patch(f'{MODULE_PATH}.GroupsManager'):
-            with _app().test_request_context():
-                with pytest.raises(HTTPException) as exc_info:
-                    ru.right_required('base.right')(lambda **_: None)()
-        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
-
-    def test_has_right_calls_handler(self) -> None:
-        """A group with the right runs the wrapped handler (cloud_mode branch)."""
-        groups_manager = MagicMock()
-        group = MagicMock()
-        group.has_right.return_value = True
-        groups_manager.get_group.return_value = group
-        handler = MagicMock(return_value='ran')
-        user = SimpleNamespace(database='db', group_id=1)
-
-        with patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager):
-            with _app(cloud_mode=True).test_request_context():
-                assert ru.right_required('base.right')(handler)(request_user=user) == 'ran'
-
-    def test_extended_right_calls_handler(self) -> None:
-        """A group with only the extended right still runs the handler."""
-        groups_manager = MagicMock()
-        group = MagicMock()
-        group.has_right.return_value = False
-        group.has_extended_right.return_value = True
-        groups_manager.get_group.return_value = group
-        handler = MagicMock(return_value='ran')
-        user = SimpleNamespace(database='db', group_id=1)
-
-        with patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager):
-            with _app().test_request_context():
-                assert ru.right_required('base.right')(handler)(request_user=user) == 'ran'
-
-    def test_no_right_aborts_403(self) -> None:
-        """A group lacking the right (and extended) aborts with 403."""
-        groups_manager = MagicMock()
-        group = MagicMock()
-        group.has_right.return_value = False
-        group.has_extended_right.return_value = False
-        groups_manager.get_group.return_value = group
-        user = SimpleNamespace(database='db', group_id=1)
-
-        with patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager):
-            with _app().test_request_context():
-                with pytest.raises(HTTPException) as exc_info:
-                    ru.right_required('base.right')(lambda **_: None)(request_user=user)
-        assert exc_info.value.code == HTTPStatus.FORBIDDEN
-
-    def test_group_lookup_error_aborts_404(self) -> None:
-        """A GroupsManagerGetError aborts with 404."""
-        groups_manager = MagicMock()
-        groups_manager.get_group.side_effect = GroupsManagerGetError('nope')
-        user = SimpleNamespace(database='db', group_id=1)
-
-        with patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager):
-            with _app().test_request_context():
-                with pytest.raises(HTTPException) as exc_info:
-                    ru.right_required('base.right')(lambda **_: None)(request_user=user)
-        assert exc_info.value.code == HTTPStatus.NOT_FOUND
-
-    def test_generic_error_aborts_403(self) -> None:
-        """A generic error during the check aborts with 403."""
-        groups_manager = MagicMock()
-        groups_manager.get_group.side_effect = RuntimeError('boom')
-        user = SimpleNamespace(database='db', group_id=1)
-
-        with patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager):
-            with _app().test_request_context():
-                with pytest.raises(HTTPException) as exc_info:
-                    ru.right_required('base.right')(lambda **_: None)(request_user=user)
-        assert exc_info.value.code == HTTPStatus.FORBIDDEN
 
 
 # ============================================ parse_authorization_header ============================================ #
@@ -1159,23 +1078,6 @@ class TestSmallHelpers:
         with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
             with _app().test_request_context():
                 assert ru.retrieve_user({'email': 'x'}, 'db') is None
-
-    def test_delete_database_drops_it(self) -> None:
-        """delete_database drops the database through the users manager."""
-        users_manager = MagicMock()
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
-            with _app().test_request_context():
-                ru.delete_database('db')
-        users_manager.dbm.drop_database.assert_called_once_with('db')
-
-    def test_delete_database_error_raises_not_found(self) -> None:
-        """A failure while dropping raises DatabaseNotFoundError."""
-        users_manager = MagicMock()
-        users_manager.dbm.drop_database.side_effect = RuntimeError('boom')
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
-            with _app().test_request_context():
-                with pytest.raises(DatabaseNotFoundError):
-                    ru.delete_database('db')
 
 
 # =================================================== set_admin_user ================================================= #

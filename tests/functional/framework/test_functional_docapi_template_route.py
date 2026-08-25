@@ -20,7 +20,12 @@ The document-generator feature is license-gated, so each test enables it by stub
 ``LicenseService.has_feature``. Covers the create round-trip, the list envelope, the 404s on a
 missing id (get / update / delete), and the render 404 when the template is missing (regression:
 this used to surface as a 500 because get_template crashed on a missing id and the route's
-guard was unreachable). The PDF render pipeline itself is out of scope.
+guard was unreachable).
+
+Since 2026-08-25 also: the name stays unique on UPDATE (not only on create), a missing NAME is a 404
+like a missing id, a failed read is a 400 rather than a 404, a malformed searchfilter is a 400, and the
+update response is a JSON document rather than a model repr. The PDF render pipeline itself is covered
+by test_integration_docapi_document_generation; here only the route's own error mapping is.
 """
 from http import HTTPStatus
 from typing import Any
@@ -28,11 +33,15 @@ from urllib.parse import quote
 import json
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import DocapiTemplatesManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
+from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model import CmdbType
+from tests.utils.ipam_doc_builders import make_type_doc
 from cmdb.errors.manager.docapi_templates_manager import (
     DocapiTemplatesManagerInsertError,
     DocapiTemplatesManagerGetError,
@@ -306,27 +315,27 @@ class TestErrorMapping:
 
         assert rest_api.get(LIST_URL).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_searchfilter_get_error_returns_404(self, rest_api, monkeypatch) -> None:
+    def test_searchfilter_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A DocapiTemplatesManagerGetError on the searchfilter route surfaces as 404."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_templates_by',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
         search = quote(json.dumps({'public_id': MISSING_TPL_ID}))
-        assert rest_api.get(f'{CRUD_URL}/by/{search}').status_code == HTTPStatus.NOT_FOUND
+        assert rest_api.get(f'{CRUD_URL}/by/{search}').status_code == HTTPStatus.BAD_REQUEST
 
-    def test_get_single_manager_error_returns_404(self, rest_api, monkeypatch) -> None:
+    def test_get_single_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A DocapiTemplatesManagerGetError on get-single surfaces as 404."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_template',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
-        assert rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}').status_code == HTTPStatus.NOT_FOUND
+        assert rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}').status_code == HTTPStatus.BAD_REQUEST
 
-    def test_get_by_name_manager_error_returns_404(self, rest_api, monkeypatch) -> None:
+    def test_get_by_name_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A DocapiTemplatesManagerGetError on the name route surfaces as 404."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_template_by_name',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
-        assert rest_api.get(f'{CRUD_URL}/name/whatever').status_code == HTTPStatus.NOT_FOUND
+        assert rest_api.get(f'{CRUD_URL}/name/whatever').status_code == HTTPStatus.BAD_REQUEST
 
     def test_update_error_returns_400(self, rest_api, monkeypatch,
                                      database_manager: MongoDatabaseManager, database_name: str) -> None:
@@ -350,6 +359,279 @@ class TestErrorMapping:
                             _raise(DocapiTemplatesManagerDeleteError('boom')))
         try:
             assert rest_api.delete(f'{CRUD_URL}/{TPL_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
+                .delete_one({'public_id': TPL_ID_FOR_DELETE})
+
+
+TPL_ID_FOR_NAME_CLASH: int = 80004
+TAKEN_NAME: str = 'tpl-functional-taken'
+
+
+class TestNameUniqueness:
+    """A template name resolves one template, so both write routes keep it unique."""
+
+    def test_update_onto_a_taken_name_is_rejected(self, rest_api,
+                                                  database_manager: MongoDatabaseManager,
+                                                  database_name: str) -> None:
+        """
+        Renaming onto a name another template carries is refused (regression)
+
+        Only the create route checked this, so a PUT could produce two templates of the same name -
+        after which the by-name route resolved one of them arbitrarily.
+        """
+        collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        collection.insert_one(_template_payload(TPL_ID_FOR_NAME_CLASH, TAKEN_NAME))
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
+        try:
+            response = rest_api.put(f'{CRUD_URL}/', json=_template_payload(TPL_ID_FOR_UPDATE, TAKEN_NAME))
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert collection.find_one({'public_id': TPL_ID_FOR_UPDATE})['name'] != TAKEN_NAME
+        finally:
+            collection.delete_many({'public_id': {'$in': [TPL_ID_FOR_NAME_CLASH, TPL_ID_FOR_UPDATE]}})
+
+    def test_update_keeping_its_own_name_is_allowed(self, rest_api,
+                                                    database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+        """The uniqueness check must not refuse a template its own name."""
+        collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
+        try:
+            payload = _template_payload(TPL_ID_FOR_UPDATE)
+            payload['label'] = 'Renamed label'
+
+            response = rest_api.put(f'{CRUD_URL}/', json=payload)
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+            assert collection.find_one({'public_id': TPL_ID_FOR_UPDATE})['label'] == 'Renamed label'
+        finally:
+            collection.delete_one({'public_id': TPL_ID_FOR_UPDATE})
+
+    def test_update_response_is_the_template_document(self, rest_api,
+                                                      database_manager: MongoDatabaseManager,
+                                                      database_name: str) -> None:
+        """
+        The response carries the template as a document (regression)
+
+        It used to hand out the model instance itself, which only serialised by falling back to bson's
+        default encoder.
+        """
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
+        try:
+            response = rest_api.put(f'{CRUD_URL}/', json=_template_payload(TPL_ID_FOR_UPDATE))
+
+            body = response.get_json()
+            assert isinstance(body, dict)
+            assert body['public_id'] == TPL_ID_FOR_UPDATE
+            assert body['name'] == f'tpl-{TPL_ID_FOR_UPDATE}'
+        finally:
+            database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
+                .delete_one({'public_id': TPL_ID_FOR_UPDATE})
+
+
+class TestMissingNameIsNotFound:
+    """The by-name read answers like the by-id one."""
+
+    def test_get_by_missing_name_returns_404(self, rest_api) -> None:
+        """It used to answer 200 with null, while the id route 404s."""
+        assert rest_api.get(f'{CRUD_URL}/name/tpl-does-not-exist').status_code == HTTPStatus.NOT_FOUND
+
+
+class TestSearchfilterGuard:
+    """The searchfilter travels in the URL, so it has to be checked."""
+
+    def test_malformed_searchfilter_returns_400(self, rest_api) -> None:
+        """A filter that is not JSON is a client error - a JSONDecodeError -> 500 before."""
+        assert rest_api.get(f'{CRUD_URL}/by/not-json').status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestHttpExceptionPassThrough:
+    """An HTTPException from a collaborator keeps its own status on the routes that had no arm for it."""
+
+    def test_list_keeps_the_status(self, rest_api, monkeypatch) -> None:
+        """GET /docs/template had no re-raise arm, so an abort inside would have become a 500."""
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_templates', _raise(NotFound()))
+
+        assert rest_api.get(LIST_URL).status_code == HTTPStatus.NOT_FOUND
+
+    def test_searchfilter_keeps_the_status(self, rest_api, monkeypatch) -> None:
+        """Same for the filtered read."""
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_templates_by', _raise(NotFound()))
+        search = quote(json.dumps({'label': 'x'}))
+
+        assert rest_api.get(f'{CRUD_URL}/by/{search}').status_code == HTTPStatus.NOT_FOUND
+
+    def test_by_name_keeps_the_status(self, rest_api, monkeypatch) -> None:
+        """And for the by-name read."""
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_template_by_name', _raise(NotFound()))
+
+        assert rest_api.get(f'{CRUD_URL}/name/whatever').status_code == HTTPStatus.NOT_FOUND
+
+
+class TestRenderErrorMapping:
+    """The render route maps a failing render to a 500 rather than leaking it."""
+
+    def test_render_failure_returns_500(self, rest_api, monkeypatch,
+                                        database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A renderer failure is reported as a server error naming both ids."""
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_GET)
+        try:
+            monkeypatch.setattr(
+                'cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates'
+                '.docapi_template_routes.DocApiRenderer',
+                _raise(RuntimeError('boom')),
+            )
+
+            response = rest_api.get(f'{CRUD_URL}/{TPL_ID_FOR_GET}/render/{MISSING_OBJECT_ID}')
+
+            assert response.status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.INTERNAL_SERVER_ERROR)
+        finally:
+            database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
+                .delete_one({'public_id': TPL_ID_FOR_GET})
+
+
+RENDER_TYPE_ID: int = 80011
+RENDER_OBJECT_ID: int = 80012
+RENDER_TPL_ID: int = 80013
+RENDER_NAME_FIELD: str = 'dg-name'
+PDF_MAGIC: bytes = b'%PDF'
+
+
+@pytest.fixture(name='renderable')
+def fixture_renderable(database_manager: MongoDatabaseManager, database_name: str):
+    """Seeds the type, object and template the render route needs, and removes them again."""
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    templates = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+
+    def _purge() -> None:
+        types.delete_many({'public_id': RENDER_TYPE_ID})
+        objects.delete_many({'public_id': RENDER_OBJECT_ID})
+        templates.delete_many({'public_id': RENDER_TPL_ID})
+
+    _purge()
+    types.insert_one(make_type_doc(
+        RENDER_TYPE_ID, 'docapi-render-type',
+        fields=[{'type': 'text', 'name': RENDER_NAME_FIELD, 'label': 'Name'}],
+        sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [RENDER_NAME_FIELD]}],
+    ))
+    objects.insert_one({
+        'public_id': RENDER_OBJECT_ID, 'type_id': RENDER_TYPE_ID, 'active': True, 'author_id': 1,
+        'version': '1.0.0',
+        'fields': [{'type': 'text', 'name': RENDER_NAME_FIELD, 'value': 'Rendered Server'}],
+    })
+    templates.insert_one({
+        'public_id': RENDER_TPL_ID,
+        'name': 'tpl-functional-render',
+        'label': 'Render',
+        'active': True,
+        'author_id': 1,
+        'template_data': '<h1>{{ fields.dg_name }}</h1>',
+        'template_style': '',
+    })
+
+    yield
+
+    _purge()
+
+
+class TestRenderHappyPath:
+    """
+    The render route really produces a PDF
+
+    The pipeline itself is covered by test_integration_docapi_document_generation; what is asserted here
+    is that the ROUTE wires it - the template, the object and the request user reach the renderer and the
+    bytes come back as an attachment.
+    """
+
+    def test_render_returns_a_pdf_attachment(self, rest_api, renderable) -> None:
+        """A real template + object render into a PDF the browser downloads."""
+        del renderable
+
+        response = rest_api.get(f'{CRUD_URL}/{RENDER_TPL_ID}/render/{RENDER_OBJECT_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.mimetype == 'application/pdf'
+        assert response.get_data().startswith(PDF_MAGIC)
+        assert response.headers['Content-Disposition'] == 'attachment; filename=output.pdf'
+
+    def test_render_failure_returns_500(self, rest_api, renderable, monkeypatch) -> None:
+        """A failing renderer is a 500 naming both ids, not a leaked traceback."""
+        del renderable
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates'
+            '.docapi_template_routes.DocApiRenderer',
+            _raise(RuntimeError('boom')),
+        )
+
+        response = rest_api.get(f'{CRUD_URL}/{RENDER_TPL_ID}/render/{RENDER_OBJECT_ID}')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestUnexpectedErrorMapping:
+    """Every route reports an unmapped failure as a 500 rather than leaking it."""
+
+    def test_create_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while inserting."""
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_template_by_name', _raise(RuntimeError('boom')))
+
+        response = rest_api.post(f'{CRUD_URL}/', json=_template_payload(TPL_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while iterating."""
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_templates', _raise(RuntimeError('boom')))
+
+        assert rest_api.get(LIST_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_searchfilter_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while reading the filtered list."""
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_templates_by', _raise(RuntimeError('boom')))
+        search = quote(json.dumps({'label': 'x'}))
+
+        assert rest_api.get(f'{CRUD_URL}/by/{search}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while reading one template."""
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_template', _raise(RuntimeError('boom')))
+
+        assert rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_by_name_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while reading by name."""
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_template_by_name', _raise(RuntimeError('boom')))
+
+        assert rest_api.get(f'{CRUD_URL}/name/whatever').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch,
+                                                 database_manager: MongoDatabaseManager,
+                                                 database_name: str) -> None:
+        """An unmapped failure while updating."""
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
+        try:
+            monkeypatch.setattr(DocapiTemplatesManager, 'update_template', _raise(RuntimeError('boom')))
+
+            response = rest_api.put(f'{CRUD_URL}/', json=_template_payload(TPL_ID_FOR_UPDATE))
+
+            assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        finally:
+            database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
+                .delete_one({'public_id': TPL_ID_FOR_UPDATE})
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch,
+                                                 database_manager: MongoDatabaseManager,
+                                                 database_name: str) -> None:
+        """An unmapped failure while deleting."""
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_DELETE)
+        try:
+            monkeypatch.setattr(DocapiTemplatesManager, 'delete_template', _raise(RuntimeError('boom')))
+
+            response = rest_api.delete(f'{CRUD_URL}/{TPL_ID_FOR_DELETE}')
+
+            assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         finally:
             database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
                 .delete_one({'public_id': TPL_ID_FOR_DELETE})

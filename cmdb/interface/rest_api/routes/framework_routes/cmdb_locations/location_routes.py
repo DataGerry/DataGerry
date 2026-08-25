@@ -54,7 +54,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     validate_object_location_move,
     move_object_location,
 )
-from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import guard_member_location_change
+from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
+    guard_rack_location_change,
+    reconcile_object_rack_membership,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import LocationRight
 from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault, LocationKey
 
@@ -121,7 +124,18 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
             request_user,
         )
 
+        # This route writes a node directly, so it needs the same Rack rules as every other placement
+        guard_rack_location_change(
+            request_user, location_creation_params['object_id'], location_creation_params['parent'],
+            locations_manager,
+        )
+
         created_location_id = locations_manager.insert_location(location_creation_params)
+
+        reconcile_object_rack_membership(
+            request_user, location_creation_params['object_id'], location_creation_params['parent'],
+            objects_manager, types_manager, locations_manager,
+        )
 
         return DefaultResponse(created_location_id).make_response()
     except HTTPException as http_err:
@@ -575,6 +589,8 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
 
         # Reject an invalid new parent (missing / not selectable-as-parent / cycle) before writing
         validate_object_location_change(object_id, location_update_params['parent'], locations_manager)
+        # ... and the Rack rules, which this route used to skip entirely
+        guard_rack_location_change(request_user, object_id, location_update_params['parent'], locations_manager)
 
         location_update_params['name'] = resolve_location_name(
             data.get('name'),
@@ -587,6 +603,11 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
 
         # Keep the mirror in sync: the object's location field holds the same parent id as the node
         objects_manager.set_location_field_for_objects([object_id], location_update_params['parent'])
+
+        reconcile_object_rack_membership(
+            request_user, object_id, location_update_params['parent'], objects_manager,
+            ManagerProvider.get_manager(ManagerType.TYPES, request_user), locations_manager,
+        )
 
         return UpdateSingleResponse(data).make_response()
     except HTTPException as http_err:
@@ -631,11 +652,18 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
-        # A Rack owns where its members sit, so a member may not be dragged out of its rack from here -
-        # the tree would disagree with the rack until something re-reconciled it
-        guard_member_location_change(request_user, object_id, parent, locations_manager)
+        # A Rack owns where its PLACED members sit, so one may not be dragged out of its rack from here,
+        # and a Rack may not be dropped into another Rack
+        guard_rack_location_change(request_user, object_id, parent, locations_manager)
 
         move_object_location(object_id, parent, request_user, objects_manager, locations_manager)
+
+        # Dropping an object onto a Rack's node makes it a member of that Rack, and dragging it off ends
+        # the membership - the tree and the rack say the same thing either way
+        reconcile_object_rack_membership(
+            request_user, object_id, parent, objects_manager,
+            ManagerProvider.get_manager(ManagerType.TYPES, request_user), locations_manager,
+        )
 
         return DefaultResponse({'object_id': object_id, 'parent': parent}).make_response()
     except HTTPException as http_err:
@@ -693,16 +721,21 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
         # Every target is validated before anything is written, so an invalid one rejects the whole batch
         # rather than leaving it half-applied. A Rack member is refused here too
         for object_id in object_ids:
-            guard_member_location_change(request_user, object_id, parent, locations_manager)
+            guard_rack_location_change(request_user, object_id, parent, locations_manager)
 
         validated_types: dict[int, CmdbType] = {
             object_id: validate_object_location_move(object_id, parent, objects_manager, locations_manager)
             for object_id in object_ids
         }
 
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
         for object_id in object_ids:
             move_object_location(
                 object_id, parent, request_user, objects_manager, locations_manager, validated_types[object_id]
+            )
+            reconcile_object_rack_membership(
+                request_user, object_id, parent, objects_manager, types_manager, locations_manager,
             )
 
         return DefaultResponse({'object_ids': object_ids, 'parent': parent}).make_response()
@@ -746,12 +779,18 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
 
         # A Rack member leaves the tree when it leaves the rack, not from here. No parent is requested,
         # so this refuses every member outright
-        guard_member_location_change(request_user, object_id, None, locations_manager)
+        guard_rack_location_change(request_user, object_id, None, locations_manager)
 
         # Deleting a location promotes its direct children - both the location nodes and the mirrored
         # object location fields - onto this location's own parent, so a location with children is
         # deletable (see delete_location_with_reparenting)
         ack = delete_location_with_reparenting(to_delete_location, locations_manager, objects_manager)
+
+        # Losing its location ends an unassigned member's membership; a placed one never gets here
+        reconcile_object_rack_membership(
+            request_user, object_id, None, objects_manager,
+            ManagerProvider.get_manager(ManagerType.TYPES, request_user), locations_manager,
+        )
 
         return DefaultResponse(ack).make_response()
     except HTTPException as http_err:

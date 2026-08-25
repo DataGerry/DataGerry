@@ -45,7 +45,6 @@ class CmdbCategory(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.categories'
-    MODEL = 'Category'
     SCHEMA: dict[str, Any] = get_cmdb_category_schema()
 
     INDEX_KEYS: list[dict[str, Any]] = [

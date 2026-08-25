@@ -43,7 +43,6 @@ class CmdbExtendableOption(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.extendableOptions"
-    MODEL = 'ExtendableOption'
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('option_type', CmdbDAO.DAO_ASCENDING)], 'name': 'option_type', 'unique': False}
     ]

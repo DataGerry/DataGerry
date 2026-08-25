@@ -608,24 +608,40 @@ class TestLeavingTheRack:
 class TestDriftGuards:
     """The tree may not be talked out of agreeing with the rack"""
 
-    def test_a_members_node_can_not_be_re_parented_by_hand(self, rest_api, collections) -> None:
+    def test_a_placed_members_node_can_not_be_re_parented_by_hand(self, rest_api, collections) -> None:
         """
-        There is no field behind it and nothing in the object form to correct
+        Its slot is layout the rack view owns, and a drag in the tree cannot say what becomes of it
 
-        So a manual move would leave the tree disagreeing with the rack indefinitely.
+        So the move is refused and the tree keeps agreeing with the rack.
         """
         _place_rack(rest_api)
-        _mount(rest_api, SECOND_MEMBER_ID)
+        _mount(rest_api, SECOND_MEMBER_ID, area=RackArea.FRONT.value, start_slot=5, height=2)
 
         response = rest_api.patch(f'{LOCATIONS_URL}/{SECOND_MEMBER_ID}/parent',
                                   json={'parent': ROOT_NODE_ID})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_a_field_driven_member_can_not_be_moved_from_the_object_form(self, rest_api, collections) -> None:
-        """W9e: the rack owns where its members sit"""
+    def test_an_unassigned_member_dragged_away_leaves_the_rack(self, rest_api, collections) -> None:
+        """
+        Membership without placement has nothing to lose, so the drag is allowed - and it MEANS something
+
+        The tree and the rack agree afterwards because the membership row went with the move.
+        """
+        _, _, mounts = collections
         _place_rack(rest_api)
-        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+        _mount(rest_api, SECOND_MEMBER_ID)
+
+        response = rest_api.patch(f'{LOCATIONS_URL}/{SECOND_MEMBER_ID}/parent',
+                                  json={'parent': ROOT_NODE_ID})
+
+        assert response.status_code == HTTPStatus.OK
+        assert mounts.find_one({'object_id': SECOND_MEMBER_ID}) is None
+
+    def test_a_placed_member_can_not_be_moved_from_the_object_form(self, rest_api, collections) -> None:
+        """W9e: the rack owns where its PLACED members sit"""
+        _place_rack(rest_api)
+        _mount(rest_api, MEMBER_WITH_FIELD_ID, area=RackArea.FRONT.value, start_slot=8, height=1)
 
         payload = _object_doc(MEMBER_WITH_FIELD_ID, WITH_LOCATION_TYPE_ID, 'server-01', ROOT_NODE_ID)
         payload.pop('creation_time')
@@ -634,6 +650,21 @@ class TestDriftGuards:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert str(RACK_ID) in response.get_data(as_text=True)
 
+    def test_an_unassigned_member_moved_from_the_object_form_leaves_the_rack(
+        self, rest_api, collections,
+    ) -> None:
+        """The object form may take an unplaced object out of a rack - the membership follows"""
+        _, _, mounts = collections
+        _place_rack(rest_api)
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+
+        payload = _object_doc(MEMBER_WITH_FIELD_ID, WITH_LOCATION_TYPE_ID, 'server-01', ROOT_NODE_ID)
+        payload.pop('creation_time')
+        response = rest_api.put(f'{OBJECTS_URL}/{MEMBER_WITH_FIELD_ID}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID}) is None
+
     def test_an_ordinary_object_can_still_be_moved(self, rest_api, collections) -> None:
         """The guards must not leak onto everything else in the product"""
         response = rest_api.patch(f'{LOCATIONS_URL}/{PARENT_OBJECT_ID}/parent',
@@ -641,3 +672,123 @@ class TestDriftGuards:
 
         assert response.status_code != HTTPStatus.BAD_REQUEST
 
+
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                            a location that names a rack IS membership of that rack                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestLocationDrivenMembership:
+    """
+    The other direction of the mirror
+
+    The rack view puts a member into the tree; these put a located object into the rack, so that "the
+    location parent is a rack's node" and "there is a mount row" can not disagree. Before this, an object
+    could be pointed at a rack from the object form and simply never appear in the rack view.
+    """
+
+    def _rack_node_id(self, locations) -> int:
+        """The location node the rack itself occupies"""
+        return _node_of(locations, RACK_ID)['public_id']
+
+    def test_pointing_an_object_at_a_rack_from_the_object_form_joins_the_rack(
+        self, rest_api, collections,
+    ) -> None:
+        """The reported gap: the object now really is in the rack, unplaced"""
+        _, locations, mounts = collections
+        _place_rack(rest_api)
+
+        payload = _object_doc(MEMBER_WITH_FIELD_ID, WITH_LOCATION_TYPE_ID, 'server-01',
+                              self._rack_node_id(locations))
+        payload.pop('creation_time')
+        response = rest_api.put(f'{OBJECTS_URL}/{MEMBER_WITH_FIELD_ID}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        membership = mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID})
+        assert membership is not None
+        assert membership['rack_id'] == RACK_ID
+        assert membership['area'] == RackArea.UNASSIGNED.value
+
+    def test_dropping_an_object_onto_a_rack_node_joins_the_rack(self, rest_api, collections) -> None:
+        """Same rule from the location tree, where the drag-drop route writes the parent"""
+        _, locations, mounts = collections
+        _place_rack(rest_api)
+
+        response = rest_api.patch(f'{LOCATIONS_URL}/{MEMBER_WITH_FIELD_ID}/parent',
+                                  json={'parent': self._rack_node_id(locations)})
+
+        assert response.status_code == HTTPStatus.OK
+        assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID})['rack_id'] == RACK_ID
+
+    def test_moving_an_unassigned_member_to_another_rack_moves_the_membership(
+        self, rest_api, collections,
+    ) -> None:
+        """One membership at a time - the object ends up in the rack its location names"""
+        _, locations, mounts = collections
+        _place_rack(rest_api)
+        _place_rack(rest_api, PARENT_NODE_ID, OTHER_RACK_ID, 'rack-b')
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+
+        other_node_id: int = _node_of(locations, OTHER_RACK_ID)['public_id']
+        payload = _object_doc(MEMBER_WITH_FIELD_ID, WITH_LOCATION_TYPE_ID, 'server-01', other_node_id)
+        payload.pop('creation_time')
+        response = rest_api.put(f'{OBJECTS_URL}/{MEMBER_WITH_FIELD_ID}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert mounts.count_documents({'object_id': MEMBER_WITH_FIELD_ID}) == 1
+        assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID})['rack_id'] == OTHER_RACK_ID
+
+    def test_deleting_the_location_of_an_unassigned_member_ends_the_membership(
+        self, rest_api, collections,
+    ) -> None:
+        """Unassigning the location from the tree route means leaving the rack"""
+        _, _, mounts = collections
+        _place_rack(rest_api)
+        _mount(rest_api, MEMBER_WITH_FIELD_ID)
+
+        response = rest_api.delete(f'{LOCATIONS_URL}/{MEMBER_WITH_FIELD_ID}/object')
+
+        assert response.status_code == HTTPStatus.OK
+        assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID}) is None
+
+    def test_a_rack_may_not_be_pointed_into_another_rack(self, rest_api, collections) -> None:
+        """Racks do not nest, so the placement that would have to mean membership is refused"""
+        _, locations, _ = collections
+        _place_rack(rest_api)
+
+        response = _place_rack(rest_api, _node_of(locations, RACK_ID)['public_id'], OTHER_RACK_ID, 'rack-b')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'nest' in response.get_data(as_text=True)
+
+    def test_an_object_the_rack_view_would_refuse_gets_no_membership(self, rest_api, collections) -> None:
+        """
+        A type without a location field can not be a member - and can not be pointed anywhere either
+
+        Asserted from the mount side: nothing was invented for it behind the picker's back.
+        """
+        _, _, mounts = collections
+        _place_rack(rest_api)
+
+        assert mounts.find_one({'object_id': MEMBER_WITHOUT_FIELD_ID}) is None
+
+    def test_joining_a_rack_needs_the_licensed_feature(
+        self, rest_api, collections, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Adding a member is the licensed Rack surface, so a location may not be a way around it
+
+        Leaving a rack is deliberately NOT gated - cleanup must stay possible on an unlicensed instance.
+        """
+        _, locations, mounts = collections
+        _place_rack(rest_api)
+        rack_node_id: int = self._rack_node_id(locations)
+
+        monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, _feature: False)
+
+        payload = _object_doc(MEMBER_WITH_FIELD_ID, WITH_LOCATION_TYPE_ID, 'server-01', rack_node_id)
+        payload.pop('creation_time')
+        response = rest_api.put(f'{OBJECTS_URL}/{MEMBER_WITH_FIELD_ID}', json=payload)
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID}) is None

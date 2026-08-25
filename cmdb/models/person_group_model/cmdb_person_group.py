@@ -41,7 +41,6 @@ class CmdbPersonGroup(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "management.personGroup"
-    MODEL = 'PersonGroup'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('group_members', CmdbDAO.DAO_ASCENDING)], 'name': 'group_members', 'unique': False}

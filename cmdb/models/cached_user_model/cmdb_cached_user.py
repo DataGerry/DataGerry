@@ -14,14 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Represents a cached cloud in DataGerry
+Represents a cached cloud user in DataGerry
 """
-from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
 from dateutil.parser import parse
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.cached_user_model.cached_user_constants import CACHE_TTL_SECONDS, CachedUserKey
 
 from cmdb.class_schema.cached_user_model.cmdb_cached_user_schema import get_cmdb_cached_user_schema
 
@@ -31,31 +31,32 @@ from cmdb.errors.models.cmdb_cached_user import (
     CmdbCachedUserToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                                CmdbCachedUser - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbCachedUser(CmdbDAO):
     """
     Implementation of CmdbCachedUser, a cached cloud user with their subscriptions
 
+    The entries live in the shared cache database and expire through the ``creation_time`` TTL index
+    after CACHE_TTL_SECONDS; nothing in DataGerry deletes them on age. Note that the cache is keyed by
+    EMAIL, not by public_id: every read looks a user up by email, and the unique email index is what
+    keeps one entry per user
+
     Extends: CmdbDAO
     """
-    CACHE_TTL: int = 3600 # How long an entry is valid (3600 = 1 hour)
-
     COLLECTION = 'cache.users'
     INDEX_KEYS: list[dict[str, Any]] = [
         {
-            'keys': [('email', CmdbDAO.DAO_ASCENDING)],
-            'name': 'email',
-            'unique': True
+            'keys': [(CachedUserKey.EMAIL.value, CmdbDAO.DAO_ASCENDING)],
+            'name': CachedUserKey.EMAIL.value,
+            'unique': True,
         },
+        # The TTL index: MongoDB removes an entry CACHE_TTL_SECONDS after its creation_time, so nothing
+        # in DataGerry has to expire the cache. Every write refreshes creation_time and restarts it
         {
-            "keys": [("creation_time", 1)],
-            "name": "creation_time",
-            "expireAfterSeconds": CACHE_TTL,
+            'keys': [(CachedUserKey.CREATION_TIME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': CachedUserKey.CREATION_TIME.value,
+            'expireAfterSeconds': CACHE_TTL_SECONDS,
         },
     ]
 
@@ -75,16 +76,21 @@ class CmdbCachedUser(CmdbDAO):
         """
         Initializes a CmdbCachedUser
 
+        Every argument must be passed as a KEYWORD: CmdbDAO.__new__ looks for public_id in the keyword
+        arguments and raises RequiredInitKeyNotFoundError when it is passed positionally
+
         Args:
-            public_id (int): Unique identifier for the CmdbCachedUser
-            user_name (str): user_name of the CmdbUser
-            password (str): password of the CmdbUser
-            email (str): email of the CmdbUser
-            active (bool): Indicates if the CmdbUser is active
-            subscriptions (list[dict[str, Any]]): The subscriptions of the CmdbUser
+            public_id (int): Unique identifier of the cached CmdbUser
+            user_name (str): user_name of the cached CmdbUser
+            password (str): HMAC of the password of the cached CmdbUser
+            email (str): email of the cached CmdbUser, the key the cache is read by
+            active (bool): Indicates if the cached CmdbUser is active
+            subscriptions (list[dict[str, Any]]): The subscriptions of the cached CmdbUser
+            creation_time (datetime | None): When the entry was cached, which is what the TTL index
+                measures; None means now
 
         Raises:
-            CmdbCachedUserInitError: WHen the initialisation of CmdbUser fails
+            CmdbCachedUserInitError: When the initialisation of the CmdbCachedUser fails
         """
         try:
             self.user_name: str = user_name
@@ -105,28 +111,33 @@ class CmdbCachedUser(CmdbDAO):
         """
         Initialises a CmdbCachedUser from a dict
 
+        Every key is mandatory, ACTIVE included - which no current write path stores, so this raises on
+        a document written by the live cache. A string CREATION_TIME is parsed, a datetime (what MongoDB
+        returns) is taken as it is
+
         Args:
             data (dict): Data with which the CmdbCachedUser should be initialised
 
         Raises:
-            CmdbCachedUserInitFromDataError: If the initialisation with the given data fails
+            CmdbCachedUserInitFromDataError: If the initialisation with the given data fails, a missing
+                key included
 
         Returns:
             CmdbCachedUser: CmdbCachedUser with the given data
         """
         try:
-            creation_time: Any | None = data['creation_time']
+            creation_time: Any | None = data[CachedUserKey.CREATION_TIME]
 
             if creation_time and isinstance(creation_time, str):
                 creation_time = parse(creation_time, fuzzy=True)
 
             return cls(
-                public_id = data['public_id'],
-                user_name = data['user_name'],
-                password = data['password'],
-                email = data['email'],
-                active = data['active'],
-                subscriptions = data['subscriptions'],
+                public_id = data[CachedUserKey.PUBLIC_ID],
+                user_name = data[CachedUserKey.USER_NAME],
+                password = data[CachedUserKey.PASSWORD],
+                email = data[CachedUserKey.EMAIL],
+                active = data[CachedUserKey.ACTIVE],
+                subscriptions = data[CachedUserKey.SUBSCRIPTIONS],
                 creation_time = creation_time,
             )
         except Exception as err:
@@ -138,11 +149,15 @@ class CmdbCachedUser(CmdbDAO):
         """
         Converts a CmdbCachedUser into a json compatible dict
 
+        CREATION_TIME stays a datetime: the dict is written to MongoDB, which stores it as a date, and
+        the TTL index only works on a real date
+
         Args:
             instance (CmdbCachedUser): The CmdbCachedUser which should be converted
 
         Raises:
-            CmdbUserToJsonError: If the CmdbUser could not be converted to a json compatible dict
+            CmdbCachedUserToJsonError: If the CmdbCachedUser could not be converted to a json
+                compatible dict, a wrongly typed instance included
 
         Returns:
             dict: Json compatible dict of the CmdbCachedUser values
@@ -152,27 +167,13 @@ class CmdbCachedUser(CmdbDAO):
                 raise TypeError(f"Expected CmdbCachedUser in 'to_json' got: {type(instance).__name__}!")
 
             return {
-                'public_id': instance.public_id,
-                'user_name': instance.user_name,
-                'password': instance.password,
-                'email': instance.email,
-                'active': instance.active,
-                'subscriptions': instance.subscriptions,
-                'creation_time': instance.creation_time,
+                CachedUserKey.PUBLIC_ID: instance.public_id,
+                CachedUserKey.USER_NAME: instance.user_name,
+                CachedUserKey.PASSWORD: instance.password,
+                CachedUserKey.EMAIL: instance.email,
+                CachedUserKey.ACTIVE: instance.active,
+                CachedUserKey.SUBSCRIPTIONS: instance.subscriptions,
+                CachedUserKey.CREATION_TIME: instance.creation_time,
             }
         except Exception as err:
             raise CmdbCachedUserToJsonError(str(err)) from err
-
-# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-    def is_cached_user_expired(self) -> bool:
-        """
-        Checks if the cached user lifetime is expired
-
-        Returns:
-            bool: True if the expiration time has been reached, else False
-        """
-        now: datetime = datetime.now(timezone.utc)
-        age_seconds: float = (now - self.creation_time).total_seconds()
-
-        return age_seconds >= self.CACHE_TTL
