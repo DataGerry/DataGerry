@@ -16,7 +16,8 @@
 """
 Constants for the CmdbReport and CmdbReportCategory REST routes
 
-Names the report request-body / document keys and the stored report_query sub-key the routes read,
+Names the ACL rights guarding the report routes, the report request-body / document keys and the
+stored report_query sub-key the routes read,
 plus the route-local query-string parameters, so the routes reference the literal strings from one
 place. The condition rule-tree keys and query operators are
 shared with the database layer and live in cmdb.models.reports_model.report_constants
@@ -29,6 +30,21 @@ the abort messages the category routes / their helper repeat.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+class ReportRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the CmdbReport REST routes
+
+    The values are the flattened names of the ReportRight entries declared in
+    cmdb.models.right_model.all_rights, so a member must never be renamed without renaming the
+    right itself - a value that names no existing right silently denies every user. Running a
+    report is a read of report data, so the run route carries VIEW rather than a right of its own
+    """
+    VIEW = 'base.framework.report.view'
+    ADD = 'base.framework.report.add'
+    EDIT = 'base.framework.report.edit'
+    DELETE = 'base.framework.report.delete'
 
 
 class ReportKey(BaseStrEnum):
@@ -46,15 +62,6 @@ class ReportKey(BaseStrEnum):
     REPORT_QUERY = 'report_query'
     PREDEFINED = 'predefined'
     MDS_MODE = 'mds_mode'
-
-
-class ReportQueryKey(BaseStrEnum):
-    """
-    Keys of a CmdbReport's stored 'report_query'
-
-    DATA holds the serialized Mongo query string rebuilt from the report's conditions
-    """
-    DATA = 'data'
 
 
 # The input parameters a report Create / Update request must carry, in the order they are named in the

@@ -72,20 +72,23 @@ LOGGER: Logger = getLogger(__name__)
 
 def enforce_special_type_license(request_user: CmdbUser, *special_types: Any) -> None:
     """
-    Blocks managing an IPAM special type when the IPAM feature is not licensed
+    Blocks managing a license-gated special type when its feature is not licensed
 
-    A no-op unless one of the given markers names an IPAM SpecialType (SUPERNET/SUBNET/VLAN); for
-    those it delegates to the shared license guard, which aborts with HTTP 403 on-premise when IPAM
-    is not licensed and is itself a no-op in cloud/local mode. Not every SpecialType belongs to IPAM
-    (RACK does not), so the markers are matched per member rather than by their mere presence. Used
-    by the create/update/delete type routes so the IPAM type gate lives in one place
+    A no-op unless one of the given markers names a license-gated SpecialType; for those it delegates
+    to the shared license guard, which aborts with HTTP 403 on-premise when the feature is not
+    licensed and is itself a no-op in cloud/local mode. The markers are matched per member rather
+    than by the mere presence of a marker. Used by the create/update/delete type routes so the gate
+    lives in one place
+
+    Every gated member currently maps to LicenseFeature.IPAM - RACK included, as an interim decision
+    (see SpecialType.get_license_gated_types)
 
     Args:
         request_user (CmdbUser): The user performing the type create/edit/delete
         *special_types (Any): The 'special_type' markers the write touches - the stored one, the
             requested one, or both on an update. None and non-SpecialType values are ignored
     """
-    if any(SpecialType.is_ipam_type(special_type) for special_type in special_types):
+    if any(SpecialType.is_license_gated(special_type) for special_type in special_types):
         abort_if_feature_locked(LicenseFeature.IPAM, request_user)
 
 

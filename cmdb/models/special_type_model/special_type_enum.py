@@ -77,6 +77,49 @@ class SpecialType(BaseStrEnum):
 
 
     @classmethod
+    def get_license_gated_types(cls) -> frozenset["SpecialType"]:
+        """
+        Returns the SpecialTypes whose management requires a licensed feature
+
+        Every member here is currently gated behind ``LicenseFeature.IPAM`` - including RACK, which is
+        an INTERIM decision: RACK is not an IPAM type (see get_ipam_types, which stays accurate) and
+        the Rack View is expected to get a LicenseFeature of its own. One flat set is therefore
+        enough while there is exactly one gating feature; the moment a second one exists this has to
+        become a per-member mapping from SpecialType to LicenseFeature, and every caller listed in
+        the class docstring has to pass the mapped feature instead of a hard-coded IPAM
+
+        Kept separate from get_ipam_types deliberately. Folding RACK into that set would make
+        ``is_ipam_type(RACK)`` true and silently change what the IPAM overviews, the wiring and the
+        importer treat as an IPAM type - the exact conflation that had to be unpicked from four
+        places when RACK was introduced
+
+        Returns:
+            frozenset[SpecialType]: The SpecialType members whose writes require a license
+        """
+        return cls.get_ipam_types() | frozenset({cls.RACK})
+
+
+    @classmethod
+    def is_license_gated(cls, value: Any) -> bool:
+        """
+        Checks whether a value names a SpecialType whose management requires a licensed feature
+
+        The predicate behind every license guard on the type, object and import write paths. Tolerates
+        None and any non-SpecialType value so a raw stored marker can be passed straight in
+
+        Args:
+            value (Any): A SpecialType member, its string value, or anything else
+
+        Returns:
+            bool: True if the value names a license-gated SpecialType, else False
+        """
+        if not cls.is_valid(value):
+            return False
+
+        return cls(value) in cls.get_license_gated_types()
+
+
+    @classmethod
     def is_ipam_type(cls, value: Any) -> bool:
         """
         Checks whether a value names an IPAM SpecialType

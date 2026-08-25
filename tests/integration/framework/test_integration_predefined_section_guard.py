@@ -20,8 +20,13 @@ Seeds the *shipped* predefined templates (SectionTemplateCreator, the same docum
 seeding inserts) and resolves them through a real SectionTemplatesManager, so the guard is pinned
 against the real template documents rather than a hand-written stand-in. This is what proves the
 protected-field lookup still matches the data DataGerry ships: dg-ipam-interface's 'Type' select
-(dg-interface-type, the ipv4/ipv6 discriminator the IPAM overviews read) and dg-rackmounting's
-orientation select are the fields an object write must never extend
+(dg-interface-type, the ipv4/ipv6 discriminator the IPAM overviews read) is the shipped field an
+object write must never extend.
+
+Every shipped predefined template is now either an MDS section (dg-ipam-interface) or select-free
+(dg-modelspec), so the plain-section half of the guard is pinned with an extra PREDEFINED plain
+template the fixture inserts. 'dg-rackmounting' used to fill that role and was retired by
+updater_20260824
 """
 from typing import Any
 
@@ -40,10 +45,14 @@ from cmdb.framework.section_templates import (
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
-RACK_TEMPLATE: str = 'dg-rackmounting'
 MODELSPEC_TEMPLATE: str = 'dg-modelspec'
-RACK_ORIENTATION_FIELD: str = 'dg-rackmounting-orientation'
-RACK_RU_FIELD: str = 'dg-rackmounting-ru'
+
+# A synthetic PREDEFINED plain section carrying a select field, standing in for the shipped one that
+# no longer exists (see the module docstring)
+PLAIN_PREDEFINED_TEMPLATE_ID: int = 9873
+PLAIN_PREDEFINED_TEMPLATE: str = 'integration-predefined-plain-tpl'
+PLAIN_PREDEFINED_SELECT_FIELD: str = 'integration-predefined-plain-select'
+PLAIN_PREDEFINED_TEXT_FIELD: str = 'integration-predefined-plain-text'
 
 CUSTOM_TEMPLATE_ID: int = 9871
 CUSTOM_TEMPLATE_NAME: str = 'integration-custom-tpl'
@@ -72,11 +81,32 @@ def _custom_template_doc() -> dict[str, Any]:
     }
 
 
+def _plain_predefined_template_doc() -> dict[str, Any]:
+    """A predefined (system-owned) PLAIN global template carrying a select and a text field."""
+    return {
+        SectionTemplateKey.PUBLIC_ID.value: PLAIN_PREDEFINED_TEMPLATE_ID,
+        SectionTemplateKey.NAME.value: PLAIN_PREDEFINED_TEMPLATE,
+        SectionTemplateKey.LABEL.value: 'Predefined plain',
+        SectionTemplateKey.TYPE.value: SectionType.SECTION.value,
+        SectionTemplateKey.IS_GLOBAL.value: True,
+        SectionTemplateKey.PREDEFINED.value: True,
+        SectionTemplateKey.FIELDS.value: [
+            {
+                'type': FieldType.SELECT.value,
+                'name': PLAIN_PREDEFINED_SELECT_FIELD,
+                'label': 'Predefined select',
+                'options': [{'name': 'a', 'label': 'A'}],
+            },
+            {'type': FieldType.TEXT.value, 'name': PLAIN_PREDEFINED_TEXT_FIELD, 'label': 'Predefined text'},
+        ],
+    }
+
+
 def _consuming_type() -> CmdbType:
     """
     Builds a CmdbType using all three template kinds at once: the predefined dg-ipam-interface MDS
-    section, the predefined dg-rackmounting section, a user-created global template and one plain
-    section of its own - the layout the DataGerry assistant produces for a server profile
+    section, a predefined plain section, a user-created global template and one plain section of its
+    own - the layout the DataGerry assistant produces for a server profile
     """
     return CmdbType.from_data(make_type_doc(
         TYPE_ID,
@@ -84,8 +114,8 @@ def _consuming_type() -> CmdbType:
         fields=[
             {'type': FieldType.SELECT.value, 'name': InterfaceField.TYPE.value, 'label': 'Type'},
             {'type': FieldType.TEXT.value, 'name': InterfaceField.IP.value, 'label': 'IP-Address'},
-            {'type': FieldType.SELECT.value, 'name': RACK_ORIENTATION_FIELD, 'label': 'Mounting orientation'},
-            {'type': FieldType.TEXT.value, 'name': RACK_RU_FIELD, 'label': 'Rack units'},
+            {'type': FieldType.SELECT.value, 'name': PLAIN_PREDEFINED_SELECT_FIELD, 'label': 'Predefined select'},
+            {'type': FieldType.TEXT.value, 'name': PLAIN_PREDEFINED_TEXT_FIELD, 'label': 'Predefined text'},
             {'type': FieldType.SELECT.value, 'name': CUSTOM_SELECT_FIELD, 'label': 'Custom'},
             {'type': FieldType.SELECT.value, 'name': LOCAL_SELECT_FIELD, 'label': 'Local'},
         ],
@@ -98,9 +128,9 @@ def _consuming_type() -> CmdbType:
             },
             {
                 'type': SectionType.SECTION.value,
-                'name': RACK_TEMPLATE,
-                'label': 'Rack mounting',
-                'fields': [RACK_ORIENTATION_FIELD, RACK_RU_FIELD],
+                'name': PLAIN_PREDEFINED_TEMPLATE,
+                'label': 'Predefined plain',
+                'fields': [PLAIN_PREDEFINED_SELECT_FIELD, PLAIN_PREDEFINED_TEXT_FIELD],
             },
             {
                 'type': SectionType.SECTION.value,
@@ -115,7 +145,7 @@ def _consuming_type() -> CmdbType:
                 'fields': [LOCAL_SELECT_FIELD],
             },
         ],
-        global_template_ids=[IpamSection.INTERFACE.value, RACK_TEMPLATE, CUSTOM_TEMPLATE_NAME],
+        global_template_ids=[IpamSection.INTERFACE.value, PLAIN_PREDEFINED_TEMPLATE, CUSTOM_TEMPLATE_NAME],
     ))
 
 
@@ -138,11 +168,12 @@ def _seed_templates(database_manager: MongoDatabaseManager, database_name: str):
     for offset, template in enumerate(predefined):
         template[SectionTemplateKey.PUBLIC_ID.value] = CUSTOM_TEMPLATE_ID + 100 + offset
 
-    collection.insert_many(predefined + [_custom_template_doc()])
+    collection.insert_many(predefined + [_plain_predefined_template_doc(), _custom_template_doc()])
     yield
     collection.delete_many({
         SectionTemplateKey.NAME.value: {
-            '$in': [template[SectionTemplateKey.NAME.value] for template in predefined] + [CUSTOM_TEMPLATE_NAME],
+            '$in': [template[SectionTemplateKey.NAME.value] for template in predefined]
+                   + [PLAIN_PREDEFINED_TEMPLATE, CUSTOM_TEMPLATE_NAME],
         },
     })
 
@@ -157,7 +188,7 @@ class TestGetPredefinedTemplateNames:
         """Every template SectionTemplateCreator ships is reported as predefined."""
         result = get_predefined_template_names(section_templates_manager)
 
-        assert {RACK_TEMPLATE, MODELSPEC_TEMPLATE, IpamSection.INTERFACE.value} <= result
+        assert {MODELSPEC_TEMPLATE, IpamSection.INTERFACE.value} <= result
 
     def test_excludes_a_user_created_global_template(
         self, section_templates_manager: SectionTemplatesManager,
@@ -173,12 +204,12 @@ class TestResolvePredefinedSelectFields:
     """Resolving a real type against the real predefined templates."""
 
     def test_protects_the_shipped_select_fields(self, section_templates_manager: SectionTemplatesManager) -> None:
-        """The IPAM interface type discriminator and the rack orientation are both protected."""
+        """A predefined MDS section's discriminator and a predefined plain section's select are both protected."""
         result = resolve_predefined_select_fields(_consuming_type(), section_templates_manager)
 
         assert result == {
             InterfaceField.TYPE.value: IpamSection.INTERFACE.value,
-            RACK_ORIENTATION_FIELD: RACK_TEMPLATE,
+            PLAIN_PREDEFINED_SELECT_FIELD: PLAIN_PREDEFINED_TEMPLATE,
         }
 
     def test_leaves_the_other_select_fields_extendable(

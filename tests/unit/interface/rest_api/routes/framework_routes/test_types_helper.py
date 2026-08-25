@@ -659,17 +659,20 @@ def test_enforce_special_type_license_delegates_for_an_ipam_special_type(marker:
     guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
 
 
-def test_enforce_special_type_license_does_not_gate_a_rack() -> None:
+def test_enforce_special_type_license_gates_a_rack_behind_ipam() -> None:
     """
-    A Rack is a SpecialType that IPAM does not own, so managing one needs no IPAM license
+    Managing a Rack type requires the IPAM license - an INTERIM policy, not a claim about IPAM
 
-    The guard used to fire on the mere presence of a 'special_type' marker, which would have made
-    creating a Rack type require an IPAM license.
+    A Rack is not an IPAM type (SpecialType.get_ipam_types still excludes it) and the Rack View is
+    expected to get a LicenseFeature of its own; until then it is gated behind IPAM, so the guard
+    matches it via SpecialType.get_license_gated_types.
     """
+    request_user = MagicMock()
+
     with patch(f'{PATH}.abort_if_feature_locked') as guard:
-        enforce_special_type_license(MagicMock(), SpecialType.RACK)
+        enforce_special_type_license(request_user, SpecialType.RACK)
 
-    guard.assert_not_called()
+    guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
 
 
 def test_enforce_special_type_license_fires_when_any_marker_is_ipam() -> None:

@@ -31,7 +31,20 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField, RackSection
+from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+@pytest.fixture(autouse=True)
+def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
+    """Licenses IPAM so the gated Rack View surface is reachable.
+
+    The Rack View is gated behind LicenseFeature.IPAM as an interim decision - a Rack is not an IPAM
+    type, see SpecialType.get_license_gated_types - so every /racks route, the RACK type write and
+    the Rack object write need the feature unlocked here.
+    """
+    monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
 
 SPECIAL_TYPES_URL: str = '/special_types'
 TYPES_URL: str = '/types'

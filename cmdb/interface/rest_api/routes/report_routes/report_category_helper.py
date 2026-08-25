@@ -103,8 +103,13 @@ def normalize_category_params(params: dict[str, Any]) -> dict[str, Any]:
     Drops every key a client may not set and requires a non-empty 'name', which is stored trimmed.
     The caller adds the server-owned keys ('public_id' from the URL, 'predefined') afterwards
 
+    Still required after the routes gained ``@validate(CmdbReportCategory.SCHEMA)``, and not redundant
+    with it: 'public_id' and 'predefined' ARE part of that schema, so the validator's purge_unknown
+    does not remove them - this whitelist is what keeps a client from setting either. The schema also
+    does not trim, so the name normalisation lives here too
+
     Args:
-        params (dict[str, Any]): The raw request parameters
+        params (dict[str, Any]): The request payload - the schema-validated body on the write routes
 
     Raises:
         HTTPException: 400 when 'name' is absent, not a string, or whitespace only
@@ -198,12 +203,12 @@ def build_category_update_payload(
     """
     Builds the document an update writes for an existing CmdbReportCategory
 
-    Sanitises the request parameters, then pins the two server-owned keys: the identity is taken from
-    the URL (never from the payload, which would silently rewrite the document's identity) and
-    'predefined' is carried over from the stored category
+    Sanitises the payload, then pins the two server-owned keys: the identity is taken from the URL
+    (never from the payload, which would silently rewrite the document's identity) and 'predefined'
+    is carried over from the stored category
 
     Args:
-        params (dict[str, Any]): The raw request parameters
+        params (dict[str, Any]): The request payload - the schema-validated body on the update route
         public_id (int): public_id of the CmdbReportCategory being updated, taken from the URL
         report_category (CmdbReportCategory): The stored CmdbReportCategory being updated
 

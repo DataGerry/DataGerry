@@ -122,7 +122,7 @@ def test_strip_unknown_category_keys_keeps_only_the_whitelisted_key() -> None:
     params: dict[str, Any] = {
         'name': 'Category',
         'public_id': BOGUS_PAYLOAD_ID,
-        'predefined': 'true',
+        'predefined': True,
         'injected': 'value',
     }
 
@@ -166,7 +166,7 @@ def test_require_category_name_missing_or_blank_maps_to_400(params: dict[str, An
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_normalize_category_params_strips_and_trims() -> None:
     """The payload is reduced to the trimmed name; server-owned and unknown keys never reach it."""
-    params: dict[str, Any] = {'name': ' Category ', 'public_id': BOGUS_PAYLOAD_ID, 'predefined': 'true', 'x': '1'}
+    params: dict[str, Any] = {'name': ' Category ', 'public_id': BOGUS_PAYLOAD_ID, 'predefined': True, 'x': '1'}
 
     assert normalize_category_params(params) == {'name': 'Category'}
 
@@ -174,7 +174,7 @@ def test_normalize_category_params_strips_and_trims() -> None:
 def test_normalize_category_params_rejects_a_payload_whose_name_was_stripped_away() -> None:
     """A payload carrying only disallowed keys has no name left and aborts 400."""
     with pytest.raises(HTTPException) as exc_info:
-        normalize_category_params({'public_id': BOGUS_PAYLOAD_ID, 'predefined': 'true'})
+        normalize_category_params({'public_id': BOGUS_PAYLOAD_ID, 'predefined': True})
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
 
@@ -257,7 +257,7 @@ def test_abort_if_category_in_use_referenced_maps_to_403() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_build_category_update_payload_pins_the_server_owned_keys() -> None:
     """The identity comes from the URL and predefined from the stored doc, whatever the payload says."""
-    params: dict[str, Any] = {'name': 'Renamed', 'public_id': BOGUS_PAYLOAD_ID, 'predefined': 'true'}
+    params: dict[str, Any] = {'name': 'Renamed', 'public_id': BOGUS_PAYLOAD_ID, 'predefined': True}
 
     payload = build_category_update_payload(params, CATEGORY_ID, _category(predefined=False))
 
@@ -313,7 +313,7 @@ def test_create_inserts_a_sanitised_payload_and_returns_the_new_id(flask_app: Fl
 
     response_ctor = _drive(
         flask_app, create_cmdb_report_category, manager, method='POST',
-        params={'name': ' Category ', 'public_id': BOGUS_PAYLOAD_ID, 'predefined': 'true', 'injected': 'x'},
+        data={'name': ' Category ', 'public_id': BOGUS_PAYLOAD_ID, 'predefined': True, 'injected': 'x'},
     )
 
     manager.insert_item.assert_called_once_with({'name': 'Category', 'predefined': False})
@@ -324,7 +324,7 @@ def test_create_without_a_name_maps_to_400(flask_app: Flask) -> None:
     """A payload without a usable name is refused before the insert."""
     manager = _manager(insert_item=MagicMock())
 
-    _expect_status(flask_app, create_cmdb_report_category, manager, HTTP_BAD_REQUEST, method='POST', params={})
+    _expect_status(flask_app, create_cmdb_report_category, manager, HTTP_BAD_REQUEST, method='POST', data={})
 
     manager.insert_item.assert_not_called()
 
@@ -334,7 +334,7 @@ def test_create_insert_error_maps_to_400(flask_app: Flask) -> None:
     manager = _manager(insert_item=MagicMock(side_effect=ReportCategoriesManagerInsertError('bad')))
 
     _expect_status(flask_app, create_cmdb_report_category, manager, HTTP_BAD_REQUEST,
-                   method='POST', params=dict(VALID_PARAMS))
+                   method='POST', data=dict(VALID_PARAMS))
 
 
 def test_create_unexpected_error_maps_to_500(flask_app: Flask) -> None:
@@ -342,7 +342,7 @@ def test_create_unexpected_error_maps_to_500(flask_app: Flask) -> None:
     manager = _manager(insert_item=MagicMock(side_effect=RuntimeError('boom')))
 
     _expect_status(flask_app, create_cmdb_report_category, manager, HTTP_SERVER_ERROR,
-                   method='POST', params=dict(VALID_PARAMS))
+                   method='POST', data=dict(VALID_PARAMS))
 
 
 # -------------------------------------------------------- get ------------------------------------------------------- #
@@ -462,7 +462,7 @@ def test_update_writes_a_sanitised_and_pinned_payload(flask_app: Flask) -> None:
     response_ctor = _drive(
         flask_app, update_cmdb_report_category, manager, method='PUT',
         response_ctor_name='UpdateSingleResponse', public_id=CATEGORY_ID,
-        params={'name': ' Renamed ', 'public_id': BOGUS_PAYLOAD_ID, 'predefined': 'true', 'injected': 'x'},
+        data={'name': ' Renamed ', 'public_id': BOGUS_PAYLOAD_ID, 'predefined': True, 'injected': 'x'},
     )
 
     expected_payload: dict[str, Any] = {'name': 'Renamed', 'public_id': CATEGORY_ID, 'predefined': False}
@@ -476,7 +476,7 @@ def test_update_of_a_predefined_category_maps_to_403(flask_app: Flask) -> None:
     manager = _manager(get_item=MagicMock(return_value=_category(predefined=True)), update_item=MagicMock())
 
     _expect_status(flask_app, update_cmdb_report_category, manager, HTTP_FORBIDDEN, method='PUT',
-                   public_id=CATEGORY_ID, params={'name': 'Renamed'})
+                   public_id=CATEGORY_ID, data={'name': 'Renamed'})
 
     manager.update_item.assert_not_called()
 
@@ -486,7 +486,7 @@ def test_update_without_a_name_maps_to_400(flask_app: Flask) -> None:
     manager = _manager(get_item=MagicMock(return_value=_category()), update_item=MagicMock())
 
     _expect_status(flask_app, update_cmdb_report_category, manager, HTTP_BAD_REQUEST, method='PUT',
-                   public_id=CATEGORY_ID, params={})
+                   public_id=CATEGORY_ID, data={})
 
     manager.update_item.assert_not_called()
 
@@ -496,7 +496,7 @@ def test_update_missing_maps_to_404(flask_app: Flask) -> None:
     manager = _manager(get_item=MagicMock(return_value=None), update_item=MagicMock())
 
     _expect_status(flask_app, update_cmdb_report_category, manager, HTTP_NOT_FOUND, method='PUT',
-                   public_id=CATEGORY_ID, params=dict(VALID_PARAMS))
+                   public_id=CATEGORY_ID, data=dict(VALID_PARAMS))
 
 
 def test_update_get_error_maps_to_400(flask_app: Flask) -> None:
@@ -504,7 +504,7 @@ def test_update_get_error_maps_to_400(flask_app: Flask) -> None:
     manager = _manager(get_item=MagicMock(side_effect=ReportCategoriesManagerGetError('x')))
 
     _expect_status(flask_app, update_cmdb_report_category, manager, HTTP_BAD_REQUEST, method='PUT',
-                   public_id=CATEGORY_ID, params=dict(VALID_PARAMS))
+                   public_id=CATEGORY_ID, data=dict(VALID_PARAMS))
 
 
 def test_update_update_error_maps_to_400(flask_app: Flask) -> None:
@@ -515,7 +515,7 @@ def test_update_update_error_maps_to_400(flask_app: Flask) -> None:
     )
 
     _expect_status(flask_app, update_cmdb_report_category, manager, HTTP_BAD_REQUEST, method='PUT',
-                   public_id=CATEGORY_ID, params=dict(VALID_PARAMS))
+                   public_id=CATEGORY_ID, data=dict(VALID_PARAMS))
 
 
 def test_update_unexpected_error_maps_to_500(flask_app: Flask) -> None:
@@ -526,7 +526,7 @@ def test_update_unexpected_error_maps_to_500(flask_app: Flask) -> None:
     )
 
     _expect_status(flask_app, update_cmdb_report_category, manager, HTTP_SERVER_ERROR, method='PUT',
-                   public_id=CATEGORY_ID, params=dict(VALID_PARAMS))
+                   public_id=CATEGORY_ID, data=dict(VALID_PARAMS))
 
 
 # ------------------------------------------------------ delete ------------------------------------------------------ #

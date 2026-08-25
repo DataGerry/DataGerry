@@ -18,7 +18,8 @@ Implementation of all CmdbReport API routes
 
 Exposes the report CRUD surface (create / read / list / update / delete), a per-type count and a
 ``run`` route that executes a stored report query and returns the matching CmdbObjects. Every route
-requires ApiLevel.ADMIN access.
+requires ApiLevel.ADMIN access and the matching ``ReportRight`` (reads and the run route VIEW, create
+ADD, update EDIT, delete DELETE).
 
 The handlers stay thin orchestrators: the domain logic - payload sanitising / normalisation, the
 foreign-key and Ref-Section-Field guards, building the persisted report query and the safe evaluation
@@ -45,6 +46,7 @@ from cmdb.manager import (
 )
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.object_model import CmdbObject
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -59,6 +61,7 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     REPORT_CONDITIONS_INVALID_MSG,
     REPORT_RETRIEVE_FAILED_MSG,
     ReportKey,
+    ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     build_report_create_payload,
@@ -88,6 +91,7 @@ reports_blueprint = APIBlueprint('reports', __name__)
 @reports_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.protect(auth=True, right=ReportRight.ADD.value)
 @reports_blueprint.parse_request_parameters()
 def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -135,6 +139,7 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
 @reports_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.protect(auth=True, right=ReportRight.VIEW.value)
 def get_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves the CmdbReport with the given public_id
@@ -169,6 +174,7 @@ def get_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
 @reports_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.protect(auth=True, right=ReportRight.VIEW.value)
 @reports_blueprint.parse_collection_parameters()
 def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -212,12 +218,17 @@ def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Re
 @reports_blueprint.route('/<int:type_id>/count_reports_of_type', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.protect(auth=True, right=ReportRight.VIEW.value)
 def count_cmdb_reports_of_type(type_id: int, request_user: CmdbUser) -> Response:
     """
     Returns the number of CmdbReports in the database for the CmdbType with the given public_id
 
     The path parameter is the public_id of a CmdbType, not of a CmdbReport - the frontend asks for this
     count before deleting a CmdbType, whose delete route refuses while reports still use it
+
+    The right follows the resource being read, so this route carries ReportRight.VIEW even though its
+    only caller is the type-delete dialog: a group allowed to delete CmdbTypes but holding no report
+    right gets a 403 here and must be granted VIEW for that pre-check to work
 
     Args:
         type_id (int): public_id of the CmdbType whose CmdbReports should be counted
@@ -252,6 +263,7 @@ def count_cmdb_reports_of_type(type_id: int, request_user: CmdbUser) -> Response
 @reports_blueprint.route('/run/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.protect(auth=True, right=ReportRight.VIEW.value)
 def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
     """
     Runs a CmdbReport's stored query and returns the matching CmdbObjects
@@ -260,6 +272,10 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
     ``?preview=true`` the result set is capped at PREVIEW_LIMIT rows database-side; otherwise the full
     result set is returned. A report whose query carries no conditions - or which stores no query at
     all - returns an empty result
+
+    The run reads the rows through ``iterate_results``, which skips the total-count aggregation this
+    route would throw away, and serialises them explicitly with ``CmdbObject.to_json`` rather than
+    relying on the generic ``__dict__`` fallback of the response encoder
 
     Args:
         public_id (int): public_id of the CmdbReport to run
@@ -290,7 +306,8 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
             limit: int = PREVIEW_LIMIT if preview_mode else 0
             builder_params: BuilderParameters = BuilderParameters(criteria=report_query, limit=limit)
 
-            result = objects_manager.iterate(builder_params).results
+            matched_objects: list[CmdbObject] = objects_manager.iterate_results(builder_params)
+            result = [CmdbObject.to_json(matched_object) for matched_object in matched_objects]
 
         return DefaultResponse(result).make_response()
     except HTTPException as http_err:
@@ -307,6 +324,7 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
 @reports_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.protect(auth=True, right=ReportRight.EDIT.value)
 @reports_blueprint.parse_request_parameters()
 def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -360,9 +378,10 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-@reports_blueprint.route('/<int:public_id>/', methods=['DELETE'])
+@reports_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@reports_blueprint.protect(auth=True, right=ReportRight.DELETE.value)
 def delete_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
     """
     Deletes the CmdbReport with the given public_id

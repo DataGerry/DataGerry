@@ -56,8 +56,8 @@ LOGGER: Logger = getLogger(__name__)
 # types created by earlier ones (e.g. conditional reference sections / dependent types)
 PROFILE_BUILDERS: list[tuple[ProfileName, type[ProfileBase]]] = [
     (ProfileName.USER_MANAGEMENT, UserManagementProfile),
-    # Runs before the location profile: both fill the RACK_ID slot, and the Rack View's SpecialType
-    # takes precedence over the basic Rack type the location profile would otherwise create
+    # Position is not significant for this one: it is the only profile filling the RACK_ID slot (the
+    # location profile stops at Room), and no other profile references that slot
     (ProfileName.RACK, RackProfile),
     (ProfileName.LOCATION, LocationProfile),
     (ProfileName.IPAM, IPAMProfile),

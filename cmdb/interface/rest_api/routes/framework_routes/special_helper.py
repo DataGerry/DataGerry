@@ -18,7 +18,46 @@ Helper functions for the DataGerry Assistant (special) REST routes
 """
 from cmdb.manager import CategoriesManager, ObjectsManager
 from cmdb.manager.types_manager import TypesManager
+
+from cmdb.models.user_model import CmdbUser
+from cmdb.framework.datagerry_assistant.profile_name import ProfileName
+from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The license feature a profile needs before the assistant may seed it. A profile absent from this map
+# is always available. RACK is mapped to IPAM as an INTERIM decision - the Rack View is not part of
+# IPAM and is expected to get a LicenseFeature of its own (see SpecialType.get_license_gated_types)
+PROFILE_LICENSE_FEATURES: dict[str, LicenseFeature] = {
+    ProfileName.RACK.value: LicenseFeature.IPAM,
+}
+
+
+def drop_locked_profiles(profiles: list[str], request_user: CmdbUser) -> list[str]:
+    """
+    Removes the requested profiles whose license feature is not unlocked
+
+    The assistant writes its CmdbTypes straight through the managers, so it never passes the route
+    guards that gate a licensed feature. Filtering here keeps the license decision in the interface
+    layer (the assistant itself stays licensing-agnostic) and keeps the seeding of the remaining
+    profiles working: a locked profile is skipped rather than failing the whole run, which matters
+    because the assistant only ever runs once, against an empty database.
+
+    A skipped profile leaves its type slots empty, exactly as if the user had not selected it. On a
+    licensed instance, and in cloud / local mode, nothing is filtered
+
+    Args:
+        profiles (list[str]): The ProfileName values selected in the assistant
+        request_user (CmdbUser): The user performing the request
+
+    Returns:
+        list[str]: The selected profiles that may be seeded, in the order they were given
+    """
+    return [
+        profile for profile in profiles
+        if profile not in PROFILE_LICENSE_FEATURES
+        or not feature_locked(PROFILE_LICENSE_FEATURES[profile], request_user)
+    ]
 
 
 def has_framework_data(

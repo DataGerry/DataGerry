@@ -28,6 +28,7 @@ import pytest
 
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import TypeSlotKey
 from cmdb.framework.datagerry_assistant.profile_user_management import UserManagementProfile
 from cmdb.framework.datagerry_assistant.profile_location import LocationProfile
@@ -219,13 +220,33 @@ def test_virtual_server_references_server(
     assert _ref_types_by_field_label(virtual_server, 'Server') == [server['public_id']]
 
 
-def test_location_profile_skips_its_basic_rack_when_the_rack_view_type_exists(
+def test_location_profile_creates_no_rack_type(
     empty_slot_map: dict[str, int | None],
     fake_types_manager: Any,
     fake_section_templates_manager: Any,
     type_constructor: Any,
 ) -> None:
-    """With the Rack View profile selected the location profile leaves the created RACK type alone"""
+    """The location hierarchy ends at Room - a Rack is only ever the RACK SpecialType
+
+    The profile used to build a plain 'Rack' of its own, so an install that ticked Location but not
+    Rack View got a Rack with none of the Rack View behaviour and no way to convert it (a CmdbType's
+    'special_type' is immutable). It leaves the slot untouched now.
+    """
+    LocationProfile(
+        empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor,
+    ).create_profile()
+
+    assert not [doc for doc in fake_types_manager.store.values() if doc['name'] == 'rack']
+    assert empty_slot_map[TypeSlotKey.RACK_ID] is None
+
+
+def test_the_rack_view_profile_is_the_only_filler_of_the_rack_slot(
+    empty_slot_map: dict[str, int | None],
+    fake_types_manager: Any,
+    fake_section_templates_manager: Any,
+    type_constructor: Any,
+) -> None:
+    """Running both profiles yields exactly one Rack, and it is the RACK SpecialType"""
     RackProfile(empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor).create_profile()
     rack_view_id: int | None = empty_slot_map[TypeSlotKey.RACK_ID]
 
@@ -234,7 +255,9 @@ def test_location_profile_skips_its_basic_rack_when_the_rack_view_type_exists(
     ).create_profile()
 
     racks: list[dict[str, Any]] = [doc for doc in fake_types_manager.store.values() if doc['name'] == 'rack']
+
     assert len(racks) == 1
+    assert racks[0]['special_type'] == SpecialType.RACK
     assert empty_slot_map[TypeSlotKey.RACK_ID] == rack_view_id
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -243,7 +266,7 @@ def test_location_profile_skips_its_basic_rack_when_the_rack_view_type_exists(
 
 @pytest.mark.parametrize('profile_cls, expected_names', [
     (UserManagementProfile, {'company', 'user', 'customer_user'}),
-    (LocationProfile, {'country', 'city', 'building', 'room', 'rack'}),
+    (LocationProfile, {'country', 'city', 'building', 'room'}),
     (RackProfile, {'rack'}),
     (ClientManagementProfile, {'operating_system', 'client', 'printer', 'monitor'}),
     (ServerManagementProfile, {'server', 'appliance', 'virtual_server'}),

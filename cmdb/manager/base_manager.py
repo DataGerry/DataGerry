@@ -167,6 +167,39 @@ class BaseManager:
             raise BaseManagerGetError(str(err)) from err
 
 
+    def aggregate_query(
+        self,
+        builder_params: BuilderParameters,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Performs the data aggregation of a query WITHOUT the accompanying count aggregation
+
+        The data half of ``iterate_query``, split out for callers that never read the total: a count
+        is a second full aggregation over the same criteria, so a caller which only consumes the rows
+        (e.g. running a CmdbReport) pays for it twice otherwise. Use this whenever no total is needed
+        and ``iterate_query`` when it is - the two build the identical data pipeline
+
+        Args:
+            builder_params (BuilderParameters): Parameters to define the query
+            user (CmdbUser | None): The user making the request. Defaults to None
+            permission (AccessControlPermission | None): Permission to check. Defaults to None
+
+        Raises:
+            BaseManagerIterationError: If the aggregation process fails
+
+        Returns:
+            list[dict[str, Any]]: The aggregation results
+        """
+        try:
+            query: list[dict] = self.query_builder.build(builder_params, user, permission)
+
+            return list(self.aggregate(query))
+        except Exception as err:
+            raise BaseManagerIterationError(str(err)) from err
+
+
     def iterate_query(
         self,
         builder_params: BuilderParameters,
@@ -174,7 +207,11 @@ class BaseManager:
         permission: AccessControlPermission | None = None
     ) -> tuple[list[dict[str, Any]], int]:
         """
-        Performs an aggregation on the database
+        Performs an aggregation on the database, plus a second one for the total document count
+
+        Delegates the data half to ``aggregate_query``; only the count pipeline is run here. Callers
+        that discard the total should call ``aggregate_query`` directly instead of ignoring the
+        second element of the returned tuple
 
         Args:
             builder_params (BuilderParameters): Parameters to define the query
@@ -188,10 +225,9 @@ class BaseManager:
             tuple[list[dict[str, Any]], int]: The aggregation results and the total document count
         """
         try:
-            query: list[dict] = self.query_builder.build(builder_params, user, permission)
-            count_query: list[dict] = self.query_builder.count(builder_params.get_criteria())
+            aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params, user, permission)
 
-            aggregation_result = list(self.aggregate(query))
+            count_query: list[dict] = self.query_builder.count(builder_params.get_criteria())
             total_cursor = self.aggregate(count_query)
 
             total = next(total_cursor, {}).get('total', 0)

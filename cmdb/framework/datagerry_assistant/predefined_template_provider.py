@@ -16,7 +16,7 @@
 """
 Loader and cache for the predefined section templates used by the DataGerry assistant
 
-The predefined section templates (dg-modelspec, dg-rackmounting, dg-ipam-interface, ...) are fetched from
+The predefined section templates (dg-modelspec, dg-ipam-interface, ...) are fetched from
 the DB once per assistant run and reshaped into the intermediate form the ProfileTypeConstructor
 consumes. A fresh deep copy is handed out on every request so that per-type mutations (e.g. marking
 a field as summary) never leak between types that reuse the same template.

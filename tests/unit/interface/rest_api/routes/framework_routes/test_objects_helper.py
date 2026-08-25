@@ -60,7 +60,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.errors.manager.reports_manager import ReportsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
+
+HTTP_INTERNAL_SERVER_ERROR: int = 500
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper'
 
@@ -699,7 +702,7 @@ class TestApplyObjectUpdate:
             apply_object_update(5, {'fields': []}, None, MagicMock(),
                                 objects_manager, MagicMock(), MagicMock())
 
-        assert exc_info.value.code == 500
+        assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
         objects_manager.update_object.assert_not_called()
 
 
@@ -1217,32 +1220,45 @@ class TestRealignObjectsToType:
         with pytest.raises(HTTPException) as exc_info:
             realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
 
-        assert exc_info.value.code == 500
+        assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               clean_type_reports                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestCleanTypeReports:
-    """clean_type_reports strips removed fields from a type's reports and bulk-writes them."""
+    """clean_type_reports is the route-layer wrapper: it delegates and maps failures to 500.
+
+    The stripping itself lives on ReportsManager (so the section-template removal and the database
+    updaters can reuse it) and is covered in tests/unit/manager/test_reports_manager.py.
+    """
+
+    def test_delegates_to_the_reports_manager(self) -> None:
+        """The arguments are handed straight to the manager operation."""
+        reports_manager = MagicMock()
+        reports = [{'public_id': 1}]
+        type_instance = MagicMock()
+
+        clean_type_reports(reports_manager, reports, {'gone'}, type_instance)
+
+        reports_manager.strip_removed_fields_from_reports.assert_called_once_with(
+            reports, {'gone'}, type_instance,
+        )
 
     def test_noop_when_nothing_removed(self) -> None:
-        """No removed field names means no report write."""
+        """No removed field names means no report write (the manager short-circuits)."""
         reports_manager = MagicMock()
 
         clean_type_reports(reports_manager, [{'public_id': 1}], set(), MagicMock())
 
         reports_manager.bulk_write.assert_not_called()
 
-    def test_cleans_and_writes_reports(self) -> None:
-        """Each report has the removed field stripped, its query rebuilt, and is bulk-written."""
+    def test_manager_failure_maps_to_500(self) -> None:
+        """A failed report write surfaces as an internal server error, not as a manager exception."""
         reports_manager = MagicMock()
-        report = MagicMock()
+        reports_manager.strip_removed_fields_from_reports.side_effect = ReportsManagerUpdateError('boom')
 
-        with patch(f'{HELPER_PATH}.CmdbReport') as report_cls, \
-             patch(f'{HELPER_PATH}.build_report_query', return_value={}):
-            report_cls.from_data.return_value = report
+        with pytest.raises(HTTPException) as exc_info:
             clean_type_reports(reports_manager, [{'public_id': 1}], {'gone'}, MagicMock())
 
-        report.remove_field_occurrences.assert_called_once_with('gone')
-        reports_manager.bulk_write.assert_called_once()
+        assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR

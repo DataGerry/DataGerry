@@ -34,17 +34,19 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import BadRequest, HTTPException
 
+from cmdb.manager.rights_manager import RightsManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
+from cmdb.models.reports_model.report_constants import ReportQueryKey
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     PREVIEW_LIMIT,
     PREVIEW_PARAM,
     REPORT_REQUIRED_PARAMS,
     REPORT_WRITE_KEYS,
     ReportKey,
-    ReportQueryKey,
+    ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     abort_if_report_category_missing,
@@ -217,6 +219,26 @@ def test_normalize_report_params_malformed_value_maps_to_400(field: str, value: 
         normalize_report_params(params)
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+# ------------------------------------------------- ReportRight ------------------------------------------------------ #
+
+def test_every_report_right_names_an_existing_right() -> None:
+    """A ReportRight value that matches no declared right would silently deny every user.
+
+    ``user_has_right`` resolves the string against the rights tree, so a typo here does not raise -
+    it just never matches, turning the guarded route into a permanent 403 (backlog #109).
+    """
+    rights_manager = RightsManager()
+
+    for member in ReportRight:
+        assert rights_manager.get_right(member.value) is not None, member.value
+
+
+def test_report_rights_cover_the_four_crud_operations() -> None:
+    """The enum stays aligned with the ReportRight entries declared in all_rights."""
+    assert {member.name for member in ReportRight} == {'VIEW', 'ADD', 'EDIT', 'DELETE'}
+    assert all(member.value.startswith('base.framework.report.') for member in ReportRight)
 
 
 # ------------------------------------------------- strip_unknown_report_keys ---------------------------------------- #
@@ -541,7 +563,7 @@ def _run_with_query(flask_app: Flask, url: str) -> MagicMock:
     """Drives the unwrapped run handler with a non-empty query and returns the patched BuilderParameters."""
     mgr = MagicMock()
     mgr.get_item.return_value = {'report_query': {'data': "{'x': 1}"}}
-    mgr.iterate.return_value = SimpleNamespace(results=[{'a': 1}])
+    mgr.iterate_results.return_value = []
 
     with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
          patch(f'{ROUTE_PATH}.resolve_report_query', return_value={'x': 1}), \
@@ -551,6 +573,40 @@ def _run_with_query(flask_app: Flask, url: str) -> MagicMock:
         _unwrap(run_cmdb_report_query)(public_id=1, request_user=MagicMock())
 
     return builder_params
+
+
+def test_run_report_reads_rows_without_the_count_aggregation(flask_app: Flask) -> None:
+    """The run route uses iterate_results, so the total-count pipeline it would discard never runs."""
+    mgr = MagicMock()
+    mgr.get_item.return_value = {'report_query': {'data': "{'x': 1}"}}
+    mgr.iterate_results.return_value = []
+
+    with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
+         patch(f'{ROUTE_PATH}.resolve_report_query', return_value={'x': 1}), \
+         patch(f'{ROUTE_PATH}.DefaultResponse'), \
+         flask_app.test_request_context('/run/1'):
+        _unwrap(run_cmdb_report_query)(public_id=1, request_user=MagicMock())
+
+    mgr.iterate_results.assert_called_once()
+    mgr.iterate.assert_not_called()
+
+
+def test_run_report_serialises_each_row_via_to_json(flask_app: Flask) -> None:
+    """Rows are serialised explicitly with CmdbObject.to_json, not left to the __dict__ fallback."""
+    mgr = MagicMock()
+    mgr.get_item.return_value = {'report_query': {'data': "{'x': 1}"}}
+    rows = [MagicMock(), MagicMock()]
+    mgr.iterate_results.return_value = rows
+
+    with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
+         patch(f'{ROUTE_PATH}.resolve_report_query', return_value={'x': 1}), \
+         patch(f'{ROUTE_PATH}.CmdbObject.to_json', side_effect=[{'public_id': 1}, {'public_id': 2}]) as to_json, \
+         patch(f'{ROUTE_PATH}.DefaultResponse') as response, \
+         flask_app.test_request_context('/run/1'):
+        _unwrap(run_cmdb_report_query)(public_id=1, request_user=MagicMock())
+
+    assert to_json.call_count == len(rows)
+    assert response.call_args.args[0] == [{'public_id': 1}, {'public_id': 2}]
 
 
 def test_run_report_preview_caps_results_at_the_database_level(flask_app: Flask) -> None:
@@ -590,7 +646,7 @@ def test_run_report_with_empty_query_returns_empty_without_iterating(flask_app: 
          flask_app.test_request_context('/run/1'):
         _unwrap(run_cmdb_report_query)(public_id=1, request_user=MagicMock())
 
-    mgr.iterate.assert_not_called()
+    mgr.iterate_results.assert_not_called()
     response_ctor.assert_called_once_with({})
 
 
@@ -604,7 +660,7 @@ def test_run_report_without_a_stored_query_returns_empty_without_iterating(flask
          flask_app.test_request_context('/run/1'):
         _unwrap(run_cmdb_report_query)(public_id=REPORT_ID, request_user=MagicMock())
 
-    mgr.iterate.assert_not_called()
+    mgr.iterate_results.assert_not_called()
     response_ctor.assert_called_once_with({})
 
 
@@ -626,7 +682,7 @@ def test_run_report_unexpected_error_maps_to_500(flask_app: Flask) -> None:
     """Any other exception while running the report is translated to HTTP 500."""
     mgr = MagicMock()
     mgr.get_item.return_value = {'report_query': {'data': "{'x': 1}"}}
-    mgr.iterate.side_effect = RuntimeError('boom')
+    mgr.iterate_results.side_effect = RuntimeError('boom')
 
     with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
          flask_app.test_request_context('/run/1'):
