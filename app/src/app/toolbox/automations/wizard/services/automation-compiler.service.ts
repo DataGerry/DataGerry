@@ -512,20 +512,12 @@ export class AutomationCompilerService {
                 method = this.buildMethod(operation, context.targetConnector, id, index, color, null);
             }
 
-            out.methods.push(method);
-            out.graph.push({
-                id: method.id,
-                kind: 'method',
-                parent: anchor.id,
-                method,
-                // A call that follows another sits beside it; one inside a condition drops below it
-                // and hangs off the exit that was taken.
-                below: !!anchor.contains,
-                branch: anchor.contains === 'if' ? 'true' : undefined
-            });
+            // Worked out before the call joins them, so it does not find itself as the step that
+            // runs before it.
+            const link = this.linkOf(index, anchor, out);
 
-            if (anchor.method) {
-            }
+            out.methods.push(method);
+            out.graph.push({ id: method.id, kind: 'method', method, ...link });
 
             placed.set(extra.id, { id: method.id, index: method.index, method });
 
@@ -619,7 +611,7 @@ export class AutomationCompilerService {
         extra: AutomationExtraCall,
         anchor: Anchor,
         index: string,
-        out: { operators: OcOperator[]; graph: GraphNode[]; warnings: string[] }
+        out: { methods: OcMethod[]; operators: OcOperator[]; graph: GraphNode[]; warnings: string[] }
     ): Anchor | null {
         const id = ocIfNodeId(extra.id);
         const rendered = this.renderCallCondition(extra.condition, id);
@@ -642,18 +634,10 @@ export class AutomationCompilerService {
             iterator: null
         };
 
+        const link = this.linkOf(index, anchor, out);
+
         out.operators.push(operator);
-        out.graph.push({
-            id: operator.id,
-            kind: 'if',
-            parent: anchor.id,
-            operator,
-            // A condition after a call is its sibling and enters from the left; one after another
-            // condition runs inside it and drops below, which is what the captured nesting shows.
-            below: !!anchor.contains,
-            branch: anchor.contains === 'if' ? 'true' : undefined,
-            tree: rendered.tree
-        });
+        out.graph.push({ id: operator.id, kind: 'if', operator, tree: rendered.tree, ...link });
 
         // Everything placed after a condition runs inside it, down its `true` exit.
         return { id: operator.id, index: operator.index, contains: 'if' };
@@ -672,7 +656,7 @@ export class AutomationCompilerService {
         extra: AutomationExtraCall,
         anchor: Anchor,
         index: string,
-        out: { operators: OcOperator[]; graph: GraphNode[]; warnings: string[] }
+        out: { methods: OcMethod[]; operators: OcOperator[]; graph: GraphNode[]; warnings: string[] }
     ): Anchor | null {
         const list = extra.loop?.list?.trim();
 
@@ -695,16 +679,10 @@ export class AutomationCompilerService {
             iterator: extra.loop!.iterator || OC_LOOP_ITERATOR
         };
 
+        const link = this.linkOf(index, anchor, out);
+
         out.operators.push(operator);
-        out.graph.push({
-            id,
-            kind: 'loop',
-            parent: anchor.id,
-            operator,
-            below: !!anchor.contains,
-            branch: anchor.contains === 'if' ? 'true' : undefined,
-            tree: this.loopTree(id, list)
-        });
+        out.graph.push({ id, kind: 'loop', operator, tree: this.loopTree(id, list), ...link });
 
         // Everything placed after a loop runs inside it, once per entry.
         return { id, index, contains: 'loop' };
@@ -780,6 +758,77 @@ export class AutomationCompilerService {
         const match = (invoker?.operations ?? []).find((operation: any) => operation?.name === name);
 
         return match ? { name: match.name, definition: match, responseArrayPath: '', verified: true } : null;
+    }
+
+
+    /**
+     * How a step is drawn: the node it hangs off, and by which exit.
+     *
+     * Not the step it was placed after, but the one that actually runs before it - and those are
+     * two different things as soon as a second condition is placed after the same call. Both are
+     * then siblings in the execution tree, which runs them one after the other, and the editor
+     * draws siblings as a chain: the second condition is reached down the first one's `false` exit,
+     * a call after a loop down the loop's right one. Hanging both off the call instead drew two
+     * arrows out of it - a fork, which is neither what was built nor what runs.
+     *
+     * Read off the position for that reason: the position is what the engine executes, so a link
+     * derived from it cannot disagree with it. Must be worked out before the new step joins the
+     * others, or it finds itself as the step that runs before it.
+     */
+    private linkOf(
+        index: string,
+        anchor: Anchor,
+        out: { methods: OcMethod[]; operators: OcOperator[] }
+    ): { parent: string; below?: boolean; branch?: GraphNode['branch'] } {
+        const parts = index.split('_');
+        const position = Number(parts[parts.length - 1]);
+        const parentIndex = parts.slice(0, -1).join('_');
+        const entries = [
+            ...out.methods.map(method => ({ id: method.id, index: method.index, contains: null })),
+            ...out.operators.map(operator => ({ id: operator.id, index: operator.index, contains: operator.type }))
+        ];
+        const positionOf = (entry: { index: string }) => Number(entry.index.split('_').pop());
+
+        // The step that runs immediately before this one at the same level. Positions can have
+        // gaps - a step the compiler had to leave out takes its number with it - so what counts is
+        // the nearest one before, not the one exactly one number back.
+        const preceding = entries
+            .filter(entry => {
+                const own = entry.index.split('_');
+
+                return own.length === parts.length
+                    && own.slice(0, -1).join('_') === parentIndex
+                    && positionOf(entry) < position;
+            })
+            .sort((left, right) => positionOf(left) - positionOf(right))
+            .pop();
+
+        if (preceding) {
+            // A condition passes on what it did not catch; a loop passes on once it has run out.
+            return {
+                parent: preceding.id,
+                branch: preceding.contains === 'if' ? 'false' : preceding.contains === 'loop' ? 'right' : undefined
+            };
+        }
+
+        // First in its container, so it enters from the top - down the exit a condition took, or
+        // along the body of a loop.
+        const container = parentIndex ? entries.find(entry => entry.index === parentIndex) : undefined;
+
+        if (container) {
+            return {
+                parent: container.id,
+                below: true,
+                branch: container.contains === 'if' ? 'true' : undefined
+            };
+        }
+
+        // Nothing placed yet that this could follow, which leaves the step it was placed after.
+        return {
+            parent: anchor.id,
+            below: !!anchor.contains,
+            branch: anchor.contains === 'if' ? 'true' : undefined
+        };
     }
 
 
@@ -2647,8 +2696,11 @@ interface GraphNode {
     /** True when the node runs inside its parent and is drawn a row below it. */
     below?: boolean;
 
-    /** Which exit of an `if` parent leads here. */
-    branch?: 'true' | 'false';
+    /**
+     * Which exit of the parent leads here: an `if` sends its hit down `true` and everything else
+     * down `false`, and a loop passes on out of `right` once it has run out.
+     */
+    branch?: 'true' | 'false' | 'right';
 
     /** Rule tree for an `if` whose expression does not read back as a single rule. */
     tree?: OcUiGroup;

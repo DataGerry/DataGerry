@@ -827,6 +827,87 @@ describe('AutomationCompilerService', () => {
         });
 
 
+        /*
+         * Two conditions placed after the same step are siblings: the execution tree runs them one
+         * after the other, and the editor has to draw them that way too. Hanging both off the step
+         * they were placed after drew two arrows out of it - a fork, which is neither what was
+         * built nor what runs, and what an automation with two conditions came out looking like.
+         */
+        it('draws a second condition after the first one, not beside it', () => {
+            const definition = withExtra({
+                id: 'extra-if',
+                kind: 'if',
+                operation: '',
+                condition: { left: '#C77E7E.(response).body.$.result[*]', operator: 'IsEmpty', right: '' }
+            });
+
+            definition.extras = [...definition.extras, {
+                id: 'extra-second-if',
+                // Placed after the same step as the first condition, which is what makes them
+                // siblings rather than one inside the other.
+                after: '1_0',
+                kind: 'if',
+                operation: '',
+                condition: { left: '#C77E7E.(response).body.$.result[*]', operator: 'NotEmpty', right: '' }
+            }];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const operators = payload.connection.fromConnector.operators;
+            const first = operators.find(entry => entry.id === 'if-extra-if');
+            const second = operators.find(entry => entry.id === 'if-extra-second-if');
+            const edges = payload.connection.ui.workflowEdges;
+
+            // Beside each other in the tree, so they run one after the other.
+            expect(first.index).toBe('1_1');
+            expect(second.index).toBe('1_2');
+
+            // And drawn as a chain: the second is reached down the first one's miss.
+            expect(edges.find(edge => edge.target === second.id)).toEqual(jasmine.objectContaining({
+                source: first.id,
+                sourceHandle: 'false',
+                targetHandle: 'left'
+            }));
+
+            // One arrow out of the step both were placed after, not two.
+            const anchorId = payload.connection.fromConnector.methods
+                .find(method => method.index === '1_0').id;
+
+            expect(edges.filter(edge => edge.source === anchorId).length).toBe(1);
+        });
+
+
+        /* A loop passes on out of its right exit once it has run out, as the captures draw it. */
+        it('draws a call after a loop as following it', () => {
+            const definition = withExtra({
+                id: 'extra-loop',
+                kind: 'loop',
+                operation: '',
+                loop: { list: '#C77E7E.(response).body.$.result.interfaces[*]', iterator: 'j' }
+            });
+
+            definition.extras = [...definition.extras, {
+                id: 'extra-after-loop',
+                after: '1_0',
+                kind: 'operation',
+                operation: 'cmdb.object.update'
+            }];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const loop = payload.connection.fromConnector.operators.find(entry => entry.id === 'loop-extra-loop');
+            const after = payload.connection.fromConnector.methods
+                .find(method => method.id === 'method-extra-after-loop');
+            const edges = payload.connection.ui.workflowEdges;
+
+            expect(loop.index).toBe('1_1');
+            expect(after.index).toBe('1_2');
+            expect(edges.find(edge => edge.target === after.id)).toEqual(jasmine.objectContaining({
+                source: loop.id,
+                sourceHandle: 'right',
+                targetHandle: 'left'
+            }));
+        });
+
+
         it('leaves the right-hand side a reference when it is one', () => {
             const definition = withExtra({
                 id: 'extra-if',
