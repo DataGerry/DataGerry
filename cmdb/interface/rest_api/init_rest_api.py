@@ -299,8 +299,6 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(webhook_event_blueprint, url_prefix='/webhook_events')
     app.register_blueprint(relations_blueprint, url_prefix='/relations')
     app.register_blueprint(object_relations_blueprint, url_prefix='/object_relations')
-    app.register_blueprint(rack_mounts_blueprint, url_prefix='/racks')
-    app.register_blueprint(rack_assignable_blueprint, url_prefix='/racks')
     app.register_blueprint(object_relation_logs_blueprint, url_prefix='/object_relation_logs')
     app.register_blueprint(extendable_option_blueprint, url_prefix='/extendable_options')
     app.register_blueprint(ci_explorer_blueprint, url_prefix='/ci_explorer')
@@ -369,18 +367,29 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     app.register_blueprint(isms_importer_blueprint, url_prefix='/isms/importer')
     app.register_blueprint(isms_report_blueprint, url_prefix='/isms/reports')
 
-    # IPAM routes. The dedicated /ipam surface (overviews, network tree, validation, assignable
-    # lookups) is part of the licensed IPAM feature, so every route is gated on-premise. The IPAM
-    # data itself stays readable through the generic /objects and /types routes (guarded separately
-    # at write time); only these dedicated IPAM surfaces are locked here.
-    for ipam_blueprint in (
+    # Feature surfaces gated behind the licensed IPAM feature on-premise. The dedicated /ipam surface
+    # (overviews, network tree, validation, assignable lookups) belongs to the feature outright; the
+    # /racks surface (mounts, overview, assignable lookups) is gated behind it as an INTERIM decision
+    # until the Rack View gets a LicenseFeature of its own - a Rack is NOT an IPAM type, see
+    # SpecialType.get_license_gated_types. The data itself stays readable through the generic
+    # /objects and /types routes (guarded separately at write time); only these dedicated surfaces
+    # are locked here.
+    for ipam_gated_blueprint in (
         ipam_validation_blueprint,
         ipam_supernet_blueprint,
         ipam_subnet_blueprint,
         ipam_assignable_blueprint,
         ipam_tree_blueprint,
+        rack_mounts_blueprint,
+        rack_assignable_blueprint,
     ):
-        gate_blueprint(ipam_blueprint, LicenseFeature.IPAM)
+        gate_blueprint(ipam_gated_blueprint, LicenseFeature.IPAM)
+
+    # Registered here, AFTER the gate loop: gate_blueprint installs a before_request hook and Flask
+    # runs a blueprint's deferred setup at registration time, so gating a blueprint that is already
+    # registered silently does nothing.
+    app.register_blueprint(rack_mounts_blueprint, url_prefix='/racks')
+    app.register_blueprint(rack_assignable_blueprint, url_prefix='/racks')
 
     # IPAM routes
     app.register_blueprint(ipam_validation_blueprint, url_prefix='/ipam/validate')

@@ -16,12 +16,19 @@
 """
 Implementation of all API routes for CmdbReportCategories
 
-A CmdbReportCategory groups CmdbReports. The routes read their write payload from the query string
-(parse_request_parameters), so every payload passes through report_category_helper first: unknown keys
-are dropped and a non-empty 'name' is required. The two server-owned keys are never taken from a
-client - 'public_id' comes from the URL and 'predefined' is set by the system, which is what makes the
-seeded 'General' category read-only. Deletion is additionally refused while CmdbReports still
-reference the category
+A CmdbReportCategory groups CmdbReports.
+
+Every route requires ApiLevel.ADMIN access and a ``ReportRight``: the reads VIEW, create ADD, update
+EDIT, delete DELETE. Report categories have no right family of their own, so they reuse the report
+rights - the same pairing the frontend already gates its category screens on (see
+report-category-routing.module.ts and category-overview.component.html).
+
+The write payload is the JSON body, validated against ``CmdbReportCategory.SCHEMA`` before the handler
+runs: 'name' must be a non-empty string, and the Cerberus validator is built with purge_unknown, so an
+unknown key is dropped rather than refused. The validated document still passes through
+report_category_helper, which trims 'name' and re-applies the two server-owned keys - 'public_id'
+comes from the URL and 'predefined' is set by the system, which is what makes the seeded 'General'
+category read-only. Deletion is additionally refused while CmdbReports still reference the category
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -54,6 +61,7 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     CATEGORY_RETRIEVE_FAILED_MSG,
     ReportCategoryAction,
     ReportCategoryKey,
+    ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_category_helper import (
     abort_if_category_in_use,
@@ -73,18 +81,19 @@ report_categories_blueprint = APIBlueprint('report_categories', __name__)
 @report_categories_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@report_categories_blueprint.parse_request_parameters()
-def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) -> Response:
+@report_categories_blueprint.protect(auth=True, right=ReportRight.ADD.value)
+@report_categories_blueprint.validate(CmdbReportCategory.SCHEMA)
+def create_cmdb_report_category(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbReportCategory into the database
 
     Args:
-        params (dict[str, Any]): Data of the CmdbReportCategory which should be inserted
+        data (dict[str, Any]): Schema-validated body of the CmdbReportCategory which should be inserted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 on a payload without a usable 'name' or a failed insert, 500 on an
-                       unexpected failure
+        HTTPException: 400 on a body failing the schema, without a usable 'name', or a failed insert;
+                       403 without the report ADD right; 500 on an unexpected failure
 
     Returns:
         DefaultResponse: The public_id of the created CmdbReportCategory
@@ -97,7 +106,7 @@ def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) 
         # Only 'name' survives the whitelist, so a client-sent public_id can never reach the insert
         # (which assigns the next one) and 'predefined' stays system-controlled: a client can never
         # create a predefined CmdbReportCategory
-        payload: dict[str, Any] = normalize_category_params(params)
+        payload: dict[str, Any] = normalize_category_params(data)
         payload[ReportCategoryKey.PREDEFINED] = False
 
         new_report_category_id: int = report_categories_manager.insert_item(payload)
@@ -117,6 +126,7 @@ def create_cmdb_report_category(params: dict[str, Any], request_user: CmdbUser) 
 @report_categories_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@report_categories_blueprint.protect(auth=True, right=ReportRight.VIEW.value)
 def get_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbReportCategory
@@ -127,7 +137,7 @@ def get_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response
 
     Raises:
         HTTPException: 404 when the CmdbReportCategory does not exist, 400 on a failed retrieval,
-                       500 on an unexpected failure
+                       403 without the report VIEW right, 500 on an unexpected failure
 
     Returns:
         DefaultResponse: The requested CmdbReportCategory
@@ -153,6 +163,7 @@ def get_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response
 @report_categories_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@report_categories_blueprint.protect(auth=True, right=ReportRight.VIEW.value)
 @report_categories_blueprint.parse_collection_parameters()
 def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -163,7 +174,8 @@ def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbU
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 on a failed iteration, 500 on an unexpected failure
+        HTTPException: 400 on a failed iteration, 403 without the report VIEW right, 500 on an
+                       unexpected failure
 
     Returns:
         GetMultiResponse: All the CmdbReportCategories matching the CollectionParameters
@@ -200,20 +212,22 @@ def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbU
 @report_categories_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@report_categories_blueprint.parse_request_parameters()
-def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_user: CmdbUser) -> Response:
+@report_categories_blueprint.protect(auth=True, right=ReportRight.EDIT.value)
+@report_categories_blueprint.validate(CmdbReportCategory.SCHEMA)
+def update_cmdb_report_category(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbReportCategory
 
     Args:
         public_id (int): public_id of the CmdbReportCategory which should be updated
-        params (dict[str, Any]): New CmdbReportCategory data
+        data (dict[str, Any]): Schema-validated body carrying the new CmdbReportCategory data
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 on a payload without a usable 'name' or a failed retrieval / update,
-                       403 when the CmdbReportCategory is predefined, 404 when it does not exist,
-                       500 on an unexpected failure
+        HTTPException: 400 on a body failing the schema, without a usable 'name', or a failed
+                       retrieval / update; 403 when the CmdbReportCategory is predefined or the
+                       report EDIT right is missing; 404 when it does not exist; 500 on an
+                       unexpected failure
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbReportCategory
@@ -229,7 +243,7 @@ def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_
         # from the name the first-boot seeder identifies it by
         abort_if_predefined(current_category, ReportCategoryAction.UPDATED)
 
-        payload: dict[str, Any] = build_category_update_payload(params, public_id, current_category)
+        payload: dict[str, Any] = build_category_update_payload(data, public_id, current_category)
 
         report_categories_manager.update_item(public_id, payload)
 
@@ -248,9 +262,10 @@ def update_cmdb_report_category(public_id: int, params: dict[str, Any], request_
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-@report_categories_blueprint.route('/<int:public_id>/', methods=['DELETE'])
+@report_categories_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
+@report_categories_blueprint.protect(auth=True, right=ReportRight.DELETE.value)
 def delete_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     Deletes the CmdbReportCategory with the given public_id
@@ -260,9 +275,9 @@ def delete_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Respo
         request_user (CmdbUser): User which is requesting the deletion
 
     Raises:
-        HTTPException: 403 when the CmdbReportCategory is predefined or still used by CmdbReports,
-                       404 when it does not exist, 400 on a failed retrieval / deletion, 500 on an
-                       unexpected failure
+        HTTPException: 403 when the CmdbReportCategory is predefined, still used by CmdbReports, or
+                       the report DELETE right is missing; 404 when it does not exist; 400 on a
+                       failed retrieval / deletion; 500 on an unexpected failure
 
     Returns:
         DefaultResponse: True if the CmdbReportCategory was deleted

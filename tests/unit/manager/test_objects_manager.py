@@ -24,6 +24,7 @@ touch-points are stubbed via MagicMock on a ``MagicMock``-typed self so the meth
 runs without an actual database connection
 """
 # pylint: disable=protected-access
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -42,6 +43,7 @@ from cmdb.errors.manager.objects_manager import (
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.security import AccessDeniedError
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -64,6 +66,18 @@ def _make_object_doc(public_id: int, type_id: int, fields: list[dict[str, Any]] 
         'public_id': public_id,
         'type_id': type_id,
         'fields': fields or [],
+    }
+
+
+def _make_full_object_doc(public_id: int, type_id: int = OWNER_TYPE_ID) -> dict[str, Any]:
+    """Builds an aggregation row carrying every key CmdbObject.from_data requires."""
+    return {
+        'public_id': public_id,
+        'type_id': type_id,
+        'creation_time': datetime(2026, 1, 1, tzinfo=timezone.utc),
+        'author_id': 1,
+        'active': True,
+        'fields': [],
     }
 
 
@@ -746,6 +760,51 @@ def test_iterate_wraps_failure_as_iteration_error() -> None:
 
     with pytest.raises(ObjectsManagerIterationError):
         ObjectsManager.iterate(mock_self, MagicMock())
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  iterate_results                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_iterate_results_returns_models_without_counting() -> None:
+    """The rows come from aggregate_query - so no count aggregation runs - and arrive as CmdbObjects."""
+    mock_self = MagicMock()
+    mock_self.aggregate_query.return_value = [_make_full_object_doc(1), _make_full_object_doc(2)]
+    params = MagicMock()
+
+    result = ObjectsManager.iterate_results(mock_self, params)
+
+    assert [obj.get_public_id() for obj in result] == [1, 2]
+    assert all(isinstance(obj, CmdbObject) for obj in result)
+    mock_self.aggregate_query.assert_called_once_with(params, None, None)
+    mock_self.iterate_query.assert_not_called()
+
+
+def test_iterate_results_forwards_user_and_permission() -> None:
+    """The ACL arguments are handed to aggregate_query unchanged."""
+    mock_self = MagicMock()
+    mock_self.aggregate_query.return_value = []
+    params, user, permission = MagicMock(), MagicMock(), MagicMock()
+
+    ObjectsManager.iterate_results(mock_self, params, user, permission)
+
+    mock_self.aggregate_query.assert_called_once_with(params, user, permission)
+
+
+def test_iterate_results_empty_result_is_an_empty_list() -> None:
+    """No matching rows yields an empty list rather than None."""
+    mock_self = MagicMock()
+    mock_self.aggregate_query.return_value = []
+
+    assert ObjectsManager.iterate_results(mock_self, MagicMock()) == []
+
+
+def test_iterate_results_wraps_failure_as_iteration_error() -> None:
+    """A failure in the aggregation surfaces as ObjectsManagerIterationError."""
+    mock_self = MagicMock()
+    mock_self.aggregate_query.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.iterate_results(mock_self, MagicMock())
 
 
 def test_get_objects_by_wraps_unexpected_error() -> None:

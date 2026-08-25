@@ -254,6 +254,40 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(str(err)) from err
 
 
+    def iterate_results(
+        self,
+        builder_params: BuilderParameters,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> list[CmdbObject]:
+        """
+        Retrieves multiple CmdbObjects WITHOUT running the total-count aggregation
+
+        The counterpart of ``iterate`` for callers that consume only the rows: it returns the models
+        directly instead of an IterationResult, so there is no total to report and the second
+        aggregation ``iterate`` pays for is never run. Use ``iterate`` whenever the total is needed
+        (paginated responses); use this for a full result set that is simply handed on
+
+        Args:
+            builder_params (BuilderParameters): Filter for which CmdbObjects should be retrieved
+            user (CmdbUser | None): CmdbUser requesting the action
+            permission (AccessControlPermission | None): Extended CmdbUser ACL rights
+
+        Raises:
+            ObjectsManagerIterationError: When the iteration failed
+
+        Returns:
+            list[CmdbObject]: All CmdbObjects matching the filter
+        """
+        try:
+            aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params, user, permission)
+
+            return [CmdbObject.from_data(result) for result in aggregation_result]
+        except Exception as err:
+            LOGGER.error("[iterate_results] Exception: %s. Type: %s", err, type(err))
+            raise ObjectsManagerIterationError(str(err)) from err
+
+
     def get_objects_by(
         self,
         sort: str = "public_id",

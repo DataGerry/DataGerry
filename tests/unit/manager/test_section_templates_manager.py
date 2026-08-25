@@ -39,6 +39,7 @@ from cmdb.models.object_model import (
 )
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.errors.manager.section_templates_manager import (
     SectionTemplatesManagerInsertError,
     SectionTemplatesManagerGetError,
@@ -496,7 +497,24 @@ def test_cleanup_global_section_templates_strips_template_from_each_type() -> No
     assert fake.render_meta.summary.fields == ['keep']
     assert fake.render_meta.sections == []
     mock_self.cleanup_global_section_objects.assert_called_once()
+    mock_self.cleanup_global_section_reports.assert_called_once_with(fake, {'f1', 'f2'})
     mock_self.types_manager.update_type.assert_called_once_with(TYPE_ID, fake)
+
+
+def test_cleanup_global_section_templates_is_a_noop_without_consumers() -> None:
+    """No type uses the template - nothing is read, written or cleaned
+
+    Relied on by updater_20260824: its first pass calls this unconditionally, including on databases
+    where the retired template was never attached to anything.
+    """
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = []
+
+    SectionTemplatesManager.cleanup_global_section_templates(mock_self, SECTION_NAME)
+
+    mock_self.cleanup_global_section_objects.assert_not_called()
+    mock_self.cleanup_global_section_reports.assert_not_called()
+    mock_self.types_manager.update_type.assert_not_called()
 
 
 def test_cleanup_global_section_templates_skips_type_without_the_section() -> None:
@@ -684,3 +702,38 @@ def test_delete_section_template_wraps_errors() -> None:
 
     with pytest.raises(SectionTemplatesManagerDeleteError):
         SectionTemplatesManager.delete_section_template(mock_self, TYPE_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          cleanup_global_section_reports                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_cleanup_global_section_reports_strips_the_fields_from_the_types_reports() -> None:
+    """The type's reports are read once and handed to the ReportsManager with the removed field names
+
+    Without this the template-removal path would leave every report of the type selecting and
+    filtering on fields that no longer exist: it rewrites the type through types_manager.update_type,
+    so the type-update route's realignment never runs.
+    """
+    mock_self = MagicMock()
+    a_type = MagicMock(public_id=TYPE_ID)
+    stored_reports = [{'public_id': 5}]
+    mock_self.objects_manager.get_many_from_other_collection.return_value = stored_reports
+
+    SectionTemplatesManager.cleanup_global_section_reports(mock_self, a_type, {'f1', 'f2'})
+
+    mock_self.objects_manager.get_many_from_other_collection.assert_called_once_with(
+        CmdbReport.COLLECTION, type_id=TYPE_ID,
+    )
+    mock_self.reports_manager.strip_removed_fields_from_reports.assert_called_once_with(
+        stored_reports, {'f1', 'f2'}, a_type,
+    )
+
+
+def test_cleanup_global_section_reports_still_delegates_without_reports() -> None:
+    """A type with no reports still delegates - the manager owns the no-op decision"""
+    mock_self = MagicMock()
+    mock_self.objects_manager.get_many_from_other_collection.return_value = []
+
+    SectionTemplatesManager.cleanup_global_section_reports(mock_self, MagicMock(public_id=TYPE_ID), {'f1'})
+
+    mock_self.reports_manager.strip_removed_fields_from_reports.assert_called_once()

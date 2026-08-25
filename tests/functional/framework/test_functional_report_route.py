@@ -31,12 +31,27 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
+from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
+from cmdb.models.user_model import CmdbUser
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.interface.rest_api.routes.report_routes.report_constants import PREVIEW_LIMIT
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/reports'
+
+# public_id of the seeded 'user' group, which holds no base.framework.report.* right at all
+NO_REPORT_RIGHTS_GROUP_ID: int = 2
+NO_REPORT_RIGHTS_USER_ID: int = 8830
+
+# A group holding ONLY the report VIEW right, and a user in it. Proves each write route demands its
+# OWN right rather than merely *some* report right - a copy-pasted VIEW on the delete route would
+# otherwise pass every test in TestReportRouteRights
+VIEW_ONLY_GROUP_ID: int = 8835
+VIEW_ONLY_USER_ID: int = 8836
+REPORT_VIEW_RIGHT: str = 'base.framework.report.view'
 
 PLAIN_TYPE_ID: int = 8810
 REF_SECTION_TYPE_ID: int = 8811
@@ -50,10 +65,23 @@ REPORT_ID_FOR_UPDATE: int = 8821
 REPORT_ID_FOR_DELETE: int = 8822
 REPORT_ID_FOR_RUN: int = 8823
 REPORT_ID_FOR_COUNT: int = 8824
+REPORT_ID_FOR_MATCHING_RUN: int = 8825
 MISSING_REPORT_ID: int = 88299
+
+# CmdbObjects of PLAIN_TYPE_ID that a real (non-empty) report query actually matches. Three of them,
+# so the preview cap (PREVIEW_LIMIT = 2) is observably smaller than the full result set
+MATCHED_OBJECT_IDS: list[int] = [8840, 8841, 8842]
+
+# Every key CmdbObject.to_json emits - the wire contract of a report run. Pinned here because the run
+# route serialises explicitly through to_json instead of the response encoder's __dict__ fallback
+OBJECT_WIRE_KEYS: set[str] = {
+    'public_id', 'type_id', 'version', 'creation_time', 'author_id', 'last_edit_time', 'editor_id',
+    'active', 'special_type', 'fields', 'ci_explorer_tooltip', 'multi_data_sections',
+}
 
 ALL_REPORT_IDS: list[int] = [
     REPORT_ID_FOR_GET, REPORT_ID_FOR_UPDATE, REPORT_ID_FOR_DELETE, REPORT_ID_FOR_RUN, REPORT_ID_FOR_COUNT,
+    REPORT_ID_FOR_MATCHING_RUN,
 ]
 ALL_TYPE_IDS: list[int] = [PLAIN_TYPE_ID, REF_SECTION_TYPE_ID]
 BOGUS_PAYLOAD_ID: int = 88888
@@ -496,7 +524,7 @@ class TestPutReport:
 #                                                       DELETE                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteReport:
-    """DELETE /reports/<id>/ removes the report; a follow-up GET reports 404."""
+    """DELETE /reports/<id> removes the report; a follow-up GET reports 404."""
 
     def test_delete_removes_report(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -504,10 +532,257 @@ class TestDeleteReport:
         """A DELETE succeeds and a subsequent GET for the same id returns 404."""
         _reports(database_manager, database_name).insert_one(_report_doc(REPORT_ID_FOR_DELETE))
         try:
-            response = rest_api.delete(f'{ROUTE_URL}/{REPORT_ID_FOR_DELETE}/')
+            response = rest_api.delete(f'{ROUTE_URL}/{REPORT_ID_FOR_DELETE}')
 
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
             follow_up = rest_api.get(f'{ROUTE_URL}/{REPORT_ID_FOR_DELETE}')
             assert follow_up.status_code == HTTPStatus.NOT_FOUND
         finally:
             _reports(database_manager, database_name).delete_one({'public_id': REPORT_ID_FOR_DELETE})
+
+    def test_delete_without_a_trailing_slash_is_not_redirected(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The URL the frontend calls matches the route directly - no 308 round-trip (backlog #108).
+
+        The DELETE route used to be the only report route registered WITH a trailing slash, so the
+        slash-less URL the Angular service calls fell through to it as a redirect.
+        """
+        _reports(database_manager, database_name).insert_one(_report_doc(REPORT_ID_FOR_DELETE))
+        try:
+            response = rest_api.delete(f'{ROUTE_URL}/{REPORT_ID_FOR_DELETE}')
+
+            assert response.status_code != HTTPStatus.PERMANENT_REDIRECT
+        finally:
+            _reports(database_manager, database_name).delete_one({'public_id': REPORT_ID_FOR_DELETE})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     RUN AGAINST REAL DATA (non-empty query)                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _matched_object_doc(public_id: int) -> dict[str, Any]:
+    """A CmdbObject of PLAIN_TYPE_ID carrying every key CmdbObject.from_data requires."""
+    return {
+        'public_id': public_id,
+        'type_id': PLAIN_TYPE_ID,
+        'active': True,
+        'author_id': 1,
+        'version': '1.0.0',
+        'creation_time': datetime.now(timezone.utc),
+        'fields': [{'name': PLAIN_FIELD, 'value': f'value-{public_id}', 'type': 'text'}],
+        'multi_data_sections': [],
+    }
+
+
+def _matching_report_doc() -> dict[str, Any]:
+    """A report whose stored query really selects the seeded objects.
+
+    Every other report fixture in the suite stores ``{'data': '{}'}``, which the run route
+    short-circuits on - so without this one the whole database path (iterate_results, the to_json
+    serialisation, the preview cap) is never executed against Mongo.
+    """
+    report = _report_doc(REPORT_ID_FOR_MATCHING_RUN)
+    report['report_query'] = {'data': f"{{'type_id': {PLAIN_TYPE_ID}}}"}
+
+    return report
+
+
+@pytest.fixture(name='matching_run')
+def fixture_matching_run(database_manager: MongoDatabaseManager, database_name: str):
+    """Seeds three matching CmdbObjects plus the report that selects them."""
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    reports = _reports(database_manager, database_name)
+
+    objects.insert_many([_matched_object_doc(object_id) for object_id in MATCHED_OBJECT_IDS])
+    reports.insert_one(_matching_report_doc())
+
+    yield
+
+    objects.delete_many({'public_id': {'$in': MATCHED_OBJECT_IDS}})
+    reports.delete_one({'public_id': REPORT_ID_FOR_MATCHING_RUN})
+
+
+@pytest.mark.usefixtures('matching_run')
+class TestRunReportAgainstRealData:
+    """GET /reports/run/<id> with a query that actually matches, executed against MongoDB."""
+
+    def test_returns_every_matching_object(self, rest_api) -> None:
+        """The full run is unbounded, so all three seeded objects come back."""
+        response = rest_api.get(f'{ROUTE_URL}/run/{REPORT_ID_FOR_MATCHING_RUN}')
+
+        assert response.status_code == HTTPStatus.OK
+        body = response.get_json()
+        assert isinstance(body, list)
+        assert {row['public_id'] for row in body} == set(MATCHED_OBJECT_IDS)
+
+    def test_each_row_carries_exactly_the_to_json_keys(self, rest_api) -> None:
+        """The wire shape of a run is CmdbObject.to_json - no more keys, no fewer."""
+        body = rest_api.get(f'{ROUTE_URL}/run/{REPORT_ID_FOR_MATCHING_RUN}').get_json()
+
+        assert body
+        for row in body:
+            assert set(row) == OBJECT_WIRE_KEYS
+
+    def test_rows_carry_the_stored_field_values(self, rest_api) -> None:
+        """The objects are really hydrated - a row's fields hold the seeded value."""
+        body = rest_api.get(f'{ROUTE_URL}/run/{REPORT_ID_FOR_MATCHING_RUN}').get_json()
+
+        row = next(row for row in body if row['public_id'] == MATCHED_OBJECT_IDS[0])
+
+        assert row['fields'] == [
+            {'name': PLAIN_FIELD, 'value': f'value-{MATCHED_OBJECT_IDS[0]}', 'type': 'text'},
+        ]
+
+    def test_preview_caps_the_result_set_database_side(self, rest_api) -> None:
+        """?preview=true returns PREVIEW_LIMIT rows even though three objects match."""
+        body = rest_api.get(f'{ROUTE_URL}/run/{REPORT_ID_FOR_MATCHING_RUN}?preview=true').get_json()
+
+        assert len(body) == PREVIEW_LIMIT
+        assert len(MATCHED_OBJECT_IDS) > PREVIEW_LIMIT
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   ACL RIGHTS                                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.fixture(name='no_report_rights_user', scope='module')
+def fixture_no_report_rights_user(database_manager: MongoDatabaseManager, database_name: str):
+    """An authenticated user in the seeded 'user' group, which carries no base.framework.report.* right."""
+    users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+    users.insert_one({
+        'public_id': NO_REPORT_RIGHTS_USER_ID,
+        'user_name': 'no-report-rights',
+        'active': True,
+        'group_id': NO_REPORT_RIGHTS_GROUP_ID,
+        'registration_time': datetime.now(timezone.utc),
+        'api_level': 2,
+        'config_items_limit': 1000,
+        'database': database_name,
+    })
+    yield CmdbUser(
+        public_id=NO_REPORT_RIGHTS_USER_ID,
+        user_name='no-report-rights',
+        active=True,
+        group_id=NO_REPORT_RIGHTS_GROUP_ID,
+    )
+    users.delete_one({'public_id': NO_REPORT_RIGHTS_USER_ID})
+
+
+class TestReportRouteRights:
+    """Every /reports route enforces its ReportRight (backlog #109).
+
+    The seeded 'user' group holds base.framework.object.* / type.view / ... but no report right, so a
+    user in it is authenticated (no 401) yet must be refused with 403 everywhere. The full-access user
+    every other test in this module uses holds 'base.*', which is why those tests still pass.
+    """
+
+    def test_read_routes_require_the_view_right(self, rest_api, no_report_rights_user: CmdbUser) -> None:
+        """The single read, the list, the run route and the per-type count all demand VIEW."""
+        for url in (
+            f'{ROUTE_URL}/{REPORT_ID_FOR_GET}',
+            f'{ROUTE_URL}/',
+            f'{ROUTE_URL}/run/{REPORT_ID_FOR_RUN}',
+            f'{ROUTE_URL}/{PLAIN_TYPE_ID}/count_reports_of_type',
+        ):
+            response = rest_api.get(url, user=no_report_rights_user)
+
+            assert response.status_code == HTTPStatus.FORBIDDEN, url
+
+    def test_create_requires_the_add_right(self, rest_api, no_report_rights_user: CmdbUser) -> None:
+        """A create without base.framework.report.add is refused before any payload parsing."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/', query_string=_report_params(name='denied'), user=no_report_rights_user,
+        )
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+
+    def test_update_requires_the_edit_right(self, rest_api, no_report_rights_user: CmdbUser) -> None:
+        """An update without base.framework.report.edit is refused."""
+        response = rest_api.put(
+            f'{ROUTE_URL}/{REPORT_ID_FOR_UPDATE}',
+            query_string=_report_params(name=UPDATED_NAME),
+            user=no_report_rights_user,
+        )
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+
+    def test_delete_requires_the_delete_right(self, rest_api, no_report_rights_user: CmdbUser) -> None:
+        """A delete without base.framework.report.delete is refused."""
+        response = rest_api.delete(f'{ROUTE_URL}/{REPORT_ID_FOR_DELETE}', user=no_report_rights_user)
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+
+    def test_the_full_access_user_is_not_blocked_by_the_new_rights(self, rest_api) -> None:
+        """Sanity check that the rights were not simply wired to deny everyone."""
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.OK
+
+
+@pytest.fixture(name='view_only_user', scope='module')
+def fixture_view_only_user(database_manager: MongoDatabaseManager, database_name: str):
+    """A user whose group holds base.framework.report.view and nothing else."""
+    groups = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)
+    users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+
+    groups.insert_one({
+        'public_id': VIEW_ONLY_GROUP_ID,
+        'name': 'report-view-only',
+        'label': 'Report view only',
+        'rights': [REPORT_VIEW_RIGHT],
+    })
+    users.insert_one({
+        'public_id': VIEW_ONLY_USER_ID,
+        'user_name': 'report-view-only',
+        'active': True,
+        'group_id': VIEW_ONLY_GROUP_ID,
+        'registration_time': datetime.now(timezone.utc),
+        'api_level': 2,
+        'config_items_limit': 1000,
+        'database': database_name,
+    })
+
+    yield CmdbUser(
+        public_id=VIEW_ONLY_USER_ID,
+        user_name='report-view-only',
+        active=True,
+        group_id=VIEW_ONLY_GROUP_ID,
+    )
+
+    users.delete_one({'public_id': VIEW_ONLY_USER_ID})
+    groups.delete_one({'public_id': VIEW_ONLY_GROUP_ID})
+
+
+class TestReportRouteRightsAreDistinct:
+    """Each route demands its own ReportRight, not merely any of them.
+
+    TestReportRouteRights proves a right is enforced; these prove it is the *right* one, which is what
+    stops a view-only user from writing.
+    """
+
+    def test_view_right_allows_the_reads(self, rest_api, view_only_user: CmdbUser) -> None:
+        """The VIEW right really is sufficient for the read routes - the group is not simply denied."""
+        response = rest_api.get(f'{ROUTE_URL}/', user=view_only_user)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_view_right_does_not_allow_create(self, rest_api, view_only_user: CmdbUser) -> None:
+        """Create demands ADD, so VIEW alone is refused."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/', query_string=_report_params(name='denied'), user=view_only_user,
+        )
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+
+    def test_view_right_does_not_allow_update(self, rest_api, view_only_user: CmdbUser) -> None:
+        """Update demands EDIT, so VIEW alone is refused."""
+        response = rest_api.put(
+            f'{ROUTE_URL}/{REPORT_ID_FOR_UPDATE}',
+            query_string=_report_params(name=UPDATED_NAME),
+            user=view_only_user,
+        )
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+
+    def test_view_right_does_not_allow_delete(self, rest_api, view_only_user: CmdbUser) -> None:
+        """Delete demands DELETE, so VIEW alone is refused - the privilege-escalation case."""
+        response = rest_api.delete(f'{ROUTE_URL}/{REPORT_ID_FOR_DELETE}', user=view_only_user)
+
+        assert response.status_code == HTTPStatus.FORBIDDEN

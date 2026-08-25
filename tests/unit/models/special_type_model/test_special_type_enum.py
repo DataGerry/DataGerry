@@ -109,3 +109,39 @@ def test_is_ipam_type_rejects_rack() -> None:
 def test_is_ipam_type_tolerates_non_special_type_values(value: object) -> None:
     """A missing or unknown marker is simply not IPAM, never an error"""
     assert SpecialType.is_ipam_type(value) is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              license-gated members                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_get_license_gated_types_is_the_ipam_members_plus_rack() -> None:
+    """Every gated member today; RACK is in the set behind IPAM as an interim decision"""
+    assert SpecialType.get_license_gated_types() == SpecialType.get_ipam_types() | frozenset({SpecialType.RACK})
+
+
+def test_the_gated_set_does_not_leak_into_the_ipam_set() -> None:
+    """The invariant that must never regress: gating RACK must not make it an IPAM type
+
+    Folding RACK into get_ipam_types would silently change what the IPAM overviews, the special-type
+    wiring and the type importer treat as IPAM - the conflation that had to be unpicked from four
+    places when RACK was introduced.
+    """
+    assert SpecialType.RACK in SpecialType.get_license_gated_types()
+    assert SpecialType.RACK not in SpecialType.get_ipam_types()
+    assert SpecialType.is_ipam_type(SpecialType.RACK) is False
+
+
+@pytest.mark.parametrize('value', [
+    SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN, SpecialType.RACK,
+    'SUPERNET', 'SUBNET', 'VLAN', 'RACK',
+])
+def test_is_license_gated_accepts_every_gated_member_and_its_raw_value(value: object) -> None:
+    """Members and their stored string values both resolve"""
+    assert SpecialType.is_license_gated(value) is True
+
+
+@pytest.mark.parametrize('value', [None, '', 'NOPE', 0, object()])
+def test_is_license_gated_tolerates_non_special_type_values(value: object) -> None:
+    """A raw stored marker can be passed straight in without pre-validation"""
+    assert SpecialType.is_license_gated(value) is False

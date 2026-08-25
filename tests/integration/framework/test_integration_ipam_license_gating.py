@@ -115,16 +115,16 @@ def test_write_detection_allows_interface_without_subnet(types_manager: TypesMan
     assert object_write_requires_ipam_license(types_manager, candidate, previous_object=None) is False
 
 
-def test_write_detection_allows_non_ipam_special_type_object(types_manager: TypesManager) -> None:
+def test_write_detection_gates_a_rack_object_behind_ipam(types_manager: TypesManager) -> None:
     """
-    A Rack object is a special-type object that IPAM does not own, so its write is not gated
+    A Rack object write is gated behind IPAM - an INTERIM policy, not a claim that a Rack is IPAM
 
-    The detector used to gate on the mere presence of a 'special_type' marker, which would have
-    made every Rack write require an IPAM license.
+    The detector matches per member via SpecialType.get_license_gated_types, so it still does not
+    fire on the mere presence of a 'special_type' marker; RACK is simply in the gated set for now.
     """
     candidate = make_object_doc(OBJECT_ID, RACK_TYPE_ID, [make_field('dg-rack-name', 'rack-1')])
 
-    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=None) is False
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=None) is True
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -144,8 +144,8 @@ def test_delete_detection_allows_regular_object_with_interface_subnet(types_mana
     assert object_delete_requires_ipam_license(types_manager, target) is False
 
 
-def test_delete_detection_allows_non_ipam_special_type_object(types_manager: TypesManager) -> None:
-    """Deleting a Rack object needs no IPAM license either"""
+def test_delete_detection_gates_a_rack_object_behind_ipam(types_manager: TypesManager) -> None:
+    """Deleting a Rack object is gated behind IPAM too, under the same interim policy"""
     target = make_object_doc(OBJECT_ID, RACK_TYPE_ID, [make_field('dg-rack-name', 'rack-1')])
 
-    assert object_delete_requires_ipam_license(types_manager, target) is False
+    assert object_delete_requires_ipam_license(types_manager, target) is True

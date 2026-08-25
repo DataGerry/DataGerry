@@ -28,6 +28,16 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
+class ReportQueryKey(BaseStrEnum):
+    """
+    Keys of a CmdbReport's stored 'report_query'
+
+    DATA holds the serialized Mongo query string rebuilt from the report's conditions. Lives with the
+    model constants rather than the route ones because the ReportsManager rebuilds a stored query too
+    """
+    DATA = 'data'
+
+
 class ReportConditionKey(BaseStrEnum):
     """
     Keys of one node in a report's 'conditions' rule tree
