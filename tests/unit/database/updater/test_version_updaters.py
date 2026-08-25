@@ -16,11 +16,15 @@
 """
 Unit tests for the versioned database updaters
 
-Covers the contract metadata (creation_date / description) of every registered updater and the bulk
-start_update logic of the two updaters whose whole migration is server-side update_many_raw work
-(20251203 and 20260731). The remaining updaters' start_update is heavy I/O orchestration covered by
-their own unit suites and the integration suites.
+Covers the contract metadata (creation_date / description) of every registered updater, the two
+registries a new migration has to be added to by hand (DatabaseUpdater.__UPDATE_VERSIONS__ and the
+Makefile's PyInstaller --hidden-import list - forgetting either fails silently: the migration never
+runs, or it is missing from the binary) and the bulk start_update logic of the two updaters whose
+whole migration is server-side update_many_raw work (20251203 and 20260731). The remaining updaters'
+start_update is heavy I/O orchestration covered by their own unit suites and the integration suites.
 """
+import re
+from pathlib import Path
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -29,6 +33,7 @@ from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
 from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.errors.updater import UpdaterException
+from cmdb.database.database_services.database_updater import DatabaseUpdater
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 from cmdb.database.updater.versions.updater_20250619 import Update20250619
 from cmdb.database.updater.versions.updater_20251203 import Update20251203
@@ -44,12 +49,57 @@ from cmdb.database.updater.versions.updater_20260731 import (
     MDS_MODE_KEY,
     PREDEFINED_KEY,
 )
+from cmdb.database.updater.versions.updater_20260804 import Update20260804
+from cmdb.database.updater.versions.updater_20260824 import Update20260824
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 def _new(updater_cls: type[BaseDatabaseUpdate]) -> BaseDatabaseUpdate:
     """Builds an updater without its real __init__ (caller attaches the mocks it needs)"""
     return updater_cls.__new__(updater_cls)
+
+# Repo paths / patterns for the two hand-maintained registries a new migration must be added to
+REPO_ROOT: Path = Path(__file__).resolve().parents[4]
+VERSIONS_DIR: Path = REPO_ROOT / 'cmdb' / 'database' / 'updater' / 'versions'
+MAKEFILE: Path = REPO_ROOT / 'Makefile'
+UPDATER_MODULE_PATTERN: re.Pattern = re.compile(r'^updater_(\d{8})\.py$')
+HIDDEN_IMPORT_PATTERN: str = 'cmdb.database.updater.versions.updater_{version}'
+
+
+def _updater_module_versions() -> set[int]:
+    """The version of every updater module present under cmdb/database/updater/versions"""
+    return {
+        int(match.group(1))
+        for match in (UPDATER_MODULE_PATTERN.match(path.name) for path in VERSIONS_DIR.iterdir())
+        if match
+    }
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        hand-maintained registries (all updaters)                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_every_updater_module_is_registered() -> None:
+    """An updater missing from __UPDATE_VERSIONS__ is never executed - and nothing else complains"""
+    assert _updater_module_versions() == set(DatabaseUpdater.__UPDATE_VERSIONS__)
+
+
+def test_registry_is_sorted_ascending() -> None:
+    """Migrations run in registry order, so the list has to be ascending"""
+    registered: list[int] = list(DatabaseUpdater.__UPDATE_VERSIONS__)
+
+    assert registered == sorted(registered)
+
+
+def test_every_registered_updater_has_a_pyinstaller_hidden_import() -> None:
+    """A migration without its Makefile --hidden-import line is missing from the built binary"""
+    makefile: str = MAKEFILE.read_text(encoding='utf-8')
+
+    missing: list[int] = [
+        version for version in DatabaseUpdater.__UPDATE_VERSIONS__
+        if HIDDEN_IMPORT_PATTERN.format(version=version) not in makefile
+    ]
+
+    assert not missing
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          contract metadata (all updaters)                                           #
@@ -64,6 +114,8 @@ def _new(updater_cls: type[BaseDatabaseUpdate]) -> BaseDatabaseUpdate:
     (Update20260604, 20260604),
     (Update20260720, 20260720),
     (Update20260731, 20260731),
+    (Update20260804, 20260804),
+    (Update20260824, 20260824),
 ], ids=str)
 def test_creation_date_and_description(updater_cls: type[BaseDatabaseUpdate], expected_date: int) -> None:
     """Each updater reports the date encoded in its name and a non-empty description"""

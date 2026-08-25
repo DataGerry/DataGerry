@@ -103,20 +103,21 @@ def _resolve_object_special_type(types_manager: TypesManager, type_id: int) -> S
 
 def _is_ipam_object(types_manager: TypesManager, type_id: int) -> bool:
     """
-    Whether a CmdbType id belongs to one of the IPAM SpecialTypes
+    Whether a CmdbType id belongs to a license-gated SpecialType
 
-    Carrying a 'special_type' marker is not the same as being an IPAM type - RACK is a SpecialType
-    that IPAM does not own - so the license gates must ask per member instead of just checking that
-    a marker is present
+    Carrying a 'special_type' marker is not the same as being gated - so the license gates ask per
+    member instead of just checking that a marker is present. Every gated member currently maps to
+    LicenseFeature.IPAM, RACK included as an interim decision, which is why the IPAM-flavoured names
+    in this module still read true (see SpecialType.get_license_gated_types)
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         type_id (int): The CmdbType public_id
 
     Returns:
-        bool: True when the type is an IPAM SpecialType (SUPERNET / SUBNET / VLAN)
+        bool: True when the type is a license-gated SpecialType
     """
-    return SpecialType.is_ipam_type(_resolve_object_special_type(types_manager, type_id))
+    return SpecialType.is_license_gated(_resolve_object_special_type(types_manager, type_id))
 
 
 def _coerce_int(value: Any) -> int | None:

@@ -24,6 +24,7 @@ touch-points are stubbed via MagicMock on a ``MagicMock``-typed self so the meth
 runs without an actual database connection
 """
 # pylint: disable=protected-access
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -42,6 +43,7 @@ from cmdb.errors.manager.objects_manager import (
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.security import AccessDeniedError
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -64,6 +66,18 @@ def _make_object_doc(public_id: int, type_id: int, fields: list[dict[str, Any]] 
         'public_id': public_id,
         'type_id': type_id,
         'fields': fields or [],
+    }
+
+
+def _make_full_object_doc(public_id: int, type_id: int = OWNER_TYPE_ID) -> dict[str, Any]:
+    """Builds an aggregation row carrying every key CmdbObject.from_data requires."""
+    return {
+        'public_id': public_id,
+        'type_id': type_id,
+        'creation_time': datetime(2026, 1, 1, tzinfo=timezone.utc),
+        'author_id': 1,
+        'active': True,
+        'fields': [],
     }
 
 
@@ -133,8 +147,8 @@ def test_compose_summary_line_falls_back_to_default_when_field_walk_raises() -> 
     assert result == f"Server #{OWNER_OBJECT_ID}"
 
 
-def test_compose_summary_line_emits_none_for_missing_field_value() -> None:
-    """A summary field absent from the object's fields list shows up as None in the line"""
+def test_compose_summary_line_skips_a_summary_field_absent_from_the_object() -> None:
+    """Regression: a summary field the object has no entry for used to render the text 'None'"""
     obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
         {'name': 'hostname', 'value': 'web01'},
     ])
@@ -146,7 +160,89 @@ def test_compose_summary_line_emits_none_for_missing_field_value() -> None:
 
     result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
 
-    assert result == f"Server #{OWNER_OBJECT_ID} - web01 | None"
+    assert result == f"Server #{OWNER_OBJECT_ID} - web01"
+
+
+@pytest.mark.parametrize('unset_value', [None, ''], ids=['none', 'empty-string'])
+def test_compose_summary_line_skips_an_unset_summary_value(unset_value) -> None:
+    """Regression: an unset summary value used to leave the line trailing off as '#<id> - '"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'hostname', 'value': unset_value},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'hostname'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID}"
+
+
+@pytest.mark.parametrize('value, rendered', [(0, '0'), (False, 'False')], ids=['zero', 'false'])
+def test_compose_summary_line_renders_falsy_but_present_values(value, rendered: str) -> None:
+    """Only an absent value is skipped - a zero or a False is real data and must still show"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'ports', 'value': value},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'ports'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID} - {rendered}"
+
+
+def test_compose_summary_line_separator_follows_the_first_emitted_field() -> None:
+    """An unset FIRST field must not push a stray '|' to the front of the line"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'hostname', 'value': None},
+        {'name': 'fqdn', 'value': 'web01.example.com'},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server',
+        has_summaries=True,
+        summary_fields=[{'name': 'hostname'}, {'name': 'fqdn'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID} - web01.example.com"
+
+
+def test_compose_summary_line_closes_the_gap_left_by_an_unset_middle_field() -> None:
+    """An unset field between two set ones leaves no double separator"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'a', 'value': 'x'},
+        {'name': 'b', 'value': None},
+        {'name': 'c', 'value': 'z'},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server',
+        has_summaries=True,
+        summary_fields=[{'name': 'a'}, {'name': 'b'}, {'name': 'c'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID} - x | z"
+
+
+def test_compose_summary_line_with_every_summary_field_unset_is_the_bare_prefix() -> None:
+    """All summary fields unset yields the prefix alone, with no dangling separator"""
+    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
+        {'name': 'a', 'value': None},
+        {'name': 'b', 'value': ''},
+    ])
+    type_mock = _make_type_mock(
+        OWNER_TYPE_ID, 'Server',
+        has_summaries=True,
+        summary_fields=[{'name': 'a'}, {'name': 'b'}],
+    )
+
+    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
+
+    assert result == f"Server #{OWNER_OBJECT_ID}"
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -664,6 +760,51 @@ def test_iterate_wraps_failure_as_iteration_error() -> None:
 
     with pytest.raises(ObjectsManagerIterationError):
         ObjectsManager.iterate(mock_self, MagicMock())
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  iterate_results                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_iterate_results_returns_models_without_counting() -> None:
+    """The rows come from aggregate_query - so no count aggregation runs - and arrive as CmdbObjects."""
+    mock_self = MagicMock()
+    mock_self.aggregate_query.return_value = [_make_full_object_doc(1), _make_full_object_doc(2)]
+    params = MagicMock()
+
+    result = ObjectsManager.iterate_results(mock_self, params)
+
+    assert [obj.get_public_id() for obj in result] == [1, 2]
+    assert all(isinstance(obj, CmdbObject) for obj in result)
+    mock_self.aggregate_query.assert_called_once_with(params, None, None)
+    mock_self.iterate_query.assert_not_called()
+
+
+def test_iterate_results_forwards_user_and_permission() -> None:
+    """The ACL arguments are handed to aggregate_query unchanged."""
+    mock_self = MagicMock()
+    mock_self.aggregate_query.return_value = []
+    params, user, permission = MagicMock(), MagicMock(), MagicMock()
+
+    ObjectsManager.iterate_results(mock_self, params, user, permission)
+
+    mock_self.aggregate_query.assert_called_once_with(params, user, permission)
+
+
+def test_iterate_results_empty_result_is_an_empty_list() -> None:
+    """No matching rows yields an empty list rather than None."""
+    mock_self = MagicMock()
+    mock_self.aggregate_query.return_value = []
+
+    assert ObjectsManager.iterate_results(mock_self, MagicMock()) == []
+
+
+def test_iterate_results_wraps_failure_as_iteration_error() -> None:
+    """A failure in the aggregation surfaces as ObjectsManagerIterationError."""
+    mock_self = MagicMock()
+    mock_self.aggregate_query.side_effect = RuntimeError('boom')
+
+    with pytest.raises(ObjectsManagerIterationError):
+        ObjectsManager.iterate_results(mock_self, MagicMock())
 
 
 def test_get_objects_by_wraps_unexpected_error() -> None:

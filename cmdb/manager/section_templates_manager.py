@@ -46,6 +46,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.manager.reports_manager import ReportsManager
 from cmdb.manager.base_manager import BaseManager
 
 from cmdb.models.user_model import CmdbUser
@@ -56,6 +57,7 @@ from cmdb.models.object_model import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
@@ -96,7 +98,9 @@ class SectionTemplatesManager(BaseManager):
         Initializes the SectionTemplatesManager and its collaborator managers
 
         Composes a TypesManager and an ObjectsManager because global-template propagation has to
-        read and mutate CmdbTypes and CmdbObjects alongside the template collection
+        read and mutate CmdbTypes and CmdbObjects alongside the template collection, plus a
+        ReportsManager because removing a template's fields also invalidates the reports selecting
+        or filtering on them
 
         Args:
             dbm (MongoDatabaseManager): Database connection
@@ -104,6 +108,7 @@ class SectionTemplatesManager(BaseManager):
         """
         self.types_manager = TypesManager(dbm, database)
         self.objects_manager = ObjectsManager(dbm, database)
+        self.reports_manager = ReportsManager(dbm, database)
 
         super().__init__(CmdbSectionTemplate.COLLECTION, dbm, database)
 
@@ -675,7 +680,13 @@ class SectionTemplatesManager(BaseManager):
 
         For each consuming type: drops the template name from ``global_template_ids``, removes the
         section's field definitions from ``type.fields`` and the summary, removes the section from
-        the layout, cleans the objects, and persists the type
+        the layout, cleans the objects, strips the removed fields from the type's reports, and
+        persists the type
+
+        The report cleanup has to happen here rather than being left to the type-update route: this
+        path rewrites the type through ``types_manager.update_type`` directly, so the route's
+        ``realign_type_objects_if_fields_changed`` never runs and the reports would keep selecting and
+        filtering on fields that no longer exist
 
         Args:
             template_name (str): Name of the global section template
@@ -716,7 +727,30 @@ class SectionTemplatesManager(BaseManager):
                 delete_mode,
             )
 
+            self.cleanup_global_section_reports(a_type, template_field_names)
+
             self.types_manager.update_type(a_type.public_id, a_type)
+
+
+    def cleanup_global_section_reports(self, a_type: CmdbType, removed_field_names: set[str]) -> None:
+        """
+        Strips a removed section's fields from the reports of one CmdbType
+
+        Reads the type's reports out of the report collection and hands them to the ReportsManager,
+        which drops the field names from every report's selected fields and conditions and rebuilds
+        the stored query. The type instance passed in is the already-cleaned one, which is what the
+        query rebuild needs
+
+        Args:
+            a_type (CmdbType): The CmdbType whose reports should be cleaned
+            removed_field_names (set[str]): Field names removed from the type
+        """
+        reports_for_type: list[dict[str, Any]] = self.objects_manager.get_many_from_other_collection(
+            CmdbReport.COLLECTION,
+            type_id=a_type.public_id,
+        )
+
+        self.reports_manager.strip_removed_fields_from_reports(reports_for_type, removed_field_names, a_type)
 
 
     def cleanup_global_section_from_type(

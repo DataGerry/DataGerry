@@ -34,6 +34,7 @@ import pytest
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model import CmdbType, FieldKey, FieldType, SectionType, SectionKey, TypeSchemaKey
 from cmdb.models.object_model import CmdbObjectMdsKey, CmdbObjectFieldKey, CmdbObjectMdsRowKey
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.manager.types_manager import TypesManager
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerDeleteError
 from cmdb.errors.manager.types_manager import (
@@ -624,3 +625,88 @@ def test_get_existing_type_ids_wraps_get_error() -> None:
 
     with pytest.raises(TypesManagerGetError):
         TypesManager.get_existing_type_ids(mgr, [1])
+
+
+# ------------------------------------------ get_type_ids_of_special_type -------------------------------------------- #
+
+def test_get_type_ids_of_special_type_queries_the_marker() -> None:
+    """One distinct on the indexed public_id - no type document is loaded to answer 'which type is the Rack'."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [9551]
+
+    assert TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK) == [9551]
+
+    call = mgr.get_distinct.call_args
+    assert call.args[0] == TypeSchemaKey.PUBLIC_ID.value
+    assert call.args[1] == {TypeSchemaKey.SPECIAL_TYPE: SpecialType.RACK}
+
+
+def test_get_type_ids_of_special_type_is_empty_when_the_marker_is_unused() -> None:
+    """An installation without the special type yields an empty list, not None."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = []
+
+    assert TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK) == []
+
+
+def test_get_type_ids_of_special_type_drops_non_integer_values() -> None:
+    """The ids go straight into a '$nin' of ints, so a drifted value must not travel with them."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [9551, None, 'garbage']
+
+    assert TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK) == [9551]
+
+
+def test_get_type_ids_of_special_type_wraps_get_error() -> None:
+    """A failing distinct query surfaces as the manager's own error type."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_type_ids_of_special_type(mgr, SpecialType.RACK)
+
+
+# ----------------------------------------- get_type_ids_with_location_field ----------------------------------------- #
+
+def test_get_type_ids_with_location_field_matches_on_the_field_type() -> None:
+    """
+    The mountable types of the Rack picker, answered without loading a type document.
+
+    The match is on the field's TYPE rather than its name, the way the whole location machinery matches,
+    so a type whose location field is not called 'dg_location' still counts.
+    """
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [9552]
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == [9552]
+
+    call = mgr.get_distinct.call_args
+    assert call.args[0] == TypeSchemaKey.PUBLIC_ID.value
+    assert call.args[1] == {
+        TypeSchemaKey.FIELDS.value: {'$elemMatch': {FieldKey.TYPE.value: FieldType.LOCATION.value}},
+    }
+
+
+def test_get_type_ids_with_location_field_is_empty_when_no_type_declares_one() -> None:
+    """An empty list, which the picker turns into an '$in' matching nothing - nothing is mountable."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = []
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == []
+
+
+def test_get_type_ids_with_location_field_drops_non_integer_values() -> None:
+    """The ids go straight into an '$in' of ints, so a drifted value must not travel with them."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.return_value = [9552, None, 'garbage']
+
+    assert TypesManager.get_type_ids_with_location_field(mgr) == [9552]
+
+
+def test_get_type_ids_with_location_field_wraps_get_error() -> None:
+    """A failing distinct query surfaces as the manager's own error type."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.get_distinct.side_effect = BaseManagerGetError('boom')
+
+    with pytest.raises(TypesManagerGetError):
+        TypesManager.get_type_ids_with_location_field(mgr)

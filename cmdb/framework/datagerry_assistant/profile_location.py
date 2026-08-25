@@ -33,11 +33,13 @@ class LocationProfile(ProfileBase):
     """
     def create_profile(self) -> dict[str, int | None]:
         """
-        Creates all types of the 'Location' profile (Country, City, Building, Room, Rack)
+        Creates all types of the 'Location' profile (Country, City, Building, Room)
 
-        The basic Rack type is skipped when the 'Rack View' profile already created its RACK
-        SpecialType under the same slot - a CmdbType name is unique and the Rack View's type is the
-        richer one.
+        The hierarchy ends at Room: this profile no longer builds a Rack type. A Rack is the RACK
+        SpecialType created by the 'Rack View' profile (see RackProfile) - the basic Rack this profile
+        used to create carried none of the Rack View behaviour, and having two different Rack types
+        depending on which checkbox was ticked was a trap: a CmdbType's 'special_type' can never be
+        changed afterwards, so an install that got the basic one could not be moved onto the real one
 
         Returns:
             dict[str, int | None]: The shared slot map of created type ids
@@ -48,9 +50,6 @@ class LocationProfile(ProfileBase):
         self.create_basic_type('city_id', self.get_city_type())
         self.create_basic_type('building_id', self.get_building_type())
         self.create_basic_type('room_id', self.get_room_type())
-
-        if self.get_created_id('rack_id') is None:
-            self.create_basic_type('rack_id', self.get_rack_type())
 
         return self.created_type_ids
 
@@ -268,48 +267,3 @@ class LocationProfile(ProfileBase):
         )
 
         return room_type
-
-# -------------------------------------------------------------------------------------------------------------------- #
-
-    def get_rack_type(self) -> dict[str, Any]:
-        """
-        Builds the 'Rack' type for the 'Location' profile (includes the dg-rackmounting template)
-
-        Returns:
-            dict[str, Any]: The Rack CmdbType config
-        """
-        rack_sections: list[dict[str, Any]] = [
-            {
-                "name": "section-39958",
-                "label": "Information",
-                "fields": [
-                    {
-                        "type": "text",
-                        "name": "text-65752",
-                        "label": "Name",
-                        "is_summary": True
-                    },
-                ]
-            },
-            self.type_constructor.get_predefined_template_data('dg-rackmounting'),
-            {
-                "name": "section-55832",
-                "label": "Location",
-                "fields": [
-                    {
-                        "type": "location",
-                        "name": "dg_location",
-                        "label": "Location"
-                    }
-                ]
-            }
-        ]
-
-        rack_type: dict[str, Any] = self.type_constructor.create_type_config(
-            rack_sections,
-            'rack',
-            'Rack',
-            'fas fa-th-large'
-        )
-
-        return rack_type

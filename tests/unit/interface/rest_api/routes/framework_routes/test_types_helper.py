@@ -55,7 +55,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     type_deletion_followup,
     apply_type_changes_to_locations,
     enforce_special_type_license,
+    enforce_rack_selectable_as_parent,
 )
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -632,19 +634,97 @@ def test_apply_type_changes_to_locations_pushes_only_changed_fields() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          enforce_special_type_license                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_enforce_special_type_license_noop_when_not_special() -> None:
-    """A non-special type write never consults the license guard"""
+@pytest.mark.parametrize('markers', [
+    (None,),
+    ('',),
+    ('NOT-A-SPECIAL-TYPE',),
+    (None, None),
+], ids=str)
+def test_enforce_special_type_license_noop_without_an_ipam_marker(markers: tuple) -> None:
+    """A write that touches no IPAM special type never consults the license guard"""
     with patch(f'{PATH}.abort_if_feature_locked') as guard:
-        enforce_special_type_license(MagicMock(), False)
+        enforce_special_type_license(MagicMock(), *markers)
 
     guard.assert_not_called()
 
 
-def test_enforce_special_type_license_delegates_for_special_type() -> None:
-    """A special-type write delegates to the IPAM license guard with the request user"""
+@pytest.mark.parametrize('marker', [SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN], ids=str)
+def test_enforce_special_type_license_delegates_for_an_ipam_special_type(marker: SpecialType) -> None:
+    """An IPAM special-type write delegates to the IPAM license guard with the request user"""
     request_user = MagicMock()
 
     with patch(f'{PATH}.abort_if_feature_locked') as guard:
-        enforce_special_type_license(request_user, True)
+        enforce_special_type_license(request_user, marker)
 
     guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+
+def test_enforce_special_type_license_gates_a_rack_behind_ipam() -> None:
+    """
+    Managing a Rack type requires the IPAM license - an INTERIM policy, not a claim about IPAM
+
+    A Rack is not an IPAM type (SpecialType.get_ipam_types still excludes it) and the Rack View is
+    expected to get a LicenseFeature of its own; until then it is gated behind IPAM, so the guard
+    matches it via SpecialType.get_license_gated_types.
+    """
+    request_user = MagicMock()
+
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_special_type_license(request_user, SpecialType.RACK)
+
+    guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+
+def test_enforce_special_type_license_fires_when_any_marker_is_ipam() -> None:
+    """The update route passes stored and requested markers; either one being IPAM gates the write"""
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_special_type_license(MagicMock(), None, SpecialType.SUBNET)
+
+    guard.assert_called_once()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        enforce_rack_selectable_as_parent                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('special_type', [None, '', SpecialType.SUBNET], ids=str)
+def test_enforce_rack_selectable_as_parent_leaves_other_types_untouched(special_type: Any) -> None:
+    """Only a Rack has its selectable_as_parent forced; every other type keeps what was sent"""
+    data: dict[str, Any] = {TypeSchemaKey.SELECTABLE_AS_PARENT.value: False}
+
+    enforce_rack_selectable_as_parent(special_type, data)
+
+    assert data[TypeSchemaKey.SELECTABLE_AS_PARENT.value] is False
+
+
+def test_enforce_rack_selectable_as_parent_fills_in_a_missing_value() -> None:
+    """A Rack payload that omits the flag gets it set, so the type can parent its members"""
+    data: dict[str, Any] = {}
+
+    enforce_rack_selectable_as_parent(SpecialType.RACK, data)
+
+    assert data[TypeSchemaKey.SELECTABLE_AS_PARENT.value] is True
+
+
+def test_enforce_rack_selectable_as_parent_keeps_an_explicit_true() -> None:
+    """An explicit True is already correct and stays"""
+    data: dict[str, Any] = {TypeSchemaKey.SELECTABLE_AS_PARENT.value: True}
+
+    enforce_rack_selectable_as_parent(SpecialType.RACK, data)
+
+    assert data[TypeSchemaKey.SELECTABLE_AS_PARENT.value] is True
+
+
+def test_enforce_rack_selectable_as_parent_aborts_400_on_an_explicit_false() -> None:
+    """
+    Disabling it on a Rack is refused rather than silently flipped
+
+    A Rack whose type is not selectable as a parent could never have anything placed in it, because
+    validate_object_location_change refuses such a parent - so the caller gets a 400 explaining it
+    instead of a coercion they cannot see.
+    """
+    data: dict[str, Any] = {TypeSchemaKey.SELECTABLE_AS_PARENT.value: False}
+
+    with pytest.raises(HTTPException) as err:
+        enforce_rack_selectable_as_parent(SpecialType.RACK, data)
+
+    assert err.value.code == 400

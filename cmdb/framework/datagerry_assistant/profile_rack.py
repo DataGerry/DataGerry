@@ -37,8 +37,8 @@ class RackProfile(ProfileBase):
 
     The profile creates the RACK SpecialType from the canonical SchemaProvider blueprint, which is
     what makes the Rack View usable out-of-the-box: the view is rendered for objects of the type
-    carrying the RACK marker. It fills the same RACK_ID slot the location profile would fill with
-    its basic Rack type, so the two never both create a Rack (see LocationProfile.create_profile).
+    carrying the RACK marker. This is the assistant's only Rack type - the location profile stops at
+    Room and no longer builds a plain one of its own, so nothing else fills the RACK_ID slot.
     """
 
     def create_profile(self) -> dict[str, int | None]:

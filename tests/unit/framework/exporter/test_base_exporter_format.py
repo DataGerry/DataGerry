@@ -22,7 +22,11 @@ import pytest
 
 from cmdb.errors.exporter import ExporterMetadataError
 
-from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
+from cmdb.framework.exporter.format.base_exporter_format import (
+    BaseExporterFormat,
+    EMPTY_CELL,
+    to_export_cell,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -299,3 +303,120 @@ class TestMetadataOverrideIsValidated:
 
         assert view.upper() == 'NATIVE'
         assert metadata is None
+
+
+class TestToExportCell:
+    """An unfilled value becomes an empty cell instead of the literal text 'None'."""
+
+    def test_none_becomes_an_empty_cell(self) -> None:
+        """The absent value is what an unfilled field resolves to."""
+        assert to_export_cell(None) == EMPTY_CELL
+
+    def test_a_string_is_kept(self) -> None:
+        """A present string passes through unchanged."""
+        assert to_export_cell('host-1') == 'host-1'
+
+    @pytest.mark.parametrize(
+        'value, expected',
+        [(0, '0'), (False, 'False'), ('', ''), (0.0, '0.0'), (42, '42')],
+        ids=['zero', 'false', 'empty-string', 'zero-float', 'int'],
+    )
+    def test_present_values_are_stringified(self, value, expected: str) -> None:
+        """Only None counts as absent - a falsy value still exports as its own text."""
+        assert to_export_cell(value) == expected
+
+    def test_the_literal_none_string_is_kept(self) -> None:
+        """A value that genuinely reads 'None' is a value, and is not blanked."""
+        assert to_export_cell('None') == 'None'
+
+
+class TestObjectPrefixCellsEmptyValues:
+    """The regular-field cells of an object's first row never carry the text 'None'."""
+
+    @staticmethod
+    def _obj_with(fields: list[dict]) -> SimpleNamespace:
+        """A rendered object exposing the given fields and a minimal object_information."""
+        return SimpleNamespace(
+            fields=fields,
+            object_information={'object_id': 1},
+            type_information={'type_label': 'Server', 'type_id': 5},
+        )
+
+    def test_an_unfilled_field_exports_as_an_empty_cell(self) -> None:
+        """A field whose value is None yields an empty cell, not 'None'."""
+        obj = self._obj_with([{'type': 'text', 'name': 'note', 'value': None}])
+
+        cells = BaseExporterFormat.object_prefix_cells(obj, [], ['note'], 'native')
+
+        assert cells == [EMPTY_CELL]
+
+    def test_a_column_the_object_lacks_exports_as_an_empty_cell(self) -> None:
+        """A regular column with no matching field on the object yields an empty cell."""
+        obj = self._obj_with([{'type': 'text', 'name': 'note', 'value': 'x'}])
+
+        cells = BaseExporterFormat.object_prefix_cells(obj, [], ['absent'], 'native')
+
+        assert cells == [EMPTY_CELL]
+
+    def test_a_falsy_value_is_still_exported(self) -> None:
+        """A zero is a value and must survive the export."""
+        obj = self._obj_with([{'type': 'number', 'name': 'count', 'value': 0}])
+
+        assert BaseExporterFormat.object_prefix_cells(obj, [], ['count'], 'native') == ['0']
+
+    def test_an_identity_column_that_is_none_exports_as_an_empty_cell(self) -> None:
+        """An object_information entry present but unset yields an empty cell."""
+        obj = self._obj_with([])
+        obj.object_information = {'object_id': None}
+
+        assert BaseExporterFormat.object_prefix_cells(obj, ['public_id'], [], 'native') == [EMPTY_CELL]
+
+
+class TestMdsCellsEmptyValues:
+    """The multi-data-section cells never carry the text 'None' either."""
+
+    LAYOUT: list[tuple[str, list[str]]] = [('sec', ['a', 'b'])]
+
+    def test_an_unfilled_entry_field_exports_as_an_empty_cell(self) -> None:
+        """A row whose field is present but unset yields an empty cell."""
+        entries = {'sec': [{'a': 'filled', 'b': None}]}
+
+        assert BaseExporterFormat.mds_cells_for_index(self.LAYOUT, entries, 0) == ['filled', EMPTY_CELL]
+
+    def test_a_missing_entry_field_exports_as_an_empty_cell(self) -> None:
+        """A row missing the field entirely behaves the same as an unset one."""
+        entries = {'sec': [{'a': 'filled'}]}
+
+        assert BaseExporterFormat.mds_cells_for_index(self.LAYOUT, entries, 0) == ['filled', EMPTY_CELL]
+
+    def test_a_row_beyond_the_sections_entries_is_blank(self) -> None:
+        """A section with fewer entries than the object's block leaves trailing cells empty."""
+        entries = {'sec': [{'a': 'filled', 'b': 'x'}]}
+
+        assert BaseExporterFormat.mds_cells_for_index(self.LAYOUT, entries, 1) == [EMPTY_CELL, EMPTY_CELL]
+
+
+class TestSummaryLineEmptyValues:
+    """A summary line skips unfilled parts without dropping a value that reads 'None'."""
+
+    def test_reference_summary_skips_an_unfilled_summary_field(self) -> None:
+        """An unset summary value is left out rather than rendered as 'None'."""
+        field = {'type': 'ref', 'value': 3,
+                 'reference': {'object_id': 3, 'type_label': 'Server',
+                               'summaries': [{'value': 'web01'}, {'value': None}]}}
+
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == 'Server #3 | web01'
+
+    def test_ref_section_summary_skips_an_unfilled_pulled_field(self) -> None:
+        """An unset pulled-in value is left out rather than rendered as 'None'."""
+        field = {'type': 'ref-section-field', 'value': 7,
+                 'references': {'type_label': 'Rack', 'fields': [{'value': 'R-12'}, {'value': None}]}}
+
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == 'Rack #7 | R-12'
+
+    def test_ref_section_summary_keeps_a_value_that_reads_none(self) -> None:
+        """Regression: the old `!= 'None'` guard also dropped a legitimate value spelled 'None'."""
+        field = {'type': 'ref-section-field', 'value': 7,
+                 'references': {'type_label': 'Rack', 'fields': [{'value': 'None'}, {'value': 'DC1'}]}}
+
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == 'Rack #7 | None | DC1'

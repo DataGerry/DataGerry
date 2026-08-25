@@ -154,29 +154,94 @@ def test_delete_many_from_other_collection_wraps_failure() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                  aggregate_query                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_aggregate_query_returns_the_aggregated_documents() -> None:
+    """The built data pipeline is aggregated and its rows returned as a list"""
+    mgr = _mock_manager()
+    mgr.query_builder.build.return_value = ['QUERY']
+    docs = [{'public_id': 1}, {'public_id': 2}]
+    mgr.aggregate.return_value = iter(docs)
+    params = MagicMock()
+
+    result = BaseManager.aggregate_query(mgr, params)
+
+    assert result == docs
+    mgr.query_builder.build.assert_called_once_with(params, None, None)
+    mgr.aggregate.assert_called_once_with(['QUERY'])
+
+
+def test_aggregate_query_runs_no_count_pipeline() -> None:
+    """The whole point of the method: exactly one aggregation, and no count query is built"""
+    mgr = _mock_manager()
+    mgr.query_builder.build.return_value = ['QUERY']
+    mgr.aggregate.return_value = iter([])
+
+    BaseManager.aggregate_query(mgr, MagicMock())
+
+    mgr.query_builder.count.assert_not_called()
+    assert mgr.aggregate.call_count == 1
+
+
+def test_aggregate_query_forwards_user_and_permission() -> None:
+    """The ACL arguments reach the query builder unchanged"""
+    mgr = _mock_manager()
+    mgr.query_builder.build.return_value = []
+    mgr.aggregate.return_value = iter([])
+    params, user, permission = MagicMock(), MagicMock(), MagicMock()
+
+    BaseManager.aggregate_query(mgr, params, user, permission)
+
+    mgr.query_builder.build.assert_called_once_with(params, user, permission)
+
+
+def test_aggregate_query_wraps_failure() -> None:
+    """A failure while building/aggregating is wrapped in BaseManagerIterationError"""
+    mgr = _mock_manager()
+    mgr.query_builder.build.side_effect = RuntimeError('boom')
+
+    with pytest.raises(BaseManagerIterationError):
+        BaseManager.aggregate_query(mgr, MagicMock())
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                  iterate_query                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_iterate_query_returns_results_and_total() -> None:
-    """Returns the aggregated documents plus the total pulled from the count pipeline"""
+    """Returns the rows from aggregate_query plus the total pulled from the count pipeline"""
     mgr = _mock_manager()
-    mgr.query_builder.build.return_value = ['QUERY']
-    mgr.query_builder.count.return_value = ['COUNT']
     docs = [{'public_id': 1}, {'public_id': 2}]
-    mgr.aggregate.side_effect = [iter(docs), iter([{'total': 7}])]
+    mgr.aggregate_query.return_value = docs
+    mgr.query_builder.count.return_value = ['COUNT']
+    mgr.aggregate.return_value = iter([{'total': 7}])
     params = MagicMock()
 
     result = BaseManager.iterate_query(mgr, params)
 
     assert result == (docs, 7)
-    mgr.query_builder.build.assert_called_once_with(params, None, None)
+
+
+def test_iterate_query_delegates_the_data_half_to_aggregate_query() -> None:
+    """The data pipeline is not rebuilt here - iterate_query is aggregate_query plus a count"""
+    mgr = _mock_manager()
+    mgr.aggregate_query.return_value = []
+    mgr.query_builder.count.return_value = []
+    mgr.aggregate.return_value = iter([])
+    params, user, permission = MagicMock(), MagicMock(), MagicMock()
+
+    BaseManager.iterate_query(mgr, params, user, permission)
+
+    mgr.aggregate_query.assert_called_once_with(params, user, permission)
+    # Only the count pipeline is aggregated directly; the data half went through aggregate_query
+    assert mgr.aggregate.call_count == 1
 
 
 def test_iterate_query_total_defaults_to_zero_when_count_empty() -> None:
     """An empty count cursor yields a total of 0 rather than raising"""
     mgr = _mock_manager()
-    mgr.query_builder.build.return_value = []
+    mgr.aggregate_query.return_value = []
     mgr.query_builder.count.return_value = []
-    mgr.aggregate.side_effect = [iter([]), iter([])]
+    mgr.aggregate.return_value = iter([])
 
     result = BaseManager.iterate_query(mgr, MagicMock())
 
@@ -184,9 +249,9 @@ def test_iterate_query_total_defaults_to_zero_when_count_empty() -> None:
 
 
 def test_iterate_query_wraps_failure() -> None:
-    """A failure while building/aggregating is wrapped in BaseManagerIterationError"""
+    """A failure while aggregating the data half or the count is wrapped in BaseManagerIterationError"""
     mgr = _mock_manager()
-    mgr.query_builder.build.side_effect = RuntimeError('boom')
+    mgr.aggregate_query.side_effect = RuntimeError('boom')
 
     with pytest.raises(BaseManagerIterationError):
         BaseManager.iterate_query(mgr, MagicMock())
@@ -368,6 +433,26 @@ def test_get_distinct_delegates_and_returns_values() -> None:
 
     mgr.dbm.get_distinct.assert_called_once_with(COLLECTION, DB_NAME, 'type_id', {'active': True})
     assert result == ['a', 'b']
+
+
+def test_count_documents_forwards_the_limit() -> None:
+    """count_documents passes the limit through, so an existence probe can stop at the first match"""
+    mgr = _mock_manager()
+    mgr.dbm.count.return_value = 1
+
+    result = BaseManager.count_documents(mgr, {'relation_id': 5}, limit=1)
+
+    mgr.dbm.count.assert_called_once_with(COLLECTION, DB_NAME, {'relation_id': 5}, 1)
+    assert result == 1
+
+
+def test_count_documents_defaults_to_no_limit() -> None:
+    """Without a limit the delegation passes None, which counts every match"""
+    mgr = _mock_manager()
+
+    BaseManager.count_documents(mgr, {'relation_id': 5})
+
+    mgr.dbm.count.assert_called_once_with(COLLECTION, DB_NAME, {'relation_id': 5}, None)
 
 
 def test_delete_many_raw_delegates_with_filter_query() -> None:

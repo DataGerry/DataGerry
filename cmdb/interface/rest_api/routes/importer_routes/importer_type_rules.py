@@ -73,8 +73,9 @@ def special_type_license_error(type_entry: Any, ipam_locked: bool) -> str | None
     reports instead of aborting so one locked entry does not discard the rest of the upload. The
     licence state is the same for the whole request, so the caller evaluates it once and passes it in
 
-    Only IPAM SpecialTypes are gated: a non-IPAM member such as RACK is not part of the IPAM feature
-    and importing it needs no license. Only the UPLOADED entry's special_type is inspected, which is
+    Only license-gated SpecialTypes are refused; an ungated member imports freely. Every gated
+    member currently maps to the IPAM feature, RACK included as an interim decision (see
+    SpecialType.get_license_gated_types). Only the UPLOADED entry's special_type is inspected, which is
     all a create can be judged by. On the update path the STORED type's marker is gated as well, by
     `stored_type_update_blocker` once the type has been read - an upload that simply omits the marker
     would otherwise let an unlicensed instance edit a Type that IS special here
@@ -91,7 +92,7 @@ def special_type_license_error(type_entry: Any, ipam_locked: bool) -> str | None
 
     special_type = type_entry.get(TypeSchemaKey.SPECIAL_TYPE.value)
 
-    if not SpecialType.is_ipam_type(special_type):
+    if not SpecialType.is_license_gated(special_type):
         return None
 
     return TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type=special_type)
@@ -919,9 +920,9 @@ def stored_type_update_blocker(
     Everything else an import checks looks at the upload alone; these four need to know what the type
     currently is, so they run once the pre-update read is in hand:
 
-    1. the IPAM feature must be unlocked to touch a type that IS an IPAM special type here - the
-       uploaded value alone is not enough, an upload that simply omits the marker would otherwise slip
-       past. A non-IPAM member such as RACK is not gated
+    1. the license feature must be unlocked to touch a type that IS a license-gated special type
+       here - the uploaded value alone is not enough, an upload that simply omits the marker would
+       otherwise slip past. Every gated member currently maps to IPAM, RACK included
     2. `special_type` may not be changed by an update (the marker is immutable; an upload declaring a
        different one is refused rather than silently ignored)
     3. the location field may not be removed while CmdbObjects still hold a location value
@@ -939,7 +940,7 @@ def stored_type_update_blocker(
     Returns:
         str | None: The reason the update is refused, or None when it is allowed
     """
-    if ipam_locked and SpecialType.is_ipam_type(old_type.special_type):
+    if ipam_locked and SpecialType.is_license_gated(old_type.special_type):
         return TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type=old_type.special_type)
 
     # An exported ordinary type carries `special_type: ""` while a stored one may carry None, so both

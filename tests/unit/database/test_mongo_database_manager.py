@@ -43,6 +43,7 @@ from cmdb.errors.database import (
     CollectionAlreadyExistsError,
     CreateIndexesError,
     GetIndexesError,
+    DropIndexError,
     DatabaseConnectionError,
     DatabaseAlreadyExistsError,
     DatabaseNotFoundError,
@@ -227,6 +228,31 @@ class TestDatabaseOperations:
 
         with pytest.raises(GetIndexesError):
             mgr.get_index_info(COLL, DB)
+
+    def test_drop_index_drops_an_existing_index(self, mgr: MongoDatabaseManager) -> None:
+        """A present index is dropped and reported as dropped."""
+        collection = _stub_collection(mgr)
+        collection.index_information.return_value = {'object_id': {'key': [('object_id', 1)]}}
+
+        assert mgr.drop_index(COLL, DB, 'object_id') is True
+        collection.drop_index.assert_called_once_with('object_id')
+
+    def test_drop_index_is_a_no_op_for_a_missing_index(self, mgr: MongoDatabaseManager) -> None:
+        """An absent index is not an error - it reports False so a migration re-run stays safe."""
+        collection = _stub_collection(mgr)
+        collection.index_information.return_value = {'public_id': {'key': [('public_id', 1)]}}
+
+        assert mgr.drop_index(COLL, DB, 'object_id') is False
+        collection.drop_index.assert_not_called()
+
+    def test_drop_index_error(self, mgr: MongoDatabaseManager) -> None:
+        """A failure dropping an existing index surfaces as DropIndexError."""
+        collection = _stub_collection(mgr)
+        collection.index_information.return_value = {'object_id': {'key': [('object_id', 1)]}}
+        collection.drop_index.side_effect = RuntimeError('boom')
+
+        with pytest.raises(DropIndexError):
+            mgr.drop_index(COLL, DB, 'object_id')
 
 
 class TestInsert:
@@ -504,6 +530,22 @@ class TestReadHelpers:
 
         with pytest.raises(DocumentGetError):
             mgr.count(COLL, DB)
+
+    def test_count_without_limit_counts_every_match(self, mgr: MongoDatabaseManager) -> None:
+        """Without a limit the driver is called with the criteria alone (no limit keyword)."""
+        collection = _stub_collection(mgr)
+        collection.count_documents.return_value = 7
+
+        assert mgr.count(COLL, DB, {'public_id': 1}) == 7
+        collection.count_documents.assert_called_once_with({'public_id': 1})
+
+    def test_count_passes_the_limit_to_the_driver(self, mgr: MongoDatabaseManager) -> None:
+        """A limit is forwarded so the server can stop counting (the existence-probe case)."""
+        collection = _stub_collection(mgr)
+        collection.count_documents.return_value = 1
+
+        assert mgr.count(COLL, DB, {'public_id': 1}, limit=1) == 1
+        collection.count_documents.assert_called_once_with({'public_id': 1}, limit=1)
 
     def test_get_highest_id_found(self, mgr: MongoDatabaseManager) -> None:
         """The highest public_id is returned from the top-sorted document."""

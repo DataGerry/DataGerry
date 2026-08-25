@@ -62,7 +62,6 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.section_templates import (
     PREDEFINED_SELECT_OPTION_REJECTED,
@@ -82,7 +81,6 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
 )
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
-from cmdb.interface.rest_api.routes.report_routes.report_helper import build_report_query
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     ObjectViewMode,
     ObjectPatchKey,
@@ -1729,9 +1727,9 @@ def clean_type_reports(
     """
     Strips removed field occurrences from a CmdbType's reports and rebuilds their queries
 
-    For every report of the type, removes each dropped field name, rebuilds ``report_query`` from
-    the remaining conditions and persists all reports in a single bulk write. A no-op when no field
-    names were removed
+    The route-layer wrapper around ``ReportsManager.strip_removed_fields_from_reports``: it owns only
+    the HTTP error mapping, so the same cleanup can be reused by the non-route callers (the global
+    section-template removal and the database updaters). A no-op when no field names were removed
 
     Args:
         reports_manager (ReportsManager): db interface for CmdbReports
@@ -1742,25 +1740,8 @@ def clean_type_reports(
     Raises:
         HTTPException: 500 when the bulk write of the cleaned reports fails
     """
-    if not removed_field_names:
-        return
-
     try:
-        report_ops: list[UpdateOne] = []
-
-        for a_report in reports_for_type:
-            tmp_report: CmdbReport = CmdbReport.from_data(a_report)
-
-            for field in removed_field_names:
-                tmp_report.remove_field_occurrences(field)
-
-            tmp_report.report_query = build_report_query(tmp_report.conditions, type_instance)
-            report_ops.append(
-                UpdateOne({'public_id': tmp_report.public_id}, {'$set': tmp_report.__dict__})
-            )
-
-        if report_ops:
-            reports_manager.bulk_write(report_ops)
+        reports_manager.strip_removed_fields_from_reports(reports_for_type, removed_field_names, type_instance)
     except Exception as error:
         LOGGER.error(
             "[clean_type_reports] Clean Reports Exception: %s, Type: %s", error, type(error)

@@ -44,7 +44,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
-from cmdb.models.reports_model.report_constants import ReportConditionKey
+from cmdb.models.reports_model.report_constants import ReportConditionKey, ReportQueryKey
 from cmdb.utils.helpers import str_to_bool
 
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
@@ -56,7 +56,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     REPORT_TYPE_MISSING_MSG,
     REPORT_WRITE_KEYS,
     ReportKey,
-    ReportQueryKey,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
