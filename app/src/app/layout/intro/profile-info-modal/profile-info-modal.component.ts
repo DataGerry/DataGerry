@@ -26,11 +26,14 @@ import { LicenseFeature } from 'src/app/settings/license-management/models/licen
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Profile that is only offered when the IPAM premium feature is licensed. */
 const IPAM_PROFILE = 'ipam-profile';
+const RACK_PROFILE = 'rack-profile';
+
+/** Profiles only offered when the IPAM premium feature is licensed; Rack View shares it for now. */
+const IPAM_GATED_PROFILES: ReadonlySet<string> = new Set([IPAM_PROFILE, RACK_PROFILE]);
 
 /** Profiles that are surfaced with a "New" tag in the category step. */
-const NEW_PROFILES: ReadonlySet<string> = new Set(['rack-profile', IPAM_PROFILE]);
+const NEW_PROFILES: ReadonlySet<string> = new Set([RACK_PROFILE, IPAM_PROFILE]);
 
 @Component({
   selector: 'cmdb-profile-info-modal',
@@ -105,7 +108,7 @@ export class ProfileInfoModalComponent {
 
     this.allProfiles = tmpActiveProfiles;
 
-    // Only Show IPAM in the profile selection if the premium feature is unlocked
+    // Only offer the IPAM-gated profiles while the premium feature is unlocked
     this.premiumFeatureService.isAvailable$(LicenseFeature.Ipam)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((ipamAvailable) => this.applyProfileGate(ipamAvailable));
@@ -113,8 +116,8 @@ export class ProfileInfoModalComponent {
 
 
   /**
-   * Rebuilds the visible profiles and their form controls, dropping the IPAM profile when the
-   * feature is not licensed so it is neither shown nor submitted to the profile creation call.
+   * Rebuilds the visible profiles and their form controls, dropping the IPAM-gated profiles when the
+   * feature is not licensed so they are neither shown nor submitted to the profile creation call.
    *
    * @param ipamAvailable Whether the IPAM premium feature is currently unlocked
    */
@@ -122,7 +125,7 @@ export class ProfileInfoModalComponent {
     const visibleProfiles: Set<string> = new Set();
 
     for (const profile of this.allProfiles) {
-      if (profile === IPAM_PROFILE && !ipamAvailable) {
+      if (IPAM_GATED_PROFILES.has(profile) && !ipamAvailable) {
         continue;
       }
 

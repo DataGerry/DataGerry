@@ -61,20 +61,17 @@
 
   /* Truncated on one line; the full summary line is on the tooltip the template attaches. */
   &__name {
-    padding: 0;
-    border: 0;
-    background: none;
     font-size: 0.78rem;
     font-weight: 600;
     line-height: 1.4;
     color: $ink;
-    text-align: left;
+    text-decoration: none;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 
-    /* Only a mount opens an object, so only that name reads as a link. */
-    &:is(button):hover {
+    /* Only a mount opens an object, so only that name is an anchor. */
+    &:is(a):hover {
       color: $primary;
       text-decoration: underline;
     }

@@ -34,6 +34,8 @@ import { TypeService } from 'src/app/framework/services/type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { SpecialType } from 'src/app/framework/models/special-type';
+import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { RACK_VIEW_RIGHT } from './rack-overview/models/rack-overview.types';
 
 @Component({
@@ -75,6 +77,11 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     return this.renderResult?.object_information?.special_type === SpecialType.RACK;
   }
 
+  /** The rack view belongs to the licensed IPAM feature, so an unlicensed instance never renders it. */
+  public get showRackView(): boolean {
+    return this.isRack && this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
+  }
+
   private pendingSelectedId: number | null = null;
   private readonly unsubscribe = new Subject<void>();
   /** What the view is built from. Fed by the route on arrival, and by a re-read after a write. */
@@ -82,6 +89,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   private readonly objectService = inject(ObjectService);
   private readonly objectChanges = inject(ObjectChangeNotifierService);
   private readonly loaderService = inject(LoaderService);
+  private readonly premiumFeatureService = inject(PremiumFeatureService);
 
   /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 

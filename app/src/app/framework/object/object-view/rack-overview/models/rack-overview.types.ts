@@ -87,6 +87,16 @@ export function toDayString(value: RackApiDate): string | null {
 }
 
 
+/** Today as `YYYY-MM-DD`, read in the browser's own timezone: the day the user is looking at. */
+export function currentDayString(): string {
+    const now = new Date();
+    const month = `${now.getMonth() + 1}`.padStart(2, '0');
+    const day = `${now.getDate()}`.padStart(2, '0');
+
+    return `${now.getFullYear()}-${month}-${day}`;
+}
+
+
 /** A row without a kind predates the occupants and is an object mount. */
 export function kindOf(row: { kind?: RackMountKind | null }): RackMountKind {
     return row?.kind ?? RackMountKind.MOUNT;
@@ -281,6 +291,8 @@ export interface RackRowView {
     row: RackMountRow;
     mountId: number;
     objectId: number | null;
+    /** The object page this row links to, or null for a row that stands for no object. */
+    objectRoute: string | null;
     area: RackArea;
     startSlot: number | null;
     height: number | null;
@@ -292,6 +304,13 @@ export interface RackRowView {
     typeName: string;
     secondaryLabel: string | null;
     period: string | null;
+    /**
+     * Set on a reservation whose last booked day has passed while the row still holds its slots:
+     * nothing releases a reservation when its period runs out.
+     */
+    isExpired: boolean;
+    /** How long the period has been over, for every surface that has to say why the row is flagged. */
+    expiryNote: string | null;
     slotRange: string;
     gridRow: string;
     tone: string;

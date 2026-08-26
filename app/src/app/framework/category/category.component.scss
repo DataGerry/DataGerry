@@ -1,0 +1,320 @@
+@import "src/scss/variables";
+
+$cat-shadow: 0 6px 16px -8px rgba(28, 25, 23, 0.16), 0 2px 6px -3px rgba(28, 25, 23, 0.08);
+$cat-head-surface: #f7f8fa;
+
+/* ---------------------------------------------------- PANELS ------------------------------------------------------- */
+
+.cat-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-lg);
+    box-shadow: $cat-shadow;
+}
+
+/* Brand edge marks the panel that is currently in an editing state. */
+.cat-panel--tree.is-organizing::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 3px;
+    background: var(--dg-brand);
+}
+
+.cat-panel__head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    padding: 0.65rem 0.8rem;
+    background: $cat-head-surface;
+    border-bottom: 1px solid var(--dg-border);
+}
+
+.cat-panel__icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.85rem;
+    height: 1.85rem;
+    border-radius: 0.55rem;
+    background: rgba(var(--dg-brand-rgb), 0.12);
+    color: var(--dg-brand);
+    font-size: 0.8rem;
+    box-shadow: inset 0 0 0 1px rgba(var(--dg-brand-rgb), 0.14);
+}
+
+.cat-panel__titles {
+    flex: 1 1 8rem;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+}
+
+.cat-panel__title {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--dg-ink);
+}
+
+.cat-panel__meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.74rem;
+    color: var(--dg-muted);
+}
+
+.cat-panel__actions {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+}
+
+.cat-panel__body {
+    padding: 0.75rem;
+}
+
+/* Status flag replacing the header actions while the tree is being rearranged. */
+.cat-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid rgba(var(--dg-brand-rgb), 0.28);
+    border-radius: 999px;
+    background: rgba(var(--dg-brand-rgb), 0.1);
+    color: var(--dg-brand-ink);
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.cat-panel__note {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--dg-hairline);
+    background: var(--dg-surface-tint);
+    color: var(--dg-muted);
+    font-size: 0.76rem;
+
+    i {
+        color: var(--dg-brand);
+    }
+}
+
+/* --------------------------------------------------- TOOLBAR ------------------------------------------------------- */
+
+.cat-panel__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid var(--dg-hairline);
+}
+
+.cat-search {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.cat-search__icon {
+    position: absolute;
+    top: 50%;
+    left: 0.65rem;
+    transform: translateY(-50%);
+    color: var(--dg-muted);
+    font-size: 0.75rem;
+    pointer-events: none;
+}
+
+.cat-search__input {
+    width: 100%;
+    height: 2rem;
+    padding: 0 1.9rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-sm);
+    background: var(--dg-surface);
+    color: var(--dg-ink);
+    font-size: 0.82rem;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+
+    &::placeholder {
+        color: var(--dg-muted);
+    }
+
+    &:focus {
+        outline: none;
+        background: #fff;
+        border-color: var(--dg-brand);
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+.cat-search__clear {
+    position: absolute;
+    top: 50%;
+    right: 0.25rem;
+    transform: translateY(-50%);
+
+    ::ng-deep .btn {
+        display: grid;
+        place-items: center;
+        width: 1.4rem;
+        height: 1.4rem;
+        padding: 0;
+        border: 0;
+        border-radius: 0.35rem;
+        background: transparent;
+        color: var(--dg-muted);
+        font-size: 0.7rem;
+
+        &:hover {
+            color: var(--dg-muted);
+            background: var(--dg-hairline);
+        }
+
+        &:focus-visible {
+            outline: none;
+            box-shadow: var(--dg-focus-ring);
+        }
+    }
+}
+
+.cat-panel__toolbar-action ::ng-deep .btn {
+    white-space: nowrap;
+    font-size: 0.76rem;
+}
+
+/* ------------------------------------------------- TREE VIEWPORT --------------------------------------------------- */
+
+/* Bounded viewport so a long structure scrolls inside the panel instead of stretching the page. */
+.cat-tree {
+    flex: 1 1 auto;
+    min-height: 6rem;
+    max-height: clamp(16rem, 52vh, 38rem);
+    padding: 0.5rem 0.55rem 0.65rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(15, 23, 42, 0.18) transparent;
+
+    &::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        border-radius: 4px;
+        background: rgba(15, 23, 42, 0.18);
+    }
+}
+
+/* --------------------------------------------------- FOOTER -------------------------------------------------------- */
+
+/* Sibling of the scrolling viewport, so the save action stays in place while the tree scrolls. */
+.cat-panel__foot {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.8rem;
+    border-top: 1px solid var(--dg-border);
+    background: linear-gradient(180deg, #fff, $cat-head-surface);
+}
+
+.cat-panel__foot-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-right: auto;
+    color: var(--dg-muted);
+    font-size: 0.74rem;
+
+    &.is-dirty {
+        color: var(--dg-brand-ink);
+        font-weight: 600;
+    }
+}
+
+/* ------------------------------------------------- EMPTY STATES ---------------------------------------------------- */
+
+.cat-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 1.75rem 1rem;
+    text-align: center;
+}
+
+.cat-empty__icon {
+    display: grid;
+    place-items: center;
+    width: 2.4rem;
+    height: 2.4rem;
+    margin-bottom: 0.2rem;
+    border-radius: 0.7rem;
+    background: rgba(var(--dg-brand-rgb), 0.1);
+    color: var(--dg-brand);
+    font-size: 0.95rem;
+}
+
+.cat-empty__title {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--dg-ink);
+}
+
+.cat-empty__text {
+    margin: 0 0 0.4rem;
+    max-width: 18rem;
+    font-size: 0.78rem;
+    color: var(--dg-muted);
+}
+
+/* -------------------------------------------------- RESPONSIVE ----------------------------------------------------- */
+
+@media (min-width: 992px) {
+    /* Keeps the structure panel and its save bar in view while the list is scrolled. */
+    .cat-structure {
+        position: sticky;
+        top: calc(1rem + #{$navbar-height});
+    }
+
+    .cat-tree {
+        max-height: calc(100vh - #{$navbar-height} - 15rem);
+    }
+}
+
+@media (max-width: 575.98px) {
+    .cat-panel__actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .cat-panel__foot {
+        flex-wrap: wrap;
+    }
+
+    .cat-panel__foot-hint {
+        width: 100%;
+        margin-right: 0;
+    }
+
+    .cat-panel__body {
+        padding: 0.5rem;
+    }
+}
