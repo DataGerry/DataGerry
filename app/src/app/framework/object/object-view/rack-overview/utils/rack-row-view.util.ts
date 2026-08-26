@@ -35,6 +35,12 @@ import { RACK_KIND_ICONS, RACK_KIND_LABELS, accentTint, safeAccent, safeIcon } f
 const TONE_TINT_ALPHA = 0.14;
 
 
+/** The object page a row points at. Only a mount has one; an occupant stands for no object. */
+export function objectRouteOf(objectId: number | null): string | null {
+    return objectId == null ? null : `/framework/object/view/${objectId}`;
+}
+
+
 /** Every row of one overview, ready to draw. */
 export function toRowViews(rows: RackMountRow[], rackHeight: number): RackRowView[] {
     return rows.map(row => toRowView(row, rackHeight));
@@ -50,6 +56,7 @@ export function toRowView(row: RackMountRow, rackHeight: number): RackRowView {
         row,
         mountId: row.mount_id,
         objectId: row.object_id,
+        objectRoute: isMount ? objectRouteOf(row.object_id) : null,
         area: row.area,
         startSlot: row.start_slot,
         height: row.height,

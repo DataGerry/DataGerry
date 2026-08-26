@@ -82,7 +82,8 @@
 
   @if (mount.isMount) {
   <app-button label="Open object" icon="fas fa-external-link-alt" bootstrapClass="rack-btn rack-btn--quiet"
-    [ariaLabel]="'Open ' + mount.label" (clicked)="actions.openObject(mount.objectId)">
+    title="Opens in a new tab"
+    [ariaLabel]="'Open ' + mount.label + ' in a new tab'" (clicked)="actions.openObject(mount.objectId)">
   </app-button>
   }
 

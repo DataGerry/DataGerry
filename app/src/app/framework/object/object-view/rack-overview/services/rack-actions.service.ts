@@ -15,6 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { Location } from '@angular/common';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
@@ -24,6 +25,7 @@ import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.s
 
 import { RackMountModalComponent } from '../components/rack-mount-modal/rack-mount-modal.component';
 import { RackArea, RackMountRow, RackRowView, RackViewSide } from '../models/rack-overview.types';
+import { objectRouteOf } from '../utils/rack-row-view.util';
 import { RackOverviewStore } from './rack-overview-store.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -44,6 +46,7 @@ export class RackActionsService {
     private readonly deleteModalService = inject(DeleteModalService);
     private readonly modalService = inject(NgbModal);
     private readonly router = inject(Router);
+    private readonly location = inject(Location);
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
@@ -88,13 +91,23 @@ export class RackActionsService {
     }
 
 
-    /** Only a mount has an object to open; an occupant row never reaches this. */
+    /**
+     * Opens a mounted object in a new tab, so the rack it was opened from keeps its selection, its
+     * face and its scroll - and, while the view is fullscreen, stays fullscreen.
+     *
+     * Only a mount has an object to open; an occupant row never reaches this.
+     */
     public openObject(objectId: number | null): void {
-        if (objectId == null) {
+        const route = objectRouteOf(objectId);
+
+        if (!route) {
             return;
         }
 
-        this.router.navigate([`/framework/object/view/${objectId}`]);
+        // Through Location, so the tab is opened on the same href a routerLink would have produced.
+        const url = this.location.prepareExternalUrl(this.router.serializeUrl(this.router.createUrlTree([route])));
+
+        window.open(url, '_blank', 'noopener');
     }
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

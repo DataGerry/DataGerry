@@ -30,11 +30,12 @@
 
         <!-- The name is cut to one line; the tooltip carries the whole label. -->
         <span class="rack-rail__text">
-          @if (mount.isMount) {
-          <button type="button" class="rack-rail__name" [ngbTooltip]="mount.label"
-            [container]="tooltipContainer()" (click)="actions.openObject(mount.objectId)">
+          @if (mount.objectRoute; as objectRoute) {
+          <a class="rack-rail__name" [routerLink]="objectRoute" target="_blank" rel="noopener noreferrer"
+            draggable="false" [attr.aria-label]="'Open ' + mount.label + ' in a new tab'"
+            [ngbTooltip]="mount.label" [container]="tooltipContainer()">
             {{ mount.label }}
-          </button>
+          </a>
           } @else {
           <span class="rack-rail__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
             {{ mount.label }}

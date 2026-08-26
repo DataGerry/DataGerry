@@ -118,18 +118,16 @@
   }
 
   &__name {
-    padding: 0;
-    border: 0;
-    background: none;
     font-size: 0.85rem;
     font-weight: 600;
     color: $ink;
-    text-align: left;
+    text-decoration: none;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 
-    &:is(button):hover {
+    /* Only a mount opens an object, so only that name is an anchor. */
+    &:is(a):hover {
       color: $primary;
       text-decoration: underline;
     }

@@ -281,6 +281,8 @@ export interface RackRowView {
     row: RackMountRow;
     mountId: number;
     objectId: number | null;
+    /** The object page this row links to, or null for a row that stands for no object. */
+    objectRoute: string | null;
     area: RackArea;
     startSlot: number | null;
     height: number | null;

@@ -28,11 +28,12 @@
     </span>
 
     <span class="rack-tray__text">
-      @if (mount.isMount) {
-      <button type="button" class="rack-tray__name" [ngbTooltip]="mount.label"
-        [container]="tooltipContainer()" (click)="actions.openObject(mount.objectId)">
+      @if (mount.objectRoute; as objectRoute) {
+      <a class="rack-tray__name" [routerLink]="objectRoute" target="_blank" rel="noopener noreferrer"
+        draggable="false" [attr.aria-label]="'Open ' + mount.label + ' in a new tab'"
+        [ngbTooltip]="mount.label" [container]="tooltipContainer()">
         {{ mount.label }}
-      </button>
+      </a>
       } @else {
       <span class="rack-tray__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
         {{ mount.label }}
