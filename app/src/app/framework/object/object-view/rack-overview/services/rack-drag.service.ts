@@ -60,7 +60,19 @@ export class RackDragService {
      */
     private readonly plan = signal<RackDropPlan | null>(null, { equal: isSamePlan });
 
+    /**
+     * Whether the hit area over each face may take the pointer. It must not while the gesture is still
+     * being set up: Chromium re-tests what lies under the cursor when it hands the drag to the system,
+     * and an area that has just gone live over the grabbed plate is not the plate, so the drag is
+     * dropped before it begins. Firefox keeps the gesture it already started, which is why it worked
+     * there. Armed on the first dragover of the drawing instead - by then the drag is under way.
+     */
+    private readonly armed = signal(false);
+
     public readonly isDragging = computed(() => this.source() !== null);
+
+    /** Read by the hit area of each face, which stays out of the way until the drag is running. */
+    public readonly hitAreasLive = this.armed.asReadonly();
 
     /** The plan as the drawing reads it, so the elevation can preview the U range it would take. */
     public readonly dropPlan = this.plan.asReadonly();
@@ -147,6 +159,17 @@ export class RackDragService {
 
     /* --------------------------------------------------- DROP TARGETS ------------------------------------------------- */
 
+    /**
+     * Any dragover reaching the drawing, delivered by whatever the pointer is actually over - a plate,
+     * a free bay, the cavity. It only arms the hit areas of the faces, and takes no drop of its own.
+     */
+    public onDrawingDragOver(): void {
+        if (this.source()) {
+            this.armed.set(true);
+        }
+    }
+
+
     public onFaceDragOver(event: DragEvent, side: RackViewSide): void {
         const plan = this.planForFace(event, side);
 
@@ -222,6 +245,7 @@ export class RackDragService {
     private end(): void {
         this.source.set(null);
         this.plan.set(null);
+        this.armed.set(false);
     }
 
 

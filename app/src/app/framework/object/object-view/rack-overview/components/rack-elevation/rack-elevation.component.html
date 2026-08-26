@@ -1,4 +1,8 @@
-<div class="rack-board__inner">
+<!--
+  The dragover of the whole drawing, which only arms the hit areas below. They cannot be live from the
+  dragstart on: an area that appears over the plate being grabbed costs Chromium the gesture.
+-->
+<div class="rack-board__inner" (dragover)="drag.onDrawingDragOver()">
 
   <!--
     One rail definition, drawn on both posts of the rack. It takes drops as well as gives them:
@@ -132,13 +136,13 @@
 
     <!--
       The slot band of this face, as one hit area. It has to lie over the plates - a row is
-      dragged across the ones it currently overlaps - so it is only live while something is
-      actually in flight, and lets every click through the rest of the time.
+      dragged across the ones it currently overlaps - so it is only live while a drag is
+      under way, and lets every click through the rest of the time.
     -->
     @if (store.canEdit) {
     <div class="rack-dropzone rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"
-      (dragover)="drag.onFaceDragOver($event, face.side)" (dragleave)="drag.onFaceDragLeave()"
-      (drop)="drag.onFaceDrop($event, face.side)"></div>
+      [class.rack-dropzone--live]="drag.hitAreasLive()" (dragover)="drag.onFaceDragOver($event, face.side)"
+      (dragleave)="drag.onFaceDragLeave()" (drop)="drag.onFaceDrop($event, face.side)"></div>
     }
     }
   </ng-template>
