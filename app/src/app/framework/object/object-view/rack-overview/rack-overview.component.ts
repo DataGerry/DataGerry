@@ -33,6 +33,9 @@ const ZOOM_MAX = 150;
 const ZOOM_STEP = 10;
 const ZOOM_DEFAULT = 100;
 
+/** The panels that open inside the header card. One at a time, so the card has a bounded height. */
+type RackHeaderPanel = 'legend' | 'alerts';
+
 
 /**
  * The rack view. It owns how the rack is looked at - which faces, at what zoom, what is keyed in the
@@ -69,14 +72,28 @@ export class RackOverviewComponent {
     /** Scales the drawing only; the header and the side column keep their own size. */
     public readonly zoomPercent = signal(ZOOM_DEFAULT);
     public readonly isFullscreen = signal(false);
-    /** The key is folded away until it is asked for; it explains the drawing, it does not replace it. */
-    public readonly isLegendExpanded = signal(false);
+
+    /**
+     * Which panel of the header card is open, if any. Both are folded away until they are asked for,
+     * and only one opens at a time: they explain the drawing, they must never be what pushes it off
+     * the screen. The lapsed bookings in particular grow with the rack.
+     */
+    private readonly openPanel = signal<RackHeaderPanel | null>(null);
+
+    public readonly isLegendExpanded = computed(() => this.openPanel() === 'legend');
+
+    public readonly isAlertsExpanded = computed(() => this.openPanel() === 'alerts');
 
     /** Sits on the toggle, so the key says how much it holds without having to be opened first. */
     public readonly legendCount = computed(() =>
         this.store.typesLegend().length + this.store.occupantsLegend().length);
 
     public readonly hasLegend = computed(() => this.legendCount() > 0);
+
+    /** Same for the lapsed bookings: the count is carried in the header, the list is behind it. */
+    public readonly expiredCount = computed(() => this.store.expiredReservations().length);
+
+    public readonly hasExpired = computed(() => this.expiredCount() > 0);
 
     /** The face a new row defaults to, which is whichever one the current view leads with. */
     public readonly defaultSide = computed<RackViewSide>(() =>
@@ -105,7 +122,7 @@ export class RackOverviewComponent {
             .pipe(takeUntilDestroyed())
             .subscribe((rackId) => {
                 this.viewMode.set('split');
-                this.isLegendExpanded.set(false);
+                this.openPanel.set(null);
                 this.store.open(rackId);
             });
     }
@@ -133,8 +150,8 @@ export class RackOverviewComponent {
         this.isFullscreen.set(isFullscreen);
     }
 
-    public onToggleLegend(): void {
-        this.isLegendExpanded.update(expanded => !expanded);
+    public onTogglePanel(panel: RackHeaderPanel): void {
+        this.openPanel.update(current => current === panel ? null : panel);
     }
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

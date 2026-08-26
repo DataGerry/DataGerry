@@ -35,7 +35,8 @@ import {
     RackFace,
     RackMountUpdatePayload,
     RackOverviewResponse,
-    RackRowView
+    RackRowView,
+    currentDayString
 } from '../models/rack-overview.types';
 import {
     buildFace,
@@ -94,6 +95,12 @@ export class RackOverviewStore {
     private readonly selectedMountId = signal<number | null>(null);
 
     /**
+     * The day a reservation's period is measured against. Re-read with the rack rather than kept from
+     * the first render, so a view left open overnight catches up on its next reload.
+     */
+    private readonly today = signal(currentDayString());
+
+    /**
      * Every request to re-read the rack. Routed through one stream so a newer read cancels the one
      * before it: a drag makes writes cheap enough to fire several in a second, and two overlapping
      * reads can otherwise answer out of order and leave the drawing showing the older of the two.
@@ -119,7 +126,7 @@ export class RackOverviewStore {
     public readonly rows = computed<RackRowView[]>(() => {
         const areas = this.overview()?.areas;
 
-        return areas ? toRowViews(Object.values(areas).flat(), this.rackHeight()) : [];
+        return areas ? toRowViews(Object.values(areas).flat(), this.rackHeight(), this.today()) : [];
     });
 
     /**
@@ -159,6 +166,12 @@ export class RackOverviewStore {
         [...this.rowsOf(RackArea.FRONT), ...this.fullDepthRows(), ...this.rowsOf(RackArea.BACK)],
         this.rackHeight()
     ));
+
+    /**
+     * Reservations that are still holding their slots after the booked period ran out. Nothing releases
+     * one when it ends, so the view has to say which ones are only there because no one cleared them.
+     */
+    public readonly expiredReservations = computed(() => this.rows().filter(row => row.isExpired));
 
     public readonly sideRails = computed<RackAreaGroup[]>(() => [
         { area: RackArea.LEFT, title: 'Left side', mounts: sortByPosition(this.rowsOf(RackArea.LEFT)) },
@@ -228,6 +241,7 @@ export class RackOverviewStore {
 
 
     public reload(): void {
+        this.today.set(currentDayString());
         this.reloads.next();
     }
 

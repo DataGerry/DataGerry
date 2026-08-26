@@ -148,6 +148,18 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Says in words what the red tone says in colour, for a booking waiting in the tray. */
+  &__flag {
+    align-self: flex-start;
+    margin-top: 0.15rem;
+    padding: 0 0.3rem;
+    border-radius: $radius-chip;
+    background: rgba($expired, 0.1);
+    color: $expired;
+    font-size: 0.68rem;
+    font-weight: 600;
+  }
+
   &__actions {
     display: flex;
     align-items: center;

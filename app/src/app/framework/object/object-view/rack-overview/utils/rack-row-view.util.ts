@@ -28,11 +28,23 @@ import {
     toDayString
 } from '../models/rack-overview.types';
 import { gridRowOfPlacement, slotRangeText } from './rack-layout.util';
-import { RACK_KIND_ICONS, RACK_KIND_LABELS, accentTint, safeAccent, safeIcon } from './rack-visual.util';
+import {
+    EXPIRED_ACCENT,
+    RACK_KIND_ICONS,
+    RACK_KIND_LABELS,
+    accentTint,
+    safeAccent,
+    safeIcon
+} from './rack-visual.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Opacity of the row colour behind an icon chip or a side card. */
 const TONE_TINT_ALPHA = 0.14;
+
+/** A date the day maths can be run on. Anything else the backend reports is not guessed at. */
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const MS_PER_DAY = 86_400_000;
 
 
 /** The object page a row points at. Only a mount has one; an occupant stands for no object. */
@@ -41,16 +53,18 @@ export function objectRouteOf(objectId: number | null): string | null {
 }
 
 
-/** Every row of one overview, ready to draw. */
-export function toRowViews(rows: RackMountRow[], rackHeight: number): RackRowView[] {
-    return rows.map(row => toRowView(row, rackHeight));
+/** Every row of one overview, ready to draw. `today` is what a reservation's period is measured against. */
+export function toRowViews(rows: RackMountRow[], rackHeight: number, today: string): RackRowView[] {
+    return rows.map(row => toRowView(row, rackHeight, today));
 }
 
 
-export function toRowView(row: RackMountRow, rackHeight: number): RackRowView {
+export function toRowView(row: RackMountRow, rackHeight: number, today: string): RackRowView {
     const kind = kindOf(row);
     const isMount = kind === RackMountKind.MOUNT;
-    const colorSource = colorSourceOf(row, kind);
+    const isExpired = isExpiredReservation(row, kind, today);
+    // A booking that has run out is drawn as the warning it is, not in the colour it was given.
+    const colorSource = isExpired ? EXPIRED_ACCENT : colorSourceOf(row, kind);
 
     return {
         row,
@@ -69,6 +83,8 @@ export function toRowView(row: RackMountRow, rackHeight: number): RackRowView {
         // The label of a mount is already the object, so it only adds something to a named occupant.
         secondaryLabel: isMount ? row.label?.trim() || null : null,
         period: periodOf(row),
+        isExpired,
+        expiryNote: isExpired ? expiryNoteOf(row, today) : null,
         slotRange: slotRangeText(row.start_slot, row.height),
         gridRow: gridRowOfPlacement(row.start_slot, row.height, rackHeight),
         tone: safeAccent(colorSource),
@@ -132,4 +148,29 @@ function periodOf(row: RackMountRow): string | null {
     }
 
     return until ? `until ${until}` : null;
+}
+
+
+/**
+ * Whether a reservation is past its booked period. The last booked day still counts, and an open end
+ * never runs out - the backend holds the slots either way, so this only decides how they are drawn.
+ */
+function isExpiredReservation(row: RackMountRow, kind: RackMountKind, today: string): boolean {
+    if (kind !== RackMountKind.RESERVATION) {
+        return false;
+    }
+
+    const until = toDayString(row.end_date);
+
+    // Both sides are `YYYY-MM-DD`, so comparing them as text is comparing them as days.
+    return !!until && DAY_PATTERN.test(until) && until < today;
+}
+
+
+/** How long an expired reservation has been holding slots it is no longer booked for. */
+function expiryNoteOf(row: RackMountRow, today: string): string {
+    const ended = Date.parse(`${toDayString(row.end_date)}T00:00:00Z`);
+    const days = Math.round((Date.parse(`${today}T00:00:00Z`) - ended) / MS_PER_DAY);
+
+    return days > 1 ? `Expired ${days} days ago` : 'Expired since yesterday';
 }

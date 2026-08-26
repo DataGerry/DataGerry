@@ -44,6 +44,10 @@
         @if (mount.height) { &middot; {{ mount.height }}U hint }
         @if (mount.period; as period) { &middot; {{ period }} }
       </span>
+
+      @if (mount.isExpired) {
+      <span class="rack-tray__flag">{{ mount.expiryNote }}</span>
+      }
     </span>
 
     <span class="rack-tray__actions" *permissionLink="['base.framework.rack.edit']">

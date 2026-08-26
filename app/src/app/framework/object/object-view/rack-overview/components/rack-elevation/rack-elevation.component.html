@@ -110,13 +110,25 @@
     @for (mount of face.units; track mount.mountId) {
     <button type="button" class="rack-unit rack-face" [class.rack-face--rear]="face.side === AREAS.BACK"
       [class.rack-unit--selected]="store.isSelected(mount)" [class.rack-unit--occupant]="!mount.isMount"
-      [class.rack-unit--dragged]="drag.isDragged(mount)" [style.--rack-tone]="mount.tone"
-      [style.grid-row]="mount.gridRow" [attr.draggable]="store.canEdit ? 'true' : null"
-      [attr.aria-pressed]="store.isSelected(mount)"
-      [attr.aria-label]="mount.label + ', ' + mount.typeName + ', ' + mount.slotRange"
+      [class.rack-unit--expired]="mount.isExpired" [class.rack-unit--dragged]="drag.isDragged(mount)"
+      [style.--rack-tone]="mount.tone" [style.grid-row]="mount.gridRow"
+      [attr.draggable]="store.canEdit ? 'true' : null" [attr.aria-pressed]="store.isSelected(mount)"
+      [attr.aria-label]="mount.label + ', ' + mount.typeName + ', ' + mount.slotRange + (mount.isExpired ? ', ' + mount.expiryNote : '')"
       (click)="store.toggleSelection(mount)" (dragstart)="drag.onPlateDragStart($event, mount)"
       (dragend)="drag.onDragEnd()">
       <span class="rack-unit__icon"><i [class]="mount.icon" aria-hidden="true"></i></span>
+
+      <!--
+        The sign a lapsed booking carries. The plate is already red, but colour alone must not be
+        what says so - and the plate's own label already carries it for a screen reader.
+      -->
+      @if (mount.isExpired) {
+      <span class="rack-unit__alert" [ngbTooltip]="mount.expiryNote" [container]="tooltipContainer()"
+        aria-hidden="true">
+        <i class="fas fa-exclamation-triangle"></i>
+      </span>
+      }
+
       <!-- A faceplate is only as wide as its U; the tooltip carries the name it cannot fit. -->
       <span class="rack-unit__name" [ngbTooltip]="mount.label" [container]="tooltipContainer()">
         {{ mount.label }}

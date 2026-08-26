@@ -84,6 +84,19 @@
     opacity: 0.95;
   }
 
+  /*
+   * The sign a lapsed booking carries. Stays through the compact density, unlike the other plate
+   * detail: it is what says why the plate is red, and colour on its own may not be read at all.
+   */
+  &__alert {
+    display: grid;
+    place-items: center;
+    flex: none;
+    font-size: 0.62rem;
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+  }
+
   &__name {
     flex: 0 1 auto;
     min-width: 0;
@@ -139,10 +152,25 @@
     box-shadow: 0 0 5px 1px rgba(74, 222, 128, 0.6);
   }
 
+  /*
+   * A reservation past its end date. It keeps the occupant hatch rather than a coarser one of its
+   * own: the alarm red already sets it apart, and a denser weave behind a 0.66rem label is what
+   * costs the label its legibility. The name is given a deeper shadow to sit on the red instead.
+   */
+  &--expired &__name {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  }
+
   /* An occupant has nothing running in it, so its indicator is dark. */
   &--occupant &__led {
     background: rgba(255, 255, 255, 0.35);
     box-shadow: none;
+  }
+
+  /* A lapsed booking is the one occupant worth noticing, so its indicator is lit again. */
+  &--expired &__led {
+    background: rgba(255, 255, 255, 0.75);
+    box-shadow: 0 0 5px 1px rgba(255, 255, 255, 0.45);
   }
 }
 

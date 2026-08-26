@@ -258,4 +258,30 @@
       transform: rotate(180deg);
     }
   }
+
+  /*
+   * The one handle that is a warning rather than a reference. It is what has to be noticed when the
+   * panel behind it is folded away, so it carries the alarm red at rest, not only while it is open.
+   * Last in the block on purpose: these have to win over the neutral and open rules above.
+   */
+  &--alert,
+  &--alert:hover,
+  &--alert#{&}--open {
+    background: $expired-soft;
+    border-color: $expired-edge;
+    color: $expired;
+
+    .rack-disclosure__count {
+      background: rgba($expired, 0.12);
+      color: $expired;
+    }
+
+    .rack-disclosure__caret {
+      color: inherit;
+    }
+  }
+
+  &--alert:focus-visible {
+    box-shadow: 0 0 0 0.2rem rgba($expired, 0.3);
+  }
 }

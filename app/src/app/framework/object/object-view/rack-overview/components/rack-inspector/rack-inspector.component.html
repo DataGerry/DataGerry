@@ -55,6 +55,13 @@
     </div>
     }
 
+    @if (mount.isExpired) {
+    <div class="rack-rows__row rack-rows__row--expired">
+      <dt>Status</dt>
+      <dd>{{ mount.expiryNote }}</dd>
+    </div>
+    }
+
     <div class="rack-rows__row">
       <dt>Mount ID</dt>
       <dd>#{{ mount.mountId }}</dd>

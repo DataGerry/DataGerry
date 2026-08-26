@@ -23,6 +23,15 @@ $post: #1a212b;
 $engrave: rgba(255, 255, 255, 0.58);
 $frame-ink: rgba(255, 255, 255, 0.36);
 
+/*
+ * The alarm red. A reservation whose period has run out still holds its slots, so it is redrawn in
+ * this rather than in the colour it was given. Kept in step with EXPIRED_ACCENT in
+ * utils/rack-visual.util.ts, which is what the plate itself is painted with.
+ */
+$expired: #b91c1c;
+$expired-soft: #fef4f4;
+$expired-edge: #f2cfcf;
+
 /* Tight rather than round: the shared `app-button` sits at Bootstrap's 0.25rem, so the rack's own
  * chrome stays in that range instead of running to pills. */
 $radius-card: 0.6rem;
