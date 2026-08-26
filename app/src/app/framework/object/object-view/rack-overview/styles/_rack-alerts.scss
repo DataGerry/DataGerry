@@ -1,0 +1,96 @@
+/*
+ * Rack › alerts — the lapsed bookings, as a panel of the header card.
+ *
+ * It used to be a notice under the drawing, which is exactly where it did not belong: the list grows
+ * with the rack, and a rack with a dozen dead reservations pushed the elevation up the page. Here it
+ * is folded away behind a handle that carries the count, and capped and scrolling when it is open, so
+ * the header keeps the same height however many rows it holds.
+ */
+
+.rack-alerts {
+  max-height: 9.5rem;
+  padding: 0.55rem 0.7rem;
+  overflow-y: auto;
+  background: $expired-soft;
+  border-top: 1px solid $expired-edge;
+  /* Last in the card, so it has to carry the rounding the card's own corners would otherwise lose. */
+  border-radius: 0 0 calc(#{$radius-card} - 1px) calc(#{$radius-card} - 1px);
+
+  &[hidden] {
+    display: none;
+  }
+
+  &__lead {
+    margin: 0 0 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: $expired;
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.45rem;
+    background: $paper;
+    border: 1px solid $expired-edge;
+    border-radius: $radius-sm;
+    font-size: 0.78rem;
+  }
+
+  /* The name and what is wrong with it read as one line, and the row is what the width belongs to. */
+  &__text {
+    display: flex;
+    align-items: baseline;
+    flex: 1 1 auto;
+    gap: 0.4rem;
+    min-width: 0;
+
+    b {
+      flex: 0 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: $ink-2;
+      font-weight: 600;
+    }
+  }
+
+  &__meta {
+    flex: none;
+    color: $ink-3;
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__action {
+    flex: none;
+    padding: 0.1rem 0.5rem;
+    border: 1px solid rgba($expired, 0.35);
+    border-radius: $radius-chip;
+    background: transparent;
+    color: $expired;
+    font-size: 0.72rem;
+    font-weight: 600;
+    transition: background $ease, color $ease;
+
+    &:hover {
+      background: $expired;
+      color: #fff;
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($expired, 0.3);
+    }
+  }
+}

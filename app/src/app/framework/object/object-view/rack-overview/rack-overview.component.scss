@@ -12,6 +12,7 @@
  *   rack-density ...... the compact geometry tokens; the rules they drive live with the elevation
  *   rack-header ....... the control card above the drawing: view switch, zoom, fullscreen, the key
  *   rack-legend ....... the key itself, which opens as a panel of that card
+ *   rack-alerts ....... the lapsed bookings, which open as the other panel of that card
  *   rack-stage ........ the drawing/side-column split
  *   rack-side ......... the column beside the drawing and how its cards share the height
  *   rack-callout ...... inline notices
@@ -24,6 +25,7 @@
 @import "./styles/rack-density";
 @import "./styles/rack-header";
 @import "./styles/rack-legend";
+@import "./styles/rack-alerts";
 @import "./styles/rack-stage";
 @import "./styles/rack-side";
 @import "./styles/rack-callout";

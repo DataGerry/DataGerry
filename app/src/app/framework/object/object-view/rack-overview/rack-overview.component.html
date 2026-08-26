@@ -59,10 +59,26 @@
 
       <span class="rack-header__spacer"></span>
 
+      <!--
+        The lapsed bookings live behind a handle in the header rather than in a notice under the
+        drawing: the list grows with the rack, and down there it pushed the elevation up the page.
+        The count stays in view either way, which is what has to be noticed.
+      -->
+      @if (hasExpired()) {
+      <button type="button" id="rack-alerts-toggle" class="rack-disclosure rack-disclosure--alert"
+        [class.rack-disclosure--open]="isAlertsExpanded()" [attr.aria-expanded]="isAlertsExpanded()"
+        aria-controls="rack-alerts-panel" (click)="onTogglePanel('alerts')">
+        <i class="fas fa-calendar-times" aria-hidden="true"></i>
+        <span>Expired</span>
+        <span class="rack-disclosure__count">{{ expiredCount() }}</span>
+        <i class="fas fa-chevron-down rack-disclosure__caret" aria-hidden="true"></i>
+      </button>
+      }
+
       @if (hasLegend()) {
       <button type="button" id="rack-legend-toggle" class="rack-disclosure"
         [class.rack-disclosure--open]="isLegendExpanded()" [attr.aria-expanded]="isLegendExpanded()"
-        aria-controls="rack-legend-panel" (click)="onToggleLegend()">
+        aria-controls="rack-legend-panel" (click)="onTogglePanel('legend')">
         <span>Legend</span>
         <span class="rack-disclosure__count">{{ legendCount() }}</span>
         <i class="fas fa-chevron-down rack-disclosure__caret" aria-hidden="true"></i>
@@ -73,6 +89,37 @@
         bootstrapClass="btn-primary btn-sm" (clicked)="actions.add(defaultSide())">
       </app-button>
     </div>
+
+    <!--
+      A reservation is not released when its period ends, so the space stays held until someone clears
+      it. Capped and scrolling in place: a rack can hold as many lapsed bookings as it has rows.
+    -->
+    @if (hasExpired()) {
+    <div id="rack-alerts-panel" class="rack-alerts" [hidden]="!isAlertsExpanded()"
+      aria-labelledby="rack-alerts-toggle">
+      <p class="rack-alerts__lead">
+        {{ expiredCount() }} reservation{{ expiredCount() === 1 ? '' : 's' }} past the booked period
+        {{ expiredCount() === 1 ? 'is' : 'are' }} still holding space.
+      </p>
+
+      <ul class="rack-alerts__list">
+        @for (mount of store.expiredReservations(); track mount.mountId) {
+        <li class="rack-alerts__item">
+          <span class="rack-alerts__text">
+            <b>{{ mount.label }}</b>
+            <span class="rack-alerts__meta">
+              {{ mount.expiryNote }}
+              @if (mount.slotRange) { &middot; holding {{ mount.slotRange }} }
+            </span>
+          </span>
+
+          <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-alerts__action"
+            [attr.aria-label]="'Release ' + mount.label" (click)="actions.confirmRemove(mount)">Release</button>
+        </li>
+        }
+      </ul>
+    </div>
+    }
 
     <!--
       Kept in the DOM while it is folded away, so the button it is opened by can keep pointing at it.

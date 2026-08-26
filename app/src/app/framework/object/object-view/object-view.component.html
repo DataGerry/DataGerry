@@ -97,7 +97,7 @@
           } @else if (isSubnet) {
             <hr class="object-section-divider" />
             <cmdb-ipam-subnet-overview [publicId]="currentObjectID"></cmdb-ipam-subnet-overview>
-          } @else if (isRack) {
+          } @else if (showRackView) {
             <ng-container *permissionLink="[rackViewRight]">
               <hr class="object-section-divider" />
               <cmdb-rack-overview [publicId]="currentObjectID"></cmdb-rack-overview>

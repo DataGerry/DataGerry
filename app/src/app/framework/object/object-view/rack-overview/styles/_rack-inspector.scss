@@ -195,6 +195,11 @@
     border-bottom: 1px solid $hairline-soft;
     font-size: 0.78rem;
 
+    /* The one reading that is a warning rather than a figure. */
+    &--expired dd {
+      color: $expired;
+    }
+
     &:last-child {
       border-bottom: 0;
       padding-bottom: 0;

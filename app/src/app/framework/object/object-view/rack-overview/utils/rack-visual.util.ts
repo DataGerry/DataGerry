@@ -21,6 +21,13 @@ import { RackMountKind } from '../models/rack-overview.types';
 /** Accent used when a type carries no colour, or one that is not a plain hex value. */
 const FALLBACK_ACCENT = '#64748b';
 
+/**
+ * The red an expired reservation is drawn in, whatever colour it was given: a booking that has run
+ * out is a warning, and its own colour no longer says anything true about the space it holds. Kept in
+ * step with `$expired` in styles/_rack-tokens.scss.
+ */
+export const EXPIRED_ACCENT = '#b91c1c';
+
 /** Icon used when a type carries no icon, or one that is not a Font Awesome class list. */
 const FALLBACK_ICON = 'fas fa-microchip';
 

@@ -8,23 +8,25 @@
  * across the ones it currently overlaps and those would otherwise shadow the slots underneath. That
  * only works while a drag is running: the rest of the time it must let clicks reach the plates and
  * the free bays below it.
+ *
+ * Live from the first dragover of the drawing, not from the dragstart: Chromium re-tests what is under
+ * the cursor as it hands the drag over, and an area that has just gone live above the grabbed plate
+ * costs the gesture. The service holds that off.
  */
 .rack-dropzone {
   grid-row: 2 / -2;
   position: relative;
   z-index: 3;
   pointer-events: none;
-}
 
-:host-context(.rack-view--dragging) {
-  .rack-dropzone {
+  &--live {
     pointer-events: auto;
   }
+}
 
-  /* The plates are being dragged over, not aimed at, so they stop answering the pointer. */
-  .rack-unit:hover {
-    filter: none;
-  }
+/* The plates are being dragged over, not aimed at, so they stop answering the pointer. */
+:host-context(.rack-view--dragging) .rack-unit:hover {
+  filter: none;
 }
 
 /* A rack row is moved by its faceplate rather than by a handle - the plate is the whole target. */

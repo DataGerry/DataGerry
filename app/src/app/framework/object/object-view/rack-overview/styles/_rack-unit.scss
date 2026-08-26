@@ -59,8 +59,11 @@
     outline: 0;
   }
 
+  /* The hover state is listed too: the ring rides on box-shadow, which hovering would otherwise replace. */
   &--selected,
-  &:focus-visible {
+  &--selected:hover,
+  &:focus-visible,
+  &:focus-visible:hover {
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.36),
       0 0 0 2px $primary,
@@ -82,6 +85,19 @@
     margin-left: 0.65rem;
     font-size: 0.7rem;
     opacity: 0.95;
+  }
+
+  /*
+   * The sign a lapsed booking carries. Stays through the compact density, unlike the other plate
+   * detail: it is what says why the plate is red, and colour on its own may not be read at all.
+   */
+  &__alert {
+    display: grid;
+    place-items: center;
+    flex: none;
+    font-size: 0.62rem;
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
   }
 
   &__name {
@@ -139,44 +155,59 @@
     box-shadow: 0 0 5px 1px rgba(74, 222, 128, 0.6);
   }
 
+  /*
+   * A reservation past its end date. It keeps the occupant hatch rather than a coarser one of its
+   * own: the alarm red already sets it apart, and a denser weave behind a 0.66rem label is what
+   * costs the label its legibility. The name is given a deeper shadow to sit on the red instead.
+   */
+  &--expired &__name {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  }
+
   /* An occupant has nothing running in it, so its indicator is dark. */
   &--occupant &__led {
     background: rgba(255, 255, 255, 0.35);
     box-shadow: none;
   }
+
+  /* A lapsed booking is the one occupant worth noticing, so its indicator is lit again. */
+  &--expired &__led {
+    background: rgba(255, 255, 255, 0.75);
+    box-shadow: 0 0 5px 1px rgba(255, 255, 255, 0.45);
+  }
 }
 
-/* The one thing that crosses between the two enclosures: a row holding both faces at once. */
+
 .rack-link {
   grid-column: 2;
-  display: grid;
-  place-items: center;
+  display: block;
   position: relative;
+  pointer-events: none;
 
-  &::before {
+  &::before,
+  &::after {
     content: '';
     position: absolute;
     top: 50%;
-    right: 0;
-    left: 0;
+    width: 0.75rem;
     height: 2px;
     margin-top: -1px;
-    background-image: repeating-linear-gradient(90deg, var(--rack-tone) 0 4px, transparent 4px 7px);
-  }
-
-  span {
-    position: relative;
-    padding: 1px 0.3rem;
-    border-radius: 2px;
+    border-radius: 1px;
     background: var(--rack-tone);
-    color: #fff;
-    font-size: 0.58rem;
-    letter-spacing: 0.04em;
-    font-variant-numeric: tabular-nums;
-    box-shadow: 0 2px 5px -2px rgba(0, 0, 0, 0.6);
   }
 
-  &--selected span {
-    box-shadow: 0 0 0 2px $primary;
+  &::before {
+    left: 0;
+  }
+
+  &::after {
+    right: 0;
+  }
+
+  &--selected {
+    &::before,
+    &::after {
+      background: $primary;
+    }
   }
 }

@@ -26,6 +26,7 @@ import { ObjectChangeNotifierService } from '../../services/object-change-notifi
 import { ObjectService } from '../../services/object.service';
 import { TypeService } from '../../services/type.service';
 import { ToastService } from '../../../layout/toast/toast.service';
+import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { ObjectViewComponent } from './object-view.component';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -66,6 +67,7 @@ describe('ObjectViewComponent (re-read after a write)', () => {
                 { provide: ToastService, useValue: toastService },
                 { provide: LoaderService, useValue: loaderService },
                 { provide: Router, useValue: jasmine.createSpyObj('Router', ['navigate']) },
+                { provide: PremiumFeatureService, useValue: { isAvailable: () => true } },
                 {
                     provide: TypeService,
                     useValue: { getTypes: () => of({ results: [] }) }
