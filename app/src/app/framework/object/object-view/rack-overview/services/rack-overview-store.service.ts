@@ -251,11 +251,7 @@ export class RackOverviewStore {
     }
 
 
-    public toggleSelection(mount: RackRowView): void {
-        this.selectedMountId.update(current => current === mount.mountId ? null : mount.mountId);
-    }
-
-
+    /** The inspector is what closes a selection again, so clicking the same plate twice keeps it. */
     public select(mountId: number | null): void {
         this.selectedMountId.set(mountId);
     }

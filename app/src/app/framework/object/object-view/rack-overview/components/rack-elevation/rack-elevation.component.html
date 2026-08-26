@@ -112,9 +112,10 @@
       [class.rack-unit--selected]="store.isSelected(mount)" [class.rack-unit--occupant]="!mount.isMount"
       [class.rack-unit--expired]="mount.isExpired" [class.rack-unit--dragged]="drag.isDragged(mount)"
       [style.--rack-tone]="mount.tone" [style.grid-row]="mount.gridRow"
-      [attr.draggable]="store.canEdit ? 'true' : null" [attr.aria-pressed]="store.isSelected(mount)"
+      [attr.draggable]="store.canEdit ? 'true' : null"
+      [attr.aria-current]="store.isSelected(mount) ? 'true' : null"
       [attr.aria-label]="mount.label + ', ' + mount.typeName + ', ' + mount.slotRange + (mount.isExpired ? ', ' + mount.expiryNote : '')"
-      (click)="store.toggleSelection(mount)" (dragstart)="drag.onPlateDragStart($event, mount)"
+      (click)="store.select(mount.mountId)" (dragstart)="drag.onPlateDragStart($event, mount)"
       (dragend)="drag.onDragEnd()">
       <span class="rack-unit__icon"><i [class]="mount.icon" aria-hidden="true"></i></span>
 
@@ -135,7 +136,10 @@
       </span>
       <span class="rack-unit__vent" aria-hidden="true"></span>
       <span class="rack-unit__spec">
-        <!-- In a split view the link across the ruler already says it, so the plate keeps the room. -->
+        <!--
+          Split already shows the row on both faces, tied across the ruler, so the plate is left the
+          width instead: the tag is what the name gives way to when the two compete for it.
+        -->
         @if (mount.isFullDepth && viewMode() !== 'split') {
         <span class="rack-unit__tag">FULL DEPTH</span>
         }
@@ -166,12 +170,13 @@
     <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: store.frontFace() }"></ng-container>
     <ng-container *ngTemplateOutlet="cabinet; context: { $implicit: store.rearFace() }"></ng-container>
 
-    <!-- The only thing crossing between the two cabinets: one row holding both faces. -->
+    <!--
+      The only thing crossing between the two cabinets: one row holding both faces. It ties the two
+      plates together without writing anything, because the U numbers run where a label would go.
+    -->
     @for (mount of store.bridges(); track mount.mountId) {
     <span class="rack-link" [class.rack-link--selected]="store.isSelected(mount)" [style.--rack-tone]="mount.tone"
-      [style.grid-row]="mount.gridRow" aria-hidden="true">
-      <span>{{ mount.height }}U</span>
-    </span>
+      [style.grid-row]="mount.gridRow" aria-hidden="true"></span>
     }
     }
 
