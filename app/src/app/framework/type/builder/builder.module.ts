@@ -13,7 +13,7 @@
 * GNU Affero General Public License for more details.
 *
 * You should have received a copy of the GNU Affero General Public License
-* along with this program. If not, see <https://www.gnu.org/licenses/>.
+* along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -23,32 +23,20 @@ import { DndModule } from 'ngx-drag-drop';
 import { NgSelectModule } from '@ng-select/ng-select';
 import { NgbDatepickerModule, NgbModalModule, NgbTooltipModule } from '@ng-bootstrap/ng-bootstrap';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
+import { ColorChromeModule } from 'ngx-color/chrome';
 
 import { RenderModule } from '../../render/render.module';
 import { CategoryModule } from '../../category/category.module';
 import { LayoutModule } from '../../../layout/layout.module';
 import { CoreModule } from 'src/app/core/core.module';
+import { BuilderKernelModule } from 'src/app/framework/builder/builder-kernel.module';
 
 import { BuilderComponent } from './builder.component';
-import { TextFieldEditComponent } from './configs/text/text-field-edit.component';
-import { SectionFieldEditComponent } from './configs/section/section-field-edit.component';
-import { SectionMultiFieldEditComponent } from './configs/section/section-multi-field-edit.component';
-import { TextareaEditComponent } from './configs/text/textarea-edit.component';
-import { NumberFieldEditComponent } from './configs/number/number-field-edit.component';
-import { RefFieldEditComponent } from './configs/special/ref-field-edit.component';
-import { LocationFieldEditComponent } from './configs/special/location-field-edit.component';
-import { ChoiceFieldEditComponent } from './configs/choice/choice-field-edit.component';
-import { CheckFieldEditComponent } from './configs/choice/check-field-edit.component';
-import { DateFieldEditComponent } from './configs/date-time/date-field-edit.component';
-import { SectionRefFieldEditComponent } from './configs/section/section-ref-field-edit.component';
-import { ConfigEditComponent } from './configs/config-edit.component';
-import { PreviewModalComponent } from './modals/preview-modal/preview-modal.component';
-import { DiagnosticModalComponent } from './modals/diagnostic-modal/diagnostic-modal.component';
-import { LocationFieldInUseModalComponent } from './modals/location-field-in-use-modal/location-field-in-use-modal.component';
-import { IdentifierHintComponent } from './configs/identifier-hint/identifier-hint.component';
-import { ColorChromeModule } from 'ngx-color/chrome';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+/**
+ * The type builder's drag-and-drop canvas. Everything reusable lives in BuilderKernelModule.
+ */
 @NgModule({
     imports: [
         CommonModule,
@@ -65,30 +53,14 @@ import { ColorChromeModule } from 'ngx-color/chrome';
         LayoutModule,
         ColorChromeModule,
         CoreModule,
-        IdentifierHintComponent
+        BuilderKernelModule
     ],
     declarations: [
-        ConfigEditComponent,
-        BuilderComponent,
-        TextFieldEditComponent,
-        NumberFieldEditComponent,
-        SectionFieldEditComponent,
-        SectionMultiFieldEditComponent,
-        TextareaEditComponent,
-        RefFieldEditComponent,
-        LocationFieldEditComponent,
-        ChoiceFieldEditComponent,
-        CheckFieldEditComponent,
-        DateFieldEditComponent,
-        SectionRefFieldEditComponent,
-        PreviewModalComponent,
-        DiagnosticModalComponent,
-        LocationFieldInUseModalComponent
+        BuilderComponent
     ],
     exports: [
         BuilderComponent,
-        SectionFieldEditComponent,
-        ConfigEditComponent
+        BuilderKernelModule
     ]
 })
-export class BuilderModule { }
+export class TypeBuilderCanvasModule { }

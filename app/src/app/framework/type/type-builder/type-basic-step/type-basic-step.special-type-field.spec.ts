@@ -16,7 +16,7 @@ import { TypeService } from '../../../services/type.service';
 import { SpecialTypeService } from '../../../services/special-type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { ValidationService } from '../../services/validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { CmdbMode } from '../../../modes.enum';
 import { CmdbType } from '../../../models/cmdb-type';

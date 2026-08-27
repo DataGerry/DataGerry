@@ -8,7 +8,7 @@ import { UserService } from '../../../management/services/user.service';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { GroupService } from '../../../management/services/group.service';
 import { SidebarService } from '../../../layout/services/sidebar.service';
-import { ValidationService } from '../services/validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CmdbMode } from '../../modes.enum';
 import { CmdbType } from '../../models/cmdb-type';

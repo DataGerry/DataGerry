@@ -24,7 +24,7 @@ import { LocationFieldUsageResponse } from '../../models/location-field-usage';
 import {
     LocationFieldInUseModalComponent,
     LocationFieldDeletionScope
-} from '../builder/modals/location-field-in-use-modal/location-field-in-use-modal.component';
+} from 'src/app/framework/builder/modals/location-field-in-use-modal/location-field-in-use-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**

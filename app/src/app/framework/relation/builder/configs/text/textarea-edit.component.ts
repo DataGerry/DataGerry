@@ -22,8 +22,8 @@ import { ReplaySubject } from 'rxjs';
 
 
 import { ConfigEditBaseComponent } from '../config.edit';
-import { FieldIdentifierValidationService } from 'src/app/framework/type/services/field-identifier-validation.service';
-import { ValidationService } from 'src/app/framework/type/services/validation.service';
+import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 @Component({
     selector: 'cmdb-textarea-edit',

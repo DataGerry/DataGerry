@@ -27,7 +27,7 @@ import { ObjectService } from 'src/app/framework/services/object.service';
 
 import { BaseSectionComponent } from '../base-section/base-section.component';
 import { Column } from 'src/app/layout/table/table.types';
-import { PreviewModalComponent, PreviewModalValidationResult } from 'src/app/framework/type/builder/modals/preview-modal/preview-modal.component';
+import { PreviewModalComponent, PreviewModalValidationResult } from 'src/app/framework/builder/modals/preview-modal/preview-modal.component';
 import { CmdbMultiDataSection, CmdbType } from 'src/app/framework/models/cmdb-type';
 import { MultiDataSectionEntry, MultiDataSectionFieldValue, MultiDataSectionSet } from 'src/app/framework/models/cmdb-object';
 import { DeleteEntryModalComponent } from '../modals/delete-entry-modal.component';

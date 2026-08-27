@@ -23,8 +23,8 @@ import { ReplaySubject, Subscription } from 'rxjs';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { CmdbMode } from 'src/app/framework/modes.enum';
-import { SectionIdentifierService } from 'src/app/framework/type/services/SectionIdentifierService.service';
-import { ValidationService } from 'src/app/framework/type/services/validation.service';
+import { SectionIdentifierService } from 'src/app/framework/builder/services/SectionIdentifierService.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({

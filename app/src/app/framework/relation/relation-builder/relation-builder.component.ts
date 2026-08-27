@@ -28,7 +28,7 @@ import { CmdbMode } from '../../modes.enum';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CmdbRelation } from '../../models/relation.model';
 import { RelationService } from '../../services/relaion.service';
-import { ValidationService } from '../../type/services/validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 
 @Component({
     selector: 'cmdb-relation-builder',

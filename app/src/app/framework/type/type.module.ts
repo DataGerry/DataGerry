@@ -30,7 +30,7 @@ import { AuthModule } from '../../modules/auth/auth.module';
 import { TypeRoutingModule } from './type-routing.module';
 import { LayoutModule } from '../../layout/layout.module';
 import { RenderModule } from '../render/render.module';
-import { BuilderModule } from './builder/builder.module';
+import { TypeBuilderCanvasModule } from './builder/builder.module';
 import { TableModule } from '../../layout/table/table.module';
 import { UsersModule } from '../../management/users/users.module';
 
@@ -80,7 +80,7 @@ import { CoreModule } from 'src/app/core/core.module';
         QRCodeComponent,
         NgSelectModule,
         RenderModule,
-        BuilderModule,
+        TypeBuilderCanvasModule,
         FormsModule,
         NgbModule,
         FontAwesomeModule,

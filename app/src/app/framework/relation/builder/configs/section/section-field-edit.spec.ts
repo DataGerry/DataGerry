@@ -4,8 +4,8 @@ import { ReactiveFormsModule, UntypedFormControl, Validators } from '@angular/fo
 import { SectionFieldEditComponent } from './section-field-edit.component';
 
 import { ReplaySubject, of, Subject } from 'rxjs';
-import { ValidationService } from 'src/app/framework/type/services/validation.service';
-import { SectionIdentifierService } from 'src/app/framework/type/services/SectionIdentifierService.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
+import { SectionIdentifierService } from 'src/app/framework/builder/services/SectionIdentifierService.service';
 
 
 describe('SectionFieldEditComponent', () => {

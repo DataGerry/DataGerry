@@ -23,8 +23,8 @@ import { ReactiveFormsModule, UntypedFormControl } from "@angular/forms";
 
 import { NgbDateAdapter, NgbDateParserFormatter } from "@ng-bootstrap/ng-bootstrap";
 import { CustomDateParserFormatter, NgbStringAdapter } from "src/app/settings/date-settings/date-settings-formatter.service";
-import { FieldIdentifierValidationService } from "src/app/framework/type/services/field-identifier-validation.service";
-import { ValidationService } from "src/app/framework/type/services/validation.service";
+import { FieldIdentifierValidationService } from "src/app/framework/builder/services/field-identifier-validation.service";
+import { ValidationService } from "src/app/framework/builder/services/validation.service";
 
 
 class MockFieldIdentifierValidationService {

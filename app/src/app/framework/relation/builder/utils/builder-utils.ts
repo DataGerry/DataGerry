@@ -1,5 +1,5 @@
 import { CmdbType, CmdbTypeSection } from "src/app/framework/models/cmdb-type";
-import { FieldIdentifierValidationService } from "src/app/framework/type/services/field-identifier-validation.service";
+import { FieldIdentifierValidationService } from "src/app/framework/builder/services/field-identifier-validation.service";
 
 
 export class BuilderUtils {

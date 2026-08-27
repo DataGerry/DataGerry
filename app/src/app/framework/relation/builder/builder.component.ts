@@ -34,20 +34,20 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CmdbMode } from '../../modes.enum';
 
 import { CmdbRelation, CmdbRelationSection, RelationSection } from '../../models/relation.model';
-import { TextControl } from '../../type/builder/controls/text/text.control';
-import { NumberControl } from '../../type/builder/controls/number/number.control';
-import { PasswordControl } from '../../type/builder/controls/text/password.control';
-import { TextAreaControl } from '../../type/builder/controls/text/textarea.control';
-import { CheckboxControl } from '../../type/builder/controls/choice/checkbox.control';
-import { RadioControl } from '../../type/builder/controls/choice/radio.control';
-import { SelectControl } from '../../type/builder/controls/choice/select.control';
-import { DateControl } from '../../type/builder/controls/date-time/date.control';
-import { SectionControl } from '../../type/builder/controls/section.control';
-import { Controller } from '../../type/builder/controls/controls.common';
+import { TextControl } from 'src/app/framework/builder/controls/text/text.control';
+import { NumberControl } from 'src/app/framework/builder/controls/number/number.control';
+import { PasswordControl } from 'src/app/framework/builder/controls/text/password.control';
+import { TextAreaControl } from 'src/app/framework/builder/controls/text/textarea.control';
+import { CheckboxControl } from 'src/app/framework/builder/controls/choice/checkbox.control';
+import { RadioControl } from 'src/app/framework/builder/controls/choice/radio.control';
+import { SelectControl } from 'src/app/framework/builder/controls/choice/select.control';
+import { DateControl } from 'src/app/framework/builder/controls/date-time/date.control';
+import { SectionControl } from 'src/app/framework/builder/controls/section.control';
+import { Controller } from 'src/app/framework/builder/controls/controls.common';
 import { BuilderUtils } from './utils/builder-utils';
-import { SectionIdentifierService } from '../../type/services/SectionIdentifierService.service';
-import { ValidationService } from '../../type/services/validation.service';
-import { FieldIdentifierValidationService } from '../../type/services/field-identifier-validation.service';
+import { SectionIdentifierService } from 'src/app/framework/builder/services/SectionIdentifierService.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
+import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({

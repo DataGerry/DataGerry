@@ -24,25 +24,25 @@ import { Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import { DndDropEvent } from 'ngx-drag-drop';
 
-import { ValidationService } from 'src/app/framework/type/services/validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { SectionTemplateService } from '../../services/section-template.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { CmdbMode } from 'src/app/framework/modes.enum';
-import { Controller } from 'src/app/framework/type/builder/controls/controls.common';
+import { Controller } from 'src/app/framework/builder/controls/controls.common';
 import { APIInsertSingleResponse, APIUpdateSingleResponse } from 'src/app/services/models/api-response';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
-import { SectionFieldEditComponent } from 'src/app/framework/type/builder/configs/section/section-field-edit.component';
-import { CheckboxControl } from 'src/app/framework/type/builder/controls/choice/checkbox.control';
-import { RadioControl } from 'src/app/framework/type/builder/controls/choice/radio.control';
-import { SelectControl } from 'src/app/framework/type/builder/controls/choice/select.control';
-import { DateControl } from 'src/app/framework/type/builder/controls/date-time/date.control';
-import { ReferenceControl } from 'src/app/framework/type/builder/controls/specials/ref.control';
-import { PasswordControl } from 'src/app/framework/type/builder/controls/text/password.control';
-import { TextControl } from 'src/app/framework/type/builder/controls/text/text.control';
-import { TextAreaControl } from 'src/app/framework/type/builder/controls/text/textarea.control';
+import { SectionFieldEditComponent } from 'src/app/framework/builder/configs/section/section-field-edit.component';
+import { CheckboxControl } from 'src/app/framework/builder/controls/choice/checkbox.control';
+import { RadioControl } from 'src/app/framework/builder/controls/choice/radio.control';
+import { SelectControl } from 'src/app/framework/builder/controls/choice/select.control';
+import { DateControl } from 'src/app/framework/builder/controls/date-time/date.control';
+import { ReferenceControl } from 'src/app/framework/builder/controls/specials/ref.control';
+import { PasswordControl } from 'src/app/framework/builder/controls/text/password.control';
+import { TextControl } from 'src/app/framework/builder/controls/text/text.control';
+import { TextAreaControl } from 'src/app/framework/builder/controls/text/textarea.control';
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
-import { NumberControl } from 'src/app/framework/type/builder/controls/number/number.control';
+import { NumberControl } from 'src/app/framework/builder/controls/number/number.control';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({

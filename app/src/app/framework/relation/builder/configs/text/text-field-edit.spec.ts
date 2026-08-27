@@ -20,7 +20,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { ReactiveFormsModule } from '@angular/forms';
 import { TextFieldEditComponent } from './text-field-edit.component';
-import { FieldIdentifierValidationService } from 'src/app/framework/type/services/field-identifier-validation.service';
+import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
 
 class MockFieldIdentifierValidationService {
     isDuplicate(newValue: string): boolean {
