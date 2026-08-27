@@ -20,7 +20,7 @@ Exposes `POST /export/type/` (all types) and `POST /export/type/<ids>` (a comma-
 Both serialize the types into a downloadable JSON attachment via
 `exporter_helper.build_types_json_export_response`, in ascending public_id order so two exports of the
 same system diff cleanly. NOTE: type export is JSON-only and lives on its own blueprint, separate from
-the object export engine (tracked as discussion-backlog #65).
+the object export engine (tracked as discussion-backlog #39).
 """
 from logging import Logger, getLogger
 from flask import abort, Response

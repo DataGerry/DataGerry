@@ -22,10 +22,14 @@ missing id (get / update / delete), and the render 404 when the template is miss
 this used to surface as a 500 because get_template crashed on a missing id and the route's
 guard was unreachable).
 
-Since 2026-08-25 also: the name stays unique on UPDATE (not only on create), a missing NAME is a 404
-like a missing id, a failed read is a 400 rather than a 404, a malformed searchfilter is a 400, and the
-update response is a JSON document rather than a model repr. The PDF render pipeline itself is covered
-by test_integration_docapi_document_generation; here only the route's own error mapping is.
+Since 2026-08-25 also: a failed read is a 400 rather than a 404, a malformed searchfilter is a 400, and
+the update response is a JSON document rather than a model repr. The PDF render pipeline itself is covered by
+test_integration_docapi_document_generation; here only the route's own error mapping is.
+
+The by-name read is a name-availability check rather than a fetch, so it answers 200 with ``null`` for
+an unused name (it briefly 404'd there, which made the frontend read "free" off an error). Since
+2026-08-27 the name is also IMMUTABLE on update: a PUT carrying any other name than the stored one is a
+400, even when that name is free - which is what makes the availability check answer a lasting question.
 """
 from http import HTTPStatus
 from typing import Any
@@ -62,6 +66,7 @@ MISSING_OBJECT_ID: int = 80901
 
 ALL_TPL_IDS: list[int] = [TPL_ID_FOR_GET, TPL_ID_FOR_UPDATE, TPL_ID_FOR_DELETE]
 CREATE_TEMPLATE_NAME: str = 'tpl-functional-create'
+UPDATED_TEMPLATE_DATA: str = '<p>updated</p>'
 
 
 @pytest.fixture(autouse=True)
@@ -173,16 +178,17 @@ class TestUpdate:
 
     def test_update_existing_persists_change(self, rest_api,
                                             database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """A PUT updates the template and the change is retrievable."""
+        """A PUT updates the template and the change is retrievable - on a MUTABLE property."""
         _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
         try:
-            payload = _template_payload(TPL_ID_FOR_UPDATE, name='tpl-renamed')
+            payload = _template_payload(TPL_ID_FOR_UPDATE)
+            payload['template_data'] = UPDATED_TEMPLATE_DATA
 
             response = rest_api.put(f'{CRUD_URL}/', json=payload)
 
             assert response.status_code == HTTPStatus.OK
             follow_up = rest_api.get(f'{CRUD_URL}/{TPL_ID_FOR_UPDATE}')
-            assert follow_up.get_json()['name'] == 'tpl-renamed'
+            assert follow_up.get_json()['template_data'] == UPDATED_TEMPLATE_DATA
         finally:
             database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
                 .delete_one({'public_id': TPL_ID_FOR_UPDATE})
@@ -366,19 +372,20 @@ class TestErrorMapping:
 
 TPL_ID_FOR_NAME_CLASH: int = 80004
 TAKEN_NAME: str = 'tpl-functional-taken'
+UNUSED_NAME: str = 'tpl-functional-unused'
 
 
-class TestNameUniqueness:
-    """A template name resolves one template, so both write routes keep it unique."""
+class TestNameIsImmutable:
+    """The name is decided on CREATE; a PUT may not move it, whether or not the target is free."""
 
     def test_update_onto_a_taken_name_is_rejected(self, rest_api,
                                                   database_manager: MongoDatabaseManager,
                                                   database_name: str) -> None:
         """
-        Renaming onto a name another template carries is refused (regression)
+        Renaming onto a name another template carries is refused
 
-        Only the create route checked this, so a PUT could produce two templates of the same name -
-        after which the by-name route resolved one of them arbitrarily.
+        Before the uniqueness check landed, a PUT could produce two templates of the same name - after
+        which the by-name route resolved one of them arbitrarily. Now the rename is refused outright.
         """
         collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
         collection.insert_one(_template_payload(TPL_ID_FOR_NAME_CLASH, TAKEN_NAME))
@@ -391,10 +398,25 @@ class TestNameUniqueness:
         finally:
             collection.delete_many({'public_id': {'$in': [TPL_ID_FOR_NAME_CLASH, TPL_ID_FOR_UPDATE]}})
 
+    def test_update_onto_an_unused_name_is_rejected(self, rest_api,
+                                                    database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+        """A free target name is refused too - the name is immutable, not merely unique."""
+        collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
+        try:
+            response = rest_api.put(f'{CRUD_URL}/', json=_template_payload(TPL_ID_FOR_UPDATE, UNUSED_NAME))
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert collection.find_one({'public_id': TPL_ID_FOR_UPDATE})['name'] == f'tpl-{TPL_ID_FOR_UPDATE}'
+            assert collection.count_documents({'name': UNUSED_NAME}) == 0
+        finally:
+            collection.delete_one({'public_id': TPL_ID_FOR_UPDATE})
+
     def test_update_keeping_its_own_name_is_allowed(self, rest_api,
                                                     database_manager: MongoDatabaseManager,
                                                     database_name: str) -> None:
-        """The uniqueness check must not refuse a template its own name."""
+        """The immutability check must not refuse a template its own name - every PUT resends it."""
         collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
         _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
         try:
@@ -430,12 +452,15 @@ class TestNameUniqueness:
                 .delete_one({'public_id': TPL_ID_FOR_UPDATE})
 
 
-class TestMissingNameIsNotFound:
-    """The by-name read answers like the by-id one."""
+class TestUnusedNameIsOk:
+    """The by-name read is the frontend's name-availability check, so a free name is a success."""
 
-    def test_get_by_missing_name_returns_404(self, rest_api) -> None:
-        """It used to answer 200 with null, while the id route 404s."""
-        assert rest_api.get(f'{CRUD_URL}/name/tpl-does-not-exist').status_code == HTTPStatus.NOT_FOUND
+    def test_get_by_unused_name_returns_200_with_null(self, rest_api) -> None:
+        """A name no template carries is 200 + null - it 404'd in between, forcing an error path."""
+        response = rest_api.get(f'{CRUD_URL}/name/tpl-does-not-exist')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() is None
 
 
 class TestSearchfilterGuard:

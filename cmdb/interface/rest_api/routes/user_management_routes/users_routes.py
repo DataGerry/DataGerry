@@ -105,7 +105,7 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
         if not created_user:
             abort(404, "Could not retrieve the created User from the database!")
 
-        return InsertSingleResponse(CmdbUser.to_json(created_user), result_id).make_response()
+        return InsertSingleResponse(CmdbUser.to_public_json(created_user), result_id).make_response()
     except HTTPException as http_err:
         raise http_err
     except UsersManagerInsertError as err:
@@ -141,7 +141,7 @@ def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Resp
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
         iteration_result: IterationResult[CmdbUser] = users_manager.iterate(builder_params)
-        users = [CmdbUser.to_json(user) for user in iteration_result.results]
+        users = [CmdbUser.to_public_json(user) for user in iteration_result.results]
 
         api_response = GetMultiResponse(users,
                                         total=iteration_result.total,
@@ -180,7 +180,7 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
         if not requested_user:
             abort(404, f"The User with ID:{public_id} was not found!")
 
-        return GetSingleResponse(CmdbUser.to_json(requested_user), body=request.method == 'HEAD').make_response()
+        return GetSingleResponse(CmdbUser.to_public_json(requested_user), body=request.method == 'HEAD').make_response()
     except HTTPException as http_err:
         raise http_err
     except UsersManagerGetError as err:
@@ -223,7 +223,7 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
         user = CmdbUser.from_data(data=data)
         users_manager.update_user(public_id, user)
 
-        return UpdateSingleResponse(CmdbUser.to_json(user)).make_response()
+        return UpdateSingleResponse(CmdbUser.to_public_json(user)).make_response()
     except HTTPException as http_err:
         raise http_err
     except UsersManagerUpdateError as err:
@@ -265,7 +265,7 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         to_update_user.password = security_manager.generate_hmac(new_password)
         users_manager.update_user(public_id, to_update_user)
 
-        return UpdateSingleResponse(CmdbUser.to_json(to_update_user)).make_response()
+        return UpdateSingleResponse(CmdbUser.to_public_json(to_update_user)).make_response()
     except HTTPException as http_err:
         raise http_err
     except UsersManagerGetError as err:
@@ -304,7 +304,7 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 
         users_manager.delete_user(public_id)
 
-        return DeleteSingleResponse(raw=CmdbUser.to_json(to_delete_user)).make_response()
+        return DeleteSingleResponse(raw=CmdbUser.to_public_json(to_delete_user)).make_response()
     except HTTPException as http_err:
         raise http_err
     except UsersManagerDeleteError as err:

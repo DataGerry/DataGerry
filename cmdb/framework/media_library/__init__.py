@@ -13,3 +13,14 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Provides the MediaFile model and the key enums of a stored MediaFile document
+"""
+from .media_file_keys import GRIDFS_FILES_SUFFIX, MediaFileKey, MediaFileMetadataKey
+# -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'GRIDFS_FILES_SUFFIX',
+    'MediaFileKey',
+    'MediaFileMetadataKey',
+]

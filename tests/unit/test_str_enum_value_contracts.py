@@ -53,6 +53,7 @@ from cmdb.models.ci_explorer_model.node_type_enum import NodeType
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.type_constants import NestedSummaryKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
@@ -151,6 +152,13 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'REF_TYPES': 'ref_types',
         'OPTIONS': 'options',
         'VALUE': 'value',
+        'SUMMARIES': 'summaries',
+    }),
+    (NestedSummaryKey, {
+        'TYPE_ID': 'type_id',
+        'FIELDS': 'fields',
+        'LINE': 'line',
+        'PREFIX': 'prefix',
     }),
     (FieldType, {
         'TEXT': 'text',

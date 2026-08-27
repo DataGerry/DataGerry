@@ -41,3 +41,37 @@ class RenderedFieldKey(BaseStrEnum):
     REFERENCES = 'references'
     #: List of the pulled-in fields, inside `REFERENCES`
     FIELDS = 'fields'
+
+
+class RenderObjectInfoKey(BaseStrEnum):
+    """
+    Enumeration of the keys inside a `RenderResult.object_information` block
+
+    `CmdbMultiRender` copies these off the stored CmdbObject (plus the resolved author / editor
+    names) into the render output. They mirror `CmdbObjectKey` members but live on the RENDER
+    result, not on the stored document - `OBJECT_ID` in particular is the object's `public_id`
+    under a different name - so reading them through this enum keeps a consumer from reaching for
+    `CmdbObjectKey` and quietly getting the wrong key
+
+    Attributes:
+        OBJECT_ID: The rendered object's public_id
+        CREATION_TIME: When the object was created
+        LAST_EDIT_TIME: When the object was last edited, or None
+        AUTHOR_ID: public_id of the creating user
+        AUTHOR_NAME: Display name resolved for AUTHOR_ID
+        EDITOR_ID: public_id of the last editing user, or None
+        EDITOR_NAME: Display name resolved for EDITOR_ID
+        ACTIVE: The object's active flag
+        VERSION: The object's version string
+        SPECIAL_TYPE: The SpecialType marker of the object's type, or an empty value
+    """
+    OBJECT_ID = 'object_id'
+    CREATION_TIME = 'creation_time'
+    LAST_EDIT_TIME = 'last_edit_time'
+    AUTHOR_ID = 'author_id'
+    AUTHOR_NAME = 'author_name'
+    EDITOR_ID = 'editor_id'
+    EDITOR_NAME = 'editor_name'
+    ACTIVE = 'active'
+    VERSION = 'version'
+    SPECIAL_TYPE = 'special_type'

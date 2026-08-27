@@ -26,6 +26,10 @@ overview) while ``docapi`` carries everything else under ``/docapi/template``. T
 create and update routes WITH a trailing slash, which is the form registered here
 
 The render route is guarded by an OBJECT right, not a template one - see ``RENDER_OBJECT_RIGHT``
+
+``/docapi/template/name/<name>`` is the odd one out among the reads: it is a name-availability check for
+the template-name input, so an unused name is a 200 with ``null`` rather than a 404. That check is only
+meaningful because a template's ``name`` is decided on CREATE and immutable afterwards
 """
 from logging import Logger, getLogger
 import json
@@ -88,7 +92,8 @@ def create_template(request_user: CmdbUser) -> Response:
     Requires the ``base.docapi.template.add`` right and the licensed DOCUMENT_GENERATOR feature. The
     identity and the author are server-owned: the public_id comes from the collection counter and the
     author from the request. Names are unique across templates, because the by-name route resolves a
-    template by nothing else
+    template by nothing else - and this route is the only place a name is decided, since the update
+    route refuses to rename an existing template
 
     Args:
         request_user (CmdbUser): User requesting this data
@@ -283,31 +288,32 @@ def get_template(public_id: int, request_user: CmdbUser) -> Response:
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` route for retrieving a single DocapiTemplate with the given name
+    HTTP `GET` route for resolving a DocapiTemplate by its name
 
     Requires the ``base.docapi.template.view`` right and the licensed DOCUMENT_GENERATOR feature. Names
     are unique, which is what makes this route able to resolve one template
+
+    This is a name-availability check, not a fetch of a resource the caller already knows exists: the
+    frontend calls it while the user types a template name to tell them whether the name is still free.
+    An unused name is therefore a successful answer, NOT a 404 - the route answers 200 with ``null`` so
+    the caller can read "free" off the body instead of off an error. Only a failing read is an error
 
     Args:
         name (str): name of the DocapiTemplate
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when no
-            DocapiTemplate carries the name; 400 when the read fails; 500 on an unexpected error
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the read
+            fails; 500 on an unexpected error
 
     Returns:
-        DefaultResponse: The requested DocapiTemplate
+        DefaultResponse: The DocapiTemplate carrying the name, or ``None`` when the name is unused
     """
     try:
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                                 request_user)
 
         tpl = docapi_manager.get_template_by_name(name=name)
-
-        if not tpl:
-            # The id route answers 404 for a missing template; a missing name is the same answer
-            abort(404, f"Could not retrieve the template with name:{name}!")
 
         return DefaultResponse(tpl).make_response()
     except HTTPException as http_err:
@@ -399,18 +405,22 @@ def update_template(request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route for updating a single DocapiTemplate
 
-    Requires the ``base.docapi.template.edit`` right and the licensed DOCUMENT_GENERATOR feature. The
-    name stays unique: renaming onto a name another template already carries is refused, the same way
-    the create route refuses a taken name - otherwise the by-name route would resolve one of two
-    templates arbitrarily
+    Requires the ``base.docapi.template.edit`` right and the licensed DOCUMENT_GENERATOR feature
+
+    The name is IMMUTABLE once the template exists: a payload carrying any other name than the stored
+    one is refused, even when that name is free. The name is the template's stable handle - the frontend
+    probes it for availability while a name is being typed (see ``get_template_by_name``) and only the
+    create route decides it. Because it can no longer move, the create route's uniqueness check plus the
+    unique index on ``name`` are the whole guarantee; nothing here can collide. Every other property is
+    freely editable, and the whole document is expected in the payload
 
     Args:
         request_user (CmdbUser): User requesting this data
 
     Raises:
         HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when the
-            template does not exist; 400 when the new name is taken or the update fails; 500 on an
-            unexpected error
+            template does not exist; 400 when the payload would rename the template or the update
+            fails; 500 on an unexpected error
 
     Returns:
         DefaultResponse: The updated DocapiTemplate
@@ -425,13 +435,14 @@ def update_template(request_user: CmdbUser) -> Response:
         update_tpl_instance = DocapiTemplate(**new_tpl_data)
         template_id: int = update_tpl_instance.get_public_id()
 
-        if not docapi_manager.get_template(template_id):
+        current_template: DocapiTemplate | None = docapi_manager.get_template(template_id)
+
+        if not current_template:
             abort(404, f"Template with ID: {template_id} not found!")
 
-        name_holder = docapi_manager.get_template_by_name(name=update_tpl_instance.name)
-
-        if name_holder and name_holder.get_public_id() != template_id:
-            abort(400, f"A template with the name '{update_tpl_instance.name}' already exists!")
+        if update_tpl_instance.name != current_template.name:
+            abort(400, f"The 'name' of a template is not changable - '{current_template.name}' can not "
+                       f"be renamed to '{update_tpl_instance.name}'!")
 
         docapi_manager.update_template(update_tpl_instance)
 

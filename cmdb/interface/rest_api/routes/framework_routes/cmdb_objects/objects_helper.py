@@ -14,7 +14,31 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Helper methods for CmdbObject routes
+Helper functions behind the CmdbObject routes
+
+Everything the object routes do beyond request parsing lives here, grouped by the write path it
+serves. The routes stay thin: they validate the request, resolve managers and delegate.
+
+* **Create / update** - ``apply_object_insert`` and ``apply_object_update`` are the two pipelines; both
+  resolve the type, enforce the licence and the per-feature write invariants, persist, then run the
+  side effects. DataGerry has no partial-update semantics on this path: the complete object is always
+  sent, so the payload is authoritative
+* **Partial update (PATCH)** - the one route that does take a subset. ``validate_object_patch_payload``
+  guards the body, the ``*_patch_multi_data_rows`` helpers apply the row operations, and
+  ``build_patched_object_data`` merges the result into a full payload that is then handed to the
+  SHARED ``apply_object_update`` pipeline, so a patch gets identical invariants, versioning and events
+* **Delete** - ``guard_object_delete`` refuses what may not be deleted, ``delete_one_cascade`` runs the
+  consequences (locations, object groups, relations, webhooks, log, cloud config-item sync)
+* **Side effects** - ``handle_notify_webhooks``, ``handle_create_object_log`` and
+  ``emit_object_*_events`` are **best-effort**: each catches and logs its own failures so a webhook or
+  logging problem never rolls back a stored object. The trade-off is that a successful write can leave
+  no audit entry, with nothing surfaced to the caller - recorded as discussion-backlog #160
+* **Re-alignment** - ``realign_objects_to_type`` and ``clean_type_reports`` repair stored objects after
+  their CmdbType changed
+
+Field values are always stored as complete ``{name, value, type}`` triples;
+``validate_and_fill_object_fields`` is what guarantees that, backfilling the ``type`` from the type
+schema on every write path, so a caller (including PATCH) never has to supply it
 """
 import copy
 import json
@@ -49,6 +73,7 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_we
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model import (
@@ -57,6 +82,7 @@ from cmdb.models.object_model import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
+from cmdb.models.object_relation_model import ObjectRelationKey
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.log_model import LogInteraction
@@ -94,6 +120,14 @@ from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# The only keys `format_object_relation_log_data` reads for a DELETE entry; everything else on a
+# CmdbObjectRelation is irrelevant to the log, so the cascade reads back just these three
+RELATION_DELETE_LOG_PROJECTION: dict[str, int] = {
+    ObjectRelationKey.PUBLIC_ID.value: 1,
+    ObjectRelationKey.RELATION_PARENT_ID.value: 1,
+    ObjectRelationKey.RELATION_CHILD_ID.value: 1,
+}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -211,10 +245,10 @@ def delete_one_cascade(
     # Create ObjectLog of the deletion
     handle_create_object_log(request_user, deleted_object, log_action)
 
-    # Sync config item count in CLOUD_MODE
+    # Sync config item count in CLOUD_MODE. The total comes from the breakdown aggregation the sync
+    # runs anyway, so the delete does not also pay for an unfiltered full-collection count
     if current_app.cloud_mode:
-        objects_count: int = objects_manager.count_documents()
-        handle_sync_config_item_count(request_user, objects_count)
+        handle_sync_config_item_count(request_user)
 
 
 def collect_unknown_select_values(
@@ -442,6 +476,30 @@ def handle_notify_webhooks(
         LOGGER.error("[handle_notify_webhooks] Send Webhook Event Exception: %s, Type:%s", err, type(err))
 
 
+def render_single_object(target_object: CmdbObject, request_user: CmdbUser) -> RenderResult | None:
+    """
+    Renders one CmdbObject, or returns None when it cannot be rendered
+
+    ``CmdbMultiRender.result(single_object=True)`` is typed to return a list, a single result or
+    None - it yields None when the object's type is gone. This narrows that union to the one shape
+    callers can use, so a missing render is an explicit None instead of an AttributeError inside a
+    caller's except arm
+
+    Args:
+        target_object (CmdbObject): The CmdbObject to render
+        request_user (CmdbUser): The CmdbUser the render is performed for (drives ACL and references)
+
+    Returns:
+        RenderResult | None: The rendered object, or None when it could not be rendered
+    """
+    rendered: list[RenderResult] | RenderResult | None = CmdbMultiRender(
+        [target_object],
+        request_user,
+    ).result(single_object=True)
+
+    return rendered if isinstance(rendered, RenderResult) else None
+
+
 def handle_create_object_log(
         request_user: CmdbUser,
         target_object: CmdbObject,
@@ -450,8 +508,11 @@ def handle_create_object_log(
     """
     Writes a CmdbObjectLog entry for a created or deleted CmdbObject
 
-    Renders the object to capture its render_state in the log. Failures are caught and logged so
-    a logging problem never blocks the surrounding object operation
+    Renders the object to capture its render_state in the log. **Best-effort:** every failure - a
+    render that yields nothing because the object's type is gone, or anything raised while writing
+    the entry - is caught and logged so a logging problem never blocks the surrounding object
+    operation. The consequence is that a create or delete can succeed while leaving no audit entry,
+    and the caller is not told (discussion-backlog #160)
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
@@ -459,10 +520,17 @@ def handle_create_object_log(
         log_action (LogAction): The log action to record (CREATE or DELETE)
     """
     try:
-        rendered_object: RenderResult = CmdbMultiRender(
-            [target_object],
-            request_user
-        ).result(single_object=True)
+        rendered_object: RenderResult | None = render_single_object(target_object, request_user)
+
+        # Without this guard the AttributeError on the render below is swallowed by the except arm
+        # and the log entry silently disappears while the object operation still reports success
+        if rendered_object is None:
+            LOGGER.error(
+                "[handle_create_object_log] Object with ID:%s could not be rendered; no ObjectLog written",
+                target_object.get_public_id(),
+            )
+
+            return
 
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
@@ -471,9 +539,13 @@ def handle_create_object_log(
         if log_action == LogAction.DELETE:
             log_comment = "Object was deleted"
 
+        # pylint cannot narrow the union CmdbMultiRender.result declares, so it reads the value as a
+        # list here; render_single_object above guarantees a RenderResult
         log_data: dict[str, Any] = {
+            # pylint: disable=no-member
             'object_id': rendered_object.object_information['object_id'],
             'version': rendered_object.object_information['version'],
+            # pylint: enable=no-member
             'user_id': request_user.get_public_id(),
             'user_name': request_user.get_display_name(),
             'comment': log_comment,
@@ -542,28 +614,30 @@ def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | l
     object_groups_manager.remove_ids_from_groups(public_ids, ObjectGroupMode.STATIC)
 
 
-def build_type_object_counts(request_user: CmdbUser) -> list[dict[str, Any]]:
+def build_type_object_counts(request_user: CmdbUser) -> tuple[list[dict[str, Any]], int]:
     """
     Builds the per-type object-count list for the Service Portal sync payload
 
     Counts every CmdbObject grouped by its type_id in a single aggregation, then resolves each
     type_id to its CmdbType label via one bulk lookup. CmdbTypes with no objects are omitted, and
-    a counted type_id whose CmdbType no longer exists is skipped. The counts include all objects
-    (no active filter), so their sum matches the reported config_item_count
+    a counted type_id whose CmdbType no longer exists is skipped - so the returned breakdown may
+    sum to less than the total. The total is taken from the same aggregation and counts every
+    document (no active filter), so it always equals an unfiltered ``count_documents()``
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
 
     Returns:
-        list[dict[str, Any]]: Entries shaped ``{"name": <type label>, "count": <int>}``
+        tuple[list[dict[str, Any]], int]: Entries shaped ``{"name": <type label>, "count": <int>}``
+            and the exact total number of CmdbObjects
     """
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
     types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-    counts_by_type: dict[int, int] = objects_manager.count_objects_grouped_by_type()
+    counts_by_type, total_count = objects_manager.count_objects_grouped_by_type_with_total()
 
     if not counts_by_type:
-        return []
+        return [], total_count
 
     types_lookup: dict[int, CmdbType] = types_manager.get_types_lookup(list(counts_by_type.keys()))
 
@@ -577,10 +651,10 @@ def build_type_object_counts(request_user: CmdbUser) -> list[dict[str, Any]]:
 
         type_counts.append({"name": object_type.label, "count": count})
 
-    return type_counts
+    return type_counts, total_count
 
 
-def handle_sync_config_item_count(request_user: CmdbUser, config_item_count: int) -> None:
+def handle_sync_config_item_count(request_user: CmdbUser, config_item_count: int | None = None) -> None:
     """
     Syncs the current ConfigItem count to the DataGerry service portal (cloud mode)
 
@@ -589,11 +663,18 @@ def handle_sync_config_item_count(request_user: CmdbUser, config_item_count: int
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
-        config_item_count (int): The current number of CmdbObjects to report
+        config_item_count (int | None): The number of CmdbObjects to report. Omit it to take the
+            total from the same aggregation that builds the breakdown - the caller then pays for
+            one aggregation instead of an aggregation plus a full-collection count, and both
+            numbers come from the same read
     """
-    type_counts: list[dict[str, Any]] = build_type_object_counts(request_user)
+    type_counts, total_count = build_type_object_counts(request_user)
 
-    DgServicePortalManager().sync_config_items(request_user, config_item_count, type_counts)
+    DgServicePortalManager().sync_config_items(
+        request_user,
+        total_count if config_item_count is None else config_item_count,
+        type_counts,
+    )
 
 
 def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: int) -> None:
@@ -603,6 +684,15 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
     Removes every relation in which the object appears as parent or child in a single bulk delete,
     then writes one CmdbObjectRelationLog per removed relation. A no-op when the object has no
     relations; per-relation log-prep failures are caught and logged
+
+    Two properties worth knowing:
+
+    * The relations are **read and then deleted by the same query**, not by the ids that were read.
+      A relation created between the two operations is therefore deleted but never logged - recorded
+      as discussion-backlog #162
+    * The log ids are reserved as one batch and paired with ``zip(..., strict=True)``:
+      ``insert_many(skip_public=True)`` requires every document to carry a ``public_id``, so a short
+      reservation must fail loudly rather than insert entries with the key missing
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
@@ -617,14 +707,20 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
         request_user
     )
 
-    # Get all affected ObjectRelations
-    affected_relations: list[dict[str, Any]] = object_relations_manager.get_related_relations(public_id)
+    related_relations_query: dict[str, Any] = object_relations_manager.get_related_relations_query(public_id)
+
+    # Only the three keys the DELETE log entry carries are read back - the full relation documents
+    # are never needed here
+    affected_relations: list[dict[str, Any]] = object_relations_manager.find(
+        criteria=related_relations_query,
+        projection=RELATION_DELETE_LOG_PROJECTION,
+    )
 
     if not affected_relations:
         return
 
     # Delete all affected relations
-    object_relations_manager.delete_many_raw(object_relations_manager.get_related_relations_query(public_id))
+    object_relations_manager.delete_many_raw(related_relations_query)
 
     # Prepare Log data
     logs_to_create: list[dict[str, Any]] = []
@@ -649,8 +745,10 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
     # Add public_ids to the log data
     reserved_log_ids: list[int] = object_relation_logs_manager.reserve_public_ids(len(logs_to_create))
 
-    for log_doc, new_id in zip(logs_to_create, reserved_log_ids):
-        log_doc["public_id"] = new_id
+    # strict: insert_many(skip_public=True) requires EVERY document to carry a public_id, so a short
+    # id batch must fail loudly here instead of inserting logs with the key missing
+    for log_doc, new_id in zip(logs_to_create, reserved_log_ids, strict=True):
+        log_doc[CmdbObjectKey.PUBLIC_ID.value] = new_id
 
     # Create all Logs
     object_relation_logs_manager.insert_many(logs_to_create, skip_public=True)
@@ -672,7 +770,7 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
         HTTPException: 400 when type_id is missing, the type cannot be found, a field has no name,
             or a field is not declared by the type
     """
-    type_id: int | None = object_data.get("type_id")
+    type_id: int | None = object_data.get(CmdbObjectKey.TYPE_ID.value)
     if not type_id:
         abort(400, "Missing type_id in object data!")
 
@@ -681,7 +779,10 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
     if not type_schema:
         abort(400, f"Type with ID {type_id} of the Object was not found!")
 
-    type_field_map = {f[FieldKey.NAME]: f[FieldKey.TYPE] for f in type_schema["fields"]}
+    type_field_map = {
+        field[FieldKey.NAME.value]: field[FieldKey.TYPE.value]
+        for field in type_schema[TypeSchemaKey.FIELDS.value]
+    }
 
     def validate_field_list(fields: list[dict[str, Any]]) -> None:
         """Validates every field in a list against the type and backfills missing 'type' keys"""
@@ -694,16 +795,16 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
             if field_name not in type_field_map:
                 abort(400, f"Field '{field_name}' is not defined in type {type_id}!")
 
-            if FieldKey.TYPE not in field or not field[FieldKey.TYPE]:
-                field[FieldKey.TYPE] = type_field_map[field_name]
+            if not field.get(FieldKey.TYPE.value):
+                field[FieldKey.TYPE.value] = type_field_map[field_name]
 
     # Validate normal object fields
-    validate_field_list(object_data.get("fields", []))
+    validate_field_list(object_data.get(CmdbObjectKey.FIELDS.value, []))
 
     # Validate multi-data sections
-    for section in object_data.get("multi_data_sections", []):
-        for value in section.get("values", []):
-            validate_field_list(value.get("data", []))
+    for section in object_data.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value, []):
+        for value in section.get(CmdbObjectMdsKey.VALUES.value, []):
+            validate_field_list(value.get(CmdbObjectMdsRowKey.DATA.value, []))
 
 
 def to_normalized_cmdb_object(object_data: dict[str, Any]) -> CmdbObject:
@@ -748,23 +849,25 @@ def build_new_object_data(
     new_object_data: dict[str, Any] = json.loads(json.dumps(request_data), object_hook=json_util.object_hook)
 
     if "public_id" not in new_object_data:
-        new_object_data['public_id'] = objects_manager.get_new_object_public_id()
+        new_object_data[CmdbObjectKey.PUBLIC_ID.value] = objects_manager.get_new_object_public_id()
     else:
-        existing_object: dict[str, Any] | None = objects_manager.get_object(new_object_data['public_id'])
+        existing_object: dict[str, Any] | None = objects_manager.get_object(
+            new_object_data[CmdbObjectKey.PUBLIC_ID.value]
+        )
 
         if existing_object:
-            abort(400, f'Object with ID: {new_object_data["public_id"]} already exists!')
+            abort(400, f'Object with ID: {new_object_data[CmdbObjectKey.PUBLIC_ID.value]} already exists!')
 
-    object_type: CmdbType | None = objects_manager.get_object_type(new_object_data['type_id'])
+    object_type: CmdbType | None = objects_manager.get_object_type(new_object_data[CmdbObjectKey.TYPE_ID.value])
 
     if not object_type:
-        abort(404, f"Type with ID:{new_object_data['type_id']} of new Object not found!")
+        abort(404, f"Type with ID:{new_object_data[CmdbObjectKey.TYPE_ID.value]} of new Object not found!")
 
     if 'active' not in new_object_data:
-        new_object_data['active'] = True
+        new_object_data[CmdbObjectKey.ACTIVE.value] = True
 
-    new_object_data['creation_time'] = datetime.now(timezone.utc)
-    new_object_data['version'] = '1.0.0'
+    new_object_data[CmdbObjectKey.CREATION_TIME.value] = datetime.now(timezone.utc)
+    new_object_data[CmdbObjectKey.VERSION.value] = CmdbObject.DEFAULT_VERSION
     # Transient location name: never stored (the POST route reads it from the raw body for the sync)
     new_object_data.pop('location_name', None)
 
@@ -791,7 +894,7 @@ def guard_config_item_limit(request_user: CmdbUser, objects_manager: ObjectsMana
         return
 
     if request_user.is_config_item_limit_reached(objects_manager.count_documents()):
-        abort(400, "The maximum amout of ConfigItems is reached!")
+        abort(400, "The maximum amount of ConfigItems is reached!")
 
 
 def resolve_object_type(
@@ -945,7 +1048,7 @@ def apply_object_insert(
     if current_app.cloud_mode:
         # Recount AFTER the insert so the synced total includes the just-created object (the
         # pre-insert count in guard_config_item_limit only answers the limit question)
-        handle_sync_config_item_count(request_user, objects_manager.count_documents())
+        handle_sync_config_item_count(request_user)
 
     handle_create_object_log(request_user, created_instance, LogAction.CREATE)
 
@@ -1034,6 +1137,12 @@ def emit_object_update_events(
 
 # Cohesive single-object update orchestration (fetch -> guard -> validate -> persist -> side effects);
 # the local count is inherent to the sequence, so the too-many-locals check is scoped off here
+# too-many-locals: this is the object update ORCHESTRATOR - 8 arguments plus one local per pipeline
+# step (candidate payload, resolved type, location placement, invariants, version bump, re-read,
+# events). Extracting a step does not help: every candidate split has to hand 9+ values across the
+# seam, which trips max-args instead and hides the order the steps must run in. Getting under the
+# limit needs a parameter object for the managers, which changes the signature the object routes and
+# the PATCH path call - see discussion-backlog #161
 def apply_object_update(  # pylint: disable=too-many-locals
         obj_id: int,
         payload: dict[str, Any],
@@ -1084,7 +1193,9 @@ def apply_object_update(  # pylint: disable=too-many-locals
     if not current_object_instance:
         abort(404, f"Object with ID:{obj_id} not found!")
 
-    if is_special_type_changed(current_object_instance.special_type, new_data.get('special_type')):
+    if is_special_type_changed(
+        current_object_instance.special_type, new_data.get(CmdbObjectKey.SPECIAL_TYPE.value),
+    ):
         abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {obj_id}")
 
     current_type_instance: CmdbType = resolve_object_type(
@@ -1092,13 +1203,15 @@ def apply_object_update(  # pylint: disable=too-many-locals
     )
 
     new_data.update({
-        'public_id': obj_id,
-        'creation_time': current_object_instance.creation_time,
-        'author_id': current_object_instance.author_id,
-        'active': active_state if active_state in [True, False] else current_object_instance.active,
-        'version': payload.get('version', current_object_instance.version),
-        'last_edit_time': datetime.now(timezone.utc),
-        'editor_id': request_user.public_id,
+        CmdbObjectKey.PUBLIC_ID.value: obj_id,
+        CmdbObjectKey.CREATION_TIME.value: current_object_instance.creation_time,
+        CmdbObjectKey.AUTHOR_ID.value: current_object_instance.author_id,
+        CmdbObjectKey.ACTIVE.value: (
+            active_state if active_state in [True, False] else current_object_instance.active
+        ),
+        CmdbObjectKey.VERSION.value: payload.get(CmdbObjectKey.VERSION.value, current_object_instance.version),
+        CmdbObjectKey.LAST_EDIT_TIME.value: datetime.now(timezone.utc),
+        CmdbObjectKey.EDITOR_ID.value: request_user.public_id,
     })
 
     update_comment: str = new_data.pop('comment', "")
@@ -1108,7 +1221,9 @@ def apply_object_update(  # pylint: disable=too-many-locals
     validate_and_fill_object_fields(objects_manager, new_data)
 
     # Location placement is validated BEFORE the write; the CmdbLocation mirror runs best-effort after
-    has_location_field, location_parent = extract_object_location_parent(new_data.get('fields', []))
+    has_location_field, location_parent = extract_object_location_parent(
+        new_data.get(CmdbObjectKey.FIELDS.value, []),
+    )
     locations_manager: LocationsManager | None = None
 
     if has_location_field:
@@ -1125,14 +1240,12 @@ def apply_object_update(  # pylint: disable=too-many-locals
     guard_object_write_license(types_manager, request_user, new_data, previous_object)
 
     # Every feature's write invariants (IPAM, Rack) - also canonicalises values on the candidate
-    invariant_error: str | None = enforce_object_write_invariants(
+    if invariant_error := enforce_object_write_invariants(
         objects_manager,
         types_manager,
         new_data,
         previous_object=previous_object,
-    )
-
-    if invariant_error:
+    ):
         abort(400, invariant_error)
 
     # An unknown select value may not extend a predefined section template's field - reject before the write
@@ -1146,7 +1259,7 @@ def apply_object_update(  # pylint: disable=too-many-locals
     update_object_instance: CmdbObject = to_normalized_cmdb_object(new_data)
 
     new_version, changes = compute_object_version(current_object_instance, update_object_instance)
-    new_data['version'] = new_version
+    new_data[CmdbObjectKey.VERSION.value] = new_version
 
     objects_manager.update_object(obj_id, new_data, request_user, AccessControlPermission.UPDATE)
 
@@ -1318,6 +1431,11 @@ def merge_patch_fields(
     A patched field name that already exists has only its ``value`` overwritten (its stored
     ``type`` is kept); an unknown name is appended as a new entry. Stored fields not mentioned by
     the patch are left untouched. The returned list is a shallow copy — the input is not mutated
+
+    An appended entry carries a ``type`` only when the patch supplied one, which clients normally do
+    not. That is intentional and not an incomplete write: the merged payload goes through
+    ``apply_object_update``, whose ``validate_and_fill_object_fields`` backfills the ``type`` from the
+    type schema before anything is persisted, so the stored entry is always a full triple
 
     Args:
         stored_fields (list[dict[str, Any]]): The object's current field entries ({name, value, type})

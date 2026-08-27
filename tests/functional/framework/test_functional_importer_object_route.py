@@ -201,7 +201,13 @@ class TestParseObjects:
         assert 'no data rows' in response.get_json()['message']
 
     def test_parse_unknown_format_returns_400(self, rest_api) -> None:
-        """A parse request whose format has no parser is a client error -> 400 (was wrongly 500)."""
+        """
+        A parse request whose format has no parser is a client error -> 400 (was wrongly 500)
+
+        The message has to name the format and the supported set: /parse/ resolves the format the
+        same way /import/ does, so the caller is no longer told to check a parser configuration that
+        was never the problem.
+        """
         form = {
             'file': (BytesIO(CSV_BODY), 'import.csv'),
             'file_format': 'bogus',
@@ -211,6 +217,8 @@ class TestParseObjects:
         response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'bogus' in response.get_json()['message']
+        assert 'csv' in response.get_json()['message']
 
 
 class TestImportObjects:

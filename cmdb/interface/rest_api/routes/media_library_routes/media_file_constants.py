@@ -14,9 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Rights, request keys and document keys of the MediaFile REST routes
+Rights and request keys of the MediaFile REST routes
+
+The DOCUMENT-key enums live in `cmdb.framework.media_library.media_file_keys`, because
+`MediaFilesManager` addresses the same document and a manager may not import from the interface layer.
+They are re-exported here so a route reads its keys from one module
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.framework.media_library.media_file_keys import MediaFileKey, MediaFileMetadataKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -51,26 +56,3 @@ class MediaFileRequestKey(BaseStrEnum):
     METADATA = 'metadata'
     ATTACHMENT = 'attachment'
     REFERENCE = 'reference'
-
-
-class MediaFileKey(BaseStrEnum):
-    """
-    Keys of a stored MediaFile document (a GridFS file document)
-    """
-    PUBLIC_ID = 'public_id'
-    FILENAME = 'filename'
-    METADATA = 'metadata'
-
-
-class MediaFileMetadataKey(BaseStrEnum):
-    """
-    Keys inside a MediaFile's metadata sub-document
-
-    PARENT is the folder the file sits in - the media library is a tree, and the pair
-    (filename, metadata.parent) is what has to stay unique
-    """
-    AUTHOR_ID = 'author_id'
-    MIME_TYPE = 'mime_type'
-    PARENT = 'parent'
-    REFERENCE = 'reference'
-    REFERENCE_TYPE = 'reference_type'

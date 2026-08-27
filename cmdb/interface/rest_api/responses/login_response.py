@@ -78,7 +78,8 @@ class LoginResponse(BaseAPIResponse):
             dict: A dictionary containing user data and authentication token details
         """
         return {
-            'user': CmdbUser.to_json(self.user),
+            # to_public_json, never to_json: the stored password digest must not leave the server
+            'user': CmdbUser.to_public_json(self.user),
             'token': self.token.decode('UTF-8'),
             'token_issued_at': self.token_issued_at,
             'token_expire': self.token_expire

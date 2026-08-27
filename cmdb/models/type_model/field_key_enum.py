@@ -27,6 +27,10 @@ class FieldKey(BaseStrEnum):
     one input shown to the user. Use these members instead of bare string literals when constructing
     or reading a field dict so a typo becomes an ImportError or AttributeError instead of a silently
     ignored key
+
+    SUMMARIES only appears on a `FieldType.REFERENCE` field: it overrides, per referenced CmdbType,
+    which summary fields and which summary line the renderer shows for that reference. Its entries are
+    keyed by `NestedSummaryKey`
     """
     TYPE = 'type'
     NAME = 'name'
@@ -37,3 +41,4 @@ class FieldKey(BaseStrEnum):
     REF_TYPES = 'ref_types'
     OPTIONS = 'options'
     VALUE = 'value'
+    SUMMARIES = 'summaries'

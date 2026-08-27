@@ -45,3 +45,21 @@ MONGO_LOCK_TIMEOUT_ERROR_CODE: int = 24
 
 # MongoDB descending sort direction (mirrors pymongo.DESCENDING)
 MONGO_SORT_DESCENDING: int = -1
+
+# Environment variable holding a full MongoDB connection string. When set it replaces the
+# host/port pair AND decides whether the connector requests TLS - see MongoConnector.__init__
+MONGO_CONNECTION_STRING_ENV: str = "CONNECTION_STRING"
+
+# Connection-string scheme that makes the connector request TLS. Any other scheme (including a
+# plain "mongodb://" string that already asks for TLS itself) does not - see discussion-backlog #139
+MONGO_SRV_SCHEME_PREFIX: str = "mongodb+srv://"
+
+# MongoClient option names the connector normalises: the deprecated 'ssl' flag is dropped in favour
+# of 'tls', which the connector sets itself unless the caller already provided it
+MONGO_SSL_OPTION: str = "ssl"
+MONGO_TLS_OPTION: str = "tls"
+
+# Command used to probe whether the server answers, and the key of its acknowledgement flag
+MONGO_HELLO_COMMAND: str = "hello"
+MONGO_COMMAND_OK_KEY: str = "ok"
+MONGO_COMMAND_OK_VALUE: int = 1

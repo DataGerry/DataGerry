@@ -542,13 +542,42 @@ class ObjectsManager(BaseManager):
         Returns:
             dict[int, int]: Mapping of type_id to the number of CmdbObjects of that type
         """
+        return self.count_objects_grouped_by_type_with_total()[0]
+
+
+    def count_objects_grouped_by_type_with_total(self) -> tuple[dict[int, int], int]:
+        """
+        Counts all CmdbObjects grouped by their type_id and returns the exact overall total
+
+        The per-type mapping drops groups whose ``_id`` is not an int (a document with a missing or
+        malformed ``type_id`` cannot be attributed to a CmdbType), but the total counts **every**
+        document, so it always matches an unfiltered ``count_documents()``. Callers that need both
+        numbers - the Service Portal config-item sync needs the breakdown and the total - get them
+        from this one aggregation instead of paying for a separate full-collection count
+
+        Raises:
+            ObjectsManagerIterationError: If the aggregation fails
+
+        Returns:
+            tuple[dict[int, int], int]: The type_id -> count mapping and the total object count
+        """
         pipeline: list[dict[str, Any]] = [
             {"$group": {"_id": f"${CmdbObjectKey.TYPE_ID.value}", "count": {"$sum": 1}}}
         ]
 
         cursor: CommandCursor = self.aggregate_objects(pipeline)
 
-        return {doc["_id"]: doc["count"] for doc in cursor if isinstance(doc.get("_id"), int)}
+        counts_by_type: dict[int, int] = {}
+        total: int = 0
+
+        for doc in cursor:
+            count: int = doc["count"]
+            total += count
+
+            if isinstance(doc.get("_id"), int):
+                counts_by_type[doc["_id"]] = count
+
+        return counts_by_type, total
 
 
     def get_mds_references_for_object(self,
