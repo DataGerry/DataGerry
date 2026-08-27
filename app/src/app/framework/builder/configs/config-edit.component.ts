@@ -17,7 +17,6 @@
 */
 import {
     Component,
-    ComponentFactoryResolver,
     ComponentRef,
     Input, OnDestroy,
     OnInit,
@@ -40,8 +39,7 @@ import { ConfigEditBaseComponent } from './config.edit';
     selector: 'cmdb-config-edit',
     templateUrl: './config-edit.component.html',
     styleUrls: ['./config-edit.component.scss'],
-    standalone: false,
-    host: { 'data-config-edit': 'type' }
+    standalone: false
 })
 export class ConfigEditComponent implements OnInit, OnDestroy {
 
@@ -61,7 +59,7 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
     @Input() public hiddenStatus: boolean;
     @Input() public isDisabled: boolean = false;
 
-    @ViewChild('configContainer', { read: ViewContainerRef, static: true }) container;
+    @ViewChild('configContainer', { read: ViewContainerRef, static: true }) container: ViewContainerRef;
 
     private component: any;
     private componentRef: ComponentRef<any>;
@@ -72,17 +70,22 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
     @Output() valuesChanged: EventEmitter<any> = new EventEmitter();
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
-    constructor(private resolver: ComponentFactoryResolver) {
+    constructor() {
         this.form = new UntypedFormGroup({});
     }
 
 
     public ngOnInit(): void {
-        this.container.clear();
-        this.component = configComponents[this.data.type];
+        this.component = configComponents[this.data?.type];
 
-        const factory = this.resolver.resolveComponentFactory<ConfigEditBaseComponent>(this.component);
-        this.componentRef = this.container.createComponent(factory);
+        // No editor for this field type: render nothing rather than throwing in the resolver.
+        if (!this.component) {
+            return;
+        }
+
+        this.container.clear();
+
+        this.componentRef = this.container.createComponent<ConfigEditBaseComponent>(this.component);
         this.componentRef.instance.mode = this.mode;
         this.componentRef.instance.data = this.data;
         this.componentRef.instance.form = this.form;
@@ -100,7 +103,7 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
     public ngOnDestroy(): void {
         this.subscriber?.next();
         this.subscriber?.complete();
-        this.fieldChangesSubscription.unsubscribe();
+        this.fieldChangesSubscription?.unsubscribe();
         this.componentRef?.destroy();
     }
 

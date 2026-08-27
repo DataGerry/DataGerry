@@ -29,20 +29,17 @@ import { SectionTemplateService } from '../../services/section-template.service'
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { CmdbMode } from 'src/app/framework/modes.enum';
-import { Controller } from 'src/app/framework/builder/controls/controls.common';
 import { APIInsertSingleResponse, APIUpdateSingleResponse } from 'src/app/services/models/api-response';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { SectionFieldEditComponent } from 'src/app/framework/builder/configs/section/section-field-edit.component';
-import { CheckboxControl } from 'src/app/framework/builder/controls/choice/checkbox.control';
-import { RadioControl } from 'src/app/framework/builder/controls/choice/radio.control';
-import { SelectControl } from 'src/app/framework/builder/controls/choice/select.control';
-import { DateControl } from 'src/app/framework/builder/controls/date-time/date.control';
 import { ReferenceControl } from 'src/app/framework/builder/controls/specials/ref.control';
-import { PasswordControl } from 'src/app/framework/builder/controls/text/password.control';
-import { TextControl } from 'src/app/framework/builder/controls/text/text.control';
-import { TextAreaControl } from 'src/app/framework/builder/controls/text/textarea.control';
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
-import { NumberControl } from 'src/app/framework/builder/controls/number/number.control';
+import { BuilderUtils } from 'src/app/framework/builder/utils/builder-utils';
+import { BASIC_CONTROLS } from 'src/app/framework/builder/controls/basic-controls';
+import {
+    BuilderPaletteGroup,
+    paletteItemsFromControls
+} from 'src/app/framework/builder/palette/builder-palette.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -76,20 +73,26 @@ export class SectionTemplateBuilderComponent implements OnInit {
 
     public isFormValid: boolean = false;
 
-    public basicControls = [
-        new Controller('text', new TextControl()),
-        new Controller('number', new NumberControl()),
-        new Controller('password', new PasswordControl()),
-        new Controller('textarea', new TextAreaControl()),
-        new Controller('checkbox', new CheckboxControl()),
-        new Controller('radio', new RadioControl()),
-        new Controller('select', new SelectControl()),
-        new Controller('date', new DateControl())
-    ];
+    private readonly basicItems = paletteItemsFromControls(BASIC_CONTROLS);
 
-    public specialControls = [
-        new Controller('ref', new ReferenceControl())
-    ];
+    private readonly specialItems = paletteItemsFromControls([new ReferenceControl()]);
+
+    /** Section templates offer the basic controls plus Reference; the section itself is fixed. */
+    public get paletteGroups(): Array<BuilderPaletteGroup> {
+        return [
+            {
+                id: 'basicControls',
+                label: 'Basic Controls',
+                expanded: true,
+                items: this.basicItems
+            },
+            {
+                id: 'specialControls',
+                label: 'Special Controls',
+                items: this.specialItems
+            }
+        ];
+    }
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -344,27 +347,8 @@ export class SectionTemplateBuilderComponent implements OnInit {
      * @param value string of field type
      * @returns Icon string
      */
-    public matchedType(value: string) {
-        switch (value) {
-            case 'textarea':
-                return 'align-left';
-            case 'password':
-                return 'key';
-            case 'checkbox':
-                return 'check-square';
-            case 'radio':
-                return 'check-circle';
-            case 'select':
-                return 'list';
-            case 'ref':
-                return 'retweet';
-            case 'location':
-                return 'globe';
-            case 'date':
-                return 'calendar-alt';
-            default:
-                return 'font';
-        }
+    public matchedType(value: string): string {
+        return BuilderUtils.matchedType(value);
     }
 
 

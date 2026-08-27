@@ -1,20 +1,5 @@
 @import "src/scss/variables";
 
-#builder-controls {
-  position: relative;
-}
-
-#controlWrapper {
-  position: sticky;
-  top: calc(15px + #{$navbar-height})
-}
-
-#controlsPanel {
-  button {
-    line-height: 0.1;
-  }
-}
-
 #form-container {
 
   button:disabled,

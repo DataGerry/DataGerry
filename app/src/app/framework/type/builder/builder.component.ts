@@ -37,28 +37,25 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 
-import { Controller } from 'src/app/framework/builder/controls/controls.common';
 import { SectionControl } from 'src/app/framework/builder/controls/section.control';
 import { Group } from '../../../management/models/group';
 import { User } from '../../../management/models/user';
-import { TextControl } from 'src/app/framework/builder/controls/text/text.control';
-import { PasswordControl } from 'src/app/framework/builder/controls/text/password.control';
-import { TextAreaControl } from 'src/app/framework/builder/controls/text/textarea.control';
 import { ReferenceControl } from 'src/app/framework/builder/controls/specials/ref.control';
 import { LocationControl } from 'src/app/framework/builder/controls/specials/location.control';
-import { RadioControl } from 'src/app/framework/builder/controls/choice/radio.control';
-import { SelectControl } from 'src/app/framework/builder/controls/choice/select.control';
-import { CheckboxControl } from 'src/app/framework/builder/controls/choice/checkbox.control';
 import { CmdbMode } from '../../modes.enum';
-import { DateControl } from 'src/app/framework/builder/controls/date-time/date.control';
 import { RefSectionControl } from 'src/app/framework/builder/controls/ref-section.common';
 import { CmdbType, CmdbTypeSection } from '../../models/cmdb-type';
 import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
 import { MultiSectionControl } from 'src/app/framework/builder/controls/multi-section.control';
+import { BASIC_CONTROLS } from 'src/app/framework/builder/controls/basic-controls';
+import {
+    BuilderPaletteGroup,
+    paletteItemsFromControls,
+    paletteItemsFromSectionTemplates
+} from 'src/app/framework/builder/palette/builder-palette.model';
 import { SectionIdentifierService } from 'src/app/framework/builder/services/SectionIdentifierService.service';
 import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
 import { BuilderUtils } from 'src/app/framework/builder/utils/builder-utils';
-import { NumberControl } from 'src/app/framework/builder/controls/number/number.control';
 import { LocationFieldDeletionService } from '../services/location-field-deletion.service';
 import { BuilderContext } from 'src/app/framework/builder/utils/builder-context';
 import { BuilderInteractionPolicy, BuilderInteractionPolicyContext } from 'src/app/framework/builder/utils/builder-interaction-policy';
@@ -66,7 +63,6 @@ import { BuilderHighlightHelper } from 'src/app/framework/builder/utils/builder-
 import { BuilderTemplateManager } from 'src/app/framework/builder/utils/builder-template.manager';
 import { BuilderMutationHelper } from 'src/app/framework/builder/utils/builder-mutation.helper';
 /* ------------------------------------------------------------------------------------------------------------------ */
-declare var $: any;
 
 @Component({
     selector: 'cmdb-builder',
@@ -133,29 +129,55 @@ export class BuilderComponent implements OnChanges, OnDestroy, AfterViewChecked,
     @Output() public validChange: EventEmitter<boolean> = new EventEmitter<boolean>();
 
 
-    public structureControls = [
-        new Controller('section', new SectionControl()),
-        new Controller('multi-data-section', new MultiSectionControl()),
-        new Controller('ref-section', new RefSectionControl())
-    ];
+    private readonly structureItems = paletteItemsFromControls([
+        new SectionControl(),
+        new MultiSectionControl(),
+        new RefSectionControl()
+    ]);
 
+    private readonly basicItems = paletteItemsFromControls(BASIC_CONTROLS);
 
-    public basicControls = [
-        new Controller('text', new TextControl()),
-        new Controller('number', new NumberControl()),
-        new Controller('password', new PasswordControl()),
-        new Controller('textarea', new TextAreaControl()),
-        new Controller('checkbox', new CheckboxControl()),
-        new Controller('radio', new RadioControl()),
-        new Controller('select', new SelectControl()),
-        new Controller('date', new DateControl())
-    ];
+    private readonly specialItems = paletteItemsFromControls([
+        new ReferenceControl(),
+        new LocationControl()
+    ]);
 
-
-    public specialControls = [
-        new Controller('ref', new ReferenceControl()),
-        new Controller('location', new LocationControl())
-    ];
+    /**
+     * Rebuilt per change detection because the template palettes are mutated in place as
+     * templates are applied and released, exactly as the previous inline bindings were.
+     */
+    public get paletteGroups(): Array<BuilderPaletteGroup> {
+        return [
+            {
+                id: 'globalSectionTemplates',
+                label: 'Global Section Templates',
+                expanded: true,
+                items: paletteItemsFromSectionTemplates(this.globalSectionTemplates)
+            },
+            {
+                id: 'sectionTemplates',
+                label: 'Section Templates',
+                items: paletteItemsFromSectionTemplates(this.sectionTemplates)
+            },
+            {
+                id: 'structureControls',
+                label: 'Structure Controls',
+                lockMode: 'draggable-attr',
+                items: this.structureItems
+            },
+            {
+                id: 'basicControls',
+                label: 'Basic Controls',
+                items: this.basicItems
+            },
+            {
+                id: 'specialControls',
+                label: 'Special Controls',
+                lockMode: 'draggable-attr',
+                items: this.specialItems
+            }
+        ];
+    }
 
     private readonly policy: BuilderInteractionPolicy;
     private readonly highlight: BuilderHighlightHelper;

@@ -1,137 +1,11 @@
 <div class="row" [class.builder-empty]="sections?.length === 0">
-    <div id="builder-controls" class="col-3">
-        <div id="controlWrapper" ui-block [blocked]="!valid">
-            <div class="accordion" id="controlsPanel">
-                <div class="card" *ngIf="globalSectionTemplates.length > 0">
-                    <div class="card-header">
-                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#globalSectionTemplates">
-                            Global Section Templates
-                        </a>
-                    </div>
-                    <div id="globalSectionTemplates" class="collapse show" data-bs-parent="#controlsPanel">
-                        <div class="card-body">
-                            <div class="list-group section-template-item">
-                                <div 
-                                    *ngFor="let globalSectionTemplate of globalSectionTemplates"
-                                    [dndType]="'sections'"
-                                    [dndDraggable]="globalSectionTemplate"
-                                    class="list-group-item list-group-item-action"
-                                    [ngClass]="getDraggableItemClass()"
-                                    [dndDisableIf]="isAnySectionHighlighted() || disableFields"
-                                >
-                                    <span>
-                                        #{{ globalSectionTemplate?.public_id }} - <b>{{ globalSectionTemplate?.label }}</b>
-                                    </span>
-                                    <div class="clearfix"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="card" *ngIf="sectionTemplates.length > 0">
-                    <div class="card-header">
-                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#sectionTemplates">
-                            Section Templates
-                        </a>
-                    </div>
-                    <div id="sectionTemplates" class="collapse" data-bs-parent="#controlsPanel">
-                        <div class="card-body">
-                            <div class="list-group section-template-item">
-                                <div 
-                                    *ngFor="let sectionTemplate of sectionTemplates"
-                                    [dndType]="'sections'"
-                                    [dndDraggable]="sectionTemplate"
-                                    class="list-group-item list-group-item-action"
-                                    [ngClass]="getDraggableItemClass()"
-                                    [dndDisableIf]="isAnySectionHighlighted() || disableFields"                             >
-                                    <span>
-                                        #{{ sectionTemplate?.public_id }} - <b>{{ sectionTemplate?.label }}</b>
-                                    </span>
-                                    <div class="clearfix"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#structureControls">
-                            Structure Controls
-                        </a>
-                    </div>
-                    <div id="structureControls" class="collapse" data-bs-parent="#controlsPanel">
-                        <div class="card-body">
-                            <div class="list-group section-template-item">
-                                <div 
-                                    *ngFor="let control of structureControls" 
-                                    [dndType]="control?.typeController?.dndType"
-                                    [dndDraggable]="control?.typeController?.content()"
-                                    class="list-group-item list-group-item-action"
-                                    [ngClass]="getDraggableItemClass()"
-                                    [attr.draggable]="(isAnySectionHighlighted() || disableFields) ? 'false' : 'true'"
-                                    >
-                                    <span>
-                                        <i class="{{control.typeController.icon}}"></i> {{ control?.typeController?.label }}
-                                    </span>
-                                    <div class="clearfix"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#basicControls">
-                            Basic Controls
-                        </a>
-                    </div>
-                    <div id="basicControls" class="collapse" data-bs-parent="#controlsPanel">
-                        <div class="card-body">
-                            <div class="list-group section-template-item">
-                                <div 
-                                    *ngFor="let control of basicControls" 
-                                    [dndType]="control?.typeController?.dndType"
-                                    [dndDraggable]="control?.typeController?.content()"
-                                    class="list-group-item list-group-item-action"
-                                    [ngClass]="getDraggableItemClass()"
-                                    [dndDisableIf]="isAnySectionHighlighted() || disableFields"
-                                >
-                                    <span>
-                                        <i class="{{control.typeController.icon}}"></i> {{ control?.typeController?.label }}
-                                    </span>
-                                    <div class="clearfix"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <a href="#" class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#specialControls">
-                            Special Controls
-                        </a>
-                    </div>
-                    <div id="specialControls" class="collapse" data-bs-parent="#controlsPanel">
-                        <div class="card-body">
-                            <div class="list-group section-template-item">
-                                <div 
-                                    *ngFor="let control of specialControls"
-                                    [dndType]="control?.typeController?.dndType"
-                                    [dndDraggable]="control?.typeController?.content()"
-                                    class="list-group-item list-group-item-action"
-                                    [ngClass]="getDraggableItemClass()"
-                                    [attr.draggable]="(isAnySectionHighlighted() || disableFields) ? 'false' : 'true'"
-                                >
-                                    <span>
-                                        <i class="{{control.typeController.icon}}"></i> {{ control?.typeController?.label }}
-                                    </span>
-                                    <div class="clearfix"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <div class="col-3">
+        <dg-builder-palette
+            [groups]="paletteGroups"
+            [dragDisabled]="isAnySectionHighlighted() || disableFields"
+            [blocked]="!valid"
+            [fillHeight]="sections?.length === 0"
+        >
             <div
                 id="builder-controls-action"
                 role="group"
@@ -150,7 +24,7 @@
                     Diagnostic
                 </button>
             </div>
-        </div>
+        </dg-builder-palette>
     </div>
     <div id="form-container" class="col-9" >
         <div 
@@ -238,7 +112,7 @@
                                     </div>
                                     <ng-container *ngFor="let field of section.fields; let y = index">
                                         <div
-                                            [dndEffectAllowed]="getDnDEffectAllowedForField(field, section)"
+                                            [dndEffectAllowed]="getDnDEffectAllowedForField(field)"
                                             [dndType]="field?.type === 'location' ? 'location' : 'inputs'"
                                             [dndDraggable]="field"
                                             (dndStart)="onFieldDragStart(field, section, y)"

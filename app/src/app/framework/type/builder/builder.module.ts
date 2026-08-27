@@ -30,6 +30,7 @@ import { CategoryModule } from '../../category/category.module';
 import { LayoutModule } from '../../../layout/layout.module';
 import { CoreModule } from 'src/app/core/core.module';
 import { BuilderKernelModule } from 'src/app/framework/builder/builder-kernel.module';
+import { BuilderPaletteComponent } from 'src/app/framework/builder/palette/builder-palette.component';
 
 import { BuilderComponent } from './builder.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -53,7 +54,8 @@ import { BuilderComponent } from './builder.component';
         LayoutModule,
         ColorChromeModule,
         CoreModule,
-        BuilderKernelModule
+        BuilderKernelModule,
+        BuilderPaletteComponent
     ],
     declarations: [
         BuilderComponent

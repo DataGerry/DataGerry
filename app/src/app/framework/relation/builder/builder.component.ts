@@ -34,17 +34,13 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { CmdbMode } from '../../modes.enum';
 
 import { CmdbRelation, CmdbRelationSection, RelationSection } from '../../models/relation.model';
-import { TextControl } from 'src/app/framework/builder/controls/text/text.control';
-import { NumberControl } from 'src/app/framework/builder/controls/number/number.control';
-import { PasswordControl } from 'src/app/framework/builder/controls/text/password.control';
-import { TextAreaControl } from 'src/app/framework/builder/controls/text/textarea.control';
-import { CheckboxControl } from 'src/app/framework/builder/controls/choice/checkbox.control';
-import { RadioControl } from 'src/app/framework/builder/controls/choice/radio.control';
-import { SelectControl } from 'src/app/framework/builder/controls/choice/select.control';
-import { DateControl } from 'src/app/framework/builder/controls/date-time/date.control';
 import { SectionControl } from 'src/app/framework/builder/controls/section.control';
-import { Controller } from 'src/app/framework/builder/controls/controls.common';
-import { BuilderUtils } from './utils/builder-utils';
+import { BASIC_CONTROLS } from 'src/app/framework/builder/controls/basic-controls';
+import {
+    BuilderPaletteGroup,
+    paletteItemsFromControls
+} from 'src/app/framework/builder/palette/builder-palette.model';
+import { BuilderUtils } from 'src/app/framework/builder/utils/builder-utils';
 import { SectionIdentifierService } from 'src/app/framework/builder/services/SectionIdentifierService.service';
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
@@ -104,21 +100,26 @@ export class BuilderComponent implements OnDestroy, AfterViewChecked {
     private prevSectionHighlighted: boolean = false;
     private prevFieldHighlighted: boolean = false;
 
-    public structureControls = [
-        new Controller('section', new SectionControl()),
-    ];
+    private readonly structureItems = paletteItemsFromControls([new SectionControl()]);
 
+    private readonly basicItems = paletteItemsFromControls(BASIC_CONTROLS);
 
-    public basicControls = [
-        new Controller('text', new TextControl()),
-        new Controller('number', new NumberControl()),
-        new Controller('password', new PasswordControl()),
-        new Controller('textarea', new TextAreaControl()),
-        new Controller('checkbox', new CheckboxControl()),
-        new Controller('radio', new RadioControl()),
-        new Controller('select', new SelectControl()),
-        new Controller('date', new DateControl())
-    ];
+    /** Relations offer only a plain section plus the basic controls. */
+    public get paletteGroups(): Array<BuilderPaletteGroup> {
+        return [
+            {
+                id: 'structureControls',
+                label: 'Structure Controls',
+                lockMode: 'draggable-attr',
+                items: this.structureItems
+            },
+            {
+                id: 'basicControls',
+                label: 'Basic Controls',
+                items: this.basicItems
+            }
+        ];
+    }
 
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                     LIFE CYCLE                                                     */

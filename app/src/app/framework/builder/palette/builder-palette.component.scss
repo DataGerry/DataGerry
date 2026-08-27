@@ -1,0 +1,230 @@
+@import "src/scss/variables";
+
+$tb-accent: $primary;
+$tb-accent-line: rgba(233, 77, 24, 0.32);
+
+$tb-line: #ece8e4;
+$tb-surface: #faf8f6;
+$tb-surface-2: #fdfcfb;
+$tb-surface-hover: #f4f0ec;
+
+$tb-ink: #211d1a;
+$tb-ink-2: #4a443f;
+$tb-ink-3: #726b64;
+$tb-ink-4: #a49c94;
+
+$tb-r-sm: 0.5rem;
+$tb-r-lg: 1rem;
+
+$tb-sh-md: 0 6px 16px -8px rgba(28, 25, 23, 0.16), 0 2px 6px -3px rgba(28, 25, 23, 0.08);
+
+$tb-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+$tb-dur: 200ms;
+
+/* ---------------------------------------------- CONTROL PALETTE (LEFT) ---------------------------------------------- */
+
+:host {
+  position: relative;
+  display: block;
+}
+
+/*
+ * Stretched by the host before the first section is dropped, so the palette matches the empty
+ * drop zone's height instead of floating short at the top.
+ */
+:host(.fill-height) {
+  display: flex;
+  flex-direction: column;
+
+  #controlWrapper {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  // Panel card grows to fill; projected actions settle at the bottom.
+  #controlsPanel {
+    flex: 1 1 auto;
+  }
+}
+
+#controlWrapper {
+  position: sticky;
+  top: calc(1rem + #{$navbar-height});
+}
+
+#controlsPanel {
+  border: 1px solid $tb-line;
+  border-radius: $tb-r-lg;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: $tb-sh-md;
+
+  // Collapse animation is dropped: the panel is tall enough that it costs more than it adds.
+  .collapsing {
+    transition: none;
+  }
+
+  .card {
+    border: 0;
+    border-bottom: 1px solid $tb-line;
+    border-radius: 0;
+    background: transparent;
+
+    &:last-child {
+      border-bottom: 0;
+    }
+  }
+
+  .card:has(> .collapse.show) > .card-header {
+    border-bottom: 1px solid $tb-line;
+
+    a.btn-link {
+      color: $tb-accent;
+    }
+  }
+
+  // Header surface and label typography mirror the Validation card header.
+  .card-header {
+    padding: 0;
+    border: 0;
+    background: $tb-surface;
+
+    a.btn-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 0.9rem 1.1rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: $tb-ink-3;
+      // `.btn` centers text, which only shows on labels long enough to wrap.
+      text-align: left;
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+      transition: color $tb-dur $tb-ease, background $tb-dur $tb-ease;
+
+      &:hover {
+        color: $tb-accent;
+        background: $tb-surface-hover;
+      }
+
+      // CSS chevron; Bootstrap toggles `.collapsed` on the closed trigger.
+      &:after {
+        content: "";
+        width: 0.5rem;
+        height: 0.5rem;
+        margin-left: 0.5rem;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: rotate(45deg);
+        opacity: 0.5;
+        transition: transform $tb-dur $tb-ease;
+      }
+
+      &.collapsed:after {
+        transform: rotate(-45deg);
+      }
+    }
+  }
+
+  .card-body {
+    padding: 0.4rem 0.7rem 0.75rem;
+  }
+
+  .list-group-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-bottom: 0.4rem;
+    padding: 0.55rem 0.7rem;
+    overflow: hidden;
+    border: 1px solid $tb-line;
+    border-radius: $tb-r-sm;
+    background: #fff;
+    color: $tb-ink-2;
+    font-size: 0.875rem;
+    line-height: 1.2;
+    cursor: grab;
+    transition: transform $tb-dur $tb-ease, border-color $tb-dur $tb-ease,
+      background $tb-dur $tb-ease;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    // Drag-grip affordance drawn with a dotted gradient .
+    &:before {
+      content: "";
+      flex: 0 0 auto;
+      width: 0.5rem;
+      height: 0.95rem;
+      color: $tb-ink-4;
+      background-image: radial-gradient(currentColor 40%, transparent 42%);
+      background-size: 0.25rem 0.32rem;
+      opacity: 0.5;
+      transition: opacity $tb-dur $tb-ease, transform $tb-dur $tb-ease;
+    }
+
+    &:after {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: $tb-accent;
+      transform: translateX(-3px);
+      transition: transform $tb-dur $tb-ease;
+    }
+
+    span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      min-width: 0;
+    }
+
+    span i {
+      width: 1rem;
+      color: $tb-ink-3;
+      text-align: center;
+      transition: color $tb-dur $tb-ease;
+    }
+
+    b {
+      font-weight: 600;
+      color: $tb-ink;
+    }
+
+    .clearfix {
+      display: none;
+    }
+
+    &:hover {
+      border-color: $tb-accent-line;
+      background: $tb-surface-2;
+
+      &:before {
+        opacity: 0.85;
+      }
+
+      &:after {
+        transform: translateX(0);
+      }
+
+      span i {
+        color: $tb-accent;
+      }
+    }
+
+    &:active {
+      cursor: grabbing;
+    }
+  }
+}

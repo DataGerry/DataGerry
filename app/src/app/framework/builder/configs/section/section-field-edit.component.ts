@@ -121,10 +121,26 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
      * @param type - The type of the input field being changed.
      */
     onInputChange(event: any, type: string) {
+        const elementType = this.elementType;
+        const isMultiDataSection = elementType === 'multi-data-section';
         const isDuplicateName = type === 'name' && this.isDuplicateSectionIdentifier(event);
 
         if (type === 'name') {
             this.setDuplicateIdentifierState(isDuplicateName);
+        }
+
+        // A multi-data-section reports the duplicate and stops; a plain section reports the value
+        // change first and flags the duplicate after. Both flows are kept as they were - which of
+        // the two is correct is a behaviour question, not a de-duplication one.
+        if (isMultiDataSection && type === 'name' && isDuplicateName) {
+            this.validationService.setSectionHighlightState(true);
+            this.fieldChanges$.next({ isDuplicate: true, elementType });
+
+            return;
+        }
+
+        if (isMultiDataSection && type === 'name') {
+            this.fieldChanges$.next({ isDuplicate: false, elementType });
         }
 
         this.fieldChanges$.next({
@@ -132,16 +148,18 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
             "inputName": type,
             "fieldName": this.nameControl.value,
             "previousName": this.initialValue,
-            "elementType": "section",
+            "elementType": elementType,
         });
 
         if (type === "name") {
             this.initialValue = this.nameControl.value;
 
-            if (isDuplicateName) {
-                this.validationService.setSectionHighlightState(true);
+            if (!isMultiDataSection) {
+                if (isDuplicateName) {
+                    this.validationService.setSectionHighlightState(true);
+                }
+                this.fieldChanges$.next({ isDuplicate: isDuplicateName, elementType });
             }
-            this.fieldChanges$.next({ isDuplicate: isDuplicateName, elementType: 'section' });
         }
 
         setTimeout(() => {
@@ -149,9 +167,16 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
             this.isValid$ = true;
         });
 
-        if (this.mode === CmdbMode.Create) {
+        // The multi-data-section variant has always synced unconditionally.
+        if (isMultiDataSection || this.mode === CmdbMode.Create) {
             this.updateSectionValue(this.nameControl.value)
         }
+    }
+
+
+    /** Section flavour this editor is rendering, taken from the bound section's own type. */
+    private get elementType(): 'section' | 'multi-data-section' {
+        return this.data?.type === 'multi-data-section' ? 'multi-data-section' : 'section';
     }
 
 
@@ -226,6 +251,10 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
      * Copies the current field identifier to clipboard
      */
     public async copyIdentifier(): Promise<void> {
-        await this.copyService.copyWithFeedback(this.nameControl.value, 'section field identifier');
+        const label = this.elementType === 'multi-data-section'
+            ? 'multi-data section identifier'
+            : 'section field identifier';
+
+        await this.copyService.copyWithFeedback(this.nameControl.value, label);
     }
 }

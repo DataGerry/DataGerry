@@ -1,20 +1,5 @@
 @import "src/scss/variables";
 
-#builder-controls {
-  position: relative;
-}
-
-#controlWrapper {
-  position: sticky;
-  top: calc(15px + #{$navbar-height})
-}
-
-#controlsPanel {
-  button {
-    line-height: 0.1;
-  }
-}
-
 #form-container {
 
   button:disabled,
@@ -96,27 +81,12 @@
 }
 
 
-.section-template-item:hover{
-    cursor: grab;
-}
-
-
-.global-section-item{
-  background-color: $dg-selected-background-color;
-}
-
-
 .field-drop-placeholder{
   border: 1px green solid;
   border-radius: 5px;
   padding: 15px;
 }
 
-
-.predefined-section{
-  float: right;
-  margin-top: 3px;
-}
 
 .highlight-section-header, .highlight-field-header {
   background-color: #f8d7da;}
@@ -126,11 +96,4 @@
     opacity: 0.6;
 }
 
-.color-picker-wrapper {
-  position: absolute;
-  top: 30px; 
-  right: 0; 
-  z-index: 2000;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);  
-  background: #fff;
-} 
+ 

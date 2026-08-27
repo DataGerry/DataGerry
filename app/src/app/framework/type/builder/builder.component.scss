@@ -34,190 +34,6 @@ $tb-sh-card-hover: 0 10px 22px -14px rgba(28, 25, 23, 0.20), 0 3px 8px -5px rgba
 $tb-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 $tb-dur: 200ms;
 
-/* ---------------------------------------------- CONTROL PALETTE (LEFT) ---------------------------------------------- */
-
-#builder-controls {
-  position: relative;
-
-  #controlWrapper {
-    position: sticky;
-    top: calc(1rem + #{$navbar-height});
-  }
-
-  #controlsPanel {
-    border: 1px solid $tb-line;
-    border-radius: $tb-r-lg;
-    overflow: hidden;
-    background: #fff;
-    box-shadow: $tb-sh-md;
-
-    .card {
-      border: 0;
-      border-bottom: 1px solid $tb-line;
-      border-radius: 0;
-      background: transparent;
-
-      &:last-child {
-        border-bottom: 0;
-      }
-    }
-
-
-    .card:has(> .collapse.show) > .card-header {
-      border-bottom: 1px solid $tb-line;
-
-      a.btn-link {
-        color: $tb-accent;
-      }
-    }
-
-    // Header surface and label typography mirror the Validation card header.
-    .card-header {
-      padding: 0;
-      border: 0;
-      background: $tb-surface;
-
-      a.btn-link {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-        padding: 0.9rem 1.1rem;
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.07em;
-        text-transform: uppercase;
-        color: $tb-ink-3;
-        // `.btn` centers text, which only shows on labels long enough to wrap.
-        text-align: left;
-        text-decoration: underline;
-        text-decoration-thickness: 1px;
-        text-underline-offset: 3px;
-        transition: color $tb-dur $tb-ease, background $tb-dur $tb-ease;
-
-        &:hover {
-          color: $tb-accent;
-          background: $tb-surface-hover;
-        }
-
-        // CSS chevron; Bootstrap toggles `.collapsed` on the closed trigger.
-        &:after {
-          content: "";
-          width: 0.5rem;
-          height: 0.5rem;
-          margin-left: 0.5rem;
-          border-right: 2px solid currentColor;
-          border-bottom: 2px solid currentColor;
-          transform: rotate(45deg);
-          opacity: 0.5;
-          transition: transform $tb-dur $tb-ease;
-        }
-
-        &.collapsed:after {
-          transform: rotate(-45deg);
-        }
-      }
-    }
-
-    .card-body {
-      padding: 0.4rem 0.7rem 0.75rem;
-    }
-
-    .list-group-item {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 0.55rem;
-      margin-bottom: 0.4rem;
-      padding: 0.55rem 0.7rem;
-      overflow: hidden;
-      border: 1px solid $tb-line;
-      border-radius: $tb-r-sm;
-      background: #fff;
-      color: $tb-ink-2;
-      font-size: 0.875rem;
-      line-height: 1.2;
-      cursor: grab;
-      transition: transform $tb-dur $tb-ease, border-color $tb-dur $tb-ease,
-        background $tb-dur $tb-ease;
-
-      &:last-child {
-        margin-bottom: 0;
-      }
-
-      // Drag-grip affordance drawn with a dotted gradient .
-      &:before {
-        content: "";
-        flex: 0 0 auto;
-        width: 0.5rem;
-        height: 0.95rem;
-        color: $tb-ink-4;
-        background-image: radial-gradient(currentColor 40%, transparent 42%);
-        background-size: 0.25rem 0.32rem;
-        opacity: 0.5;
-        transition: opacity $tb-dur $tb-ease, transform $tb-dur $tb-ease;
-      }
-
-      &:after {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 3px;
-        background: $tb-accent;
-        transform: translateX(-3px);
-        transition: transform $tb-dur $tb-ease;
-      }
-
-      span {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        min-width: 0;
-      }
-
-      span i {
-        width: 1rem;
-        color: $tb-ink-3;
-        text-align: center;
-        transition: color $tb-dur $tb-ease;
-      }
-
-      b {
-        font-weight: 600;
-        color: $tb-ink;
-      }
-
-      .clearfix {
-        display: none;
-      }
-
-      &:hover {
-        border-color: $tb-accent-line;
-        background: $tb-surface-2;
-
-        &:before {
-          opacity: 0.85;
-        }
-
-        &:after {
-          transform: translateX(0);
-        }
-
-        span i {
-          color: $tb-accent;
-        }
-      }
-
-      &:active {
-        cursor: grabbing;
-      }
-    }
-  }
-
-}
-
 /* --------------------------------------------- ASSEMBLY AREA (RIGHT) ---------------------------------------------- */
 
 #form-container {
@@ -509,30 +325,11 @@ $tb-dur: 200ms;
 /* ------------------------------------------------ EMPTY-STATE BALANCE ----------------------------------------------- */
 
 /*
- * Before the first section is dropped, stretch the palette to the drop zone's
- * height and park the Preview / Diagnostic actions at the bottom, so the two
- * columns line up instead of the palette floating short at the top. Both sides
- * fill their column, so they stay matched whichever is naturally taller. The
- * `.builder-empty` flag is removed as soon as a section exists, restoring the
- * normal sticky, content-height palette.
+ * Before the first section is dropped, stretch the drop zone to fill its column so the two
+ * columns line up instead of the palette floating short at the top. The palette side of this
+ * is owned by dg-builder-palette via its `fillHeight` input.
  */
 .builder-empty {
-
-  #builder-controls {
-    display: flex;
-    flex-direction: column;
-  }
-
-  #controlWrapper {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-  }
-
-  // Panel card grows to fill; the actions below it settle at the bottom.
-  #controlsPanel {
-    flex: 1 1 auto;
-  }
 
   #form-container {
     display: flex;
@@ -546,7 +343,6 @@ $tb-dur: 200ms;
 
 /* -------------------------------------------- COLLAPSE PERFORMANCE -------------------------------------------- */
 
-#controlsPanel,
 #form-content {
   .collapsing {
     transition: none;

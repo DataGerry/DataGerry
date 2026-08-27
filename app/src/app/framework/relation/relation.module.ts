@@ -28,7 +28,7 @@ import { IconPickerModule } from 'ngx-icon-picker';
 import { AuthModule } from '../../modules/auth/auth.module';
 import { LayoutModule } from '../../layout/layout.module';
 import { RenderModule } from '../render/render.module';
-import { BuilderModule } from './builder/builder.module';
+import { RelationBuilderCanvasModule } from './builder/builder.module';
 import { TableModule } from '../../layout/table/table.module';
 import { UsersModule } from '../../management/users/users.module';
 
@@ -74,7 +74,7 @@ import { RelationTableActionsComponent } from './components/relation-table-actio
         ArchwizardModule,
         NgSelectModule,
         RenderModule,
-        BuilderModule,
+        RelationBuilderCanvasModule,
         FormsModule,
         NgbModule,
         FontAwesomeModule,

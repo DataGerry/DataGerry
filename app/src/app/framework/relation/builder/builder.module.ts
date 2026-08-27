@@ -13,7 +13,7 @@
 * GNU Affero General Public License for more details.
 *
 * You should have received a copy of the GNU Affero General Public License
-* along with this program. If not, see <https://www.gnu.org/licenses/>.
+* along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -27,21 +27,16 @@ import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { RenderModule } from '../../render/render.module';
 import { CategoryModule } from '../../category/category.module';
 import { LayoutModule } from '../../../layout/layout.module';
+import { CoreModule } from 'src/app/core/core.module';
+import { BuilderKernelModule } from 'src/app/framework/builder/builder-kernel.module';
+import { BuilderPaletteComponent } from 'src/app/framework/builder/palette/builder-palette.component';
 
-import {  BuilderComponent } from './builder.component';
-import { TextFieldEditComponent } from './configs/text/text-field-edit.component';
-import { SectionFieldEditComponent } from './configs/section/section-field-edit.component';
-import { TextareaEditComponent } from './configs/text/textarea-edit.component';
-import { NumberFieldEditComponent } from './configs/number/number-field-edit.component';
-import { ChoiceFieldEditComponent } from './configs/choice/choice-field-edit.component';
-import { CheckFieldEditComponent } from './configs/choice/check-field-edit.component';
-import { DateFieldEditComponent } from './configs/date-time/date-field-edit.component';
-import { ConfigEditComponent } from './configs/config-edit.component';
-
-import { ColorChromeModule } from 'ngx-color/chrome';
-
+import { BuilderComponent } from './builder.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+/**
+ * The relation builder's drag-and-drop canvas. The config editors come from BuilderKernelModule.
+ */
 @NgModule({
     imports: [
         CommonModule,
@@ -56,23 +51,16 @@ import { ColorChromeModule } from 'ngx-color/chrome';
         CategoryModule,
         NgbTooltipModule,
         LayoutModule,
-        ColorChromeModule
+        CoreModule,
+        BuilderKernelModule,
+        BuilderPaletteComponent
     ],
     declarations: [
-        ConfigEditComponent,
-        BuilderComponent,
-        TextFieldEditComponent,
-        NumberFieldEditComponent,
-        SectionFieldEditComponent,
-        TextareaEditComponent,
-        ChoiceFieldEditComponent,
-        CheckFieldEditComponent,
-        DateFieldEditComponent
+        BuilderComponent
     ],
     exports: [
         BuilderComponent,
-        SectionFieldEditComponent,
-        ConfigEditComponent
+        BuilderKernelModule
     ]
 })
-export class BuilderModule { }
+export class RelationBuilderCanvasModule { }

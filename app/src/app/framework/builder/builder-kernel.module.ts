@@ -39,7 +39,6 @@ import { ChoiceFieldEditComponent } from './configs/choice/choice-field-edit.com
 import { CheckFieldEditComponent } from './configs/choice/check-field-edit.component';
 import { DateFieldEditComponent } from './configs/date-time/date-field-edit.component';
 import { SectionFieldEditComponent } from './configs/section/section-field-edit.component';
-import { SectionMultiFieldEditComponent } from './configs/section/section-multi-field-edit.component';
 import { SectionRefFieldEditComponent } from './configs/section/section-ref-field-edit.component';
 import { RefFieldEditComponent } from './configs/special/ref-field-edit.component';
 import { LocationFieldEditComponent } from './configs/special/location-field-edit.component';
@@ -80,7 +79,6 @@ import { LocationFieldInUseModalComponent } from './modals/location-field-in-use
         CheckFieldEditComponent,
         DateFieldEditComponent,
         SectionFieldEditComponent,
-        SectionMultiFieldEditComponent,
         SectionRefFieldEditComponent,
         RefFieldEditComponent,
         LocationFieldEditComponent,
