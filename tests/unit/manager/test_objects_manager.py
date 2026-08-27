@@ -711,29 +711,36 @@ def test_delete_object_returns_false_for_missing_object() -> None:
 #                                          count_objects_grouped_by_type                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_count_objects_grouped_by_type_maps_type_id_to_count() -> None:
-    """Each aggregation bucket becomes a type_id -> count entry in the returned dict"""
+    """Each aggregation bucket becomes a type_id -> count entry, and the total sums them"""
     mock_self = MagicMock()
     mock_self.aggregate_objects.return_value = [
         {'_id': OWNER_TYPE_ID, 'count': 30},
         {'_id': OTHER_OWNER_TYPE_ID, 'count': 12},
     ]
 
-    result = ObjectsManager.count_objects_grouped_by_type(mock_self)
+    counts, total = ObjectsManager.count_objects_grouped_by_type_with_total(mock_self)
 
-    assert result == {OWNER_TYPE_ID: 30, OTHER_OWNER_TYPE_ID: 12}
+    assert counts == {OWNER_TYPE_ID: 30, OTHER_OWNER_TYPE_ID: 12}
+    assert total == 42
 
 
 def test_count_objects_grouped_by_type_skips_non_int_id() -> None:
-    """A bucket whose _id is not an int (e.g. a null type_id) is left out of the result"""
+    """
+    A bucket whose _id is not an int is left out of the mapping but still counts toward the total
+
+    The mapping answers 'how many objects per CmdbType', which a null type_id cannot; the total is
+    what the Service Portal is billed on, so it has to match an unfiltered count_documents() exactly.
+    """
     mock_self = MagicMock()
     mock_self.aggregate_objects.return_value = [
         {'_id': OWNER_TYPE_ID, 'count': 5},
         {'_id': None, 'count': 3},
     ]
 
-    result = ObjectsManager.count_objects_grouped_by_type(mock_self)
+    counts, total = ObjectsManager.count_objects_grouped_by_type_with_total(mock_self)
 
-    assert result == {OWNER_TYPE_ID: 5}
+    assert counts == {OWNER_TYPE_ID: 5}
+    assert total == 8
 
 
 def test_count_objects_grouped_by_type_uses_single_group_aggregation() -> None:
@@ -741,10 +748,18 @@ def test_count_objects_grouped_by_type_uses_single_group_aggregation() -> None:
     mock_self = MagicMock()
     mock_self.aggregate_objects.return_value = []
 
-    ObjectsManager.count_objects_grouped_by_type(mock_self)
+    ObjectsManager.count_objects_grouped_by_type_with_total(mock_self)
 
     pipeline = mock_self.aggregate_objects.call_args.args[0]
     assert pipeline == [{'$group': {'_id': '$type_id', 'count': {'$sum': 1}}}]
+
+
+def test_count_objects_grouped_by_type_returns_only_the_mapping() -> None:
+    """The mapping-only helper is a thin projection of the with-total one"""
+    mock_self = MagicMock()
+    mock_self.count_objects_grouped_by_type_with_total.return_value = ({OWNER_TYPE_ID: 5}, 8)
+
+    assert ObjectsManager.count_objects_grouped_by_type(mock_self) == {OWNER_TYPE_ID: 5}
 
 
 def test_delete_object_raises_when_type_missing() -> None:

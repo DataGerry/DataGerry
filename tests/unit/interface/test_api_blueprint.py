@@ -126,7 +126,7 @@ class TestProtectCloudExcepted:
         wrapped = APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
         with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
              patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
-            cmdb_user.to_json.return_value = {'public_id': 5}
+            cmdb_user.to_public_json.return_value = {'public_id': 5}
             with _app(cloud_mode=True).test_request_context(headers={'x-api-key': 'k'}):
                 assert wrapped(request_user=request_user, public_id=5) == ROUTE_RESULT
 
@@ -136,7 +136,7 @@ class TestProtectCloudExcepted:
         wrapped = APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
         with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
              patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
-            cmdb_user.to_json.return_value = {'public_id': 5}
+            cmdb_user.to_public_json.return_value = {'public_id': 5}
             with _app(cloud_mode=True).test_request_context(headers={'x-api-key': 'k'}):
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped(request_user=request_user, public_id=999)
@@ -178,7 +178,7 @@ class TestProtectTokenExcepted:
              patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager) as um_cls, \
              patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            cmdb_user.to_json.return_value = {'public_id': 42}
+            cmdb_user.to_public_json.return_value = {'public_id': 42}
             with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
                 assert self._wrapped()(public_id=42) == ROUTE_RESULT
         # non-cloud path builds the manager with only the db manager (no database argument)
@@ -194,7 +194,7 @@ class TestProtectTokenExcepted:
              patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager) as um_cls, \
              patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            cmdb_user.to_json.return_value = {'public_id': 42}
+            cmdb_user.to_public_json.return_value = {'public_id': 42}
             with _app(cloud_mode=True).test_request_context(headers={'Authorization': 'Bearer tok'}):
                 assert self._wrapped()(public_id=42) == ROUTE_RESULT
         # cloud branch passes the token's database as the second positional argument
@@ -208,7 +208,7 @@ class TestProtectTokenExcepted:
              patch(f'{MODULE_PATH}.UsersManager'), \
              patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            cmdb_user.to_json.return_value = {'public_id': 42}
+            cmdb_user.to_public_json.return_value = {'public_id': 42}
             with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
                 with pytest.raises(HTTPException) as exc_info:
                     self._wrapped()(public_id=999)
@@ -222,7 +222,7 @@ class TestProtectTokenExcepted:
              patch(f'{MODULE_PATH}.UsersManager'), \
              patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            cmdb_user.to_json.return_value = {'public_id': 42}
+            cmdb_user.to_public_json.return_value = {'public_id': 42}
             with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
                 with pytest.raises(HTTPException) as exc_info:
                     self._wrapped()()  # no public_id kwarg -> matcher aborts inside the try

@@ -23,7 +23,7 @@ enforcement cannot be bypassed by an API client
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -39,6 +39,7 @@ from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.framework.ipam.interface_validator import validate_interface_rows
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import read_json_object_body
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 
@@ -163,7 +164,7 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
         Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
         network_range: Any = payload.get(IpamValidationRequestKey.NETWORK_RANGE)
 
@@ -215,7 +216,7 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disa
         Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
         network_range: Any = payload.get(IpamValidationRequestKey.NETWORK_RANGE)
 
@@ -254,7 +255,7 @@ def validate_vlan_route(request_user: CmdbUser) -> Response:
         Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
         subnet_id: int | None = _coerce_optional_int(payload.get(IpamValidationRequestKey.SUBNET_ID))
 
@@ -309,7 +310,7 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
         Response: {'valid': bool, 'errors': list[{message, details: {row_index}}]}
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
         raw_rows: Any = payload.get(IpamValidationRequestKey.ROWS)
 

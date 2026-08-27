@@ -26,7 +26,7 @@ a single assignment
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -34,12 +34,11 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.special_type_model.ipam_constants import (
-    IpamPagination,
-    IpamSearch,
-    IpamOverviewKey,
-)
 from cmdb.framework.ipam.assignable_objects import build_assignable_objects_page
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
+    read_pagination_params,
+    read_search_param,
+)
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -81,13 +80,8 @@ def get_assignable_objects(request_user: CmdbUser) -> Response:
             {'public_id', 'type_info': {'public_id', 'label'}, 'summary_line'}
     """
     try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+        page, page_size = read_pagination_params()
+        search: str = read_search_param()
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)

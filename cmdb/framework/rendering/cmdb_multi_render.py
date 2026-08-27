@@ -15,6 +15,31 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of CmdbMultiRender
+
+Turns stored CmdbObjects into the RenderResults the UI, the search, the exporters and DocAPI all read.
+A render merges an object's stored values into its CmdbType's field definitions, groups them by the
+type's sections, resolves references and builds the summary line.
+
+Three things about this module decide how a change here behaves:
+
+* **Rendering degrades, it does not fail.** Almost every step is wrapped in
+  `except Exception: LOGGER.debug(...)` and continues with whatever it has - a reference that cannot be
+  expanded, a summary that cannot be built or a ref-section field that cannot be read costs that piece
+  of the result and nothing more. The trade-off is that a partial render is indistinguishable from a
+  complete one: nothing marks the RenderResult and the only trace is a DEBUG line. Recorded as
+  discussion-backlog #170
+* **References recurse, bounded by `level`.** `result(level=3)` is the default depth; each nested
+  expansion decrements it and `level == 0` stops the recursion. A reference cycle therefore terminates
+  by depth rather than by cycle detection
+* **The caches are shared on purpose.** `shared_objects_cache` / `shared_types_cache` /
+  `shared_users_cache` are extended IN PLACE, so a nested render reuses what the outer one already
+  loaded and each referenced document is fetched once across the whole recursion. The cached dicts are
+  live - anything copied out of them (`get_field`, `get_summary`) must be copied before it is mutated,
+  which is why several methods build a `dict(...)` first
+
+The expansion keys this module writes onto a field (`reference`, `summaries`, `references`, `fields`)
+are named by `RenderedFieldKey` - though only its consumers use the enum today, not this producer
+(discussion-backlog #171)
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -39,7 +64,7 @@ from cmdb.models.type_model import (
 )
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model import CmdbUser
-from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME
+from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME, RenderObjectInfoKey
 from cmdb.framework.rendering.render_result import RenderResult
 
 from cmdb.errors.models.cmdb_type import CmdbTypeFieldNotFoundError
@@ -157,16 +182,16 @@ class CmdbMultiRender:
             dict[str, Any]: Object information dictionary
         """
         object_info: dict[str, Any] = {
-            "object_id": obj.public_id,
-            "creation_time": obj.creation_time,
-            "last_edit_time": obj.last_edit_time,
-            "author_id": obj.author_id,
-            "author_name": self.get_user_name(obj.author_id),
-            "editor_id": obj.editor_id,
-            "editor_name": self.get_user_name(obj.editor_id, True),
-            "active": obj.active,
-            "version": obj.version,
-            "special_type": obj.special_type,
+            RenderObjectInfoKey.OBJECT_ID.value: obj.public_id,
+            RenderObjectInfoKey.CREATION_TIME.value: obj.creation_time,
+            RenderObjectInfoKey.LAST_EDIT_TIME.value: obj.last_edit_time,
+            RenderObjectInfoKey.AUTHOR_ID.value: obj.author_id,
+            RenderObjectInfoKey.AUTHOR_NAME.value: self.get_user_name(obj.author_id),
+            RenderObjectInfoKey.EDITOR_ID.value: obj.editor_id,
+            RenderObjectInfoKey.EDITOR_NAME.value: self.get_user_name(obj.editor_id, True),
+            RenderObjectInfoKey.ACTIVE.value: obj.active,
+            RenderObjectInfoKey.VERSION.value: obj.version,
+            RenderObjectInfoKey.SPECIAL_TYPE.value: obj.special_type,
         }
 
         return object_info
@@ -301,6 +326,13 @@ class CmdbMultiRender:
     ) -> RenderResult:
         """
         Sets the summaries and summary line for the render result
+
+        Best-effort, like the rest of the render: anything raised while building the summary - most
+        realistically `CmdbObject.get_value` refusing a field the object does not carry, which happens
+        whenever a field is added to a type and put in its summary before existing objects are saved -
+        drops the summaries entirely and falls back to '<type label> #<public_id>'. A summary naming a
+        field that no longer exists on the TYPE does not reach here: `CmdbType.get_summary` skips it, so
+        the remaining fields still render (see discussion-backlog #170 for the visibility question)
 
         Args:
             render_result (RenderResult): The current render result object to update

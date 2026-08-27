@@ -14,7 +14,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of all API routes for Object Imports
+REST routes for importing CmdbObjects from an uploaded file
+
+Five routes back the frontend's import wizard, in the order it calls them: `/importer/` lists the
+available importers, `/importer/config/<type>/` and `/parser/default/<type>/` return their default
+settings, `/parse/` turns an uploaded file into a preview of the objects it holds, and `/` runs the
+import itself. Only **csv** and **json** are registered - the three registries in
+`framework.importer.helper.importer_helper` are the single source of truth for what is supported, and
+both upload routes reject anything else with a 400 naming the supported set.
+
+Two things about this surface are easy to get wrong:
+
+* **A failed import is still HTTP 200.** `/` answers with the importer's partial report -
+  `success_imports` as a count and `failed_imports` as one entry per rejected object, each carrying the
+  data the user supplied and every reason it was refused. An import in which *every* row failed is
+  therefore a 200 with an empty success count; the outcome is read off `failed_imports`, never off the
+  status code. A 4xx/5xx from this route means the request could not be processed at all
+* **The CREATE logs are best-effort.** The objects are committed before `_log_imported_objects` runs,
+  so a failure there costs the audit entries and nothing else - the response still reports the objects
+  as imported, and the user is not told (discussion-backlog #160)
+
+The heavy lifting - parsing, mapping, per-object validation and insertion - lives in
+`cmdb.framework.importer`; the routes here resolve the format, authorise the target type, build the
+importer and map failures onto HTTP
 """
 import json
 import os
@@ -35,12 +57,13 @@ from cmdb.manager import (
     LogsManager,
 )
 
-from cmdb.models.object_model import CmdbObject
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.framework.rendering.render_constants import RenderObjectInfoKey
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
@@ -89,18 +112,20 @@ LOGGER: Logger = getLogger(__name__)
 
 importer_object_blueprint = APIBlueprint('importer_object', __name__)
 
-# -------------------------------------------------------------------------------------------------------------------- #
+# ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
+
+
 @importer_object_blueprint.route('/importer/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right='base.import.object.*')
 def get_object_importer(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
-    Retrieve a list of available object importers with their metadata.
+    Retrieve a list of available object importers with their metadata
 
-    This endpoint provides information about each registered object importer, including
-    the file type it supports, the content type it expects, and the associated icon.
-    This metadata can be used by clients to render UI elements for importing objects.
+    This endpoint provides information about each registered object importer, including the file type
+    it supports, the content type it expects, and the associated icon. This metadata is what the
+    frontend's import wizard renders its format picker from
 
     Returns:
         Response: A Flask Response object containing a JSON list of importer metadata
@@ -112,11 +137,11 @@ def get_object_importer(request_user: CmdbUser) -> Response:  # pylint: disable=
     try:
         importer_response = []
 
-        for importer in OBJECT_IMPORTER_REGISTRY:
+        for importer_class in OBJECT_IMPORTER_REGISTRY.values():
             importer_response.append({
-                'name': OBJECT_IMPORTER_REGISTRY.get(importer).FILE_TYPE,
-                'content_type': OBJECT_IMPORTER_REGISTRY.get(importer).CONTENT_TYPE,
-                'icon': OBJECT_IMPORTER_REGISTRY.get(importer).ICON
+                'name': importer_class.FILE_TYPE,
+                'content_type': importer_class.CONTENT_TYPE,
+                'icon': importer_class.ICON
             })
 
         return DefaultResponse(importer_response).make_response()
@@ -133,13 +158,13 @@ def get_default_object_importer_config(  # pylint: disable=unused-argument
         importer_type: str,
         request_user: CmdbUser) -> Response:
     """
-    Retrieve the default configuration for a specific object importer type.
+    Retrieve the default configuration for a specific object importer type
 
     This endpoint returns configuration metadata for a given importer type,
     specifically whether the importer supports manual mapping of fields.
 
     Args:
-        importer_type (str): The identifier for the importer type (e.g., 'csv', 'json')
+        importer_type (str): The identifier for the importer type ('csv' or 'json')
 
     Returns:
         Response: A Flask Response object containing a JSON with:
@@ -147,7 +172,7 @@ def get_default_object_importer_config(  # pylint: disable=unused-argument
     """
     try:
         try:
-            importer: ObjectImporterConfig = OBJECT_IMPORTER_CONFIG_REGISTRY[importer_type]
+            importer: type[ObjectImporterConfig] = OBJECT_IMPORTER_CONFIG_REGISTRY[importer_type]
         except KeyError:
             abort(404, f"ObjectImporter config with Type: {importer_type} not found!")
 
@@ -167,13 +192,13 @@ def get_default_object_parser_config(  # pylint: disable=unused-argument
         parser_type: str,
         request_user: CmdbUser) -> Response:
     """
-    Retrieve the default configuration for a specific object parser.
+    Retrieve the default configuration for a specific object parser
 
     This endpoint provides the default configuration settings for a given parser type.
     These settings define how the parser behaves when processing imported data.
 
     Args:
-        parser_type (str): The identifier for the object parser (e.g., 'csv', 'xml', 'json')
+        parser_type (str): The identifier for the object parser ('csv' or 'json')
 
     Returns:
         Response: A Flask Response object containing a JSON object with the parser's
@@ -181,7 +206,7 @@ def get_default_object_parser_config(  # pylint: disable=unused-argument
     """
     try:
         try:
-            parser: BaseObjectParser = OBJECT_PARSER_REGISTRY[parser_type]
+            parser: type[BaseObjectParser] = OBJECT_PARSER_REGISTRY[parser_type]
         except KeyError:
             abort(404, f"ObjectParser config with Type: {parser_type} not found!")
 
@@ -199,19 +224,24 @@ def get_default_object_parser_config(  # pylint: disable=unused-argument
 @importer_object_blueprint.protect(auth=True, right='base.import.object.*')
 def parse_objects(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
-    Parse uploaded object data using the specified parser configuration.
+    Parse uploaded object data using the specified parser configuration
 
-    This endpoint receives a file upload along with parser configuration and file format
-    to generate a structured parsed output. It is typically used in data import workflows
-    where input files (e.g., CSV, JSON) are converted into objects that can be reviewed or stored.
+    This endpoint receives a file upload along with parser configuration and file format to generate a
+    structured parsed output. It is the preview step of the import wizard: nothing is written, the
+    caller gets back the objects the file holds so they can be reviewed before the real import
 
     Expected Multipart Form Data:
-        - file (FileStorage): The file to be parsed.
-        - parser_config (JSON str or object): Configuration options for the parser.
-        - file_format (str): Identifier for the file format (e.g., 'csv', 'json').
+        - file (FileStorage): The file to be parsed
+        - parser_config (JSON str or object): Configuration options for the parser; optional, an
+          absent or unparsable one falls back to the parser's own defaults
+        - file_format (str): Identifier for the file format ('csv' or 'json')
+
+    Raises:
+        HTTPException: 400 when the file is missing, the format is missing or unsupported, or the file
+                       cannot be parsed with the given configuration; 500 on an unexpected failure
 
     Returns:
-        Response: A Flask Response object containing a JSON list of parsed objects.
+        Response: A Flask Response object containing a JSON list of parsed objects
     """
     try:
         # get_file_in_request aborts 400 itself when the file is missing
@@ -220,9 +250,9 @@ def parse_objects(request_user: CmdbUser) -> Response:  # pylint: disable=unused
         # A missing / unparsable parser config is optional and falls back to the parser's defaults
         parser_config: dict = get_element_from_data_request(ImporterFormField.PARSER_CONFIG.value, request) or {}
 
-        file_format = request.form.get(ImporterFormField.FILE_FORMAT.value)
-        if not file_format:
-            abort(400, "No file format was provided!")
+        # Same resolution as the import route: an unsupported format is named here rather than
+        # surfacing later as a misleading "check your parser configuration"
+        file_format = _resolve_file_format()
 
         try:
             parsed_output = generate_parsed_output(request_file, file_format, parser_config).output()
@@ -251,7 +281,7 @@ def parse_objects(request_user: CmdbUser) -> Response:  # pylint: disable=unused
 @importer_object_blueprint.protect(auth=True, right='base.import.object.*')
 def import_objects(request_user: CmdbUser) -> Response:
     """
-    Handle the full import of objects into the CMDB system using an uploaded file.
+    Handle the full import of objects into the CMDB system using an uploaded file
 
     This endpoint manages the complete lifecycle of object import:
     - Upload and validate an import file
@@ -266,7 +296,7 @@ def import_objects(request_user: CmdbUser) -> Response:
 
     Expected Multipart Form Data:
         - file (FileStorage): The import file to be uploaded and processed
-        - file_format (str): Format of the uploaded file (e.g., 'csv', 'json')
+        - file_format (str): Format of the uploaded file ('csv' or 'json')
         - parser_config (JSON): Configuration used to parse the file's contents
         - importer_config (JSON): Configuration used to import the parsed data into the system,
                                   must include a valid 'type_id'
@@ -299,9 +329,9 @@ def import_objects(request_user: CmdbUser) -> Response:
             LOGGER.info('No parser config was provided - using default parser config')
 
         # Check for importer config
-        importer_config_request: dict = get_element_from_data_request(
+        importer_config_request: dict | None = get_element_from_data_request(
             ImporterFormField.IMPORTER_CONFIG.value, request
-        ) or None
+        )
         if not importer_config_request:
             LOGGER.error("[import_objects] No import config was provided!")
             abort(400, 'No import config was provided!')
@@ -314,7 +344,7 @@ def import_objects(request_user: CmdbUser) -> Response:
         type_: CmdbType = _resolve_import_type(importer_config_request, request_user, types_manager)
 
         # Importing objects of an IPAM special type requires a valid IPAM license
-        enforce_special_type_license(request_user, type_.special_type if type_ else None)
+        enforce_special_type_license(request_user, type_.special_type)
 
         # Load + build the parser / config / importer for the file format
         importer: ObjectImporter = _build_object_importer(
@@ -456,7 +486,7 @@ def _build_object_importer(
     Loads and instantiates the parser, importer config and importer for the given file format
 
     Args:
-        file_format (str): The uploaded file's format (e.g. 'csv', 'json')
+        file_format (str): The uploaded file's format ('csv' or 'json')
         working_file (str): Path to the saved import file
         parser_config (dict): Parser configuration
         importer_config_request (dict): Importer configuration payload
@@ -557,6 +587,43 @@ def _remove_temp_file(working_file: str | None) -> None:
         os.remove(working_file)
 
 
+def _render_imported_objects(
+        public_ids: list[int],
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser) -> dict[int, Any]:
+    """
+    Reads and renders every imported object, keyed by public_id
+
+    Deliberately batched: one query for all ids and ONE CmdbMultiRender pass over the result, rather
+    than a read plus a render per object. CmdbMultiRender builds its type / user caches once per
+    instance, so rendering a 5000-row import object-by-object re-reads the same CmdbType 5000 times.
+    Objects that no longer exist, or that the renderer skips because their type is gone, are simply
+    absent from the mapping and their caller drops the log entry for them
+
+    Args:
+        public_ids (list[int]): public_ids of the successfully imported CmdbObjects
+        objects_manager (ObjectsManager): Manager used to re-read the imported object state
+        request_user (CmdbUser): The user the render is performed for
+
+    Returns:
+        dict[int, Any]: public_id -> RenderResult for every object that could be rendered
+    """
+    stored_objects: list[CmdbObject] = [
+        CmdbObject.from_data(document)
+        for document in objects_manager.find_objects({CmdbObjectKey.PUBLIC_ID.value: {'$in': public_ids}})
+    ]
+
+    if not stored_objects:
+        return {}
+
+    rendered = CmdbMultiRender(stored_objects, request_user).result()
+
+    return {
+        result.object_information[RenderObjectInfoKey.OBJECT_ID.value]: result
+        for result in rendered or []
+    }
+
+
 def _log_imported_objects(
         success_messages: list,
         objects_manager: ObjectsManager,
@@ -565,8 +632,10 @@ def _log_imported_objects(
     """
     Writes a CREATE log for each successfully imported object (best-effort)
 
-    The objects are already persisted by the time this runs, so a failure to fetch, render or log a
-    single object must not fail the whole import - it is logged and the remaining objects continue.
+    The objects are already persisted by the time this runs, so nothing here may fail the import: a
+    read/render batch that blows up costs every log entry, a single failing insert costs only its own,
+    and either way the import still reports success. Nothing surfaces that to the user - the response
+    reports the objects as imported, because they are - see discussion-backlog #160
 
     Args:
         success_messages (list): The ImportSuccessMessage entries of the imported objects. They exist
@@ -576,22 +645,40 @@ def _log_imported_objects(
         logs_manager (LogsManager): Manager used to persist the create log
         request_user (CmdbUser): The user credited as the log author
     """
-    for message in success_messages:
-        try:
-            current_object = CmdbObject.from_data(objects_manager.get_object(message.public_id))
-            render_result = CmdbMultiRender([current_object], request_user).result(single_object=True)
+    public_ids: list[int] = [message.public_id for message in success_messages]
 
+    if not public_ids:
+        return
+
+    try:
+        rendered_by_id: dict[int, Any] = _render_imported_objects(public_ids, objects_manager, request_user)
+    # A failed batch costs the logs, never the import - the objects are already committed
+    except Exception as err:  # pylint: disable=broad-exception-caught
+        LOGGER.error("[import_objects] Failed to render %s imported Objects for logging: %s. Type: %s",
+                     len(public_ids), err, type(err))
+
+        return
+
+    for public_id in public_ids:
+        render_result = rendered_by_id.get(public_id)
+
+        if render_result is None:
+            LOGGER.error("[import_objects] Imported Object %s could not be rendered; no ObjectLog written",
+                         public_id)
+            continue
+
+        try:
             logs_manager.insert_log(
                 action=LogAction.CREATE,
                 log_type=CmdbObjectLog.__name__,
-                object_id=message.public_id,
+                object_id=public_id,
                 user_id=request_user.get_public_id(),
                 user_name=request_user.get_display_name(),
                 comment='Object was imported',
                 render_state=json.dumps(render_result, default=default).encode('UTF-8'),
-                version=current_object.version,
+                version=render_result.object_information[RenderObjectInfoKey.VERSION.value],
             )
         # The objects are already committed, so any logging failure is best-effort: log it and move on
         except Exception as err:  # pylint: disable=broad-exception-caught
             LOGGER.error("[import_objects] Failed to log imported Object %s: %s. Type: %s",
-                         message.public_id, err, type(err))
+                         public_id, err, type(err))

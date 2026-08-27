@@ -15,6 +15,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Represents a CmdbCategory in DataGerry
+
+Categories are the tree the framework UI navigates types by. Each CmdbCategory holds the public_ids of
+the CmdbTypes assigned to it in `types`, and points at its parent through `parent` - a null parent is a
+root. The nesting rules are NOT enforced here: `CategoriesManager.validate_parent_assignment` owns both
+the self-parent refusal and ancestor-cycle detection, because deciding them needs the other categories.
+The `ValueError` this model raises for a direct self-parent is a last-resort backstop for a document
+that reached it another way
+
+`name` is the category's unique identifier (the collection's only unique index) and `label` is only
+presentation - an unset label falls back to the title-cased name, computed rather than stored. Document
+keys are named by `CategoryKey` and the nested meta keys by `CategoryMetaKey`; identity uses
+`CmdbObjectKey.PUBLIC_ID`, the project-wide key for that
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -38,6 +50,8 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbCategory - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
 class CmdbCategory(CmdbDAO):
     """
     Implementation of a CmdbCategory in DataGerry
@@ -53,7 +67,6 @@ class CmdbCategory(CmdbDAO):
         {'keys': [('types', CmdbDAO.DAO_ASCENDING)], 'name': 'types', 'unique': False}
     ]
 
-    #pylint: disable=too-many-arguments
     def __init__(
         self,
         public_id: int,
@@ -75,13 +88,18 @@ class CmdbCategory(CmdbDAO):
             types (list[int] | None, optional): public_ids of CmdbTypes assigned to this CmdbCategory.
                                                 Defaults to None
 
+        A CmdbCategory may not be its own direct parent; that is refused here and surfaces as a
+        `CmdbCategoryInitError`. It is a backstop only - `CategoriesManager.validate_parent_assignment`
+        is what rejects a self-parent (and an ancestor cycle) before a write ever reaches this model
+
         Raises:
-            CmdbCategoryInitError: if the CmdbCategory could not be initialised
+            CmdbCategoryInitError: If the CmdbCategory could not be initialised, including when
+                `parent` equals `public_id`
         """
         try:
             self.name: str = name
             self.label: str | None = label
-            self.meta: CategoryMeta | None = meta
+            self.meta: CategoryMeta = meta or CategoryMeta()
 
             if parent == public_id and (parent is not None):
                 raise ValueError(f'Category {name} has his own ID as Parent')
@@ -98,35 +116,47 @@ class CmdbCategory(CmdbDAO):
     @classmethod
     def from_data(cls, data: dict[str, Any]) -> "CmdbCategory":
         """
-        Initialises a CmdbCategory from a dict
+        Initialises a CmdbCategory from a stored document
+
+        `public_id` and `name` are required - a document missing either fails here rather than
+        producing a CmdbCategory that only breaks the next time something asks for its label. A
+        `meta` sub-document that is absent or empty yields the empty default
 
         Args:
             data (dict): Data with which the CmdbCategory should be initialised
 
         Raises:
-            CmdbCategoryInitFromDataError: If the initialisation with the given data fails
+            CmdbCategoryInitFromDataError: If the initialisation with the given data fails, including
+                a missing `public_id` or `name`
 
         Returns:
-            CmdbCategory: CmdbRelation with the given data
+            CmdbCategory: The CmdbCategory built from the given data
         """
         try:
-            raw_meta: dict[str, Any] | None = data.get(CategoryKey.META, None)
+            raw_meta: Any = data.get(CategoryKey.META.value)
+            meta: CategoryMeta | None = None
 
-            if raw_meta:
-                meta = CategoryMeta(raw_meta.get(CategoryMetaKey.ICON, ''), raw_meta.get(CategoryMetaKey.ORDER, None))
-            else:
-                meta = raw_meta
+            # Anything other than a populated mapping means "no metadata" - `__init__` substitutes an
+            # empty CategoryMeta, so the attribute is never left holding the raw value
+            if isinstance(raw_meta, dict) and raw_meta:
+                meta = CategoryMeta(
+                    raw_meta.get(CategoryMetaKey.ICON.value, ''),
+                    raw_meta.get(CategoryMetaKey.ORDER.value),
+                )
 
             return cls(
-                public_id = data.get(CmdbObjectKey.PUBLIC_ID),
-                name = data.get(CategoryKey.NAME),
-                label = data.get(CategoryKey.LABEL, None),
-                meta = meta,
-                parent = data.get(CategoryKey.PARENT),
-                types = data.get(CategoryKey.TYPES, [])
+                # public_id and name are required and indexed; reading them with [] means a document
+                # that lacks one fails HERE, naming the missing key, instead of building a half-object
+                # whose name is None and which only breaks later inside get_label()
+                public_id=data[CmdbObjectKey.PUBLIC_ID.value],
+                name=data[CategoryKey.NAME.value],
+                label=data.get(CategoryKey.LABEL.value),
+                meta=meta,
+                parent=data.get(CategoryKey.PARENT.value),
+                types=data.get(CategoryKey.TYPES.value, []),
             )
         except Exception as err:
-            raise CmdbCategoryInitFromDataError(err) from err
+            raise CmdbCategoryInitFromDataError(str(err)) from err
 
 
     @classmethod
@@ -147,18 +177,18 @@ class CmdbCategory(CmdbDAO):
             meta: CategoryMeta = instance.get_meta()
 
             return {
-                CmdbObjectKey.PUBLIC_ID: instance.get_public_id(),
-                CategoryKey.NAME: instance.name,
-                CategoryKey.LABEL: instance.get_label(),
-                CategoryKey.META: {
-                    CategoryMetaKey.ICON: meta.get_icon(),
-                    CategoryMetaKey.ORDER: meta.get_order()
+                CmdbObjectKey.PUBLIC_ID.value: instance.get_public_id(),
+                CategoryKey.NAME.value: instance.name,
+                CategoryKey.LABEL.value: instance.get_label(),
+                CategoryKey.META.value: {
+                    CategoryMetaKey.ICON.value: meta.get_icon(),
+                    CategoryMetaKey.ORDER.value: meta.get_order()
                 },
-                CategoryKey.PARENT: instance.parent,
-                CategoryKey.TYPES: instance.types
+                CategoryKey.PARENT.value: instance.parent,
+                CategoryKey.TYPES.value: instance.types
             }
         except Exception as err:
-            raise CmdbCategoryToJsonError(err) from err
+            raise CmdbCategoryToJsonError(str(err)) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -174,8 +204,10 @@ class CmdbCategory(CmdbDAO):
 
     def get_label(self) -> str:
         """
-        Returns the label of the CmdbCategory. If the label is not set, it returns 
-        the title-cased name without modifying the instance attribute
+        Returns the label of the CmdbCategory
+
+        Falls back to the title-cased name when no label is set. The fallback is computed, never
+        written back - a reader must not change the CmdbCategory it is reading
 
         Returns:
             str: The label of the CmdbCategory
@@ -185,10 +217,13 @@ class CmdbCategory(CmdbDAO):
 
     def get_meta(self) -> CategoryMeta:
         """
-        Retrieves the metadata for the CmdbCategory
+        Retrieves the metadata of the CmdbCategory
+
+        Always a real `CategoryMeta`: `__init__` substitutes an empty one when the caller passes none,
+        so this returns the instance's own object rather than minting a throw-away default per call -
+        a caller that mutates the result is mutating the CmdbCategory's metadata, as it would expect
 
         Returns:
-            CategoryMeta: The metadata associated with the CmdbCategory. If no metadata 
-            is set, a new `CategoryMeta` instance is returned as a default.
+            CategoryMeta: The metadata associated with the CmdbCategory
         """
-        return self.meta or CategoryMeta()
+        return self.meta

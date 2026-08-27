@@ -16,17 +16,36 @@
 """
 REST routes for SUPERNET-centric IPAM views
 
-Exposes the paginated top-level supernet overview that powers the 'Supernet Übersicht' view,
+Exposes the paginated top-level supernet overview that powers the supernet overview view,
 a per-subnet 'direct children' endpoint used to lazily expand a subnet row in that view, the
 paginated invalid-subnets-only overview that lists subnets whose CIDR no longer fits inside
 the supernet, and the batch 'unassign subnets' endpoint that clears dg-supernet-ref on
 multiple SUBNETs at once
+
+Three things here deliberately differ from the sibling SUBNET routes; none of them is an
+oversight, and each is tracked so the asymmetry stays visible:
+
+* **The unassign write is a single raw Mongo update, not a per-object write.**
+  ``supernet_membership.clear_supernet_ref`` issues one ``update_many_raw`` whose document filter
+  and array filter both re-assert the current supernet reference, which closes the TOCTOU window
+  between validation and write and keeps the whole batch in one write. The cost is that it does
+  **not** go through ``ObjectsManager.update_object``: no object-level ACL check, no entry in the
+  objects' change history, no version bump and no webhook - unlike the SUBNET unassign route,
+  which writes each owner individually and gets all four. Recorded as discussion-backlog #152
+* **The subnets CSV export is uncapped.** Its SUBNET counterpart refuses an export above
+  ``IpamSubnetIpsExport.MAX_EXPORT_ROWS``; ``IpamExport`` defines no such limit, so a supernet with
+  very many subnets builds the whole file in memory. Recorded as #153
+* **The children endpoint is unpaginated.** Every other route on this blueprint pages its rows;
+  this one returns all direct CIDR-children of the expanded subnet in a single response, which is
+  also what the frontend expects today. Recorded as #154
+
+These routes are transport glue: reading the query string / body, resolving the managers and
+mapping failures onto HTTP. The payloads themselves are built by ``cmdb.framework.ipam``
 """
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime, timezone
 
-from flask import abort, request
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -35,9 +54,6 @@ from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
-    IpamPagination,
-    IpamSearch,
-    IpamOverviewKey,
     IpamUnassignKey,
     IpamExport,
 )
@@ -48,6 +64,12 @@ from cmdb.framework.ipam.supernet_overview import (
 )
 from cmdb.framework.ipam.subnet_export import build_supernet_subnets_csv
 from cmdb.framework.ipam.supernet_membership import unassign_subnets_from_supernet
+from cmdb.framework.exporter.export_filename_helper import build_export_filename_timestamp
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
+    read_json_object_body,
+    read_pagination_params,
+    read_search_param,
+)
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -58,6 +80,7 @@ LOGGER: Logger = getLogger(__name__)
 
 ipam_supernet_blueprint = APIBlueprint('ipam_supernet', __name__)
 
+# ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @ipam_supernet_blueprint.route('/overview/<int:public_id>', methods=['GET'])
 @insert_request_user
@@ -89,18 +112,17 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
         public_id (int): public_id of the SUPERNET CmdbObject to summarise
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 404 when no object with this public_id exists, 400 when it is not a SUPERNET
+                       or no SUPERNET / SUBNET CmdbType is defined
+
     Returns:
         Response: {'supernet': {...summary, public_id}, 'subnets': {page, page_size, total,
             rows: [...subnet rows with has_children]}}
     """
     try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+        page, page_size = read_pagination_params()
+        search: str = read_search_param()
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -148,6 +170,14 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
         subnet_id (int): public_id of the parent SUBNET whose direct children are returned
         request_user (CmdbUser): CmdbUser making the request
 
+    The row list is NOT paginated - every direct child comes back in one response, which is what
+    the frontend expects when it expands a row (see discussion-backlog #154)
+
+    Raises:
+        HTTPException: 404 when the supernet does not exist, 400 when the public_id is not a
+                       SUPERNET, when no SUPERNET / SUBNET CmdbType is defined, or when subnet_id is
+                       not a SUBNET assigned to this supernet
+
     Returns:
         Response: {'parent': {'public_id': subnet_id}, 'rows': [child_row, ...]}
     """
@@ -192,6 +222,14 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
         public_id (int): public_id of the SUPERNET CmdbObject whose subnets are exported
         request_user (CmdbUser): CmdbUser making the request
 
+    The export is **uncapped**: unlike the SUBNET IP export, which refuses anything above
+    ``IpamSubnetIpsExport.MAX_EXPORT_ROWS``, every assigned subnet is written out however many there
+    are (see discussion-backlog #153)
+
+    Raises:
+        HTTPException: 404 when the supernet does not exist, 400 when the public_id is not a
+                       SUPERNET or no SUPERNET / SUBNET CmdbType is defined
+
     Returns:
         Response: The .csv file as an attachment download
     """
@@ -201,13 +239,17 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
 
         content: bytes = build_supernet_subnets_csv(objects_manager, types_manager, public_id)
 
-        timestamp: str = datetime.now(timezone.utc).strftime('%Y_%m_%d-%H_%M_%S')
-        filename: str = IpamExport.FILENAME_TEMPLATE.format(public_id=public_id, timestamp=timestamp)
+        filename: str = IpamExport.FILENAME_TEMPLATE.format(
+            public_id=public_id,
+            timestamp=build_export_filename_timestamp(),
+        )
 
         return Response(
             content,
             mimetype=IpamExport.MIMETYPE,
-            headers={'Content-Disposition': f'attachment; filename={filename}'},
+            # Quoted like every other export in the repo: an unquoted filename is only safe as long
+            # as the template never yields a space or a separator character
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
         )
     except HTTPException as http_err:
         raise http_err
@@ -247,18 +289,17 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
         public_id (int): public_id of the SUPERNET CmdbObject whose invalid subnets are listed
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 404 when no object with this public_id exists, 400 when it is not a SUPERNET
+                       or no SUPERNET / SUBNET CmdbType is defined
+
     Returns:
         Response: {'supernet': {...summary, public_id}, 'subnets': {page, page_size, total,
             rows: [...invalid subnet rows]}, 'invalid_count': int}
     """
     try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+        page, page_size = read_pagination_params()
+        search: str = read_search_param()
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -287,6 +328,8 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
         )
 
 
+# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
+
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/unassign', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -300,20 +343,35 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     children of detached SUBNETs are left attached - they keep their own dg-supernet-ref and
     will surface as new top-level rows on the next overview load
 
+    **How the write happens matters here.** The whole batch is applied as ONE raw
+    ``update_many_raw`` whose filters re-assert the current supernet reference, so a SUBNET that a
+    concurrent writer reassigned in between is skipped rather than clobbered. That write does not go
+    through ``ObjectsManager.update_object``, which means the detach is **not checked against the
+    SUBNETs' object ACL and leaves no history entry, no version bump and no webhook** - the sibling
+    SUBNET unassign route, which writes per owner, does all four. `request_user` is therefore not
+    forwarded. Recorded as discussion-backlog #152
+
     Body:
         subnet_ids (list[int]): public_ids of SUBNETs to detach; must be a non-empty list,
             duplicates are silently collapsed while preserving input order
 
     Args:
         public_id (int): public_id of the SUPERNET CmdbObject the subnets are detached from
-        request_user (CmdbUser): CmdbUser making the request
+        request_user (CmdbUser): CmdbUser making the request; used only for manager resolution -
+                                 the write itself is not user-scoped (see above)
+
+    Raises:
+        HTTPException: 400 when the body is not a JSON object, when 'subnet_ids' is missing / empty /
+                       malformed, when an id is not a SUBNET assigned to this supernet, when the
+                       public_id is not a SUPERNET or no SUPERNET / SUBNET CmdbType is defined;
+                       404 when the supernet does not exist
 
     Returns:
         Response: {'subnet_ids': [int, ...], 'unassigned_count': int}; subnet_ids echoes the
             deduplicated request order
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
