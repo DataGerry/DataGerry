@@ -16,6 +16,8 @@
 """
 Provides all constants for OpenCelium interaction
 """
+from cmdb.utils import BaseStrEnum
+# -------------------------------------------------------------------------------------------------------------------- #
 
 OC_REQUEST_TIMEOUT: int = 10
 UNIQUE_POSITIVE: str = "NOT_EXISTS"
@@ -38,3 +40,43 @@ OC_CONTENT_TYPE_JSON: str = "application/json"
 
 # SystemConfigReader section holding the on-premise OpenCelium connection config
 OC_CONFIG_SECTION: str = "OpenCelium"
+
+
+class OcConfigKey(BaseStrEnum):
+    """
+    Key names of the on-premise `[OpenCelium]` config-file section
+
+    The members mirror the keys documented in `etc/cmdb.conf`. They are read by
+    `OcApiConnector._load_local_config` to build the connection config and by the
+    `/config_file/status/opencelium` route to report which of them are configured
+
+    Attributes:
+        HOST: Hostname or IP address of the OpenCelium instance
+        PORT: TCP port of the OpenCelium instance
+        PROTOCOL: URL scheme used to reach OpenCelium (`http` / `https`)
+        EMAIL: Email address of the OpenCelium account DataGerry logs in with
+        USER: Username of that OpenCelium account
+        PASSWORD: Password of that OpenCelium account
+    """
+    HOST = "host"
+    PORT = "port"
+    PROTOCOL = "protocol"
+    EMAIL = "email"
+    USER = "user"
+    PASSWORD = "password"
+
+
+# Key of the connection-config dict holding the URL derived from protocol/host/port. Not a config-file
+# key - the connector composes it, so it is kept apart from `OC_CONFIG_KEYS`
+OC_CONFIG_BASE_URL_KEY: str = "base_url"
+
+# Every key of the `[OpenCelium]` section, in the order the config file documents them. Shared by the
+# connector (which reads their values) and the config-status route (which reports their presence)
+OC_CONFIG_KEYS: tuple[OcConfigKey, ...] = (
+    OcConfigKey.HOST,
+    OcConfigKey.PORT,
+    OcConfigKey.PROTOCOL,
+    OcConfigKey.EMAIL,
+    OcConfigKey.USER,
+    OcConfigKey.PASSWORD,
+)

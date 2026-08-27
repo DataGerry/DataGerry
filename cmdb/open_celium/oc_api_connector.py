@@ -40,6 +40,8 @@ from cmdb.open_celium.oc_constants import (
     OC_HEADER_CONTENT_TYPE,
     OC_CONTENT_TYPE_JSON,
     OC_CONFIG_SECTION,
+    OC_CONFIG_BASE_URL_KEY,
+    OcConfigKey,
 )
 
 from cmdb.errors.open_celium import AuthError
@@ -74,13 +76,13 @@ class OcApiConnector:
             else self._load_local_config()
         )
 
-        self.host: str = config['host']
-        self.port: int = config['port']
-        self.protocol: str = config['protocol']
-        self.email: str = config['email']
-        self.user: str = config['user']
-        self.password: str = config['password']
-        self.base_url: str = config['base_url']
+        self.host: str = config[OcConfigKey.HOST]
+        self.port: int = config[OcConfigKey.PORT]
+        self.protocol: str = config[OcConfigKey.PROTOCOL]
+        self.email: str = config[OcConfigKey.EMAIL]
+        self.user: str = config[OcConfigKey.USER]
+        self.password: str = config[OcConfigKey.PASSWORD]
+        self.base_url: str = config[OC_CONFIG_BASE_URL_KEY]
 
         self.settings_manager: SettingsManager = SettingsManager(dbm, db_name)
 
@@ -110,13 +112,13 @@ class OcApiConnector:
             )
 
         return {
-            'host': host,
-            'port': int(port),
-            'protocol': protocol,
-            'email': email,
-            'user': user,
-            'password': password,
-            'base_url': f"{protocol}://{host}:{int(port)}",
+            OcConfigKey.HOST.value: host,
+            OcConfigKey.PORT.value: int(port),
+            OcConfigKey.PROTOCOL.value: protocol,
+            OcConfigKey.EMAIL.value: email,
+            OcConfigKey.USER.value: user,
+            OcConfigKey.PASSWORD.value: password,
+            OC_CONFIG_BASE_URL_KEY: f"{protocol}://{host}:{int(port)}",
         }
 
 
@@ -129,18 +131,18 @@ class OcApiConnector:
             dict[str, Any]: The connection config (host, port, protocol, email, user, password, base_url)
         """
         scr = SystemConfigReader()
-        host = scr.get_value("host", OC_CONFIG_SECTION)
-        port = int(scr.get_value("port", OC_CONFIG_SECTION))
-        protocol = scr.get_value("protocol", OC_CONFIG_SECTION)
+        host = scr.get_value(OcConfigKey.HOST, OC_CONFIG_SECTION)
+        port = int(scr.get_value(OcConfigKey.PORT, OC_CONFIG_SECTION))
+        protocol = scr.get_value(OcConfigKey.PROTOCOL, OC_CONFIG_SECTION)
 
         return {
-            'host': host,
-            'port': port,
-            'protocol': protocol,
-            'email': scr.get_value("email", OC_CONFIG_SECTION),
-            'user': scr.get_value("user", OC_CONFIG_SECTION),
-            'password': scr.get_value("password", OC_CONFIG_SECTION),
-            'base_url': f"{protocol}://{host}:{port}/api",
+            OcConfigKey.HOST.value: host,
+            OcConfigKey.PORT.value: port,
+            OcConfigKey.PROTOCOL.value: protocol,
+            OcConfigKey.EMAIL.value: scr.get_value(OcConfigKey.EMAIL, OC_CONFIG_SECTION),
+            OcConfigKey.USER.value: scr.get_value(OcConfigKey.USER, OC_CONFIG_SECTION),
+            OcConfigKey.PASSWORD.value: scr.get_value(OcConfigKey.PASSWORD, OC_CONFIG_SECTION),
+            OC_CONFIG_BASE_URL_KEY: f"{protocol}://{host}:{port}/api",
         }
 
 # -------------------------------------------------------------------------------------------------------------------- #

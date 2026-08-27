@@ -37,7 +37,6 @@ class CmdbWebhook(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.webhooks'
-    MODEL = 'Webhook'
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = [
         'name',

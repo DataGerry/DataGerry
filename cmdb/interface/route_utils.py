@@ -44,7 +44,6 @@ from cmdb.security.auth.auth_module import AuthModule
 from cmdb.security.token.validator import TokenValidator
 from cmdb.security.token.generator import TokenGenerator
 
-from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.errors.security import (
@@ -55,9 +54,8 @@ from cmdb.errors.security import (
     RequestTimeoutError,
     RequestError,
 )
-from cmdb.errors.database import SetDatabaseError, DatabaseNotFoundError, DocumentNetworkError, DocumentLockTimeoutError
+from cmdb.errors.database import SetDatabaseError, DocumentNetworkError, DocumentLockTimeoutError
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
-from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -467,41 +465,6 @@ def __check_api_level(
     except Exception as err:
         LOGGER.debug("[__check_api_level] Exception: %s, Type: %s", err, type(err))
         return False
-
-
-#@deprecated
-def right_required(required_right: str):
-    """wraps function for routes which requires a special user right
-    requires: insert_request_user
-    """
-    def _page_right(func):
-        @functools.wraps(func)
-        def _decorate(*args, **kwargs):
-            try:
-                groups_manager = GroupsManager(current_app.database_manager)
-
-                current_user: CmdbUser = kwargs['request_user']
-            except KeyError:
-                abort(400, 'No request user was provided')
-            try:
-                if current_app.cloud_mode:
-                    groups_manager = GroupsManager(current_app.database_manager, current_user.database)
-
-                group: CmdbUserGroup = groups_manager.get_group(current_user.group_id)
-                has_right = group.has_right(required_right)
-
-                if not has_right and not group.has_extended_right(required_right):
-                    abort(403, 'Request user does not have the right for this action!')
-            except GroupsManagerGetError:
-                abort(404, "Group or right does not exist!")
-            except Exception:
-                abort(403, "Could not verify authorisation with the provided data!")
-
-            return func(*args, **kwargs)
-
-        return _decorate
-
-    return _page_right
 
 
 def parse_authorization_header(header):
@@ -991,29 +954,6 @@ def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
     except UsersManagerGetError as err:
         LOGGER.debug("[retrieve_user] Exception: %s, Type: %s", err, type(err))
         return None
-
-
-def delete_database(db_name: str) -> None:
-    """
-    Delete the specified database
-
-    This function attempts to delete the database with the given name. It sets the appropriate database 
-    in the database manager and then drops it using the `UsersManager`
-
-    Args:
-        db_name (str): The name of the database to be deleted
-
-    Raises:
-        DatabaseNotFoundError: If the database cannot be found or deleted
-    """
-    try:
-        with current_app.app_context():
-            users_manager = UsersManager(current_app.database_manager, db_name)
-
-            users_manager.dbm.drop_database(db_name)
-    except Exception as err:
-        LOGGER.debug("[delete_database] Exception: %s, Type:%s", err, type(err))
-        raise DatabaseNotFoundError(db_name) from err
 
 
 def validate_subscription_user(

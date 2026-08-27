@@ -46,7 +46,6 @@ class CmdbObjectRelation(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = "framework.objectRelations"
-    MODEL = 'ObjectRelation'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('relation_id', CmdbDAO.DAO_ASCENDING)], 'name': 'relation_id', 'unique': False},

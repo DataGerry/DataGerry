@@ -16,12 +16,34 @@
 """
 Constants for the CI Explorer REST routes
 
-Names the query-string parameters the ``/ci_explorer`` routes read and the CmdbObject / CmdbType
-field keys the update routes write, so the routes reference the literal strings from one place. The
-node-direction values live in cmdb.models.ci_explorer_model.NodeType.
+Names the ACL rights guarding the ``/ci_explorer`` routes and the query-string parameters they read.
+
+The CI Explorer FIELD keys are deliberately not repeated here: ``ci_explorer_tooltip`` belongs to the
+CmdbObject document (``CmdbObjectKey.CI_EXPLORER_TOOLTIP``) and ``ci_explorer_label`` /
+``ci_explorer_color`` to the CmdbType document (``TypeSchemaKey.CI_EXPLORER_*``), so the models own
+them and every reader - these routes included - takes them from there. The node-direction values live
+in cmdb.models.ci_explorer_model.NodeType
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'CiExplorerRight',
+    'CiExplorerParam',
+]
+
+
+class CiExplorerRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the CI Explorer REST routes
+
+    The family has two members only - there is no add/delete right for the CI Explorer - so the reads
+    take VIEW and every write takes EDIT, saved-profile creation and deletion included. The values are
+    the flattened names of the ``CiExplorerRight`` entries in cmdb.models.right_model.all_rights; a
+    value naming no existing right would silently deny every user
+    """
+    VIEW = 'base.framework.ciExplorer.view'
+    EDIT = 'base.framework.ciExplorer.edit'
 
 
 class CiExplorerParam(BaseStrEnum):
@@ -39,14 +61,3 @@ class CiExplorerParam(BaseStrEnum):
     ITEM_LIMIT = 'item_limit'
     TYPES_FILTER = 'types_filter'
     RELATIONS_FILTER = 'relations_filter'
-
-
-class CiExplorerField(BaseStrEnum):
-    """
-    CmdbObject / CmdbType field keys the CI Explorer update routes read and write
-
-    TOOLTIP is set on a CmdbObject by the ``/tooltip`` route; LABEL is set on a CmdbType by the
-    ``/type_label`` route
-    """
-    TOOLTIP = 'ci_explorer_tooltip'
-    LABEL = 'ci_explorer_label'

@@ -16,7 +16,7 @@
 """
 REST routes for SUBNET-centric IPAM views
 
-Exposes the subnet IP-Übersicht read-side payload that powers the per-subnet IP table view in
+Exposes the subnet IP-overview read-side payload that powers the per-subnet IP table view in
 the frontend, the per-sector drill-down, a CSV (.csv) export of the IP table, plus the bulk
 'unassign IPs' write-side route that clears the subnet reference on one or more dg-ipam-interface
 rows. The IP table is paginated and supports an optional case-insensitive substring search against
@@ -25,10 +25,27 @@ the canonical IP strings; the search filter does not affect the KPI block or the
 Also exposes the paginated subnet-options list backing the dg-ipam-interface subnet picker,
 filterable by address family ('type' query param) so the frontend can offer only subnets
 matching the family the user selected in the interface row
+
+Two conventions apply across the routes below:
+
+* **The `type` query parameter carries two different meanings on this blueprint.** On `GET /` it is
+  an address-family token ('ipv4' / 'ipv6') restricting the picker options; on
+  `GET /overview/<public_id>` it is a comma-separated list of CmdbType public_ids filtering the IP
+  table by owning type. Both are read through `IpamOverviewKey.TYPE` because that is the wire name
+  the frontend sends, so each route binds it to a differently-named local (`family` vs
+  `type_filter`) to keep the two apart. Renaming either would break the frontend contract
+* **Where a query value is validated depends on what validating it needs.** A self-contained token
+  that can be checked against an enum without touching the database is rejected here at the route
+  boundary (the address family); a filter whose validity depends on type or schema context is
+  validated by the framework-layer builder that consumes it (`sort`, `order`, `status` and the
+  type-id filter, all in `framework/ipam/subnet_overview/candidates.py`). Either way the client
+  sees an HTTP 400
+
+These routes are transport glue: reading the query string / body, resolving the managers and
+mapping failures onto HTTP. The payloads themselves are built by `cmdb.framework.ipam`
 """
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime, timezone
 
 from flask import abort, request
 from werkzeug import Response
@@ -40,8 +57,6 @@ from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
     IpAddressFamily,
-    IpamPagination,
-    IpamSearch,
     IpamOverviewKey,
     IpamUnassignKey,
     IpamExport,
@@ -55,6 +70,12 @@ from cmdb.framework.ipam.subnet_overview import (
 from cmdb.framework.ipam.subnet_options import build_subnet_options_page
 from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
 from cmdb.framework.ipam.subnet_export import build_subnet_ips_csv
+from cmdb.framework.exporter.export_filename_helper import build_export_filename_timestamp
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
+    read_json_object_body,
+    read_pagination_params,
+    read_search_param,
+)
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -65,6 +86,7 @@ LOGGER: Logger = getLogger(__name__)
 
 ipam_subnet_blueprint = APIBlueprint('ipam_subnet', __name__)
 
+# ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @ipam_subnet_blueprint.route('/', methods=['GET'])
 @insert_request_user
@@ -95,18 +117,18 @@ def get_subnet_options(request_user: CmdbUser) -> Response:
     Args:
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 400 when 'type' is not a valid address-family token
+
     Returns:
         Response: {'page', 'page_size', 'total', 'search', 'type',
             'rows': [{public_id, name, cidr, type}, ...]}
     """
     try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+        page, page_size = read_pagination_params()
+        search: str = read_search_param()
+        # 'type' on THIS route is the address family, not the type-id filter of /overview - see
+        # the module docstring
         family: str = request.args.get(IpamOverviewKey.TYPE, default='', type=str) or ''
 
         if family and not IpAddressFamily.is_valid(family):
@@ -144,7 +166,7 @@ def get_subnet_options(request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` route returning the subnet IP-Übersicht payload
+    HTTP `GET` route returning the subnet IP-overview payload
 
     Returns the subnet's KPI counters (total / used / free) plus a paginated, IP-sorted list of
     rows, one per usable address in the subnet. Rows are either 'assigned' (carrying the
@@ -183,21 +205,23 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
         public_id (int): public_id of the SUBNET CmdbObject to summarise
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 404 when no object with this public_id exists, 400 when it is not a SUBNET,
+                       when no SUBNET CmdbType is defined, or on an unknown sort / order / status /
+                       type filter value
+
     Returns:
         Response: {'subnet': {...summary, public_id}, 'ips': {page, page_size, total, rows},
             'type_distribution': [{public_id, label, count, percentage}, ...]}
     """
     try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+        page, page_size = read_pagination_params()
+        search: str = read_search_param()
         sort: str = request.args.get(IpamOverviewKey.SORT, default='', type=str) or ''
         order: str = request.args.get(IpamOverviewKey.ORDER, default='', type=str) or ''
         status: str = request.args.get(IpamOverviewKey.STATUS, default='', type=str) or ''
+        # 'type' on THIS route is a comma-separated CmdbType public_id list, not the address family
+        # of the options route - see the module docstring
         type_filter: str = request.args.get(IpamOverviewKey.TYPE, default='', type=str) or ''
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
@@ -230,6 +254,8 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
         )
 
 
+# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
+
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/unassign', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -249,12 +275,20 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
     Other interface rows on the same owner (referencing other subnets or non-target IPs of the
     same subnet) are left untouched
 
-    Validate-all-or-nothing: if any requested IP is not currently assigned within the subnet,
-    the route aborts 400 with the offending IPs and no write happens. Bad input shape (missing
-    list, empty list, non-string entry, non-canonical IP, IP outside the subnet, unknown mode)
-    also aborts 400 before any database write. Aborts 404 when the subnet does not exist and 400
-    when the public_id refers to a non-subnet object, no SUBNET CmdbType is defined, or the
-    subnet's network-range field is missing / unparsable
+    **Validation** is all-or-nothing: if any requested IP is not currently assigned within the
+    subnet, the route aborts 400 with the offending IPs and no write happens. Bad input shape (a
+    body that is not a JSON object, missing list, empty list, non-string entry, non-canonical IP, IP
+    outside the subnet, unknown mode) also aborts 400 before any database write. Aborts 404 when the
+    subnet does not exist and 400 when the public_id refers to a non-subnet object, no SUBNET
+    CmdbType is defined, or the subnet's network-range field is missing / unparsable
+
+    **The write phase is NOT atomic.** Once validation passes, each affected owner is written
+    separately through ``ObjectsManager.update_object`` and there is no cross-owner transaction, so a
+    failure part-way leaves the already-written owners unassigned while the response carries the
+    error instead of a count. The most likely trigger is object-level ACL: ``update_object`` enforces
+    UPDATE permission per owner, so a user allowed to edit some owners but not others gets the
+    allowed ones unassigned and a 403 for the first one they may not touch. Callers that need an
+    exact picture after an error must re-read the subnet overview
 
     Body:
         ips (list[str]): canonical IPv4 / IPv6 strings to unassign; must be non-empty, each
@@ -273,7 +307,7 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
             the number of dg-ipam-interface rows affected across all touched owners
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -301,12 +335,14 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
         )
 
 
+# ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
+
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/sector', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_subnet_sector_ips(public_id: int, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` route returning the paginated IP list of a single IP-Verteilung sector
+    HTTP `GET` route returning the paginated IP list of a single IP-distribution sector
 
     Backs the 'click a heatmap sector' drill-down: only the IPs of the clicked sector are loaded
     instead of the whole subnet. The sector is identified by its start address (the ``ip_start``
@@ -324,6 +360,11 @@ def get_subnet_sector_ips(public_id: int, request_user: CmdbUser) -> Response:
         public_id (int): public_id of the SUBNET CmdbObject
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 400 when 'sector_start' is missing, when the object is not a SUBNET or the
+                       subnet is too small to expose a distribution grid; 404 when no object with
+                       this public_id exists
+
     Returns:
         Response: {'sector': {ip_start, ip_end}, 'ips': {page, page_size, total, rows}}
     """
@@ -333,11 +374,7 @@ def get_subnet_sector_ips(public_id: int, request_user: CmdbUser) -> Response:
         if not sector_start:
             abort(400, "'sector_start' query parameter is required")
 
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
+        page, page_size = read_pagination_params()
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -391,18 +428,17 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
         public_id (int): public_id of the SUBNET CmdbObject whose invalid rows are listed
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 404 when no object with this public_id exists, 400 when it is not a SUBNET or
+                       no SUBNET CmdbType is defined
+
     Returns:
         Response: same envelope as ``get_subnet_overview`` with ips.rows filtered to invalid
             rows only and ips.total equal to the invalid count after the search filter
     """
     try:
-        page: int = request.args.get(IpamOverviewKey.PAGE, default=1, type=int) or 1
-        page_size: int = (
-            request.args.get(IpamOverviewKey.PAGE_SIZE, default=IpamPagination.DEFAULT_PAGE_SIZE, type=int)
-            or IpamPagination.DEFAULT_PAGE_SIZE
-        )
-        raw_search: str = request.args.get(IpamOverviewKey.SEARCH, default='', type=str) or ''
-        search: str = raw_search[:IpamSearch.MAX_QUERY_LENGTH]
+        page, page_size = read_pagination_params()
+        search: str = read_search_param()
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -461,13 +497,17 @@ def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
 
         content: bytes = build_subnet_ips_csv(objects_manager, types_manager, public_id)
 
-        timestamp: str = datetime.now(timezone.utc).strftime('%Y_%m_%d-%H_%M_%S')
-        filename: str = IpamSubnetIpsExport.FILENAME_TEMPLATE.format(public_id=public_id, timestamp=timestamp)
+        filename: str = IpamSubnetIpsExport.FILENAME_TEMPLATE.format(
+            public_id=public_id,
+            timestamp=build_export_filename_timestamp(),
+        )
 
         return Response(
             content,
             mimetype=IpamExport.MIMETYPE,
-            headers={'Content-Disposition': f'attachment; filename={filename}'},
+            # Quoted like every other export in the repo: an unquoted filename is only safe as long
+            # as the template never yields a space or a separator character
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
         )
     except HTTPException as http_err:
         raise http_err

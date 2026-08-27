@@ -15,6 +15,19 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Definition of all routes for CmdbSectionTemplates
+
+A CmdbSectionTemplate is a section definition that CmdbTypes can adopt. A GLOBAL one stays linked: the
+consuming types reference it and a change here is propagated into every one of them, and into their
+objects. That link is by **name** - ``global_template_ids`` on the type, ``get_types_using_template`` on
+the way back - which is why the name is immutable once the template exists
+
+PREDEFINED templates are DataGerry's own. They are seeded and propagated programmatically, so this
+route refuses to create, edit or delete one; only the seeding code touches them
+
+Both write paths propagate in two steps and are NOT atomic: the update writes the template and then
+reconciles the consuming types, the delete cleans the consumers and then removes the document. A failure
+in between is reported as a partial application rather than as a failed request, so the caller knows the
+halves disagree
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -41,6 +54,7 @@ from cmdb.interface.rest_api.responses.response_parameters import CollectionPara
 from cmdb.interface.rest_api.responses import UpdateSingleResponse, GetMultiResponse, DefaultResponse
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_helper import (
     require_params,
+    guard_section_template_update,
     parse_json_fields,
     coerce_bool,
     coerce_public_id,
@@ -70,14 +84,22 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
     """
     Creates a CmdbSectionTemplate from the request body
 
-    Rejects a duplicate name, an invalid section type, or an attempt to create a predefined
-    template via the API; assigns the next public_id and normalizes the boolean / JSON-encoded
-    body fields before insert
+    Requires the ``base.framework.sectionTemplate.add`` right
+
+    Rejects a duplicate name, an invalid section type, or an attempt to create a predefined template via
+    the API; assigns the next public_id and normalizes the boolean / JSON-encoded body fields before
+    insert. The name has to be free because it is the key consuming types reference the template by, and
+    it can not be changed afterwards
 
     Args:
         params (dict[str, Any]): Request body carrying 'name', 'label', 'type', 'is_global',
-            'predefined' and a JSON-encoded 'fields' string
+            'predefined' and a JSON-encoded 'fields' list
         request_user (CmdbUser): The user making the request (auth / manager scoping)
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 400 when a parameter is missing or malformed,
+            the name is taken, the type is not a section type, 'predefined' is requested, or the insert
+            fails; 500 on an unexpected error
 
     Returns:
         Response: DefaultResponse wrapping the public_id of the created CmdbSectionTemplate
@@ -139,6 +161,8 @@ def get_all_section_templates(params: CollectionParameters, request_user: CmdbUs
     """
     Returns a paginated collection of CmdbSectionTemplates matching the query parameters
 
+    Requires the ``base.framework.sectionTemplate.view`` right
+
     Args:
         params (CollectionParameters): Pagination / filter / sort parameters
         request_user (CmdbUser): The user making the request
@@ -185,12 +209,18 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves a single CmdbSectionTemplate by public_id
 
+    Requires the ``base.framework.sectionTemplate.view`` right
+
     Args:
         public_id (int): public_id of the CmdbSectionTemplate to retrieve
         request_user (CmdbUser): The user making the request
 
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when no template carries the public_id;
+            400 when the read fails; 500 on an unexpected error
+
     Returns:
-        Response: DefaultResponse wrapping the CmdbSectionTemplate; aborts 404 when it does not exist
+        Response: DefaultResponse wrapping the CmdbSectionTemplate document
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -202,7 +232,7 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
         if not section_template_instance:
             abort(404, f"SectionTemplate with ID: {public_id} not found!")
 
-        return DefaultResponse(section_template_instance).make_response()
+        return DefaultResponse(CmdbSectionTemplate.to_json(section_template_instance)).make_response()
     except HTTPException as http_err:
         raise http_err
     except SectionTemplatesManagerGetError as err:
@@ -220,6 +250,9 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
 def get_global_section_template_count(public_id: int, request_user: CmdbUser) -> Response:
     """
     Returns how many types and objects use a CmdbSectionTemplate (zero when it is not global)
+
+    Requires the ``base.framework.sectionTemplate.view`` right. The frontend asks this before offering
+    a delete, so the user is told what the deletion would touch
 
     Args:
         public_id (int): public_id of the CmdbSectionTemplate to inspect
@@ -267,19 +300,31 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
     """
     Updates a CmdbSectionTemplate and propagates the change to consuming types and objects
 
-    Normalizes the boolean / JSON-encoded body fields, then refuses to change the immutable
-    'predefined' and 'type' properties before persisting and running
-    handle_section_template_changes
+    Requires the ``base.framework.sectionTemplate.edit`` right
+
+    The name is required and immutable: it is the key consuming types reference the template by, so the
+    propagation is keyed on it. Requiring it is what makes the propagation unconditional - a payload
+    without a name used to be accepted, written, and then propagated to nobody, reporting success
+
+    The immutability rules live in ``guard_section_template_update``; the write and the propagation are
+    two steps, so a propagation failure is reported as a partial application (the template is already
+    updated) rather than as a failed request
 
     Args:
-        params (dict[str, Any]): Request body - the updated template incl. 'public_id', 'label',
-            'type', 'predefined', 'is_global' and a JSON-encoded 'fields' string
+        params (dict[str, Any]): Request body - the updated template incl. 'public_id', 'name', 'label',
+            'type', 'predefined', 'is_global' and a JSON-encoded 'fields' list
         request_user (CmdbUser): The user making the request
 
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when the template does not exist; 400 when
+            a parameter is missing or malformed, the template is predefined or an immutable property
+            would change, or the write fails; 500 on an unexpected error and on a failed propagation
+
     Returns:
-        Response: UpdateSingleResponse(True); aborts 404 when the template does not exist and 400
-            when an immutable property would change
+        Response: UpdateSingleResponse(True)
     """
+    public_id: int | None = None
+
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
             ManagerType.SECTION_TEMPLATES,
@@ -288,6 +333,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 
         require_params(params, [
             SectionTemplateKey.PUBLIC_ID,
+            SectionTemplateKey.NAME,
             SectionTemplateKey.LABEL,
             SectionTemplateKey.TYPE,
             SectionTemplateKey.IS_GLOBAL,
@@ -300,44 +346,44 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         params[SectionTemplateKey.IS_GLOBAL] = coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
         params[SectionTemplateKey.FIELDS] = parse_json_fields(params[SectionTemplateKey.FIELDS])
 
-        public_id: int = params[SectionTemplateKey.PUBLIC_ID]
+        public_id = params[SectionTemplateKey.PUBLIC_ID]
         current_template: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
 
         if not current_template:
             abort(404, "Target section template not found!")
 
-        # Predefined templates are DataGerry-provided and managed programmatically, not via this
-        # route (their propagation is handled by the seeding code) - the API must not edit them
-        if current_template.predefined:
-            abort(400, "A predefined SectionTemplate is not editable!")
-
-        if current_template.predefined != params[SectionTemplateKey.PREDEFINED]:
-            abort(400, "The 'predefined' property of a Section Template is not changable!")
-
-        if current_template.type != params[SectionTemplateKey.TYPE]:
-            abort(400, "The 'type' of a Section Template is not changable!")
+        guard_section_template_update(current_template, params)
 
         section_templates_manager.update_section_template(public_id, params)
 
-        # Apply changes to all types and objects using the template
-        section_templates_manager.handle_section_template_changes(params, current_template)
+        # Apply changes to all types and objects using the template. The template is already written, so
+        # a failure here leaves the two halves disagreeing - say so instead of reporting a failed update
+        try:
+            section_templates_manager.handle_section_template_changes(params, current_template)
+        except Exception as err:
+            LOGGER.error("[update_section_template] Propagation failed: %s. Type: %s", err, type(err),
+                         exc_info=True)
+            abort(500,
+                f"The SectionTemplate with ID: {public_id} was updated, but the change could not be "
+                f"applied to the types using it!"
+            )
 
         return UpdateSingleResponse(True).make_response()
     except HTTPException as http_err:
         raise http_err
     except SectionTemplatesManagerGetError as err:
-        LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
-        abort(400, f"Failed to retrieve SectionTemplate with ID: {params['public_id']}!")
+        LOGGER.error("[update_section_template] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f"Failed to retrieve SectionTemplate with ID: {public_id}!")
     except SectionTemplatesManagerUpdateError as err:
-        LOGGER.error("[update_section_template] %s: %s", type(err), err, exc_info=True)
-        abort(400, f"Failed to update SectionTemplate with ID: {params['public_id']}!")
+        LOGGER.error("[update_section_template] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f"Failed to update SectionTemplate with ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[update_section_template] Exception: %s, Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating SectionTemplate with ID:{params['public_id']}!")
+        abort(500, f"An internal server error occured while updating SectionTemplate with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-@section_template_blueprint.route('/<int:public_id>/', methods=['DELETE'])
+@section_template_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.DELETE.value)
@@ -345,16 +391,26 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     Deletes a CmdbSectionTemplate by its public_id
 
-    Refuses a predefined template (not deletable); for a global template the section is first
-    cleaned up from every consuming type and their objects before the document is removed
+    Requires the ``base.framework.sectionTemplate.delete`` right. Registered WITHOUT a trailing slash,
+    which is the form the frontend calls and the one its sibling read route uses - the slash-only
+    registration answered every delete with a 308 first
+
+    A predefined template is refused. For a global one the section is cleaned out of every consuming
+    type and their objects BEFORE the document goes, because the cleanup is keyed on the template that
+    still has to exist. The two steps are not atomic: a failed cleanup deletes nothing, while a failure
+    after it is reported as a partial application
 
     Args:
         public_id (int): public_id of the CmdbSectionTemplate to delete
         request_user (CmdbUser): The user making the request (auth / manager scoping)
 
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when the template does not exist; 400 when
+            it is predefined or a step fails; 500 on an unexpected error and when the consumers were
+            cleaned but the template could not be removed
+
     Returns:
-        Response: DefaultResponse wrapping the deletion acknowledgement; aborts 404 when the
-            template does not exist and 400 when it is predefined
+        Response: DefaultResponse wrapping the deletion acknowledgement
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
@@ -370,10 +426,26 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
         if template_instance.predefined:
             abort(400, "A predefined SectionTemplate is not deletable!")
 
-        if template_instance.is_global:
-            section_templates_manager.cleanup_global_section_templates(template_instance.name, True)
+        cleaned_up: bool = False
 
-        ack: bool = section_templates_manager.delete_section_template(public_id)
+        if template_instance.is_global:
+            # Runs first: it is keyed on the template, which still has to be there
+            section_templates_manager.cleanup_global_section_templates(template_instance.name, True)
+            cleaned_up = True
+
+        try:
+            ack: bool = section_templates_manager.delete_section_template(public_id)
+        except Exception as err:
+            if cleaned_up:
+                LOGGER.error("[delete_section_template] Deletion after cleanup failed: %s. Type: %s",
+                             err, type(err), exc_info=True)
+                abort(500,
+                    f"The SectionTemplate with ID: {public_id} was removed from the types using it, but "
+                    f"the template itself could not be deleted!"
+                )
+
+            raise
+
         return DefaultResponse(ack).make_response()
     except HTTPException as http_err:
         raise http_err

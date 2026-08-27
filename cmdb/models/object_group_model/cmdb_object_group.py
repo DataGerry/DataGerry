@@ -45,7 +45,6 @@ class CmdbObjectGroup(CmdbDAO):
     """
     OPTION_TYPE = OptionType.OBJECT_GROUP
     COLLECTION = "framework.objectGroups"
-    MODEL = 'ObjectGroup'
 
     INDEX_KEYS: list[dict[str, Any]] = [
         {'keys': [('group_type', CmdbDAO.DAO_ASCENDING)], 'name': 'group_type', 'unique': False},

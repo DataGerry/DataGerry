@@ -41,7 +41,6 @@ class CmdbPerson(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "management.person"
-    MODEL = 'Person'
 
     SCHEMA: dict = get_cmdb_person_schema()
 

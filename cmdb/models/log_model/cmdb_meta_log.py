@@ -32,7 +32,6 @@ LOGGER: Logger = getLogger(__name__)
 class CmdbMetaLog(CmdbDAO):
     """CmdbMetaLog"""
     COLLECTION = 'framework.logs'
-    MODEL = 'CmdbLog'
 
     # This collection only grows - one document per object create / edit / delete, each carrying a full
     # rendered snapshot - and it is read on every object's log tab, so the two query shapes the REST

@@ -30,6 +30,7 @@ from cmdb.open_celium import CachedOcIdType
 
 from cmdb.manager.generic_manager import GenericManager
 
+from cmdb.models.cached_user_model.cached_user_constants import CachedUserKey
 from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
 
 from cmdb.errors.manager.cached_user_manager import CACHED_USER_MANAGER_ERRORS
@@ -71,7 +72,7 @@ class CachedUserManager(GenericManager):
         Returns:
             int: public_id of the created cached user
         """
-        user_data['creation_time'] = datetime.now(timezone.utc)
+        user_data[CachedUserKey.CREATION_TIME.value] = datetime.now(timezone.utc)
 
         return self.insert_item(user_data)
 
@@ -90,8 +91,8 @@ class CachedUserManager(GenericManager):
         cached_user: dict[str, Any] | None = self.dbm.find_one_by(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            filter={"email": email},
-            projection={"public_id": 1}
+            filter={CachedUserKey.EMAIL.value: email},
+            projection={CachedUserKey.PUBLIC_ID.value: 1}
         )
 
         return cached_user is not None
@@ -115,7 +116,7 @@ class CachedUserManager(GenericManager):
         cached_user: dict[str, Any] | None = self.dbm.find_one_by(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            filter={"email": email}
+            filter={CachedUserKey.EMAIL.value: email}
         )
 
         if not cached_user:
@@ -127,7 +128,7 @@ class CachedUserManager(GenericManager):
                 cached_user: dict[str, Any] | None = self.dbm.find_one_by(
                     collection=CmdbCachedUser.COLLECTION,
                     db_name=self.db_name,
-                    filter={"email": email}
+                    filter={CachedUserKey.EMAIL.value: email}
                 )
 
         return cached_user
@@ -142,6 +143,12 @@ class CachedUserManager(GenericManager):
         """
         Inserts or updates a cached user entry (upsert), refreshing its TTL creation_time
 
+        When the upsert INSERTS, the new document is given a public_id: the portal payload carries
+        none, the collection holds a unique public_id index, and a unique index treats every missing
+        value as the same null - so without this a second inserting upsert would be refused with a
+        duplicate-key error. The id is reserved only when the payload carries none and no entry exists
+        yet, so an ordinary refresh consumes none
+
         Args:
             email (str): Email identifying the cached user
             user_data (dict[str, Any]): The cached user data to store
@@ -149,13 +156,24 @@ class CachedUserManager(GenericManager):
         Returns:
             UpdateResult: The outcome of the upsert (matched / modified / upserted info)
         """
-        user_data['creation_time'] = datetime.now(timezone.utc)
+        user_data[CachedUserKey.CREATION_TIME] = datetime.now(timezone.utc)
+
+        update_data: dict[str, Any] = {'$set': user_data}
+
+        if CachedUserKey.PUBLIC_ID.value not in user_data and not self.cached_user_exists(email):
+            update_data['$setOnInsert'] = {
+                CachedUserKey.PUBLIC_ID.value: self.dbm.get_next_public_id(
+                    collection=CmdbCachedUser.COLLECTION,
+                    db_name=self.db_name,
+                    inc_id=True,
+                )
+            }
 
         return self.dbm.update(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            criteria={"email": email},
-            data=user_data,
+            criteria={CachedUserKey.EMAIL.value: email},
+            data=update_data,
             upsert=True
         )
 
@@ -186,7 +204,7 @@ class CachedUserManager(GenericManager):
         cached_user = self.dbm.find_one_by(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            filter={"email": email}
+            filter={CachedUserKey.EMAIL.value: email}
         )
 
         if not cached_user:
@@ -194,7 +212,7 @@ class CachedUserManager(GenericManager):
 
         # Update only the subscription matching subscription_database
         updated = False
-        for sub in cached_user.get('subscriptions', []):
+        for sub in cached_user.get(CachedUserKey.SUBSCRIPTIONS.value, []):
             if sub['database'] == subscription_database:
                 sub['api_key'] = api_key  # create or overwrite
                 updated = True
@@ -204,13 +222,13 @@ class CachedUserManager(GenericManager):
             raise ValueError(f"Subscription '{subscription_database}' not found in cached user")
 
         # Update TTL timestamp
-        cached_user['creation_time'] = datetime.now(timezone.utc)
+        cached_user[CachedUserKey.CREATION_TIME.value] = datetime.now(timezone.utc)
 
         # Persist back to MongoDB
         return self.dbm.update(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            criteria={"email": email},
+            criteria={CachedUserKey.EMAIL.value: email},
             data=cached_user,
             upsert=False  # do not create a new document
         )
@@ -229,7 +247,7 @@ class CachedUserManager(GenericManager):
         result = self.dbm.delete(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            criteria={"email": email}
+            criteria={CachedUserKey.EMAIL.value: email}
         )
 
         return result.deleted_count > 0
@@ -248,7 +266,7 @@ class CachedUserManager(GenericManager):
         result = self.dbm.delete_many(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            **{"email": {'$in': emails}}
+            **{CachedUserKey.EMAIL.value: {'$in': emails}}
         )
 
         return result.deleted_count > 0
@@ -258,13 +276,17 @@ class CachedUserManager(GenericManager):
         """
         Removes every cached user (admin / debug)
 
+        Uses ``delete_many_raw`` because ``delete_many`` takes its filter as **kwargs: passing an
+        empty filter to it is impossible, and passing one under a keyword makes the keyword itself
+        the filter field
+
         Returns:
             int: The number of cached users that were removed
         """
-        result = self.dbm.delete_many(
+        result = self.dbm.delete_many_raw(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            criteria={}
+            filter_query={}
         )
 
         return result.deleted_count
@@ -305,7 +327,7 @@ class CachedUserManager(GenericManager):
             return None
 
         # Check if password matches
-        if cached_user.get('password') != password:
+        if cached_user.get(CachedUserKey.PASSWORD.value) != password:
             return None
 
         # If api_key if required return the subscription with the api_key else None
@@ -313,7 +335,7 @@ class CachedUserManager(GenericManager):
             # Find single subscription for given api_key
             subscription = next(
                 (
-                    sub for sub in cached_user.get("subscriptions", [])
+                    sub for sub in cached_user.get(CachedUserKey.SUBSCRIPTIONS.value, [])
                     if sub.get("api_key") == api_key and sub.get("is_valid", False)
                 ),
                 None
@@ -322,11 +344,11 @@ class CachedUserManager(GenericManager):
             if not subscription:
                 return None
 
-            cached_user["subscriptions"] = [subscription]
+            cached_user[CachedUserKey.SUBSCRIPTIONS.value] = [subscription]
 
         # Remove all api_keys from subscriptions before returning
         sub: dict[str, Any]
-        for sub in cached_user.get("subscriptions", []):
+        for sub in cached_user.get(CachedUserKey.SUBSCRIPTIONS.value, []):
             sub.pop("api_key", None)
 
         return cached_user
@@ -344,7 +366,7 @@ class CachedUserManager(GenericManager):
             dict[str, Any] | None: The target subscription data if found
         """
         return next(
-            (sub for sub in user_data.get("subscriptions", []) if sub.get("database") == db_name),
+            (sub for sub in user_data.get(CachedUserKey.SUBSCRIPTIONS.value, []) if sub.get("database") == db_name),
             None,
         )
 
@@ -378,7 +400,7 @@ class CachedUserManager(GenericManager):
         master_pw = sub.get("masterPassword")
         if not master_pw:
             # clear the users cache immideatly
-            self.delete_cached_user(cached_user['email'])
+            self.delete_cached_user(cached_user[CachedUserKey.EMAIL.value])
             raise OcMasterPwNotSetError("Master password not set in cached subscription")
 
         return master_pw

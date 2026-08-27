@@ -57,7 +57,7 @@ class APIBlueprint(Blueprint):
 
         Args:
             excepted (dict): Mapping of user-attribute key -> route-parameter name to compare against
-            user_dict (dict): Serialized user (`CmdbUser.to_json`) to read the attribute values from
+            user_dict (dict): Serialized user (`CmdbUser.to_public_json`) to read the attribute values from
             route_kwargs (dict): Keyword arguments passed to the decorated route (holds the route parameters)
             right (str): The required right, used only for the abort message
 
@@ -118,7 +118,7 @@ class APIBlueprint(Blueprint):
                     if not user_has_right(right, request_user):
                         if excepted:
                             if request_user:
-                                user_dict = CmdbUser.to_json(request_user)
+                                user_dict = CmdbUser.to_public_json(request_user)
 
                                 if APIBlueprint._user_matches_excepted(excepted, user_dict, kwargs, right):
                                     return f(*args, **kwargs)
@@ -144,7 +144,7 @@ class APIBlueprint(Blueprint):
                                     else:
                                         users_manager = UsersManager(current_app.database_manager)
 
-                                    user_dict: dict = CmdbUser.to_json(users_manager.get_user(user_id))
+                                    user_dict: dict = CmdbUser.to_public_json(users_manager.get_user(user_id))
 
                                     if APIBlueprint._user_matches_excepted(excepted, user_dict, kwargs, right):
                                         return f(*args, **kwargs)

@@ -114,6 +114,10 @@ class FileMetadata:
         """
         Convert a FileMetadata instance to a JSON-compatible dictionary
 
+        This is what a GridFS file stores as its metadata. The values are the attributes as they are:
+        an unset reference_type stays None rather than becoming the empty string get_ref_to_type()
+        answers with, so serialising a metadata does not change what it says
+
         Args:
             instance (FileMetadata): The FileMetadata to convert
 
@@ -121,9 +125,9 @@ class FileMetadata:
             dict: A dictionary representation of the FileMetadata
         """
         return {
-            'reference': instance.get_ref_to(),
-            'reference_type': instance.get_ref_to_type(),
-            'mime_type': instance.get_mime_type(),
+            'reference': instance.reference,
+            'reference_type': instance.reference_type,
+            'mime_type': instance.mime_type,
             'author_id': instance.author_id,
             'folder': instance.folder,
             'parent': instance.parent,

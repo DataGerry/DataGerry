@@ -42,7 +42,6 @@ class CmdbObjectRelationLog(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.objectRelationLogs'
-    MODEL = 'CmdbObjectRelationLog'
 
     INDEX_KEYS = [{
         'keys': [('object_relation_id', CmdbDAO.DAO_ASCENDING)],

@@ -26,13 +26,31 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from cmdb.database.database_constants import DG_CACHE_DB
+from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.manager.system_manager.cached_user_manager import CachedUserManager
+from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
 from cmdb.open_celium import CachedOcIdType
 from cmdb.errors.open_celium import OcNoSubError, OcMasterPwNotSetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 EMAIL: str = 'user@acme.com'
 DB_NAME: str = 'db_acme'
+
+
+def test_init_always_targets_the_cache_database() -> None:
+    """
+    The cache always lives in DG_CACHE_DB
+
+    The `database` parameter exists only to keep the manager signature uniform - it is ignored, so a
+    caller passing a tenant database still reads and writes the shared cache
+    """
+    with BaseCmdbApp(__name__).app_context():
+        manager = CachedUserManager(MagicMock(), 'some_tenant_db')
+
+    assert manager.db_name == DG_CACHE_DB
+    assert manager.collection == CmdbCachedUser.COLLECTION
+    assert manager.dg_sp_manager is not None
 
 
 def _cached_user(**overrides: Any) -> dict[str, Any]:
@@ -303,6 +321,47 @@ def test_update_cached_user_upserts_with_fresh_creation_time() -> None:
     assert mock_self.dbm.update.call_args.kwargs['upsert'] is True
 
 
+def test_update_cached_user_assigns_a_public_id_when_it_inserts() -> None:
+    """
+    An inserting upsert reserves a public_id for the new document (regression)
+
+    The portal payload carries none and the collection holds the unique public_id index inherited from
+    CmdbDAO, so without this the second inserting upsert was refused with a duplicate-key error
+    """
+    mock_self = MagicMock()
+    mock_self.cached_user_exists.return_value = False
+    mock_self.dbm.get_next_public_id.return_value = 42
+    data: dict[str, Any] = {'password': 'p'}
+
+    CachedUserManager.update_cached_user(mock_self, EMAIL, data)
+
+    update_data = mock_self.dbm.update.call_args.kwargs['data']
+    assert update_data['$setOnInsert'] == {'public_id': 42}
+    assert update_data['$set'] is data
+    assert mock_self.dbm.get_next_public_id.call_args.kwargs['inc_id'] is True
+
+
+def test_update_cached_user_reserves_no_id_for_an_existing_entry() -> None:
+    """A refresh of a cached entry consumes no public_id."""
+    mock_self = MagicMock()
+    mock_self.cached_user_exists.return_value = True
+
+    CachedUserManager.update_cached_user(mock_self, EMAIL, {'password': 'p'})
+
+    assert '$setOnInsert' not in mock_self.dbm.update.call_args.kwargs['data']
+    mock_self.dbm.get_next_public_id.assert_not_called()
+
+
+def test_update_cached_user_keeps_a_public_id_carried_by_the_payload() -> None:
+    """A payload that already has a public_id is left alone (a $set/$setOnInsert conflict would fail)."""
+    mock_self = MagicMock()
+
+    CachedUserManager.update_cached_user(mock_self, EMAIL, {'public_id': 5, 'password': 'p'})
+
+    assert '$setOnInsert' not in mock_self.dbm.update.call_args.kwargs['data']
+    mock_self.cached_user_exists.assert_not_called()
+
+
 def test_update_cached_user_api_key_requires_api_key() -> None:
     """A missing api key is rejected with ValueError."""
     with pytest.raises(ValueError):
@@ -370,6 +429,22 @@ def test_delete_multiple_cached_users_reflects_deleted_count() -> None:
 def test_clear_cache_returns_deleted_count() -> None:
     """clear_cache returns the number of removed cached users."""
     mock_self = MagicMock()
-    mock_self.dbm.delete_many.return_value = MagicMock(deleted_count=5)
+    mock_self.dbm.delete_many_raw.return_value = MagicMock(deleted_count=5)
 
     assert CachedUserManager.clear_cache(mock_self) == 5
+
+
+def test_clear_cache_deletes_with_a_match_all_filter() -> None:
+    """
+    clear_cache empties the collection (regression)
+
+    It used to call ``delete_many(criteria={})``, whose filter is **kwargs - the criteria keyword
+    became the filter FIELD, so the query was ``{'criteria': {}}`` and nothing was ever deleted
+    """
+    mock_self = MagicMock()
+    mock_self.dbm.delete_many_raw.return_value = MagicMock(deleted_count=0)
+
+    CachedUserManager.clear_cache(mock_self)
+
+    mock_self.dbm.delete_many.assert_not_called()
+    assert mock_self.dbm.delete_many_raw.call_args.kwargs['filter_query'] == {}

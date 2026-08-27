@@ -103,7 +103,6 @@ class CmdbReport(CmdbDAO):
     """
 
     COLLECTION = 'framework.reports'
-    MODEL = 'Report'
     DEFAULT_VERSION: str = '1.0.0'
 
     # Both keys back an existence / count check that must not scan the collection: 'report_category_id'

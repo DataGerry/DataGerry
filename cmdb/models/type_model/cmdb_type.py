@@ -15,6 +15,22 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of CmdbType
+
+The CmdbType is the schema every CmdbObject is written against: `fields` holds the field definitions,
+`render_meta` holds how they are grouped (sections), summarised and linked out. Three invariants hold
+across the whole codebase and are what most of this class exists to serve:
+
+* **A field's `name` is its unique, immutable identifier.** `CmdbObject.fields` rows reference type
+  fields by name, so renaming one would orphan every stored value - the frontend does not allow it and
+  the backend assumes name-stability across updates
+* **Kind is decided by the `type` key**, on a field entry (`FieldType`) and on a render_meta section
+  (`SectionType`). Always compare against those enums, never against a bare string
+* **Removing a field is silently destructive** - the value disappears from every existing CmdbObject,
+  and nothing cleans the removed name out of `render_meta.summary.fields`. The summary accessors here
+  therefore have to tolerate a name that no longer resolves
+
+Document keys are named by `TypeSchemaKey` and field-entry keys by `FieldKey`, so the two halves of
+the `from_data` / `to_json` round-trip are defined once rather than spelled out twice
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -28,7 +44,10 @@ from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_render_meta import TypeRenderMeta
 from cmdb.models.type_model.section_type_enum import SectionType
-from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.type_constants import NestedSummaryKey
 from cmdb.class_schema.type_model.cmdb_type_schema import get_cmdb_type_schema
 
 from cmdb.errors.models.cmdb_type import (
@@ -44,7 +63,9 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CmdbType - CLASS                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
-#pylint: disable=too-many-instance-attributes
+
+
+# pylint: disable=too-many-instance-attributes
 class CmdbType(CmdbDAO):
     """
     Represents a CmdbType in DataGerry
@@ -60,7 +81,7 @@ class CmdbType(CmdbDAO):
         {'keys': [('author_id', CmdbDAO.DAO_ASCENDING)], 'name': 'author_id', 'unique': False},
     ]
 
-    #pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments
+    # pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments
     def __init__(
         self,
         public_id: int,
@@ -71,7 +92,7 @@ class CmdbType(CmdbDAO):
         last_edit_time: datetime | None = None,
         editor_id: int | None = None,
         active: bool = True,
-        special_type: SpecialType |None = None,
+        special_type: str | None = None,
         selectable_as_parent: bool = True,
         global_template_ids: list[str] | None = None,
         fields: list[dict[str, Any]] | None = None,
@@ -95,6 +116,10 @@ class CmdbType(CmdbDAO):
             last_edit_time (datetime | None): The last time the CmdbType was edited
             editor_id (int | None): The public_id of the CmdbUser who last edited the CmdbType
             active (bool): Indicates whether the object is active. Defaults to True
+            special_type (str | None): The `SpecialType` marker of the CmdbType (RACK, SUBNET, ...) as
+                                        its stored string value, or None for an ordinary CmdbType.
+                                        Stored and returned verbatim - `SpecialType` is a str enum, so
+                                        a member compares equal to the stored value
             selectable_as_parent (bool): Whether this CmdbType can be a parent Location. Defaults to True
             global_template_ids (list[str]): Names of the global CmdbSectionTemplates used by this
                                                 CmdbType (the name is also the render_meta section name)
@@ -117,7 +142,7 @@ class CmdbType(CmdbDAO):
             self.selectable_as_parent: bool = selectable_as_parent
             self.global_template_ids: list[str] = global_template_ids or []
             self.active: bool = active
-            self.special_type: SpecialType | None = special_type
+            self.special_type: str | None = special_type
             self.author_id: int = author_id
             self.creation_time: datetime = creation_time or datetime.now(timezone.utc)
             self.editor_id: int | None = editor_id
@@ -149,35 +174,35 @@ class CmdbType(CmdbDAO):
             CmdbType: CmdbType with the given data
         """
         try:
-            creation_time: datetime | None = data.get('creation_time')
+            creation_time: datetime | None = data.get(TypeSchemaKey.CREATION_TIME.value)
             if isinstance(creation_time, str):
                 creation_time = parse(creation_time, fuzzy=True)
 
-            last_edit_time: datetime | None = data.get('last_edit_time')
+            last_edit_time: datetime | None = data.get(TypeSchemaKey.LAST_EDIT_TIME.value)
             if isinstance(last_edit_time, str):
                 last_edit_time = parse(last_edit_time, fuzzy=True)
 
-            raw_editor_id: Any | None = data.get('editor_id')
+            raw_editor_id: Any | None = data.get(TypeSchemaKey.EDITOR_ID.value)
 
             return cls(
-                public_id = int(data["public_id"]),
-                name = data['name'],
-                selectable_as_parent = data.get('selectable_as_parent', True),
-                global_template_ids = data.get('global_template_ids', []),
-                active = data.get('active', True),
-                special_type = data.get('special_type'),
-                author_id = int(data["author_id"]),
-                creation_time = creation_time,
-                editor_id = int(raw_editor_id) if raw_editor_id is not None else None,
-                last_edit_time = last_edit_time,
-                label = data.get('label'),
-                version = data.get('version'),
-                description = data.get('description'),
-                render_meta = TypeRenderMeta.from_data(data.get('render_meta', {})),
-                fields = data.get('fields') or [],
-                ci_explorer_label = data.get('ci_explorer_label'),
-                ci_explorer_color = data.get('ci_explorer_color'),
-                acl = AccessControlList.from_data(data.get('acl', {})),
+                public_id=int(data[TypeSchemaKey.PUBLIC_ID.value]),
+                name=data[TypeSchemaKey.NAME.value],
+                selectable_as_parent=data.get(TypeSchemaKey.SELECTABLE_AS_PARENT.value, True),
+                global_template_ids=data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value, []),
+                active=data.get(TypeSchemaKey.ACTIVE.value, True),
+                special_type=data.get(TypeSchemaKey.SPECIAL_TYPE.value),
+                author_id=int(data[TypeSchemaKey.AUTHOR_ID.value]),
+                creation_time=creation_time,
+                editor_id=int(raw_editor_id) if raw_editor_id is not None else None,
+                last_edit_time=last_edit_time,
+                label=data.get(TypeSchemaKey.LABEL.value),
+                version=data.get(TypeSchemaKey.VERSION.value),
+                description=data.get(TypeSchemaKey.DESCRIPTION.value),
+                render_meta=TypeRenderMeta.from_data(data.get(TypeSchemaKey.RENDER_META.value, {})),
+                fields=data.get(TypeSchemaKey.FIELDS.value) or [],
+                ci_explorer_label=data.get(TypeSchemaKey.CI_EXPLORER_LABEL.value),
+                ci_explorer_color=data.get(TypeSchemaKey.CI_EXPLORER_COLOR.value),
+                acl=AccessControlList.from_data(data.get(TypeSchemaKey.ACL.value, {})),
             )
         except Exception as err:
             raise CmdbTypeInitFromDataError(str(err)) from err
@@ -199,24 +224,24 @@ class CmdbType(CmdbDAO):
         """
         try:
             return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'selectable_as_parent': instance.selectable_as_parent,
-                'global_template_ids': instance.global_template_ids,
-                'active': instance.active,
-                'special_type': instance.special_type,
-                'author_id': instance.author_id,
-                'creation_time': instance.creation_time,
-                'editor_id': instance.editor_id,
-                'last_edit_time': instance.last_edit_time,
-                'label': instance.label,
-                'version': instance.version,
-                'description': instance.description,
-                'render_meta': TypeRenderMeta.to_json(instance.render_meta),
-                'fields': instance.fields,
-                'ci_explorer_label': instance.ci_explorer_label,
-                'ci_explorer_color': instance.ci_explorer_color,
-                'acl': AccessControlList.to_json(instance.acl),
+                TypeSchemaKey.PUBLIC_ID.value: instance.get_public_id(),
+                TypeSchemaKey.NAME.value: instance.name,
+                TypeSchemaKey.SELECTABLE_AS_PARENT.value: instance.selectable_as_parent,
+                TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: instance.global_template_ids,
+                TypeSchemaKey.ACTIVE.value: instance.active,
+                TypeSchemaKey.SPECIAL_TYPE.value: instance.special_type,
+                TypeSchemaKey.AUTHOR_ID.value: instance.author_id,
+                TypeSchemaKey.CREATION_TIME.value: instance.creation_time,
+                TypeSchemaKey.EDITOR_ID.value: instance.editor_id,
+                TypeSchemaKey.LAST_EDIT_TIME.value: instance.last_edit_time,
+                TypeSchemaKey.LABEL.value: instance.label,
+                TypeSchemaKey.VERSION.value: instance.version,
+                TypeSchemaKey.DESCRIPTION.value: instance.description,
+                TypeSchemaKey.RENDER_META.value: TypeRenderMeta.to_json(instance.render_meta),
+                TypeSchemaKey.FIELDS.value: instance.fields,
+                TypeSchemaKey.CI_EXPLORER_LABEL.value: instance.ci_explorer_label,
+                TypeSchemaKey.CI_EXPLORER_COLOR.value: instance.ci_explorer_color,
+                TypeSchemaKey.ACL.value: AccessControlList.to_json(instance.acl),
             }
         except Exception as err:
             raise CmdbTypeToJsonError(str(err)) from err
@@ -236,16 +261,15 @@ class CmdbType(CmdbDAO):
     def get_label(self) -> str:
         """
         Returns the display label of the CmdbType
-        
-        If no label is set, it defaults to the title-cased name
-        
-        Returns:
-            str: The display label of the CmdbType
-        """
-        if not self.label:
-            self.label = self.name.title()
 
-        return self.label
+        Falls back to the title-cased name when no label is set. The fallback is computed, NOT written
+        back - a reader must not change the CmdbType it is reading. `__init__` already applies the same
+        default, so the fallback only matters for a label cleared after construction
+
+        Returns:
+            str: The display label of the CmdbType, or the title-cased name when none is set
+        """
+        return self.label or self.name.title()
 
 
     def get_externals(self) -> list[TypeExternalLink]:
@@ -293,24 +317,39 @@ class CmdbType(CmdbDAO):
 
     def get_nested_summaries(self) -> list[dict]:
         """
-        Retrieves the nested summaries from fields of type 'ref'
+        Collects the nested summaries of every reference field of the CmdbType
 
-        This method searches through the fields and returns any associated 'summaries' 
-        for fields where the type is 'ref' and 'summaries' is present
+        Every `FieldType.REFERENCE` field may carry a ``summaries`` list overriding, per referenced
+        CmdbType, which fields and which summary line the renderer shows. This gathers the entries of
+        ALL such fields, not only the first one that declares any
+
+        Note the renderer does not go through here: it reads ``summaries`` off the specific field it
+        is rendering, because two reference fields on the same CmdbType may legitimately override the
+        same referenced type differently. This is the whole-type view, for a caller that needs every
+        override the CmdbType declares
 
         Returns:
-            list[dict]: A list of dictionaries representing the nested summaries. 
-                        If no matching fields are found, returns an empty list
+            list[dict]: Every nested-summary entry declared by the type's reference fields, in field
+                        order; empty when no reference field declares any
         """
-        return next((x['summaries'] for x in self.get_fields() if x['type'] == 'ref' and 'summaries' in x), [])
+        nested_summaries: list[dict] = []
+
+        for field in self.get_fields():
+            if field.get(FieldKey.TYPE.value) != FieldType.REFERENCE:
+                continue
+
+            nested_summaries.extend(field.get(FieldKey.SUMMARIES.value) or [])
+
+        return nested_summaries
 
 
     def has_nested_prefix(self, nested_summaries: list[dict]) -> str | bool:
         """
         Checks if any of the nested summaries have a matching prefix for this instance
 
-        This method looks for a nested summary with a matching `type_id` (equal to `self.public_id`)
-        and returns the associated `prefix`. If no matching summary is found, it returns `False`
+        Looks for the nested-summary entry addressing this CmdbType (`type_id` equal to
+        `self.public_id`) and returns its `prefix`. Returns `False` when no entry addresses this type -
+        `False` rather than None because the value is a flag the renderer passes straight through
 
         Args:
             nested_summaries (list[dict]): A list of nested summary dictionaries that may contain a `type_id`
@@ -319,41 +358,50 @@ class CmdbType(CmdbDAO):
         Returns:
             str | bool: The `prefix` of the matching nested summary if found, otherwise `False`
         """
-        return next((x['prefix'] for x in nested_summaries if x['type_id'] == self.public_id), False)
+        return next(
+            (
+                entry[NestedSummaryKey.PREFIX.value] for entry in nested_summaries
+                if entry.get(NestedSummaryKey.TYPE_ID.value) == self.public_id
+            ),
+            False,
+        )
 
 
     def get_nested_summary_fields(self, nested_summaries: list[dict]) -> list[str]:
         """
         Retrieves the fields from the nested summaries that match the current CmdbType's public_id
 
-        This method looks through the `nested_summaries` to find a matching `type_id` that equals `self.public_id`.
-        Once the matching nested summary is found, it gathers the corresponding field names and fetches their
-        details using `get_field`. The fields are then returned as a list.
+        Looks for the nested-summary entry addressing this CmdbType, then resolves the field names it
+        lists to their definitions
+
+        A name that no longer resolves to a field is SKIPPED rather than raised: removing a field from
+        a CmdbType does not clean the name out of any summary that referenced it, so a stale entry is a
+        normal state of a long-lived type and must not cost the caller the whole summary
 
         Args:
             nested_summaries (list[dict]): A list of nested summary dictionaries containing `type_id` and `fields`
 
         Returns:
-            list[str]: A list of fields corresponding to the nested summaries,
-                       where each field is fetched using `get_field`.
+            list[str]: The field definitions named by the matching nested summary, in its order, with
+                       names that no longer exist dropped
         """
-        complete_field_list = []
+        field_names: list[str] = next(
+            (
+                entry[NestedSummaryKey.FIELDS.value] for entry in nested_summaries
+                if entry.get(NestedSummaryKey.TYPE_ID.value) == self.public_id
+            ),
+            [],
+        )
 
-        _fields = next((x['fields'] for x in nested_summaries if x['type_id'] == self.public_id), [])
-
-        for field_name in _fields:
-            complete_field_list.append(self.get_field(field_name))
-
-        return TypeSummary(complete_field_list).fields
+        return TypeSummary(self._resolve_summary_fields(field_names)).fields
 
 
     def get_nested_summary_line(self, nested_summaries: list[dict]) -> str | None:
         """
         Retrieves the 'line' value from the nested summaries that match the current CmdbType's public_id
 
-        This method looks through the `nested_summaries` to find a matching `type_id` that equals `self.public_id`
-        Once the matching nested summary is found, it returns the associated `line` value.
-        If no match is found, it returns `None`
+        Looks for the nested-summary entry addressing this CmdbType and returns its `line` template,
+        or None when no entry addresses this type
 
         Args:
             nested_summaries (list[dict]): A list of nested summary dictionaries containing `type_id` and `line`
@@ -361,7 +409,13 @@ class CmdbType(CmdbDAO):
         Returns:
             str | None: The `line` value from the matching nested summary if found, otherwise `None`
         """
-        return next((x['line'] for x in nested_summaries if x['type_id'] == self.public_id), None)
+        return next(
+            (
+                entry[NestedSummaryKey.LINE.value] for entry in nested_summaries
+                if entry.get(NestedSummaryKey.TYPE_ID.value) == self.public_id
+            ),
+            None,
+        )
 
 
     def get_summary(self) -> TypeSummary:
@@ -369,15 +423,45 @@ class CmdbType(CmdbDAO):
         Retrieves the summary of fields from the TypeRenderMeta
 
         This method iterates over the fields defined in the `summary` of the TypeRenderMeta,
-        fetches the details of each field using `get_field`, and returns a `TypeSummary` 
+        fetches the details of each field using `get_field`, and returns a `TypeSummary`
         containing these fields
 
-        Returns:
-            TypeSummary: A `TypeSummary` object containing the list of fields fetched from `get_field`
-        """
-        complete_field_list = [self.get_field(field_name) for field_name in self.render_meta.summary.fields]
+        A summary name that no longer resolves to a field is SKIPPED - see
+        `get_nested_summary_fields` for why a stale name is expected rather than exceptional
 
-        return TypeSummary(complete_field_list)
+        Returns:
+            TypeSummary: A `TypeSummary` object holding the resolved summary field definitions
+        """
+        return TypeSummary(self._resolve_summary_fields(self.render_meta.summary.fields))
+
+
+    def _resolve_summary_fields(self, field_names: list[str]) -> list[dict[str, Any]]:
+        """
+        Resolves summary field names to their field definitions, dropping the ones that are gone
+
+        Removing a field from a CmdbType does not clean its name out of `render_meta.summary.fields`
+        or out of any reference field's nested summaries, so a summary referencing a deleted field is
+        a normal state. Skipping the stale name degrades the summary by one entry instead of raising
+        `CmdbTypeFieldNotFoundError` for the whole of it
+
+        Args:
+            field_names (list[str]): The summary's configured field names
+
+        Returns:
+            list[dict[str, Any]]: The field definitions that still exist, in the given order
+        """
+        resolved: list[dict[str, Any]] = []
+
+        for field_name in field_names:
+            try:
+                resolved.append(self.get_field(field_name))
+            except CmdbTypeFieldNotFoundError:
+                LOGGER.warning(
+                    "[CmdbType] Summary of Type with ID %s references the unknown field '%s' - skipped",
+                    self.public_id, field_name,
+                )
+
+        return resolved
 
 
     def get_sections(self) -> list[TypeSection]:
@@ -403,12 +487,11 @@ class CmdbType(CmdbDAO):
         return next((section for section in self.get_sections() if section.name == name), None)
 
 
-
     def get_icon(self) -> str | None:
         """
         Retrieves the icon of the current CmdbType
 
-        This method returns the `icon` from the `render_meta` if available. If not, 
+        This method returns the `icon` from the `render_meta` if available. If not,
         it returns `None`
 
         Returns:
@@ -454,7 +537,7 @@ class CmdbType(CmdbDAO):
         Returns:
             dict: The field as a dictionary
         """
-        field = next((x for x in self.fields if x['name'] == name), None)
+        field = next((x for x in self.fields if x[FieldKey.NAME.value] == name), None)
 
         if field:
             return field
@@ -501,16 +584,18 @@ class CmdbType(CmdbDAO):
         """
         Retrieves all field names of the specified type
 
-        This method iterates through the fields and collects the names of fields 
+        This method iterates through the fields and collects the names of fields
         that match the given `field_type`
 
         Args:
-            field_type (str): The type of the field to search for
+            field_type (str): The FieldType value to search for
 
         Returns:
             list[str]: A list of field names that match the specified field type
         """
-        field_names = [field["name"] for field in self.fields if field["type"] == field_type]
+        field_names = [
+            field[FieldKey.NAME.value] for field in self.fields if field[FieldKey.TYPE.value] == field_type
+        ]
 
         return field_names
 
@@ -528,4 +613,4 @@ class CmdbType(CmdbDAO):
         Returns:
             dict[str, dict[str, Any]]: {field name: field definition} of every matching field
         """
-        return {f["name"]: f for f in self.fields if f["type"] == field_type}
+        return {f[FieldKey.NAME.value]: f for f in self.fields if f[FieldKey.TYPE.value] == field_type}

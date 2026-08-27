@@ -28,10 +28,10 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.webhooks_event_manager import WebhooksEventManager
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
-from cmdb.errors.manager import (
-    BaseManagerGetError,
-    BaseManagerDeleteError,
-    BaseManagerIterationError,
+from cmdb.errors.manager.webhooks_event_manager import (
+    WebhooksEventManagerGetError,
+    WebhooksEventManagerDeleteError,
+    WebhooksEventManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -125,14 +125,14 @@ class TestErrorMapping:
     """The routes map manager failures to the documented HTTP statuses."""
 
     def test_get_single_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A BaseManagerGetError on get-single surfaces as 400."""
-        monkeypatch.setattr(WebhooksEventManager, 'get_item', _raiser(BaseManagerGetError('boom')))
+        """A WebhooksEventManagerGetError on get-single surfaces as 400."""
+        monkeypatch.setattr(WebhooksEventManager, 'get_item', _raiser(WebhooksEventManagerGetError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/{EVENT_ID_FOR_GET}').status_code == HTTPStatus.BAD_REQUEST
 
     def test_list_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A BaseManagerIterationError on list surfaces as 400."""
-        monkeypatch.setattr(WebhooksEventManager, 'iterate_items', _raiser(BaseManagerIterationError('boom')))
+        """A WebhooksEventManagerIterationError on list surfaces as 400."""
+        monkeypatch.setattr(WebhooksEventManager, 'iterate_items', _raiser(WebhooksEventManagerIterationError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.BAD_REQUEST
 
@@ -144,8 +144,8 @@ class TestErrorMapping:
 
     def test_delete_error_returns_400(self, rest_api, monkeypatch,
                                      database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """A BaseManagerDeleteError on delete surfaces as 400."""
+        """A WebhooksEventManagerDeleteError on delete surfaces as 400."""
         _insert_event(database_manager, database_name, EVENT_ID_FOR_DELETE)
-        monkeypatch.setattr(WebhooksEventManager, 'delete_item', _raiser(BaseManagerDeleteError('boom')))
+        monkeypatch.setattr(WebhooksEventManager, 'delete_item', _raiser(WebhooksEventManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{EVENT_ID_FOR_DELETE}/').status_code == HTTPStatus.BAD_REQUEST

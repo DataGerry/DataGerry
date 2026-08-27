@@ -41,7 +41,6 @@ class CmdbLocation(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.locations'
-    MODEL = 'Location'
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS: list[str] = ['name', 'parent', 'object_id', 'type_id', 'type_label']
 

@@ -25,6 +25,11 @@ tokens with 400 before the builder runs.
 Substantive behavior belongs to the framework-layer builders and is covered there; this module
 only exercises the transport boundary. The framework helpers and ManagerProvider.get_manager are
 patched at the route module path, and each route is unwrapped past its auth decorators.
+
+The final section pins the error mapping every route shares: an HTTPException raised by a builder
+(the 400s / 404s the framework layer aborts with) propagates untouched, while any other exception is
+logged and turned into a 500. Those two arms are the whole difference between a client seeing the
+framework's message and seeing a generic server error, so each route is checked separately.
 """
 from typing import Any, Callable
 
@@ -32,9 +37,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, NotFound
 
 from cmdb.models.special_type_model.ipam_constants import IpAddressFamily, IpamPagination, IpamSearch
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
+    DEFAULT_PAGE,
+    read_json_object_body,
+    read_pagination_params,
+    read_search_param,
+)
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_subnet_routes import (
     get_subnet_overview,
     get_subnet_options,
@@ -240,8 +251,9 @@ def test_export_subnet_ips_returns_csv_attachment(flask_app: Flask) -> None:
     assert response.get_data() == b'csv-bytes'
     assert response.mimetype == 'text/csv'
     disposition: str = response.headers['Content-Disposition']
-    assert 'attachment; filename=subnet_5_ips_' in disposition
-    assert disposition.endswith('.csv')
+    # Quoted like every other export in the repo
+    assert disposition.startswith('attachment; filename="subnet_5_ips_')
+    assert disposition.endswith('.csv"')
 
 
 def test_export_subnet_ips_propagates_too_big_abort(flask_app: Flask) -> None:
@@ -330,3 +342,129 @@ def test_get_subnet_options_accepts_both_valid_family_tokens(flask_app: Flask) -
             bare(request_user=MagicMock())
 
         assert mock_build.call_args.kwargs['family'] == token
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        shared query-string readers (helper)                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_read_pagination_params_reads_both_values(flask_app: Flask) -> None:
+    """Explicit page / page_size are read off the query string"""
+    with flask_app.test_request_context('/?page=3&page_size=25'):
+        assert read_pagination_params() == (3, 25)
+
+
+@pytest.mark.parametrize('query', ['', '?page=0&page_size=0', '?page=nope&page_size=nope'])
+def test_read_pagination_params_falls_back_to_the_defaults(flask_app: Flask, query: str) -> None:
+    """A missing, zero or unparsable value falls back to the default page / page size"""
+    with flask_app.test_request_context(f'/{query}'):
+        assert read_pagination_params() == (DEFAULT_PAGE, IpamPagination.DEFAULT_PAGE_SIZE)
+
+
+def test_read_search_param_truncates_at_the_maximum_length(flask_app: Flask) -> None:
+    """An oversized search query is cut at IpamSearch.MAX_QUERY_LENGTH before it reaches a builder"""
+    oversized = 'x' * (IpamSearch.MAX_QUERY_LENGTH + 25)
+
+    with flask_app.test_request_context(f'/?search={oversized}'):
+        assert read_search_param() == 'x' * IpamSearch.MAX_QUERY_LENGTH
+
+
+def test_read_search_param_defaults_to_empty(flask_app: Flask) -> None:
+    """No search query means an empty filter"""
+    with flask_app.test_request_context('/'):
+        assert read_search_param() == ''
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        unassign_ips_route - request body guard                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('body, content_type', [
+    ('not-json-at-all', 'application/json'),
+    ('{"ips": [', 'application/json'),
+    ('[1, 2, 3]', 'application/json'),
+    ('', 'application/json'),
+])
+def test_unassign_ips_route_aborts_400_for_a_non_object_body(
+    flask_app: Flask, body: str, content_type: str,
+) -> None:
+    """A body that is not a JSON object is rejected here, not reported as a missing 'ips' field"""
+    bare = _unwrap(unassign_ips_route)
+
+    with patch(f'{ROUTE_PATH}.unassign_ips_from_subnet') as mock_unassign, \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context('/overview/5/unassign', method='POST',
+                                        data=body, content_type=content_type):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert exc_info.value.code == 400
+    mock_unassign.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              shared error mapping                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+ERROR_MAPPING_CASES: list[tuple[str, Any, str, dict[str, Any]]] = [
+    ('build_subnet_options_page', get_subnet_options, '/', {}),
+    ('build_subnet_overview', get_subnet_overview, '/overview/5', {'public_id': SUBNET_PUBLIC_ID}),
+    ('unassign_ips_from_subnet', unassign_ips_route, '/overview/5/unassign', {'public_id': SUBNET_PUBLIC_ID}),
+    ('build_subnet_sector_ips', get_subnet_sector_ips, '/overview/5/sector?sector_start=10.0.0.0',
+     {'public_id': SUBNET_PUBLIC_ID}),
+    ('build_invalid_ips_overview', get_invalid_subnet_overview, '/overview/5/invalid',
+     {'public_id': SUBNET_PUBLIC_ID}),
+    ('build_subnet_ips_csv', export_subnet_ips, '/overview/5/export', {'public_id': SUBNET_PUBLIC_ID}),
+]
+
+ERROR_MAPPING_IDS: list[str] = [case[0] for case in ERROR_MAPPING_CASES]
+
+
+@pytest.mark.parametrize('builder_name, route, path, kwargs', ERROR_MAPPING_CASES, ids=ERROR_MAPPING_IDS)
+def test_an_unexpected_builder_failure_becomes_500(
+    flask_app: Flask, builder_name: str, route: Any, path: str, kwargs: dict[str, Any],
+) -> None:
+    """Any non-HTTP exception from the framework layer is logged and mapped onto a 500"""
+    bare = _unwrap(route)
+    method = 'POST' if 'unassign' in path else 'GET'
+    json_body = {'ips': ['10.0.0.5']} if method == 'POST' else None
+
+    with patch(f'{ROUTE_PATH}.{builder_name}', side_effect=RuntimeError('boom')), \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context(path, method=method, json=json_body):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock(), **kwargs)
+
+    assert exc_info.value.code == 500
+
+
+@pytest.mark.parametrize('builder_name, route, path, kwargs', ERROR_MAPPING_CASES, ids=ERROR_MAPPING_IDS)
+def test_an_http_exception_from_a_builder_propagates_untouched(
+    flask_app: Flask, builder_name: str, route: Any, path: str, kwargs: dict[str, Any],
+) -> None:
+    """The framework's own 400 / 404 aborts reach the client instead of being masked as a 500"""
+    bare = _unwrap(route)
+    method = 'POST' if 'unassign' in path else 'GET'
+    json_body = {'ips': ['10.0.0.5']} if method == 'POST' else None
+    not_found = NotFound('Subnet with public_id 5 was not found!')
+
+    with patch(f'{ROUTE_PATH}.{builder_name}', side_effect=not_found), \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context(path, method=method, json=json_body):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock(), **kwargs)
+
+    assert exc_info.value is not_found
+
+
+def test_read_json_object_body_returns_the_decoded_object(flask_app: Flask) -> None:
+    """A JSON object body is decoded and handed back unchanged"""
+    with flask_app.test_request_context('/', method='POST', json={'ips': ['10.0.0.5'], 'mode': 'row'}):
+        assert read_json_object_body() == {'ips': ['10.0.0.5'], 'mode': 'row'}
+
+
+@pytest.mark.parametrize('body', ['not-json-at-all', '{"ips": [', '[1, 2, 3]', '"a string"', ''])
+def test_read_json_object_body_aborts_400_for_anything_else(flask_app: Flask, body: str) -> None:
+    """An absent, unparseable or non-object body is a 400 rather than a silent empty dict"""
+    with flask_app.test_request_context('/', method='POST', data=body, content_type='application/json'):
+        with pytest.raises(HTTPException) as exc_info:
+            read_json_object_body()
+
+    assert exc_info.value.code == 400

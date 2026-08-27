@@ -234,11 +234,18 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
     def test_synced_count_is_recomputed_after_the_insert(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """The count sent to the portal is the POST-insert total, not the pre-insert limit-check count."""
+        """
+        The portal is never handed the pre-insert limit-check count
+
+        The original bug forwarded the count taken by guard_config_item_limit BEFORE the insert, so the
+        portal was told one object too few. The sync now takes the total from the aggregation it runs
+        for the per-type breakdown, strictly after the insert, and the route forwards no count at all -
+        which makes that off-by-one structurally impossible on this path.
+        """
         del patched_manager_provider
         flask_app.cloud_mode = True
 
-        # First call = pre-insert limit check (5); second call = post-insert recount (6, the correct total)
+        # The only count left on this path is the pre-insert limit check
         mgr.count_documents.side_effect = [5, 6]
         mgr.insert_object.return_value = 111
         mgr.get_object.return_value = {'public_id': 111, 'type_id': 1, 'fields': []}
@@ -261,9 +268,9 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
 
                 _unwrap(insert_cmdb_object)(request_user=request_user)
 
-        # Off-by-one guard: the buggy version forwarded the pre-insert 5; the fix forwards the post-insert 6
-        sync.assert_called_once_with(request_user, 6)
-        assert mgr.count_documents.call_count == 2
+        # Off-by-one guard: no count is forwarded, so the pre-insert 5 can never reach the portal
+        sync.assert_called_once_with(request_user)
+        assert mgr.count_documents.call_count == 1
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

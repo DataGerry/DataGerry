@@ -372,6 +372,26 @@ def test_update_type_returns_the_update_result() -> None:
     assert TypesManager.update_type(mgr, 7, {}) is update_result
 
 
+def test_update_type_field_sets_only_that_key() -> None:
+    """A single-field update $sets one key and leaves the rest of the document alone."""
+    mgr = MagicMock(spec=TypesManager)
+
+    TypesManager.update_type_field(mgr, 7, TypeSchemaKey.CI_EXPLORER_LABEL.value, 'name')
+
+    _, kwargs = mgr.update.call_args
+    assert kwargs['criteria'] == {TypeSchemaKey.PUBLIC_ID.value: 7}
+    assert kwargs['data'] == {TypeSchemaKey.CI_EXPLORER_LABEL.value: 'name'}
+
+
+def test_update_type_field_wraps_unexpected_error() -> None:
+    """A failure in the underlying update surfaces as TypesManagerUpdateError."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.update.side_effect = RuntimeError('boom')
+
+    with pytest.raises(TypesManagerUpdateError):
+        TypesManager.update_type_field(mgr, 7, TypeSchemaKey.CI_EXPLORER_LABEL.value, 'name')
+
+
 def test_find_types_wraps_unexpected_error() -> None:
     """A failure in the underlying find surfaces as TypesManagerGetError."""
     mgr = MagicMock(spec=TypesManager)

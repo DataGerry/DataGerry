@@ -236,7 +236,8 @@ class TestDeleteSectionTemplate:
         collection = _collection(database_manager, database_name)
         collection.insert_one(_template_doc(TEMPLATE_ID_FOR_DELETE, 'func-sectpl-delete'))
         try:
-            response = rest_api.delete(f'{ROUTE_URL}/{TEMPLATE_ID_FOR_DELETE}/')
+            # Registered without the trailing slash now - the form the frontend calls
+            response = rest_api.delete(f'{ROUTE_URL}/{TEMPLATE_ID_FOR_DELETE}')
 
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
             follow_up = rest_api.get(f'{ROUTE_URL}/{TEMPLATE_ID_FOR_DELETE}')

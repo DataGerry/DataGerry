@@ -542,13 +542,42 @@ class ObjectsManager(BaseManager):
         Returns:
             dict[int, int]: Mapping of type_id to the number of CmdbObjects of that type
         """
+        return self.count_objects_grouped_by_type_with_total()[0]
+
+
+    def count_objects_grouped_by_type_with_total(self) -> tuple[dict[int, int], int]:
+        """
+        Counts all CmdbObjects grouped by their type_id and returns the exact overall total
+
+        The per-type mapping drops groups whose ``_id`` is not an int (a document with a missing or
+        malformed ``type_id`` cannot be attributed to a CmdbType), but the total counts **every**
+        document, so it always matches an unfiltered ``count_documents()``. Callers that need both
+        numbers - the Service Portal config-item sync needs the breakdown and the total - get them
+        from this one aggregation instead of paying for a separate full-collection count
+
+        Raises:
+            ObjectsManagerIterationError: If the aggregation fails
+
+        Returns:
+            tuple[dict[int, int], int]: The type_id -> count mapping and the total object count
+        """
         pipeline: list[dict[str, Any]] = [
             {"$group": {"_id": f"${CmdbObjectKey.TYPE_ID.value}", "count": {"$sum": 1}}}
         ]
 
         cursor: CommandCursor = self.aggregate_objects(pipeline)
 
-        return {doc["_id"]: doc["count"] for doc in cursor if isinstance(doc.get("_id"), int)}
+        counts_by_type: dict[int, int] = {}
+        total: int = 0
+
+        for doc in cursor:
+            count: int = doc["count"]
+            total += count
+
+            if isinstance(doc.get("_id"), int):
+                counts_by_type[doc["_id"]] = count
+
+        return counts_by_type, total
 
 
     def get_mds_references_for_object(self,
@@ -841,7 +870,8 @@ class ObjectsManager(BaseManager):
                       public_id: int,
                       data: CmdbObject | dict,
                       user: CmdbUser | None = None,
-                      permission: AccessControlPermission | None = None) -> None:
+                      permission: AccessControlPermission | None = None,
+                      partial: bool = False) -> None:
         """
         Updates a CmdbObject in the database
 
@@ -850,6 +880,10 @@ class ObjectsManager(BaseManager):
             data: (CmdbObject | dict): The new data for the CmdbObject
             user (CmdbUser): Request user
             permission (AccessControlPermission): ACL permission
+            partial (bool): If True, `data` holds only the top-level keys to set - a targeted $set
+                instead of a full-document write, so a concurrent edit of another field survives. The
+                type_id then comes from the stored object, both guards below still apply, and the
+                caller owns the pipeline this skips (version bump, log, webhook). Defaults to False
 
         Raises:
             ObjectsManagerUpdateError: If the update operation fails
@@ -861,7 +895,17 @@ class ObjectsManager(BaseManager):
             else:
                 instance = json.loads(json.dumps(data, default=json_util.default), object_hook=object_hook)
 
-            object_type = self.get_object_type(instance.get('type_id'))
+            if partial:
+                stored_object = self.get_one(public_id)
+
+                if not stored_object:
+                    raise ObjectsManagerUpdateError(f"No CmdbObject with ID: {public_id} found!")
+
+                type_id = stored_object.get('type_id')
+            else:
+                type_id = instance.get('type_id')
+
+            object_type = self.get_object_type(type_id)
 
             if not object_type:
                 raise ObjectsManagerUpdateError("CmdbType of CmdbObject not found in database!")

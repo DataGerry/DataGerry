@@ -15,6 +15,21 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for DocapiTemplates
+
+A DocapiTemplate is an HTML template rendered into a PDF for one CmdbObject. The eight routes here are
+its CRUD surface plus the render call, and every one of them is gated twice: by an ACL right (see
+``DocapiTemplateRight``) and by the licensed ``DOCUMENT_GENERATOR`` feature
+
+Two blueprints serve one resource, which is FE contract rather than an accident: ``docs`` carries the
+paged list at ``/docs/template`` (the newer collection-parameters route the frontend uses for the
+overview) while ``docapi`` carries everything else under ``/docapi/template``. The frontend calls the
+create and update routes WITH a trailing slash, which is the form registered here
+
+The render route is guarded by an OBJECT right, not a template one - see ``RENDER_OBJECT_RIGHT``
+
+``/docapi/template/name/<name>`` is the odd one out among the reads: it is a name-availability check for
+the template-name input, so an unused name is a 200 with ``null`` rather than a 404. That check is only
+meaningful because a template's ``name`` is decided on CREATE and immutable afterwards
 """
 from logging import Logger, getLogger
 import json
@@ -37,10 +52,11 @@ from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.framework.results import IterationResult
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import GetMultiResponse, DefaultResponse
-from cmdb.interface.route_utils import insert_request_user, right_required, verify_api_access
+from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
+    RENDER_OBJECT_RIGHT,
     DocapiTemplateRight,
 )
 from cmdb.interface.blueprints import APIBlueprint
@@ -58,28 +74,33 @@ from cmdb.errors.manager.docapi_templates_manager import (
 
 LOGGER: Logger = getLogger(__name__)
 
-# Right guarding the render route - rendering a template reads the target CmdbObject (object domain)
-RENDER_OBJECT_RIGHT: str = 'base.framework.object.view'
-
 docapi_blueprint = APIBlueprint('docapi', __name__, url_prefix='/docapi')
 
 docs_blueprint = APIBlueprint('docs', __name__)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-#TODO: ROUTE-FIX (Adapt route to first version in frontend)
-@docapi_blueprint.route('/template', methods=['POST'])
 @docapi_blueprint.route('/template/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required(DocapiTemplateRight.ADD.value)
+@docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.ADD.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def create_template(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a DocapiTemplate into the database
 
+    Requires the ``base.docapi.template.add`` right and the licensed DOCUMENT_GENERATOR feature. The
+    identity and the author are server-owned: the public_id comes from the collection counter and the
+    author from the request. Names are unique across templates, because the by-name route resolves a
+    template by nothing else - and this route is the only place a name is decided, since the update
+    route refuses to rename an existing template
+
     Args:
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the name
+            is taken or the insert fails; 500 on an unexpected error
 
     Returns:
         DefaultResponse: public_id of the created DocapiTemplate
@@ -130,6 +151,10 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Respo
         params (CollectionParameters): Filter for requested DocapiTemplates
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the
+            iteration fails; 500 on an unexpected error
+
     Returns:
         GetMultiResponse: All the DocapiTemplates matching the CollectionParameters
     """
@@ -150,6 +175,8 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Respo
                                         body=request.method == 'HEAD')
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except DocapiTemplatesManagerIterationError as err:
         LOGGER.error("[get_templates] %s", err, exc_info=True)
         abort(400, "Could not retrieve templates from database!")
@@ -161,7 +188,7 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Respo
 @docapi_blueprint.route('/template/by/<string:searchfilter>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required(DocapiTemplateRight.VIEW.value)
+@docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Response:
     """
@@ -170,9 +197,15 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
     With the ``minimal=true`` query parameter only a lightweight representation of each template
     (public_id + label) is returned, and only those fields are read from the database
 
+    Requires the ``base.docapi.template.view`` right and the licensed DOCUMENT_GENERATOR feature
+
     Args:
-        searchfilter (str): Filter for the DocapiTemplates
+        searchfilter (str): Filter for the DocapiTemplates, as a JSON object in the URL
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the
+            filter is not valid JSON or the read fails; 500 on an unexpected error
 
     Returns:
         DefaultResponse: All DocapiTemplates matching the searchfilter (minimal when requested)
@@ -180,7 +213,11 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
     try:
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
-        filterdict = json.loads(searchfilter)
+        try:
+            filterdict = json.loads(searchfilter)
+        except ValueError:
+            abort(400, f"The searchfilter is not valid JSON: {searchfilter}")
+
         minimal = request.args.get('minimal', 'false') in ['True', 'true']
 
         if minimal:
@@ -191,9 +228,12 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
         api_response = DefaultResponse(tpl)
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except DocapiTemplatesManagerGetError as err:
         LOGGER.error("[get_template_list_filtered] %s", err, exc_info=True)
-        abort(404, f"Could not retrieve template list for filter: {searchfilter}")
+        # A failed read is not "not found" - the filter may well match templates that exist
+        abort(400, f"Could not retrieve template list for filter: {searchfilter}")
     except Exception as err:
         LOGGER.error("[get_template_list_filtered] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An error occured when trying to retrieve the templates!")
@@ -202,18 +242,24 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
 @docapi_blueprint.route('/template/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required(DocapiTemplateRight.VIEW.value)
+@docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def get_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single DocapiTemplate with the given public_id
 
+    Requires the ``base.docapi.template.view`` right and the licensed DOCUMENT_GENERATOR feature
+
     Args:
         public_id (int): public_id of the DocapiTemplate which should be retrieved
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when no
+            DocapiTemplate carries the public_id; 400 when the read fails; 500 on an unexpected error
+
     Returns:
-        DefaultResponse: The requested DocapiTemplate; aborts 404 when it does not exist
+        DefaultResponse: The requested DocapiTemplate
     """
     try:
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
@@ -229,7 +275,7 @@ def get_template(public_id: int, request_user: CmdbUser) -> Response:
         raise http_err
     except DocapiTemplatesManagerGetError as err:
         LOGGER.error("[get_template] %s", err, exc_info=True)
-        abort(404, "Could not retrieve the requested template!")
+        abort(400, "Could not retrieve the requested template!")
     except Exception as err:
         LOGGER.error("[get_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, "An error occured when trying to retrieve the template!")
@@ -238,18 +284,30 @@ def get_template(public_id: int, request_user: CmdbUser) -> Response:
 @docapi_blueprint.route('/template/name/<string:name>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required(DocapiTemplateRight.VIEW.value)
+@docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` route for retrieving a single DocapiTemplate with the given name
+    HTTP `GET` route for resolving a DocapiTemplate by its name
+
+    Requires the ``base.docapi.template.view`` right and the licensed DOCUMENT_GENERATOR feature. Names
+    are unique, which is what makes this route able to resolve one template
+
+    This is a name-availability check, not a fetch of a resource the caller already knows exists: the
+    frontend calls it while the user types a template name to tell them whether the name is still free.
+    An unused name is therefore a successful answer, NOT a 404 - the route answers 200 with ``null`` so
+    the caller can read "free" off the body instead of off an error. Only a failing read is an error
 
     Args:
         name (str): name of the DocapiTemplate
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the read
+            fails; 500 on an unexpected error
+
     Returns:
-        DefaultResponse: The requested DocapiTemplate
+        DefaultResponse: The DocapiTemplate carrying the name, or ``None`` when the name is unused
     """
     try:
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
@@ -258,9 +316,11 @@ def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
         tpl = docapi_manager.get_template_by_name(name=name)
 
         return DefaultResponse(tpl).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except DocapiTemplatesManagerGetError as err:
         LOGGER.error("[get_template_by_name] %s", err, exc_info=True)
-        abort(404, f"Could not retrieve the template with name:{name}!")
+        abort(400, f"Could not retrieve the template with name:{name}!")
     except Exception as err:
         LOGGER.error("[get_template_by_name] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
         abort(500, f"An internal server error occured when trying to retrieve the Template with name:{name}!")
@@ -269,16 +329,27 @@ def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
 @docapi_blueprint.route('/template/<int:public_id>/render/<int:object_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required(RENDER_OBJECT_RIGHT)
+@docapi_blueprint.protect(auth=True, right=RENDER_OBJECT_RIGHT)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def render_object_template(public_id: int, object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for retrieving a single rendered DocapiTemplate
 
+    Requires the ``base.framework.object.view`` right - an OBJECT right, because the document is built
+    from the object's field values - and the licensed DOCUMENT_GENERATOR feature. The object is read
+    WITHOUT the object ACL, which is a filed decision rather than an oversight
+
+    Every render answers with the same attachment name, ``output.pdf``; the frontend names the download
+    itself
+
     Args:
         public_id (int): public_id of DocapiTemplate which should be used
         object_id (int): public_id of CmdbObject should be rendered
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when the
+            template or the object does not exist; 500 when the render fails
 
     Returns:
         Response: The rendered DocapiTemplate with the CmdbObject as a PDF-file
@@ -325,22 +396,34 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-#TODO: ROUTE-FIX (Adapt route to first version in frontend)
-@docapi_blueprint.route('/template', methods=['PUT'])
 @docapi_blueprint.route('/template/', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required(DocapiTemplateRight.EDIT.value)
+@docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.EDIT.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def update_template(request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route for updating a single DocapiTemplate
 
+    Requires the ``base.docapi.template.edit`` right and the licensed DOCUMENT_GENERATOR feature
+
+    The name is IMMUTABLE once the template exists: a payload carrying any other name than the stored
+    one is refused, even when that name is free. The name is the template's stable handle - the frontend
+    probes it for availability while a name is being typed (see ``get_template_by_name``) and only the
+    create route decides it. Because it can no longer move, the create route's uniqueness check plus the
+    unique index on ``name`` are the whole guarantee; nothing here can collide. Every other property is
+    freely editable, and the whole document is expected in the payload
+
     Args:
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when the
+            template does not exist; 400 when the payload would rename the template or the update
+            fails; 500 on an unexpected error
+
     Returns:
-        DefaultResponse: The updated DocapiTemplate; aborts 404 when it does not exist
+        DefaultResponse: The updated DocapiTemplate
     """
     try:
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
@@ -350,13 +433,20 @@ def update_template(request_user: CmdbUser) -> Response:
         new_tpl_data = json.loads(add_data_dump, object_hook=json_util.object_hook)
 
         update_tpl_instance = DocapiTemplate(**new_tpl_data)
+        template_id: int = update_tpl_instance.get_public_id()
 
-        if not docapi_manager.get_template(update_tpl_instance.get_public_id()):
-            abort(404, f"Template with ID: {update_tpl_instance.get_public_id()} not found!")
+        current_template: DocapiTemplate | None = docapi_manager.get_template(template_id)
+
+        if not current_template:
+            abort(404, f"Template with ID: {template_id} not found!")
+
+        if update_tpl_instance.name != current_template.name:
+            abort(400, f"The 'name' of a template is not changable - '{current_template.name}' can not "
+                       f"be renamed to '{update_tpl_instance.name}'!")
 
         docapi_manager.update_template(update_tpl_instance)
 
-        return DefaultResponse(update_tpl_instance).make_response()
+        return DefaultResponse(DocapiTemplate.to_json(update_tpl_instance)).make_response()
     except HTTPException as http_err:
         raise http_err
     except DocapiTemplatesManagerUpdateError as err:
@@ -371,18 +461,24 @@ def update_template(request_user: CmdbUser) -> Response:
 @docapi_blueprint.route('/template/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@right_required(DocapiTemplateRight.DELETE.value)
+@docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.DELETE.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 def delete_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single DocapiTemplate
 
+    Requires the ``base.docapi.template.delete`` right and the licensed DOCUMENT_GENERATOR feature
+
     Args:
         public_id (int): public_id of the DocapiTemplate which should be deleted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when the
+            template does not exist; 400 when the deletion fails; 500 on an unexpected error
+
     Returns:
-        DefaultResponse: True if deletion was successful; aborts 404 when the template does not exist
+        DefaultResponse: True if the deletion was successful
     """
     try:
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,

@@ -13,3 +13,15 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+REST routes of the CI Explorer
+
+  - ci_explorer_routes: the blueprint - the node/edge graph, the saved filter profiles and the two
+      presentation fields the graph renders (a CmdbObject's tooltip, a CmdbType's label)
+  - ci_explorer_helper: the request schemas of the two field routes, their shared
+      fetch-guard-persist step, and the edit log the tooltip write records
+  - ci_explorer_constants: the ACL rights guarding the routes and the query parameters they read
+
+The graph itself is built in cmdb.framework.ci_explorer; these routes only parse, authorise and
+delegate
+"""
