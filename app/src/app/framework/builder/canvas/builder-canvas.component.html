@@ -1,0 +1,56 @@
+<div class="row" [class.builder-empty]="stretchPaletteWhenEmpty && sections?.length === 0">
+    <div class="col-3">
+        <dg-builder-palette
+            [groups]="paletteGroups"
+            [dragDisabled]="isAnySectionHighlighted() || disableFields"
+            [blocked]="!valid"
+            [fillHeight]="stretchPaletteWhenEmpty && sections?.length === 0"
+        >
+            <div
+                *ngIf="showTools"
+                id="builder-controls-action"
+                role="group"
+                aria-label="Controls helper buttons"
+                class="btn-group btn-group-sm mt-2 d-flex justify-content-between align-items-center"
+            >
+                <button id="builder-controls-action-preview" type="button" class="btn btn-secondary" (click)="openPreview()">
+                    Preview
+                </button>
+                <button
+                    id="builder-controls-action-diagnostic"
+                    type="button"
+                    class="btn btn-secondary"
+                    (click)="openDiagnostic()"
+                >
+                    Diagnostic
+                </button>
+            </div>
+        </dg-builder-palette>
+    </div>
+
+    <div id="form-container" class="col-9">
+        <div
+            id="form-content"
+            data-content="Drop structure controls here"
+            [class.empty]="sections?.length === 0"
+            [dndDropzone]="['sections']"
+            (dndDrop)="onSectionDrop($event)"
+        >
+            <div class="dnd-placeholder" dndPlaceholderRef>
+                Drop control here
+            </div>
+
+            <section
+                *ngFor="let section of sections; let x = index"
+                dndEffectAllowed="move"
+                dndType="sections"
+                [dndDraggable]="section"
+                [dndDisableIf]="!canMoveSection(section)"
+                (dndStart)="onDragStart(x)"
+                (dndMoved)="onSectionMoved(section, 'move')"
+            >
+                <dg-builder-section [section]="section" [index]="x" [host]="this" />
+            </section>
+        </div>
+    </div>
+</div>

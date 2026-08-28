@@ -15,10 +15,10 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, Input, Output } from '@angular/core';
 import { UntypedFormControl, UntypedFormGroup } from '@angular/forms';
 
-import { ReplaySubject, Subject } from 'rxjs';
+import { Observable, ReplaySubject, Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
 import { CmdbType } from '../../models/cmdb-type';
@@ -54,6 +54,12 @@ export abstract class ConfigEditBaseComponent {
     @Input() public users: Array<User> = [];
 
     public fieldChanges$ = new Subject();
+
+    /**
+     * Same stream as `fieldChanges$`, exposed as an output so an editor bound statically in a
+     * template can be listened to. The dynamic dispatcher subscribes to `fieldChanges$` directly.
+     */
+    @Output() public readonly valuesChanged: Observable<any> = this.fieldChanges$.asObservable();
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 

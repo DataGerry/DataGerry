@@ -45,12 +45,15 @@ import { LocationFieldEditComponent } from './configs/special/location-field-edi
 import { PreviewModalComponent } from './modals/preview-modal/preview-modal.component';
 import { DiagnosticModalComponent } from './modals/diagnostic-modal/diagnostic-modal.component';
 import { LocationFieldInUseModalComponent } from './modals/location-field-in-use-modal/location-field-in-use-modal.component';
+import { BuilderPaletteComponent } from './palette/builder-palette.component';
+import { BuilderCanvasComponent } from './canvas/builder-canvas.component';
+import { BuilderSectionComponent } from './canvas/builder-section.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * Feature-neutral field builder kernel: the control config editors, their dispatcher and the
- * builder modals. Shared by the type, relation and section template builders, none of which
- * should reach into another feature to get them.
+ * Feature-neutral field builder kernel: the drag-and-drop canvas, the section card, the control
+ * config editors, their dispatcher and the builder modals. Shared by the type, relation and
+ * section template builders, none of which should reach into another feature to get them.
  */
 @NgModule({
     imports: [
@@ -68,9 +71,12 @@ import { LocationFieldInUseModalComponent } from './modals/location-field-in-use
         LayoutModule,
         ColorChromeModule,
         CoreModule,
-        IdentifierHintComponent
+        IdentifierHintComponent,
+        BuilderPaletteComponent
     ],
     declarations: [
+        BuilderCanvasComponent,
+        BuilderSectionComponent,
         ConfigEditComponent,
         TextFieldEditComponent,
         TextareaEditComponent,
@@ -87,6 +93,9 @@ import { LocationFieldInUseModalComponent } from './modals/location-field-in-use
         LocationFieldInUseModalComponent
     ],
     exports: [
+        BuilderCanvasComponent,
+        BuilderSectionComponent,
+        BuilderPaletteComponent,
         ConfigEditComponent,
         SectionFieldEditComponent,
         PreviewModalComponent,

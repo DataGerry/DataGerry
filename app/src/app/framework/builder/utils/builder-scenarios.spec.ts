@@ -16,6 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { CmdbMode } from '../../modes.enum';
+import { CmdbTypeSchemaAdapter } from '../schema/cmdb-type-schema.adapter';
 import { BuilderContext } from './builder-context';
 import { BuilderInteractionPolicy, BuilderInteractionPolicyContext } from './builder-interaction-policy';
 import { BuilderHighlightHelper } from './builder-highlight.helper';
@@ -29,7 +30,8 @@ import { BuilderUtils } from './builder-utils';
 describe('Type Builder scenarios (A-K)', () => {
 
     interface Harness {
-        ctx: BuilderContext;
+        /** `typeInstance` is the seeded model the adapter writes through, kept for assertions. */
+        ctx: BuilderContext & { typeInstance: any };
         policy: BuilderInteractionPolicy;
         highlight: BuilderHighlightHelper;
         templateManager: BuilderTemplateManager;
@@ -42,7 +44,7 @@ describe('Type Builder scenarios (A-K)', () => {
         const applied = ctx.selectedGlobalSectionTemplates ?? [];
         return {
             selectedGlobalSectionTemplates: applied,
-            globalTemplateIds: ctx.typeInstance?.global_template_ids ?? [],
+            globalTemplateIds: ctx.schema.readGlobalTemplateIds(),
             globalFieldNames: applied.flatMap(template => (template?.fields ?? []).map((field: any) => field?.name)),
             schemaLockedSectionNames: ctx.lockedSectionNames ?? [],
             schemaLockedFieldNames: ctx.lockedFieldNames ?? []
@@ -52,8 +54,9 @@ describe('Type Builder scenarios (A-K)', () => {
     function harness(seed: any = {}): Harness {
         const typeInstance: any = seed.typeInstance ?? { fields: [], render_meta: { sections: [], externals: [] }, global_template_ids: [] };
 
-        const ctx: BuilderContext = {
+        const ctx: BuilderContext & { typeInstance: any } = {
             sections: seed.sections ?? [],
+            schema: new CmdbTypeSchemaAdapter(typeInstance),
             typeInstance,
             newSections: [],
             newFields: [],
@@ -84,7 +87,7 @@ describe('Type Builder scenarios (A-K)', () => {
                 ['removeSection', 'syncSections', 'getDroppedIndex', 'addSection', 'setActiveIndex']),
             fieldIdentifierValidation: jasmine.createSpyObj('FieldIdentifierValidationService',
                 ['clearFieldNames', 'addFieldNames']),
-            locationFieldDeletion: jasmine.createSpyObj('LocationFieldDeletionService',
+            deletionGuard: jasmine.createSpyObj('BuilderDeletionGuard',
                 ['sectionContainsLocationField', 'canDelete', 'isLocationField']),
             renderer: jasmine.createSpyObj('Renderer2', ['setStyle']),
             el: { nativeElement: { querySelector: () => null } }
@@ -492,9 +495,9 @@ describe('Type Builder scenarios (A-K)', () => {
             const s = section('s', { fields: [location] });
             const h = harness({ mode: CmdbMode.Edit, sections: [s], typeInstance: { fields: [location], render_meta: { sections: [s], externals: [] }, global_template_ids: [] } });
 
-            h.deps.locationFieldDeletion.isLocationField.and.returnValue(true);
-            h.deps.locationFieldDeletion.canDelete.and.returnValue(false);
-            h.deps.locationFieldDeletion.sectionContainsLocationField.and.returnValue(true);
+            h.deps.deletionGuard.isLocationField.and.returnValue(true);
+            h.deps.deletionGuard.canDelete.and.returnValue(false);
+            h.deps.deletionGuard.sectionContainsLocationField.and.returnValue(true);
 
             h.mutation.removeField(location, s);
             expect(s.fields.length).toBe(1);
@@ -565,7 +568,7 @@ describe('Type Builder scenarios (A-K)', () => {
             const s2 = { name: 's2', label: 'S2', type: 'section', fields: ['f2'] };
             const h = harness({ typeInstance: { fields: [f1, f2], render_meta: { sections: [s1, s2], externals: [] }, global_template_ids: [] } });
 
-            h.mutation.syncSectionsFromTypeInstance();
+            h.mutation.syncSectionsFromModel();
 
             expect(h.ctx.sections.map((s: any) => s.name)).toEqual(['s1', 's2']);
             expect(h.ctx.sections[0].fields).toEqual([f1]);

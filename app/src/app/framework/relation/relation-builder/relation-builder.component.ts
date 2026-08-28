@@ -117,12 +117,18 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
 
 
 
+  /**
+   * Flattens the sections for the API. A section's fields are field objects while the builder has
+   * hydrated them and plain names otherwise, so both shapes have to survive the round trip.
+   */
   private formatSections(sections: any[]): any[] {
-    return sections.map(section => ({
+    return (sections ?? []).map(section => ({
       type: section.type,
       name: section.name,
       label: section.label,
-      fields: section.fields.map(field => field.name)
+      fields: (section.fields ?? []).map(field =>
+        typeof field === 'object' && field !== null ? field.name : field
+      )
     }));
   }
 

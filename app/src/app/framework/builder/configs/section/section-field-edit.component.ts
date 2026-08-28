@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
+import { Component, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
 import { reservedIdentifierPrefixValidator } from '../../../../layout/validators/reserved-identifier-prefix-validator';
 
@@ -34,7 +34,7 @@ import { CopyService } from '../../../../core/services/copy.service';
     templateUrl: './section-field-edit.component.html',
     standalone: false
 })
-export class SectionFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnDestroy {
+export class SectionFieldEditComponent extends ConfigEditBaseComponent implements OnInit, OnChanges, OnDestroy {
     protected subscriber: ReplaySubject<void> = new ReplaySubject<void>();
 
     public nameControl: UntypedFormControl = new UntypedFormControl('', [Validators.required, reservedIdentifierPrefixValidator()]);

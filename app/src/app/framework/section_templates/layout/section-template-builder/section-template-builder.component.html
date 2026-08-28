@@ -23,82 +23,29 @@
 
     <div id="form-container" class="col-9">
         <section>
-            <div class="card">
-                <div class="card-header">
-                    <fa-icon [icon]="['far', 'object-group']"></fa-icon>
-                    {{initialSection.label}}
-                </div>
-                <div class="collapse show" id="{{initialSection.name}}">
-                    <div class="card-body">
-                        <cmdb-section-field-edit [data]="initialSection" [mode]="MODES.Edit"
-                            #sectionComponent></cmdb-section-field-edit>
-                        @if (sectionTemplateID <= 0) { <form [formGroup]="formGroup" class="section-template-options">
-                            <div class="section-template-option">
-                                <app-toggle class="section-template-option-control" [id]="'is-multi-data-section-label'"
-                                    [controlName]="'isMultiDataSection'" [ariaLabel]="'Multi Data Section'" />
-                                <span class="section-template-option-label">
-                                    Multi Data Section
-                                </span>
-                            </div>
-                            <div class="section-template-option is-global">
-                                <app-toggle class="section-template-option-control" [id]="'is-global-label'"
-                                    [controlName]="'isGlobal'" [ariaLabel]="'Global Template'" />
-                                <span class="section-template-option-label">
-                                    Global Template
-                                </span>
-                            </div>
-                            </form>
-                            }
-                            <hr>
-                            <p>Fields:</p>
-                            <div [dndDropzone]="['inputs']" (dndDrop)="onFieldDrop($event)">
-                                @if (initialSection.fields.length == 0) {
-                                <div class="empty-section" data-content="Drop controls here">
-                                </div>
-                                }
-                                <div style="border: 3px green solid; border-radius: 5px; padding: 15px;"
-                                    dndPlaceholderRef>
-                                    Drop field here
-                                </div>
-                                @for (field of initialSection.fields; track field; let y = $index) {
-
-                                <div dndEffectAllowed="move" dndType="inputs" [dndDraggable]="field"
-                                    (dndMoved)="onFieldDragged(field)">
-                                    <div class="fields card">
-                                        <div class="card-header d-flex justify-content-between align-items-center">
-                                            <span>
-                                                <fa-icon [icon]="['fas', matchedType(field.type)]"></fa-icon>
-                                                {{field.label}}
-                                            </span>
-                                            <span>
-                                                <button class="btn btn-link me-1" type="button"
-                                                    data-bs-toggle="collapse"
-                                                    [attr.data-bs-target]="'#field-'+ y + field.name">
-                                                    <fa-icon [icon]="['far', 'edit']"></fa-icon>
-                                                </button>
-                                                <button class="btn btn-link me-1" type="button" dndHandle>
-                                                    <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
-                                                </button>
-                                                <button class="btn btn-link" type="button" (click)="removeField(field)">
-                                                    <fa-icon [icon]="['far', 'window-close']"></fa-icon>
-                                                </button>
-                                            </span><!-- buttons span-->
-                                        </div><!-- card-header -->
-                                        <div class="card-body collapse" id="field-{{y}}{{field.name}}">
-                                            <cmdb-config-edit [mode]="MODES.Edit" [types]="types"
-                                                [sections]="initialSection" [data]="field"
-                                                (valuesChanged)="onFieldChange($event)"></cmdb-config-edit>
-                                        </div>
-                                    </div><!-- fields-card-->
-                                </div>
-
-                                }<!-- inner container-->
-                            </div><!-- onFieldDrop-->
-                    </div><!-- card-body-->
-                </div><!-- id-section-->
-            </div><!-- card-->
-        </section> <!-- section-->
-    </div> <!--form-container-->
+            <dg-builder-section [section]="initialSection" [host]="sectionHost">
+                @if (sectionTemplateID <= 0) {
+                <form [formGroup]="formGroup" class="section-template-options">
+                    <div class="section-template-option">
+                        <app-toggle class="section-template-option-control" [id]="'is-multi-data-section-label'"
+                            [controlName]="'isMultiDataSection'" [ariaLabel]="'Multi Data Section'" />
+                        <span class="section-template-option-label">
+                            Multi Data Section
+                        </span>
+                    </div>
+                    <div class="section-template-option is-global">
+                        <app-toggle class="section-template-option-control" [id]="'is-global-label'"
+                            [controlName]="'isGlobal'" [ariaLabel]="'Global Template'" />
+                        <span class="section-template-option-label">
+                            Global Template
+                        </span>
+                    </div>
+                </form>
+                }
+                <hr>
+            </dg-builder-section>
+        </section>
+    </div>
 </div>
 
 <div class="actions-div">

@@ -1,5 +1,5 @@
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
-import { CmdbTypeSection } from 'src/app/framework/models/cmdb-type';
+import { BuilderSection } from '../schema/builder-section.model';
 
 export interface BuilderInteractionPolicyContext {
     selectedGlobalSectionTemplates: Array<CmdbSectionTemplate>;
@@ -21,11 +21,11 @@ const SYSTEM_SECTION_PREFIXES = ['dg_gst-'];
 export class BuilderInteractionPolicy {
     constructor(private readonly contextProvider: () => BuilderInteractionPolicyContext) {}
 
-    public getSectionCollapseIcon(section: CmdbTypeSection): [string, string] {
+    public getSectionCollapseIcon(section: BuilderSection): [string, string] {
         return this.canEditSection(section) ? ['far', 'edit'] : ['far', 'eye'];
     }
 
-    public isSchemaLockedSection(section: CmdbTypeSection): boolean {
+    public isSchemaLockedSection(section: BuilderSection): boolean {
         const sectionName = section?.name ?? '';
         return this.context().schemaLockedSectionNames.includes(sectionName);
     }
@@ -35,7 +35,7 @@ export class BuilderInteractionPolicy {
         return this.context().schemaLockedFieldNames.includes(fieldName);
     }
 
-    public isLockedSection(section: CmdbTypeSection): boolean {
+    public isLockedSection(section: BuilderSection): boolean {
         return !this.canEditSection(section);
     }
 
@@ -43,11 +43,11 @@ export class BuilderInteractionPolicy {
         return this.isGlobalField(field?.name) || this.isSchemaLockedField(field);
     }
 
-    public canEditSection(section: CmdbTypeSection): boolean {
+    public canEditSection(section: BuilderSection): boolean {
         return !this.isGlobalSection(section) && !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
     }
 
-    public canRemoveSection(section: CmdbTypeSection): boolean {
+    public canRemoveSection(section: BuilderSection): boolean {
         if (this.isGlobalSection(section)) {
             return true;
         }
@@ -55,7 +55,7 @@ export class BuilderInteractionPolicy {
         return !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
     }
 
-    public canMoveSection(section: CmdbTypeSection): boolean {
+    public canMoveSection(section: BuilderSection): boolean {
         if (this.isGlobalSection(section)) {
             return true;
         }
@@ -63,7 +63,7 @@ export class BuilderInteractionPolicy {
         return !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
     }
 
-    public canDropFieldsIntoSection(section: CmdbTypeSection): boolean {
+    public canDropFieldsIntoSection(section: BuilderSection): boolean {
         return !this.isGlobalSection(section) && !this.isSchemaLockedSection(section) && !this.isSystemSection(section);
     }
 
@@ -79,7 +79,7 @@ export class BuilderInteractionPolicy {
         return !this.isLockedField(field);
     }
 
-    public isGlobalSection(section: CmdbTypeSection): boolean {
+    public isGlobalSection(section: BuilderSection): boolean {
         const sectionName = section?.name;
         if (!sectionName) {
             return false;
@@ -102,7 +102,7 @@ export class BuilderInteractionPolicy {
         return this.context().globalFieldNames.includes(fieldName);
     }
 
-    private isSystemSection(section: CmdbTypeSection): boolean {
+    private isSystemSection(section: BuilderSection): boolean {
         const sectionName = section?.name ?? '';
         return SYSTEM_SECTION_PREFIXES.some(prefix => sectionName.startsWith(prefix));
     }

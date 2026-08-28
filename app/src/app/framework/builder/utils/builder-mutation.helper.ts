@@ -18,13 +18,12 @@
 import { ElementRef, Renderer2 } from '@angular/core';
 import { DndDropEvent, DropEffect } from 'ngx-drag-drop';
 
-import { CmdbMultiDataSection, CmdbTypeSection } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { SectionIdentifierService } from 'src/app/framework/builder/services/SectionIdentifierService.service';
 import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
-// Last kernel -> type dependency; becomes an injected deletion-guard seam.
-import { LocationFieldDeletionService } from '../../type/services/location-field-deletion.service';
+import { BuilderDeletionGuard } from '../services/builder-deletion-guard';
+import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderUtils } from './builder-utils';
 import { BuilderContext } from './builder-context';
 import { BuilderInteractionPolicy } from './builder-interaction-policy';
@@ -35,17 +34,18 @@ export interface BuilderMutationDeps {
     validationService: ValidationService;
     sectionIdentifierService: SectionIdentifierService;
     fieldIdentifierValidation: FieldIdentifierValidationService;
-    locationFieldDeletion: LocationFieldDeletionService;
+    /** Absent for builders with nothing to guard, e.g. relations. */
+    deletionGuard: BuilderDeletionGuard | null;
     renderer: Renderer2;
     el: ElementRef;
 }
 
 /**
  * Owns the builder's model mutations: drag-and-drop of sections and fields, applying config-edit
- * changes back into the type instance, section/field removal and keeping the derived `sections`
- * projection in sync with the type instance. All state flows through the shared BuilderContext, and
- * permission / highlight / template concerns are delegated to their dedicated collaborators, so the
- * behaviour is identical to the original monolithic component.
+ * changes back into the edited model, section/field removal and keeping the derived `sections`
+ * projection in sync with it. All state flows through the shared BuilderContext, the model itself
+ * is reached only through its schema adapter, and permission / highlight / template concerns are
+ * delegated to their dedicated collaborators.
  */
 export class BuilderMutationHelper {
     constructor(
@@ -58,15 +58,16 @@ export class BuilderMutationHelper {
 
     /* ------------------------------------------------ SYNCHRONISATION ------------------------------------------------ */
 
-    public syncSectionsFromTypeInstance(): void {
-        const preSectionList: Array<any> = [];
+    public syncSectionsFromModel(): void {
+        const preSectionList: Array<BuilderSection> = [];
+        const modelFields = this.ctx.schema.readFields();
 
-        for (const section of this.ctx.typeInstance?.render_meta?.sections ?? []) {
+        for (const section of this.ctx.schema.readSections()) {
             const fieldBufferList = [];
 
             for (const field of section?.fields ?? []) {
                 const fieldName = typeof field === 'string' ? field : field?.name;
-                const found = this.ctx.typeInstance?.fields?.find(typeField => typeField?.name === fieldName);
+                const found = modelFields?.find(modelField => modelField?.name === fieldName);
 
                 if (found) {
                     fieldBufferList.push(found);
@@ -92,26 +93,27 @@ export class BuilderMutationHelper {
     }
 
     public refreshFieldIdentifiers(): void {
-        BuilderUtils.refreshFieldIdentifiers(this.ctx.typeInstance, this.deps.fieldIdentifierValidation);
+        BuilderUtils.refreshFieldIdentifiers(this.ctx.schema, this.deps.fieldIdentifierValidation);
     }
 
-    private addRefSectionSelectionField(refSection: CmdbTypeSection): void {
+    private addRefSectionSelectionField(refSection: BuilderSection): void {
         refSection.fields = [];
         refSection?.fields?.push(`${refSection?.name}-field`);
 
-        this.ctx.typeInstance?.fields?.push({
+        this.ctx.schema.readFields()?.push({
             type: 'ref-section-field',
             name: `${refSection?.name}-field`,
             label: refSection?.label
         });
 
-        this.ctx.typeInstance.fields = [...this.ctx.typeInstance?.fields];
+        this.ctx.schema.writeFields(this.ctx.schema.readFields());
     }
 
-    private removeRefSectionSelectionField(refSection: CmdbTypeSection): void {
-        const index = this.ctx.typeInstance?.fields?.map(x => x?.name).indexOf(`${refSection?.name}-field`);
-        this.ctx.typeInstance?.fields?.splice(index, 1);
-        this.ctx.typeInstance.fields = [...this.ctx.typeInstance?.fields];
+    private removeRefSectionSelectionField(refSection: BuilderSection): void {
+        const fields = this.ctx.schema.readFields();
+        const index = fields?.map(field => field?.name).indexOf(`${refSection?.name}-field`);
+        fields?.splice(index, 1);
+        this.ctx.schema.writeFields(fields);
     }
 
     /* --------------------------------------------------- SECTION DND -------------------------------------------------- */
@@ -149,7 +151,7 @@ export class BuilderMutationHelper {
                 }
 
                 this.ctx.globalSectionTemplates?.splice(index, 1);
-                this.ctx.typeInstance?.global_template_ids?.push(sectionData?.name);
+                this.ctx.schema.readGlobalTemplateIds()?.push(sectionData?.name);
             }
 
             sectionData = this.templateManager.extractSectionData(event?.data);
@@ -181,14 +183,13 @@ export class BuilderMutationHelper {
             }
 
             this.ctx.sections.splice(index, 0, sectionData);
-            this.ctx.typeInstance.render_meta.sections = [...this.ctx.sections];
-            this.ctx.sectionReference = this.ctx.typeInstance.render_meta.sections;
+            this.commitSections();
             this.deps.sectionIdentifierService.getDroppedIndex(index);
             this.deps.sectionIdentifierService.addSection(sectionData?.name, sectionData?.name, index);
             this.syncSectionIdentifiers();
 
             if (sectionData?.type === 'ref-section' && event?.dropEffect === 'copy') {
-                this.addRefSectionSelectionField(sectionData as CmdbTypeSection);
+                this.addRefSectionSelectionField(sectionData as BuilderSection);
             }
 
             //add fields of section template after the section was added
@@ -202,7 +203,7 @@ export class BuilderMutationHelper {
         this.highlight.updateHighlightState();
     }
 
-    public onSectionMoved(item: CmdbTypeSection, effect: DropEffect): void {
+    public onSectionMoved(item: BuilderSection, effect: DropEffect): void {
         if (effect !== 'move' || !this.policy.canMoveSection(item) || this.ctx.pendingSectionDropIndex === null) {
             this.clearPendingSectionMove();
             return;
@@ -227,14 +228,22 @@ export class BuilderMutationHelper {
         const nextIndex = Math.max(0, Math.min(targetIndex, this.ctx.sections.length));
 
         this.ctx.sections.splice(nextIndex, 0, movedSection);
-        this.ctx.typeInstance.render_meta.sections = [...this.ctx.sections];
-        this.ctx.sectionReference = this.ctx.typeInstance.render_meta.sections;
+        this.commitSections();
         this.syncSectionIdentifiers();
     }
 
     private clearPendingSectionMove(): void {
         this.ctx.draggedSectionIndex = null;
         this.ctx.pendingSectionDropIndex = null;
+    }
+
+    /**
+     * Publishes the derived `sections` projection back onto the model as a fresh array and keeps the
+     * canvas' change-detection reference pointing at it, so `ngDoCheck` does not resync needlessly.
+     */
+    private commitSections(): void {
+        this.ctx.schema.writeSections(this.ctx.sections);
+        this.ctx.sectionReference = this.ctx.schema.readSections();
     }
 
     /* ------------------------------------------------- EXTERNAL LINKS ------------------------------------------------- */
@@ -245,7 +254,7 @@ export class BuilderMutationHelper {
     public externalField(field) {
         const include = { links: [], total: 0 };
 
-        for (const external of this.ctx.typeInstance?.render_meta?.externals) {
+        for (const external of this.ctx.schema.readExternals()) {
             const fields = external?.hasOwnProperty('fields') ? Array.isArray(external?.fields) ? external?.fields : [] : [];
             const found = fields?.find(f => f === field?.name);
 
@@ -296,8 +305,9 @@ export class BuilderMutationHelper {
      * Sets and unsets a hidden field in the -ulti-data-ssection property 'hidden_fields'
      */
     private handleHideFields(data: any) {
+        const sections = this.ctx.schema.readSections();
         let sectionIndex: number = this.getSectionOfField(data?.fieldName);
-        let section: CmdbMultiDataSection = this.ctx.typeInstance?.render_meta?.sections[sectionIndex];
+        let section: BuilderSection = sections[sectionIndex];
 
         if (!("hidden_fields" in section)) {
             section.hidden_fields = [];
@@ -309,26 +319,27 @@ export class BuilderMutationHelper {
             section.hidden_fields = section.hidden_fields.filter(hiddenField => hiddenField != data?.fieldName);
         }
 
-        this.ctx.typeInstance.render_meta.sections[sectionIndex] = section;
+        sections[sectionIndex] = section;
     }
 
     /**
      * Updates the hidden_fields array of a section if the identifier was changed during the CREATE mode
      */
     private updateHiddenFields(previousName: string, newName: string) {
+        const sections = this.ctx.schema.readSections();
         let sectionIndex: number = this.getSectionOfField(previousName);
-        let section: CmdbMultiDataSection = this.ctx.typeInstance?.render_meta?.sections[sectionIndex];
+        let section: BuilderSection = sections[sectionIndex];
 
         if (section?.hidden_fields?.includes(previousName)) {
             section.hidden_fields = section?.hidden_fields?.filter(hiddenField => hiddenField != previousName);
             section?.hidden_fields?.push(newName);
-            this.ctx.typeInstance.render_meta.sections[sectionIndex] = section;
+            sections[sectionIndex] = section;
         }
     }
 
-    public getFieldHiddenState(section: CmdbTypeSection | CmdbMultiDataSection, field: any): boolean {
+    public getFieldHiddenState(section: BuilderSection, field: any): boolean {
         if (section.type == "multi-data-section") {
-            if ((section as CmdbMultiDataSection)?.hidden_fields?.includes(field?.name)) {
+            if (section?.hidden_fields?.includes(field?.name)) {
                 return true;
             } else {
                 return false;
@@ -341,7 +352,7 @@ export class BuilderMutationHelper {
     private getSectionOfField(fieldName: string) {
         let index = 0;
 
-        for (let aSection of this.ctx.typeInstance?.render_meta?.sections) {
+        for (let aSection of this.ctx.schema.readSections()) {
             for (let aField of aSection?.fields) {
                 if (aField.name == fieldName) {
                     return index;
@@ -361,7 +372,7 @@ export class BuilderMutationHelper {
     private handleFieldChanges(data: any) {
 
         if (data.inputName === 'selectable_as_parent') {
-            this.ctx.typeInstance.selectable_as_parent = !!data.newValue;
+            this.ctx.schema.setSelectableAsParent(!!data.newValue);
             this.highlight.updateHighlightState();
             return;
         }
@@ -389,7 +400,7 @@ export class BuilderMutationHelper {
             const sectionIndex = this.ctx.activeIndex !== null ? this.ctx.activeIndex : index;
 
             if (sectionIndex >= 0) {
-                this.ctx.typeInstance.render_meta.sections[sectionIndex][inputName] = newValue;
+                this.ctx.schema.readSections()[sectionIndex][inputName] = newValue;
                 if (this.ctx.sections[sectionIndex]) {
                     this.ctx.sections[sectionIndex][inputName] = newValue;
                 }
@@ -404,7 +415,7 @@ export class BuilderMutationHelper {
             index = this.getFieldIndexForName(fieldName);
 
             if (index >= 0) {
-                this.ctx.typeInstance.fields[index][inputName] = newValue;
+                this.ctx.schema.readFields()[index][inputName] = newValue;
             }
         }
 
@@ -413,11 +424,11 @@ export class BuilderMutationHelper {
     }
 
     private getFieldIndexForName(targetName: string): number {
-        return BuilderUtils?.getFieldIndexForName(this.ctx.typeInstance, targetName);
+        return BuilderUtils?.getFieldIndexForName(this.ctx.schema, targetName);
     }
 
     private getSectionIndexForName(targetName: string): number {
-        return BuilderUtils?.getSectionIndexForName(this.ctx.typeInstance, targetName);
+        return BuilderUtils?.getSectionIndexForName(this.ctx.schema, targetName);
     }
 
     /* --------------------------------------------------- FIELD DND ---------------------------------------------------- */
@@ -425,7 +436,7 @@ export class BuilderMutationHelper {
     /**
      * Handles the event when a field is dropped into a section.
      */
-    public onFieldDrop(event: DndDropEvent, section: CmdbTypeSection) {
+    public onFieldDrop(event: DndDropEvent, section: BuilderSection) {
         this.highlight.updateSectionFieldStatus()
         if (!this.policy.canDropFieldsIntoSection(section)) {
             return;
@@ -458,12 +469,12 @@ export class BuilderMutationHelper {
             }
 
             this.ctx.newFields?.push(fieldData);
-            this.ctx.typeInstance.fields.push(fieldData);
-            this.ctx.typeInstance.fields = [...this.ctx.typeInstance?.fields];
+            const fields = this.ctx.schema.readFields();
+            fields.push(fieldData);
+            this.ctx.schema.writeFields(fields);
 
             section?.fields?.splice(index, 0, fieldData);
-            this.ctx.typeInstance.render_meta.sections = [...this.ctx.sections];
-            this.ctx.sectionReference = this.ctx.typeInstance.render_meta.sections;
+            this.commitSections();
             this.deps.validationService?.setSectionValid(section?.name, true);
 
             // Recompute status now
@@ -472,7 +483,7 @@ export class BuilderMutationHelper {
         }
     }
 
-    public onFieldDragStart(field: any, section: CmdbTypeSection, index: number): void {
+    public onFieldDragStart(field: any, section: BuilderSection, index: number): void {
         this.ctx.draggedField = { field, section, index };
     }
 
@@ -481,10 +492,10 @@ export class BuilderMutationHelper {
             return false;
         }
 
-        return (this.ctx.typeInstance?.fields ?? []).some(typeField => typeField === field || typeField?.name === field.name);
+        return this.ctx.schema.readFields().some(modelField => modelField === field || modelField?.name === field.name);
     }
 
-    private moveField(field: any, targetSection: CmdbTypeSection, targetIndex: number): void {
+    private moveField(field: any, targetSection: BuilderSection, targetIndex: number): void {
         const sourceSection = this.ctx.draggedField?.field?.name === field?.name
             ? this.ctx.draggedField.section
             : this.findSectionContainingField(field);
@@ -505,11 +516,10 @@ export class BuilderMutationHelper {
             : targetIndex;
 
         targetSection.fields.splice(nextIndex, 0, movedField);
-        this.ctx.typeInstance.render_meta.sections = [...this.ctx.sections];
-        this.ctx.sectionReference = this.ctx.typeInstance.render_meta.sections;
+        this.commitSections();
     }
 
-    private findSectionContainingField(field: any): CmdbTypeSection | null {
+    private findSectionContainingField(field: any): BuilderSection | null {
         return this.ctx.sections.find(section =>
             section?.fields?.some(sectionField => sectionField === field || sectionField?.name === field?.name)
         ) ?? null;
@@ -518,23 +528,25 @@ export class BuilderMutationHelper {
     /* ------------------------------------------------- SECTION REMOVAL ------------------------------------------------ */
 
     /**
-     * Removes a section from the typeInstance and updates the relevant metadata and fields.
+     * Removes a section from the model and updates the relevant metadata and fields.
      */
-    public removeSection(item: CmdbTypeSection, sectionIndex: number) {
+    public removeSection(item: BuilderSection, sectionIndex: number) {
         if (!this.policy.canRemoveSection(item)) {
             return;
         }
 
+        const guard = this.deps.deletionGuard;
+
         if (this.ctx.mode === CmdbMode.Edit
-            && this.deps.locationFieldDeletion.sectionContainsLocationField(item, this.ctx.typeInstance)
-            && !this.deps.locationFieldDeletion.canDelete('section')) {
+            && guard?.sectionContainsLocationField(item, this.ctx.schema.readFields())
+            && !guard.canDelete('section')) {
             return;
         }
 
         this.performSectionRemoval(item, sectionIndex);
     }
 
-    private performSectionRemoval(item: CmdbTypeSection, sectionIndex: number): void {
+    private performSectionRemoval(item: BuilderSection, sectionIndex: number): void {
         if (this.ctx.activeIndex === sectionIndex) {
             this.ctx.activeIndex = null
         }
@@ -542,30 +554,33 @@ export class BuilderMutationHelper {
         this.templateManager.handleGlobalTemplates(item);
         this.deps.sectionIdentifierService?.removeSection(sectionIndex);
 
+        const modelSections = this.ctx.schema.readSections();
         const index = sectionIndex >= 0
             ? sectionIndex
-            : this.ctx.typeInstance?.render_meta?.sections?.indexOf(item);
+            : modelSections?.indexOf(item);
 
         if (index !== -1) {
             if (item.type === 'section') {
-                const fields = this.ctx.typeInstance?.render_meta?.sections[index]?.fields ?? [];
+                const modelFields = this.ctx.schema.readFields();
+                const fields = modelSections[index]?.fields ?? [];
+
                 for (const field of fields) {
                     const fieldName = typeof field === 'string' ? field : field['name'];
-                    const fieldIdx = this.ctx.typeInstance?.fields.map(x => x?.name).indexOf(fieldName);
+                    const fieldIdx = modelFields.map(x => x?.name).indexOf(fieldName);
                     if (fieldIdx !== -1) {
-                        this.ctx.typeInstance?.fields.splice(fieldIdx, 1);
+                        modelFields.splice(fieldIdx, 1);
                     }
                 }
 
-                this.ctx.typeInstance.fields = [...this.ctx.typeInstance?.fields];
+                this.ctx.schema.writeFields(modelFields);
 
             } else if (item.type === 'ref-section') {
                 this.removeRefSectionSelectionField(item);
             }
 
             this.ctx.sections.splice(index, 1);
-            this.ctx.typeInstance.render_meta.sections.splice(index, 1);
-            this.ctx.typeInstance.render_meta.sections = [...this.ctx.typeInstance?.render_meta?.sections];
+            modelSections.splice(index, 1);
+            this.ctx.schema.writeSections(modelSections);
             this.syncSectionIdentifiers();
 
             this.highlight.updateHighlightState()
@@ -579,29 +594,32 @@ export class BuilderMutationHelper {
     /* -------------------------------------------------- FIELD REMOVAL ------------------------------------------------- */
 
     /**
-     * Removes a field from the type instance and section, updates the validation state, and refreshes the UI.
+     * Removes a field from the model and section, updates the validation state, and refreshes the UI.
      */
-    public removeField(item: any, section: CmdbTypeSection) {
+    public removeField(item: any, section: BuilderSection) {
         if (!this.policy.canRemoveField(item) || !this.policy.canDropFieldsIntoSection(section)) {
             return;
         }
 
+        const guard = this.deps.deletionGuard;
+
         if (this.ctx.mode === CmdbMode.Edit
-            && this.deps.locationFieldDeletion.isLocationField(item)
-            && !this.deps.locationFieldDeletion.canDelete('field')) {
+            && guard?.isLocationField(item)
+            && !guard.canDelete('field')) {
             return;
         }
 
         this.performFieldRemoval(item, section);
     }
 
-    private performFieldRemoval(item: any, section: CmdbTypeSection): void {
-        const indexField: number = this.ctx.typeInstance?.fields?.indexOf(item);
+    private performFieldRemoval(item: any, section: BuilderSection): void {
+        const modelFields = this.ctx.schema.readFields();
+        const indexField: number = modelFields?.indexOf(item);
 
         if (indexField > -1) {
-            let removedFieldName = this.ctx.typeInstance?.fields[indexField]?.name;
-            this.ctx.typeInstance?.fields?.splice(indexField, 1);
-            this.ctx.typeInstance.fields = [...this.ctx.typeInstance?.fields];
+            let removedFieldName = modelFields[indexField]?.name;
+            modelFields?.splice(indexField, 1);
+            this.ctx.schema.writeFields(modelFields);
             this.deps.validationService?.updateFieldValidityOnDeletion(removedFieldName);
         }
 
@@ -611,7 +629,7 @@ export class BuilderMutationHelper {
             section?.fields?.splice(sectionFieldIndex, 1);
         }
 
-        this.ctx.typeInstance.render_meta.sections = [...this.ctx.typeInstance?.render_meta.sections];
+        this.ctx.schema.writeSections(this.ctx.schema.readSections());
 
         let numberOfFields = section?.fields?.length > 0;
 
@@ -641,7 +659,7 @@ export class BuilderMutationHelper {
 
     private hasAnyDuplicateIdentifier(): boolean {
         return this.hasDuplicateNames((this.ctx.sections ?? []).map(section => section?.name))
-            || this.hasDuplicateNames((this.ctx.typeInstance?.fields ?? []).map(field => field?.name));
+            || this.hasDuplicateNames(this.ctx.schema.readFields().map(field => field?.name));
     }
 
     private hasDuplicateNames(names: Array<string | undefined>): boolean {

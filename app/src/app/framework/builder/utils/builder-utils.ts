@@ -1,5 +1,6 @@
-import { CmdbType, CmdbTypeSection } from "src/app/framework/models/cmdb-type";
 import { FieldIdentifierValidationService } from "src/app/framework/builder/services/field-identifier-validation.service";
+import { BuilderSchemaAdapter } from "../schema/builder-schema.adapter";
+import { BuilderSection } from "../schema/builder-section.model";
 import { NgbModal } from "@ng-bootstrap/ng-bootstrap";
 import { DiagnosticModalComponent } from "../modals/diagnostic-modal/diagnostic-modal.component";
 import { PreviewModalComponent } from "../modals/preview-modal/preview-modal.component";
@@ -7,14 +8,14 @@ import { PreviewModalComponent } from "../modals/preview-modal/preview-modal.com
 export class BuilderUtils {
 
     /**
-     * Retrieves the index of a field in the typeInstance based on the targetName.
-     * @param typeInstance The current type instance containing fields.
+     * Retrieves the index of a field in the edited model based on the targetName.
+     * @param schema Schema adapter of the edited model.
      * @param targetName The name of the field to search for.
      * @returns The index of the field, or -1 if no field with this name is found.
      */
-    static getFieldIndexForName(typeInstance: CmdbType, targetName: string): number {
+    static getFieldIndexForName(schema: BuilderSchemaAdapter, targetName: string): number {
         let index = 0;
-        for (let field of typeInstance.fields) {
+        for (let field of schema.readFields()) {
             if (field.name === targetName) {
                 return index;
             } else {
@@ -26,14 +27,14 @@ export class BuilderUtils {
 
 
     /**
-     * Retrieves the index of a section in the typeInstance based on the targetName.
-     * @param typeInstance The current type instance containing sections.
+     * Retrieves the index of a section in the edited model based on the targetName.
+     * @param schema Schema adapter of the edited model.
      * @param targetName The name of the section to search for.
      * @returns The index of the section, or -1 if no section with this name is found.
      */
-    static getSectionIndexForName(typeInstance: CmdbType, targetName: string): number {
+    static getSectionIndexForName(schema: BuilderSchemaAdapter, targetName: string): number {
         let index = 0;
-        for (let section of typeInstance.render_meta.sections) {
+        for (let section of schema.readSections()) {
             if (section.name === targetName) {
                 return index;
             } else {
@@ -46,13 +47,13 @@ export class BuilderUtils {
 
     /**
      * Refreshes the list of field identifiers by clearing existing field names
-     * and adding the current field names from the type instance.
-     * @param typeInstance The current type instance containing fields.
+     * and adding the current field names from the edited model.
+     * @param schema Schema adapter of the edited model.
      * @param fieldIdentifierValidation Service for validating field identifiers.
      */
-    static refreshFieldIdentifiers(typeInstance: CmdbType, fieldIdentifierValidation: FieldIdentifierValidationService): void {
+    static refreshFieldIdentifiers(schema: BuilderSchemaAdapter, fieldIdentifierValidation: FieldIdentifierValidationService): void {
         fieldIdentifierValidation.clearFieldNames();
-        const fieldNames = typeInstance.fields.map(field => field.name);
+        const fieldNames = schema.readFields().map(field => field.name);
         fieldIdentifierValidation.addFieldNames(fieldNames);
     }
 
@@ -63,7 +64,7 @@ export class BuilderUtils {
      * @param newSections Array of new sections.
      * @returns True if the section is new, false otherwise.
      */
-    static isNewSection(section: CmdbTypeSection, newSections: Array<CmdbTypeSection>): boolean {
+    static isNewSection(section: BuilderSection, newSections: Array<BuilderSection>): boolean {
         return newSections.indexOf(section) > -1;
     }
 
@@ -73,7 +74,7 @@ export class BuilderUtils {
      * @param newFields Array of new fields.
      * @returns True if the field is new, false otherwise.
      */
-    static isNewField(field: any, newFields: Array<CmdbTypeSection>): boolean {
+    static isNewField(field: any, newFields: Array<any>): boolean {
         return newFields.some(newField => newField === field || newField?.name === field?.name);
     }
 

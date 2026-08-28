@@ -30,12 +30,29 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { SpecialTypeService } from '../../../services/special-type.service';
 import { SpecialType, SpecialTypeSchema } from '../../../models/special-type';
 import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
+import { LocationFieldDeletionService } from '../../services/location-field-deletion.service';
+import { BUILDER_DELETION_GUARD } from 'src/app/framework/builder/services/builder-deletion-guard';
+import { CmdbTypeSchemaAdapter } from 'src/app/framework/builder/schema/cmdb-type-schema.adapter';
+import { BuilderSchemaAdapter } from 'src/app/framework/builder/schema/builder-schema.adapter';
+import { SectionControl } from 'src/app/framework/builder/controls/section.control';
+import { MultiSectionControl } from 'src/app/framework/builder/controls/multi-section.control';
+import { RefSectionControl } from 'src/app/framework/builder/controls/ref-section.common';
+import { ReferenceControl } from 'src/app/framework/builder/controls/specials/ref.control';
+import { LocationControl } from 'src/app/framework/builder/controls/specials/location.control';
+import { BASIC_CONTROLS } from 'src/app/framework/builder/controls/basic-controls';
+import {
+    BuilderPaletteGroup,
+    paletteItemsFromControls,
+    paletteItemsFromSectionTemplates
+} from 'src/app/framework/builder/palette/builder-palette.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
     selector: 'cmdb-type-fields-step',
     templateUrl: './type-fields-step.component.html',
     styleUrls: ['./type-fields-step.component.scss'],
+    // Only the type builder guards a deletion: a persisted location field still referenced by objects.
+    providers: [{ provide: BUILDER_DELETION_GUARD, useExisting: LocationFieldDeletionService }],
     standalone: false
 })
 export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements OnInit, DoCheck, OnDestroy {
@@ -54,12 +71,65 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
   public builderValid: boolean = true;
 
+  public schema: BuilderSchemaAdapter | null = null;
+
   @Input('typeInstance')
   public set TypeInstance(instance: CmdbType) {
     if (instance) {
       this.typeInstance = instance;
       this.typeInstanceDiffer = this.differs.find(this.typeInstance).create();
+      this.schema = new CmdbTypeSchemaAdapter(this.typeInstance);
     }
+  }
+
+  private readonly structureItems = paletteItemsFromControls([
+    new SectionControl(),
+    new MultiSectionControl(),
+    new RefSectionControl()
+  ]);
+
+  private readonly basicItems = paletteItemsFromControls(BASIC_CONTROLS);
+
+  private readonly specialItems = paletteItemsFromControls([
+    new ReferenceControl(),
+    new LocationControl()
+  ]);
+
+  /**
+   * Rebuilt per change detection: the canvas mutates the two template arrays in place as templates
+   * are applied and released, so the palette has to re-read them rather than cache their items.
+   */
+  public get paletteGroups(): Array<BuilderPaletteGroup> {
+    return [
+      {
+        id: 'globalSectionTemplates',
+        label: 'Global Section Templates',
+        expanded: true,
+        items: paletteItemsFromSectionTemplates(this.globalSectionTemplates)
+      },
+      {
+        id: 'sectionTemplates',
+        label: 'Section Templates',
+        items: paletteItemsFromSectionTemplates(this.sectionTemplates)
+      },
+      {
+        id: 'structureControls',
+        label: 'Structure Controls',
+        lockMode: 'draggable-attr',
+        items: this.structureItems
+      },
+      {
+        id: 'basicControls',
+        label: 'Basic Controls',
+        items: this.basicItems
+      },
+      {
+        id: 'specialControls',
+        label: 'Special Controls',
+        lockMode: 'draggable-attr',
+        items: this.specialItems
+      }
+    ];
   }
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */

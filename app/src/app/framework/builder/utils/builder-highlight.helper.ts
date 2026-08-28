@@ -17,8 +17,10 @@
 */
 import { isReservedIdentifier } from '../../../layout/validators/reserved-identifier-prefix-validator';
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
+import { CmdbMode } from '../../modes.enum';
 import { BuilderContext } from './builder-context';
 import { BuilderInteractionPolicy } from './builder-interaction-policy';
+import { BuilderModeResolver } from './builder-mode.resolver';
 
 /**
  * Owns the builder's highlight / validation-presentation logic: which sections and fields must be
@@ -28,11 +30,16 @@ export class BuilderHighlightHelper {
     /** Shared by every draggable control, so the value is global rather than per item. */
     private readonly draggableItemClass = { disabled: false };
 
+    private readonly modes: BuilderModeResolver;
+
     constructor(
         private readonly ctx: BuilderContext,
         private readonly policy: BuilderInteractionPolicy,
-        private readonly validationService: ValidationService
-    ) {}
+        private readonly validationService: ValidationService,
+        modes?: BuilderModeResolver
+    ) {
+        this.modes = modes ?? new BuilderModeResolver(ctx, policy);
+    }
 
     /**
      * Determines if a cmdb-config-edit component should be disabled based on the section and field indices.
@@ -78,7 +85,7 @@ export class BuilderHighlightHelper {
         const isDuplicateIdentifier = this.ctx.sections?.filter(s => s?.name === section?.name).length > 1;
         const isRefSection = section?.type === "ref-section";
         const hasInvalidFields = section?.fields?.some(field => this.isFieldHighlighted(field, section));
-        const usesReservedName = isReservedIdentifier(section?.name);
+        const usesReservedName = this.flagsReservedName(section?.name, this.modes.sectionMode(section));
 
         // Check for section-level issues (name, label, duplicates)
         const hasSectionIssues = !section?.name || isDuplicateIdentifier || !section?.label || usesReservedName;
@@ -119,7 +126,7 @@ export class BuilderHighlightHelper {
         // special control ships with the system-owned "dg_location" name, which the user cannot edit,
         // so it legitimately uses the reserved namespace and must not be flagged.
         const isSystemReservedField = field?.type === 'location';
-        const usesReservedName = !isSystemReservedField && isReservedIdentifier(field?.name);
+        const usesReservedName = !isSystemReservedField && this.flagsReservedName(field?.name, this.modes.fieldMode(field));
         const hasInvalidIdentifier = !field?.name || hasDuplicateIdentifier || usesReservedName;
         const hasValidRefTypes = field && 'ref_types' in field && Array.isArray(field?.ref_types) && field?.ref_types?.length > 0;
 
@@ -262,11 +269,21 @@ export class BuilderHighlightHelper {
         }
     }
 
+    /**
+     * The reserved "dg-"/"dg_" prefix is only rejected where the editor actually applies the
+     * validator, i.e. where the identifier is still being authored. An identifier mounted in Edit
+     * mode has had its validators cleared, so flagging it would permanently block saving a record
+     * that was created before the rule existed.
+     */
+    private flagsReservedName(name: string, editorMode: CmdbMode): boolean {
+        return editorMode === CmdbMode.Create && isReservedIdentifier(name);
+    }
+
     private hasDuplicateFieldIdentifier(field: any): boolean {
         if (!field?.name) {
             return false;
         }
 
-        return (this.ctx.typeInstance?.fields ?? []).filter(typeField => typeField?.name === field.name).length > 1;
+        return this.ctx.schema.readFields().filter(typeField => typeField?.name === field.name).length > 1;
     }
 }

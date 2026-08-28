@@ -16,17 +16,23 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
-import { CmdbType, CmdbTypeSection } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
+import { BuilderSection } from '../schema/builder-section.model';
+import { BuilderSchemaAdapter } from '../schema/builder-schema.adapter';
+/* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * Shared, mutable state of the type builder.
+ * Shared, mutable state of a builder canvas. The edited model is only ever reached through
+ * `schema`, which is what keeps the kernel free of `render_meta`.
  */
 export interface BuilderContext {
-    sections: Array<any>;
-    typeInstance: CmdbType;
-    newSections: Array<CmdbTypeSection>;
-    newFields: Array<CmdbTypeSection>;
+    /** Hydrated projection of the model's sections: field names resolved to field objects. */
+    sections: Array<BuilderSection>;
+
+    schema: BuilderSchemaAdapter;
+
+    newSections: Array<BuilderSection>;
+    newFields: Array<any>;
 
     globalSectionTemplates: Array<CmdbSectionTemplate>;
     selectedGlobalSectionTemplates: Array<CmdbSectionTemplate>;
@@ -39,12 +45,12 @@ export interface BuilderContext {
     activeIndex: number | null;
     draggedSectionIndex: number | null;
     pendingSectionDropIndex: number | null;
-    draggedField: { field: any; section: CmdbTypeSection; index: number } | null;
+    draggedField: { field: any; section: BuilderSection; index: number } | null;
     activeDuplicateField: { sectionIndex: number; fieldIndex: number } | null;
 
     prevSectionHighlighted: boolean;
     prevFieldHighlighted: boolean;
-    sectionReference: Array<any> | null;
+    sectionReference: Array<BuilderSection> | null;
     initialFieldNames: Set<string> | null;
     initialIdentifier: string;
 }

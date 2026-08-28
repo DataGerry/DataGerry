@@ -18,7 +18,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
 import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
-import { CmdbTypeSection } from '../../models/cmdb-type';
+import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderContext } from './builder-context';
 import { BuilderInteractionPolicy } from './builder-interaction-policy';
 
@@ -33,9 +33,11 @@ export class BuilderTemplateManager {
     ) {}
 
     public setSelectedGlobalTemplates(): void {
-        if (this.ctx.typeInstance?.global_template_ids?.length > 0) {
+        const globalTemplateIds = this.ctx.schema.readGlobalTemplateIds();
+
+        if (globalTemplateIds?.length > 0) {
             // iterate global_template_ids
-            this.ctx.typeInstance?.global_template_ids?.forEach((globalTemplateName) => {
+            globalTemplateIds.forEach((globalTemplateName) => {
 
                 let index: number = -1;
 
@@ -53,7 +55,7 @@ export class BuilderTemplateManager {
         }
     }
 
-    public handleGlobalTemplates(sectionData: CmdbTypeSection): void {
+    public handleGlobalTemplates(sectionData: BuilderSection): void {
         let isGlobalTemplate = false;
         let globalTemplateIndex: number = -1;
 
@@ -68,8 +70,9 @@ export class BuilderTemplateManager {
         }
 
         if (isGlobalTemplate) {
-            const nameIndex = this.ctx.typeInstance?.global_template_ids?.indexOf(sectionData?.name, 0);
-            this.ctx.typeInstance?.global_template_ids?.splice(nameIndex, 1);
+            const globalTemplateIds = this.ctx.schema.readGlobalTemplateIds();
+            const nameIndex = globalTemplateIds?.indexOf(sectionData?.name, 0);
+            globalTemplateIds?.splice(nameIndex, 1);
             this.ctx.selectedGlobalSectionTemplates?.splice(globalTemplateIndex, 1);
         }
     }
@@ -94,7 +97,7 @@ export class BuilderTemplateManager {
     }
 
     /**
-     * Sets the fields from the section template to the type instance.
+     * Sets the fields from the section template to the edited model.
      */
     public setSectionTemplateFields(sectionTemplate: CmdbSectionTemplate): void {
         let sectionTemplateFields = sectionTemplate?.fields;
@@ -107,10 +110,10 @@ export class BuilderTemplateManager {
             }
 
             this.ctx.newFields?.push(aField);
-            this.ctx.typeInstance?.fields?.push(aField);
+            this.ctx.schema.readFields()?.push(aField);
         }
 
-        this.ctx.typeInstance.fields = [...this.ctx.typeInstance.fields];
+        this.ctx.schema.writeFields(this.ctx.schema.readFields());
     }
 
     /**
@@ -139,18 +142,14 @@ export class BuilderTemplateManager {
      */
     private isUniqueID(uniqueID: string): boolean {
         //first check all field names
-        for (let fieldIndex in this.ctx.typeInstance?.fields) {
-            let currentField = this.ctx.typeInstance?.fields[fieldIndex];
-
+        for (const currentField of this.ctx.schema.readFields()) {
             if (currentField?.name == uniqueID) {
                 return false;
             }
         }
 
         //check all section names
-        for (let sectionIndex in this.ctx.typeInstance?.render_meta?.sections) {
-            let currentSection = this.ctx.typeInstance?.render_meta?.sections[sectionIndex];
-
+        for (const currentSection of this.ctx.schema.readSections()) {
             if (currentSection?.name == uniqueID) {
                 return false;
             }

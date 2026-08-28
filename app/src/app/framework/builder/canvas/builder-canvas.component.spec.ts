@@ -1,44 +1,42 @@
-import { ComponentFixture, fakeAsync, TestBed, tick } from "@angular/core/testing";
-import { BuilderComponent } from "./builder.component"
+import { ComponentFixture, TestBed } from "@angular/core/testing";
 import { ChangeDetectorRef, NO_ERRORS_SCHEMA } from "@angular/core";
 import { provideHttpClient, withInterceptorsFromDi } from "@angular/common/http";
 import { provideHttpClientTesting } from "@angular/common/http/testing";
-import { LocationFieldDeletionService } from "../services/location-field-deletion.service";
+
+import { BuilderCanvasComponent } from "./builder-canvas.component";
+import { CmdbTypeSchemaAdapter } from "../schema/cmdb-type-schema.adapter";
 
 
-describe('Builder Component', () => {
-    let component: BuilderComponent;
-    let fixture: ComponentFixture<BuilderComponent>;
-    let changeDetector: ChangeDetectorRef;
+describe('Builder Canvas Component', () => {
+    let component: BuilderCanvasComponent;
+    let fixture: ComponentFixture<BuilderCanvasComponent>;
 
 
     beforeEach(async () => {
         await TestBed.configureTestingModule({
-            declarations: [BuilderComponent],
+            declarations: [BuilderCanvasComponent],
             providers: [
                 ChangeDetectorRef,
-                { provide: LocationFieldDeletionService, useValue: {} },
                 provideHttpClient(withInterceptorsFromDi()),
                 provideHttpClientTesting()
             ],
             schemas: [NO_ERRORS_SCHEMA]
         }).compileComponents();
 
-        fixture = TestBed.createComponent(BuilderComponent);
+        fixture = TestBed.createComponent(BuilderCanvasComponent);
         component = fixture.componentInstance;
-        changeDetector = TestBed.inject(ChangeDetectorRef);
         fixture.detectChanges()
     });
 
 
     describe('update Section Color', () => {
 
-        it('should update the bg_color of the section and reflect the change in typeInstance', () => {
+        it('should update the bg_color of the section and reflect the change in the model', () => {
 
             component.mode = component.MODES.Edit;
 
-            // Set up typeInstance with a section, ensure bg_color is initialized
-            component.typeInstance = {
+            // Set up the edited type with a section, ensure bg_color is initialized
+            const typeInstance = {
                 render_meta: {
                     sections: [
                         {
@@ -52,7 +50,9 @@ describe('Builder Component', () => {
                 fields: []
             } as any;
 
-            const section = component.typeInstance.render_meta.sections[0];
+            component.Schema = new CmdbTypeSchemaAdapter(typeInstance);
+
+            const section = typeInstance.render_meta.sections[0];
             const newColor = '#ff5733';
 
             // Call the method to update the color
@@ -60,10 +60,9 @@ describe('Builder Component', () => {
 
             // Verify that the color has been updated
             expect(section.bg_color).toBe(newColor);
-            expect(component.typeInstance.render_meta.sections[0].bg_color).toBe(newColor);
+            expect(typeInstance.render_meta.sections[0].bg_color).toBe(newColor);
         });
 
     })
 
 })
-

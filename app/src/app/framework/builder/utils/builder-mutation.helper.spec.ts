@@ -16,6 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { CmdbMode } from '../../modes.enum';
+import { CmdbTypeSchemaAdapter } from '../schema/cmdb-type-schema.adapter';
 import { BuilderContext } from './builder-context';
 import { BuilderInteractionPolicy } from './builder-interaction-policy';
 import { BuilderMutationHelper } from './builder-mutation.helper';
@@ -25,7 +26,8 @@ import { BuilderMutationHelper } from './builder-mutation.helper';
  * and services are stubbed so each behaviour is verified in isolation against a live BuilderContext.
  */
 describe('BuilderMutationHelper', () => {
-    let ctx: BuilderContext;
+    // `typeInstance` is the seeded model the adapter writes through, kept for assertions.
+    let ctx: BuilderContext & { typeInstance: any };
     let deps: any;
     let policy: BuilderInteractionPolicy;
     let highlight: any;
@@ -52,6 +54,7 @@ describe('BuilderMutationHelper', () => {
 
         ctx = {
             sections: [sectionA, sectionB],
+            schema: new CmdbTypeSchemaAdapter(typeInstance),
             typeInstance,
             newSections: [],
             newFields: [],
@@ -82,7 +85,7 @@ describe('BuilderMutationHelper', () => {
                 ['removeSection', 'syncSections', 'getDroppedIndex', 'addSection', 'setActiveIndex']),
             fieldIdentifierValidation: jasmine.createSpyObj('FieldIdentifierValidationService',
                 ['clearFieldNames', 'addFieldNames']),
-            locationFieldDeletion: jasmine.createSpyObj('LocationFieldDeletionService',
+            deletionGuard: jasmine.createSpyObj('BuilderDeletionGuard',
                 ['sectionContainsLocationField', 'canDelete', 'isLocationField']),
             renderer: jasmine.createSpyObj('Renderer2', ['setStyle']),
             el: { nativeElement: { querySelector: () => null } }
@@ -90,7 +93,7 @@ describe('BuilderMutationHelper', () => {
 
         policy = new BuilderInteractionPolicy(() => ({
             selectedGlobalSectionTemplates: ctx.selectedGlobalSectionTemplates,
-            globalTemplateIds: ctx.typeInstance?.global_template_ids ?? [],
+            globalTemplateIds: ctx.schema.readGlobalTemplateIds(),
             globalFieldNames: [],
             schemaLockedSectionNames: ctx.lockedSectionNames,
             schemaLockedFieldNames: ctx.lockedFieldNames
