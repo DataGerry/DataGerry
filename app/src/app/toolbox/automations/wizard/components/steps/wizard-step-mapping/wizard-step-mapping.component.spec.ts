@@ -23,7 +23,7 @@ import {
     createEmptyAutomationDefinition,
     hasActiveTransform
 } from '../../../models/automation-definition.model';
-import { SequenceBinding, ValueSource } from '../wizard-step-flow/wizard-step-flow.component';
+import { describeValuePath, SequenceBinding, ValueSource } from '../wizard-step-flow/wizard-step-flow.component';
 import { WizardStepMappingComponent } from './wizard-step-mapping.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -79,7 +79,9 @@ function answer(name: string): string {
 
 
 function offered(name: string, group = 'Zabbix \u00b7 list hosts'): ValueSource {
-    return { group, label: `results[*].${name}`, reference: answer(name) };
+    const label = `results[*].${name}`;
+
+    return { group, label, reference: answer(name), ...describeValuePath(label) };
 }
 
 
@@ -386,16 +388,23 @@ describe('WizardStepMappingComponent', () => {
         });
 
 
-        it('offers the answers under the call that gave them', () => {
+        /* Under the object as well as under the call: a call answers with more paths than a
+           dropdown can be read through, and they differ at the far end of a long path. */
+        it('offers the answers under the call that gave them, and the object they sit on', () => {
             const { component } = writing([], [
                 offered('hostname'),
                 offered('serial'),
                 offered('room', 'i-doit \u00b7 read location')
             ]);
 
-            expect(component.valueGroups.map(group => group.name))
-                .toEqual(['Zabbix \u00b7 list hosts', 'i-doit \u00b7 read location']);
+            expect(component.valueGroups.map(group => group.name)).toEqual([
+                'Zabbix \u00b7 list hosts \u00b7 results[*]',
+                'i-doit \u00b7 read location \u00b7 results[*]'
+            ]);
             expect(component.valueGroups[0].items.length).toBe(2);
+            // The row itself carries the name alone; the route is in the heading above it.
+            expect(component.valueGroups[0].items.map(source => source.leaf))
+                .toEqual(['hostname', 'serial']);
         });
 
 

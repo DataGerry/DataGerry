@@ -34,11 +34,13 @@ import { RULE_OPERATOR_CHOICES } from '../../../models/automation-wizard-step.mo
 import { ocFieldReference, ocParseReference } from '../../../models/opencelium-connection.model';
 import { TargetField } from '../../../models/target-catalog.model';
 import {
+    groupValueSources,
     referenceLabel,
     SequenceBinding,
     SequenceCall,
     tokensOf,
     ValueSource,
+    ValueSourceGroup,
     ValueToken
 } from '../wizard-step-flow/wizard-step-flow.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -127,12 +129,6 @@ interface WriteRow extends AdjustableRow {
     path: string;
 }
 
-
-/** One heading of the value picker: the call that answered, and what it answered with. */
-interface ValueGroup {
-    name: string;
-    items: ValueSource[];
-}
 
 /** Shared fallbacks, so a row does not hand the template a new array on every check. */
 const EMPTY_BINDING_ROWS: BindingRow[] = [];
@@ -238,7 +234,7 @@ export class WizardStepMappingComponent implements DoCheck {
     public bindingRows: BindingRow[] = EMPTY_BINDING_ROWS;
     public bindingGroups: BindingGroup[] = EMPTY_BINDING_GROUPS;
     public writeRows: WriteRow[] = EMPTY_WRITE_ROWS;
-    public valueGroups: ValueGroup[] = [];
+    public valueGroups: ValueSourceGroup[] = [];
 
     /** True while DataGerry is the side being written, which is the screen that decides. */
     public incoming = false;
@@ -419,21 +415,14 @@ export class WizardStepMappingComponent implements DoCheck {
     }
 
 
-    /** The offered values under the call that answers with them, in the order they arrive. */
-    private groupValues(): ValueGroup[] {
-        const groups: ValueGroup[] = [];
-
-        for (const source of this.valueSources) {
-            const last = groups[groups.length - 1];
-
-            if (last && last.name === source.group) {
-                last.items.push(source);
-            } else {
-                groups.push({ name: source.group, items: [source] });
-            }
-        }
-
-        return groups;
+    /**
+     * The offered values under the call that answers with them, and under the object they sit on.
+     *
+     * A call answers with far more paths than fit a dropdown anybody can read, and they differ at
+     * the far end of a long path - so the route becomes the heading and the name stays on the row.
+     */
+    private groupValues(): ValueSourceGroup[] {
+        return groupValueSources(this.valueSources);
     }
 
     /* ---------------------------------------------- WHAT DATAGERRY IS GIVEN ----------------------------------------- */

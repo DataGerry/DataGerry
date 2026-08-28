@@ -551,7 +551,7 @@
                 @for (group of sourceGroups; track group.name) {
                   <optgroup [label]="group.name">
                     @for (source of group.items; track source.reference) {
-                      <option [value]="source.reference">{{ source.label }}</option>
+                      <option [value]="source.reference">{{ source.leaf }}</option>
                     }
                   </optgroup>
                 }
@@ -582,7 +582,7 @@
                     @for (group of sourceGroups; track group.name) {
                       <optgroup [label]="group.name">
                         @for (source of group.items; track source.reference) {
-                          <option [value]="source.reference">{{ source.label }}</option>
+                          <option [value]="source.reference">{{ source.leaf }}</option>
                         }
                       </optgroup>
                     }
@@ -690,25 +690,47 @@
               type="text"
               class="form-control form-control-sm"
               placeholder="Filter values"
+              aria-label="Filter the values on offer"
+              #pickFilterBox
               [(ngModel)]="pickFilter">
 
             <div class="sheet__oplist">
-              @for (source of filteredSources; track source.reference; let position = $index) {
-                @if (startsGroup(source, position)) {
-                  <div class="pick__group">{{ source.group }}</div>
-                }
+              @for (section of pickSections; track section.name) {
                 <button
                   type="button"
-                  class="op pick"
-                  (click)="picking?.key || picking?.part === 'endpoint'
-                    ? onPick(source)
-                    : onPickIntoDraft(source)">
-                  <span class="pick__label">{{ source.label }}</span>
-                  <span class="pick__ref">{{ source.reference }}</span>
+                  class="pick__call"
+                  [attr.aria-expanded]="section.open"
+                  (click)="onToggleCall(section.name)">
+                  <i class="fas" [class.fa-caret-down]="section.open" [class.fa-caret-right]="!section.open"></i>
+                  <span class="pick__call-name">{{ section.name }}</span>
+                  <span class="pick__call-count">{{ section.count }}</span>
                 </button>
+
+                @if (section.open) {
+                  @for (group of section.groups; track group.name) {
+                    @if (group.object) {
+                      <div class="pick__group">{{ group.object }}</div>
+                    }
+                    @for (source of group.items; track source.reference) {
+                      <button
+                        type="button"
+                        class="op pick"
+                        (click)="picking?.key || picking?.part === 'endpoint'
+                          ? onPick(source)
+                          : onPickIntoDraft(source)">
+                        <span class="pick__label">{{ source.leaf }}</span>
+                        <span class="pick__ref">{{ source.label }}</span>
+                      </button>
+                    }
+                  }
+                }
               } @empty {
                 <p class="text-muted mb-0">
-                  Nothing to read here — no step before this one answers with anything.
+                  @if (pickFilter.trim()) {
+                    Nothing here is called that — try a shorter word, or write the path out below.
+                  } @else {
+                    Nothing to read here — no step before this one answers with anything.
+                  }
                 </p>
               }
             </div>

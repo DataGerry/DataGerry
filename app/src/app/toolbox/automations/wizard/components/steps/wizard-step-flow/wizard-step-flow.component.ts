@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, DoCheck, EventEmitter, Input, Output } from '@angular/core';
+import { AfterViewChecked, Component, DoCheck, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 
 import {
     AutomationCallCondition,
@@ -84,13 +84,96 @@ export interface WirePair {
  * the DataGerry fields, which are that same answer under the names the user knows them by.
  */
 export interface ValueSource {
+    /** The call that answers it, which is the heading it is listed under. */
     group: string;
     label: string;
     reference: string;
 
+    /**
+     * What the value hangs off inside that answer - `result[0].contact` for a contact's mail.
+     *
+     * A call answers with dozens of paths that only differ far to the left of the name, so the
+     * heading they share is what makes the name findable; empty for a value at the top of the
+     * answer, which then needs no heading of its own.
+     */
+    object: string;
+
+    /** The name at the end of the path, which is what the value is actually called. */
+    leaf: string;
+
     /** True for a collection - what a loop walks, rather than what a request is given. */
     isList?: boolean;
 }
+
+
+/** One heading of a value list: the call, the object inside its answer, and what that object holds. */
+export interface ValueSourceGroup {
+    /** Heading as a picker prints it in two lines, and a `<select>` in one. */
+    call: string;
+    object: string;
+    name: string;
+    items: ValueSource[];
+}
+
+
+/** One call in the value picker, with the objects its answer holds. */
+export interface PickSection {
+    name: string;
+    count: number;
+    open: boolean;
+    groups: ValueSourceGroup[];
+}
+
+
+/**
+ * A path split where the name of a value ends and the route to it begins.
+ *
+ * The route is the useful half of a long path: everything an object holds shares it, so it groups
+ * them, and what is left is the short name the user is actually looking for.
+ */
+export function describeValuePath(path: string): { object: string; leaf: string } {
+    const cut = path.lastIndexOf('.');
+
+    return cut === -1
+        ? { object: '', leaf: path }
+        : { object: path.slice(0, cut), leaf: path.slice(cut + 1) };
+}
+
+
+/**
+ * Values gathered under the object they belong to, in the order the sequence answers them.
+ *
+ * Calls keep the order they run in - what the last call answered is worth finding first - while the
+ * names inside an object are sorted, because a schema hands them over in whatever order it was
+ * written and nobody can scan that.
+ */
+export function groupValueSources(sources: ReadonlyArray<ValueSource>): ValueSourceGroup[] {
+    const groups: ValueSourceGroup[] = [];
+
+    for (const source of sources) {
+        const group = groups.find(candidate =>
+            candidate.call === source.group && candidate.object === source.object);
+
+        if (group) {
+            group.items.push(source);
+        } else {
+            groups.push({
+                call: source.group,
+                object: source.object,
+                name: source.object ? `${source.group} · ${source.object}` : source.group,
+                items: [source]
+            });
+        }
+    }
+
+    for (const group of groups) {
+        group.items.sort((left, right) =>
+            left.leaf.localeCompare(right.leaf, undefined, { numeric: true, sensitivity: 'base' }));
+    }
+
+    return groups;
+}
+
 
 /** One line of the sequence. */
 export interface FlowStep {
@@ -151,7 +234,9 @@ export interface ValuePreview {
     styleUrls: ['./wizard-step-flow.component.scss'],
     standalone: false
 })
-export class WizardStepFlowComponent implements DoCheck {
+export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
+    /** Above this many values the picker opens on the last call alone - see foldedByDefault. */
+    private static readonly PICKER_FOLD_ABOVE = 30;
 
     @Input() public definition!: AutomationDefinition;
 
@@ -296,6 +381,15 @@ export class WizardStepFlowComponent implements DoCheck {
     /** Which value the picker is currently filling in, and what it is being filtered by. */
     public picking: { part: 'headers' | 'body' | 'endpoint'; key: string } | null = null;
     public pickFilter = '';
+
+    /** Calls whose values are folded away in the picker - see openPicker. */
+    private closedCalls = new Set<string>();
+
+    /** The picker's filter box, which is where typing should land the moment it opens. */
+    @ViewChild('pickFilterBox') private pickFilterBox?: ElementRef<HTMLInputElement>;
+
+    /** True until the box the picker just opened with has been focused. */
+    private focusPickFilter = false;
 
     /** The pair being added, kept apart from the saved ones until it has a name. */
     public draft: Record<'headers' | 'body', { key: string; value: string }> = {
@@ -716,6 +810,38 @@ export class WizardStepFlowComponent implements DoCheck {
     public openPicker(part: 'headers' | 'body' | 'endpoint', key: string): void {
         this.picking = { part, key };
         this.pickFilter = '';
+        this.closedCalls = this.foldedByDefault();
+        this.focusPickFilter = true;
+    }
+
+
+    /**
+     * Puts the cursor in the picker's filter box as it opens.
+     *
+     * Here rather than in openPicker: the box is drawn by the picker the click opens, so it does
+     * not exist yet at the point the picker is asked for.
+     */
+    public ngAfterViewChecked(): void {
+        if (this.focusPickFilter && this.pickFilterBox) {
+            this.focusPickFilter = false;
+            this.pickFilterBox.nativeElement.focus();
+        }
+    }
+
+
+    /**
+     * Which calls the picker opens folded away.
+     *
+     * A short list is left open - folding three values away helps nobody. A long one opens on the
+     * call that ran last, because that is the answer a step is nearly always reaching into, and the
+     * rest is one click away rather than a scroll away.
+     */
+    private foldedByDefault(): Set<string> {
+        const calls = [...new Set(this.plainSources.map(source => source.group))];
+
+        return this.plainSources.length <= WizardStepFlowComponent.PICKER_FOLD_ABOVE
+            ? new Set<string>()
+            : new Set(calls.slice(0, -1));
     }
 
 
@@ -788,7 +914,8 @@ export class WizardStepFlowComponent implements DoCheck {
         const source: ValueSource = {
             group: 'Written out',
             label: path,
-            reference: ocFieldReference(color, 'response', path)
+            reference: ocFieldReference(color, 'response', path),
+            ...describeValuePath(path)
         };
 
         if (this.picking?.key || this.picking?.part === 'endpoint') {
@@ -827,33 +954,55 @@ export class WizardStepFlowComponent implements DoCheck {
     }
 
 
-    /** The same values, grouped - a select needs them nested where a list does not. */
-    public get sourceGroups(): Array<{ name: string; items: ValueSource[] }> {
-        const groups: Array<{ name: string; items: ValueSource[] }> = [];
+    /**
+     * What the picker lists: a section per call, and inside it the objects that call answers with.
+     *
+     * Filtering opens everything - a match nobody can see is worse than a long list - and every
+     * section a filter empties is left out rather than shown empty.
+     */
+    public get pickSections(): PickSection[] {
+        const filtering = !!this.pickFilter.trim();
+        const sections: PickSection[] = [];
 
-        for (const source of this.addableSources) {
-            const group = groups.find(candidate => candidate.name === source.group);
+        for (const group of groupValueSources(this.filteredSources)) {
+            const section = sections.find(candidate => candidate.name === group.call);
 
-            if (group) {
-                group.items.push(source);
+            if (section) {
+                section.groups.push(group);
+                section.count += group.items.length;
             } else {
-                groups.push({ name: source.group, items: [source] });
+                sections.push({
+                    name: group.call,
+                    count: group.items.length,
+                    open: filtering || !this.closedCalls.has(group.call),
+                    groups: [group]
+                });
             }
         }
 
-        return groups;
+        return sections;
+    }
+
+
+    /** Folds a call's values away, or back out. */
+    public onToggleCall(name: string): void {
+        if (this.closedCalls.has(name)) {
+            this.closedCalls.delete(name);
+        } else {
+            this.closedCalls.add(name);
+        }
+    }
+
+
+    /** The same values, grouped - a select needs them nested where a list does not. */
+    public get sourceGroups(): ValueSourceGroup[] {
+        return groupValueSources(this.addableSources);
     }
 
 
     /** Whether the chosen comparison has a right-hand side at all. */
     public get conditionNeedsValue(): boolean {
         return !this.operators.find(entry => entry.value === this.condition.operator)?.unary;
-    }
-
-
-    /** Group heading, printed once above the first entry that belongs to it. */
-    public startsGroup(source: ValueSource, position: number): boolean {
-        return this.filteredSources[position - 1]?.group !== source.group;
     }
 
 
@@ -897,6 +1046,7 @@ export class WizardStepFlowComponent implements DoCheck {
                     group,
                     label: entry.path,
                     reference: ocFieldReference(method.color, 'response', entry.path),
+                    ...describeValuePath(entry.path),
                     isList: entry.isList
                 });
             }
@@ -925,6 +1075,9 @@ export class WizardStepFlowComponent implements DoCheck {
         return this.dataGerryFields.map((field, position) => ({
             group: 'DataGerry fields',
             label: field.label || field.name,
+            // Already the name the user knows it by: there is no route to hide, so none is shown.
+            object: '',
+            leaf: field.label || field.name,
             reference: ocFieldReference(
                 source.color,
                 'response',
@@ -1778,6 +1931,7 @@ export function valueSourcesAfterSequence(connection: OcConnection | null): Valu
             group: method.connector?.title ? `${method.connector.title} · ${method.name}` : method.name,
             label: entry.path,
             reference: ocFieldReference(method.color, 'response', entry.path),
+            ...describeValuePath(entry.path),
             isList: entry.isList
         })));
 }
