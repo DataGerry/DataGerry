@@ -65,7 +65,7 @@
                   @for (group of valueGroups; track group.name) {
                     <optgroup [label]="group.name">
                       @for (source of group.items; track source.reference) {
-                        <option [value]="source.reference">{{ source.label }}</option>
+                        <option [value]="source.reference">{{ source.leaf }}</option>
                       }
                     </optgroup>
                   }

@@ -283,6 +283,67 @@ describe('WizardStepFlowComponent', () => {
 
 
         /*
+         * A long path differs from its neighbours at the far end, so the route is the half worth
+         * grouping by and the name at its end is the half worth reading.
+         */
+        it('splits a value into the object it sits on and the name it goes by', () => {
+            component.openStep = 'method-1';
+            component.ngDoCheck();
+
+            const value = component.valueSources.find(source => source.label === 'results[i].public_id');
+            const top = component.valueSources.find(source => source.label === 'count');
+
+            expect(value?.object).toBe('results[i]');
+            expect(value?.leaf).toBe('public_id');
+
+            // Nothing to hide at the top of an answer, so nothing is hidden.
+            expect(top?.object).toBe('');
+            expect(top?.leaf).toBe('count');
+        });
+
+
+        it('gathers the picker under the call and the object, with the names sorted', () => {
+            component.openStep = 'method-1';
+            component.ngDoCheck();
+            component.openPicker('body', 'params.title');
+
+            const section = component.pickSections.find(entry => entry.name === 'DataGerry · Get Objects');
+            const group = section?.groups.find(entry => entry.object === 'results[i]');
+            const names = group?.items.map(source => source.leaf) ?? [];
+
+            expect(section?.count).toBe(
+                component.plainSources.filter(source => source.group === 'DataGerry · Get Objects').length
+            );
+            expect(names).toContain('public_id');
+            expect([...names]).toEqual([...names].sort((left, right) => left.localeCompare(right)));
+
+            // Every value is listed exactly once, under one object.
+            expect(component.pickSections
+                .flatMap(entry => entry.groups)
+                .flatMap(entry => entry.items).length).toBe(component.plainSources.length);
+        });
+
+
+        /* A match nobody can see is worse than a long list, so filtering opens what it hits. */
+        it('opens every call while a filter is on', () => {
+            component.openStep = 'method-1';
+            component.ngDoCheck();
+            component.openPicker('body', 'params.title');
+            component.onToggleCall('DataGerry · Get Objects');
+
+            expect(component.pickSections.every(section => section.open)).toBeFalse();
+
+            component.pickFilter = 'public_id';
+
+            expect(component.pickSections.every(section => section.open)).toBeTrue();
+            expect(component.pickSections
+                .flatMap(section => section.groups)
+                .flatMap(group => group.items)
+                .every(source => source.label.includes('public_id'))).toBeTrue();
+        });
+
+
+        /*
          * A loop needs a collection and nothing else, so its own list still holds only those. The
          * value picker no longer holds them back: a condition asks whether a collection is empty,
          * and a request value sometimes carries the collection itself.

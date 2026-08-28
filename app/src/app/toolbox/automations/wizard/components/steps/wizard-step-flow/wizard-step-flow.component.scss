@@ -295,13 +295,47 @@ $muted: #6b7280;
     input::placeholder { font-style: italic; }
 }
 
+// The call a set of values comes from: a heading that folds, and stays put while the list scrolls.
+.pick__call {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.4rem 0.5rem;
+    margin-top: 0.35rem;
+    border: 0;
+    border-radius: 0.25rem;
+    background: #f3f4f6;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #111827;
+
+    &:hover { background: #e5e7eb; }
+
+    i { color: $muted; width: 0.6rem; }
+}
+
+.pick__call-name { flex: 1; overflow-wrap: anywhere; }
+
+.pick__call-count {
+    flex: 0 0 auto;
+    font-weight: 600;
+    font-size: 0.6875rem;
+    color: $muted;
+}
+
+// The object inside that answer the values below hang off.
 .pick__group {
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
     color: $muted;
-    padding: 0.5rem 0.1rem 0.2rem;
+    padding: 0.4rem 0.5rem 0.15rem;
+    font-family: var(--bs-font-monospace, monospace);
+    overflow-wrap: anywhere;
 }
 
 .pick {
@@ -310,6 +344,9 @@ $muted: #6b7280;
     align-items: flex-start;
     gap: 0.1rem;
 }
+
+// Indented under the heading it belongs to; `.op` sets the padding these rows otherwise take.
+.op.pick { padding-left: 1rem; }
 
 .pick__label { font-weight: 600; }
 
