@@ -47,16 +47,16 @@
             </div>
             <ul class="list-group list-group-flush">
                 <li class="list-group-item">
-                    <cmdb-relation-builder-step-status
+                    <dg-builder-step-status
                         [step]="'Basic information'"
                         [status]="basicValid"
-                    ></cmdb-relation-builder-step-status>
+                    ></dg-builder-step-status>
                 </li>
                 <li class="list-group-item">
-                    <cmdb-relation-builder-step-status
+                    <dg-builder-step-status
                         [step]="'Relation content'"
                         [status]="contentValid"
-                    ></cmdb-relation-builder-step-status>
+                    ></dg-builder-step-status>
                 </li>
             </ul>
         </div>
@@ -64,7 +64,7 @@
             type="button"
             class="btn w-100 btn-success mt-2"
             (click)="saveRelation()"
-            [disabled]="!basicValid || !contentValid || isSectionHighlighted || isFieldHighlighted || disableFields || !isSectionWithoutFields"
+            [disabled]="!basicValid || !contentValid || blocking.blocked"
         >
             Save
         </button>

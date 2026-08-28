@@ -35,7 +35,6 @@ import { UsersModule } from '../../management/users/users.module';
 
 import { CoreModule } from 'src/app/core/core.module';
 
-import { RelationBuilderStepComponent, RelationBuilderStepValidStatusComponent } from './relation-builder/relation-builder-step.component';
 import { RelationAddComponent } from './relation-add/relation-add.component';
 import { RelationComponent } from './relation.component';
 import { RelationDeleteConfirmModalComponent } from './relation-delete/relation-delete.component';
@@ -60,8 +59,6 @@ import { RelationTableActionsComponent } from './components/relation-table-actio
         RelationDeleteConfirmModalComponent,
         RelationComponent,
         RelationTableActionsComponent,
-        RelationBuilderStepComponent,
-        RelationBuilderStepValidStatusComponent,
         RelationFieldsStepComponent
     ],
     imports: [

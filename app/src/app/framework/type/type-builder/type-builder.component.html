@@ -42,7 +42,7 @@
                     class="btn btn-primary next"
                     type="button"
                     awNextStep
-                    [disabled]="!contentValid ||  isSectionHighlighted || isFieldHighlighted || disableFields || !isSectionWithoutFields"
+                    [disabled]="!contentValid || blocking.blocked"
                 >
                     Next Step
                     <i class="fas fa-angle-double-right"></i>
@@ -85,28 +85,28 @@
             </div>
             <ul class="list-group list-group-flush">
                 <li class="list-group-item">
-                    <cmdb-type-builder-step-status
+                    <dg-builder-step-status
                         [step]="'Basic information'"
                         [status]="basicValid"
-                    ></cmdb-type-builder-step-status>
+                    ></dg-builder-step-status>
                 </li>
                 <li class="list-group-item">
-                    <cmdb-type-builder-step-status
+                    <dg-builder-step-status
                         [step]="'Type content'"
                         [status]="contentValid"
-                    ></cmdb-type-builder-step-status>
+                    ></dg-builder-step-status>
                 </li>
                 <li class="list-group-item">
-                    <cmdb-type-builder-step-status
+                    <dg-builder-step-status
                         [step]="'Meta data'"
                         [status]="metaValid"
-                    ></cmdb-type-builder-step-status>
+                    ></dg-builder-step-status>
                 </li>
                 <li class="list-group-item">
-                    <cmdb-type-builder-step-status
+                    <dg-builder-step-status
                         [step]="'Access'"
                         [status]="accessValid"
-                    ></cmdb-type-builder-step-status>
+                    ></dg-builder-step-status>
                 </li>
             </ul>
         </div>

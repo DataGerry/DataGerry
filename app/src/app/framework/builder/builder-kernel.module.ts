@@ -48,12 +48,14 @@ import { LocationFieldInUseModalComponent } from './modals/location-field-in-use
 import { BuilderPaletteComponent } from './palette/builder-palette.component';
 import { BuilderCanvasComponent } from './canvas/builder-canvas.component';
 import { BuilderSectionComponent } from './canvas/builder-section.component';
+import { BuilderStepStatusComponent } from './wizard/builder-step-status.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
  * Feature-neutral field builder kernel: the drag-and-drop canvas, the section card, the control
- * config editors, their dispatcher and the builder modals. Shared by the type, relation and
- * section template builders, none of which should reach into another feature to get them.
+ * config editors, their dispatcher, the builder modals and the wizard step-status row. Shared by
+ * the type, relation and section template builders, none of which should reach into another
+ * feature to get them.
  */
 @NgModule({
     imports: [
@@ -72,7 +74,8 @@ import { BuilderSectionComponent } from './canvas/builder-section.component';
         ColorChromeModule,
         CoreModule,
         IdentifierHintComponent,
-        BuilderPaletteComponent
+        BuilderPaletteComponent,
+        BuilderStepStatusComponent
     ],
     declarations: [
         BuilderCanvasComponent,
@@ -96,6 +99,7 @@ import { BuilderSectionComponent } from './canvas/builder-section.component';
         BuilderCanvasComponent,
         BuilderSectionComponent,
         BuilderPaletteComponent,
+        BuilderStepStatusComponent,
         ConfigEditComponent,
         SectionFieldEditComponent,
         PreviewModalComponent,
