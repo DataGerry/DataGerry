@@ -102,4 +102,71 @@ describe('SectionFieldEditComponent', () => {
             .toBeTruthy();
         expect(component.isIdentifierValid).toBeFalse();
     }));
+
+    /* ------------------------------ SECTION FLAVOUR + IDENTIFIER SYNC ------------------------------ */
+
+    describe('section flavour', () => {
+
+        it('emits elementType "section" for a plain section', fakeAsync(() => {
+            component.data = { type: 'section', name: 'sec', label: 'Section' };
+            const events: any[] = [];
+            component.fieldChanges$.subscribe(event => events.push(event));
+
+            component.onInputChange('renamed', 'label');
+            tick(300);
+            flush();
+
+            expect(events.every(event => event.elementType === 'section')).toBeTrue();
+        }));
+
+
+        it('emits elementType "multi-data-section" for a multi-data section', fakeAsync(() => {
+            component.data = { type: 'multi-data-section', name: 'mds', label: 'MDS' };
+            const events: any[] = [];
+            component.fieldChanges$.subscribe(event => events.push(event));
+
+            component.onInputChange('renamed', 'label');
+            tick(300);
+            flush();
+
+            expect(events.every(event => event.elementType === 'multi-data-section')).toBeTrue();
+        }));
+    });
+
+
+    describe('identifier sync', () => {
+
+        it('skips the identifier registry when no section is active, without flagging a conflict', fakeAsync(() => {
+            // The section template builder owns a single fixed section and never registers it, so
+            // its active index stays null. Asking the registry to rename anyway used to report a
+            // false "identifier must be unique" on that page as soon as the section was an MDS.
+            component.data = { type: 'multi-data-section', name: 'dg_gst-1', label: 'Template' };
+
+            // Must move the control, otherwise updateSectionValue short-circuits on
+            // `newValue === currentValue` and the test would pass without reaching the guard.
+            component.nameControl.setValue('dg_gst-2', { emitEvent: false });
+            component.onInputChange('dg_gst-2', 'name');
+            tick(300);
+            flush();
+
+            expect(sectionIdentifier.updateSection).not.toHaveBeenCalled();
+            expect(component.isIdentifierValid)
+                .withContext('a section that was never registered must not be reported as a conflict')
+                .toBeTrue();
+        }));
+
+
+        it('still syncs the identifier registry once a section is active', fakeAsync(() => {
+            component.data = { type: 'multi-data-section', name: 'mds', label: 'MDS' };
+
+            // updateSectionValue reads the control, not the argument, so the control has to move.
+            component.nameControl.setValue('mds-renamed', { emitEvent: false });
+            component.onInputChange('mds-renamed', 'name');
+            activeIndexSubject.next(0);
+            tick(300);
+            flush();
+
+            expect(sectionIdentifier.updateSection).toHaveBeenCalledWith(0, 'mds-renamed');
+        }));
+    });
 });

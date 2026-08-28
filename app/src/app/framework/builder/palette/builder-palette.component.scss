@@ -23,9 +23,15 @@ $tb-dur: 200ms;
 
 /* ---------------------------------------------- CONTROL PALETTE (LEFT) ---------------------------------------------- */
 
+/*
+ * Fills the grid column. Without this the host hugs its content, which leaves `#controlWrapper`
+ * no room to slide and kills its `position: sticky` on every long form - and leaves
+ * `:host(.fill-height)` with nothing to distribute.
+ */
 :host {
   position: relative;
   display: block;
+  height: 100%;
 }
 
 /*

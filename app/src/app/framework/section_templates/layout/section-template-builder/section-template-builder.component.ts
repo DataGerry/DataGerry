@@ -223,8 +223,15 @@ export class SectionTemplateBuilderComponent implements OnInit, OnDestroy {
             .subscribe({
                 next: (response: CmdbSectionTemplate) => {
                     this.initialSection = response;
-                    this.formGroup?.controls?.isGlobal?.setValue(this.initialSection?.is_global);
-                    this.formGroup?.controls?.isMultiDataSection?.setValue(this.initialSection?.type === 'multi-data-section');
+
+                    // Hydration must not emit: the isGlobal listener renames the template, which
+                    // would rewrite a stored identifier that carries neither prefix.
+                    this.formGroup?.controls?.isGlobal?.setValue(
+                        this.initialSection?.is_global, { emitEvent: false }
+                    );
+                    this.formGroup?.controls?.isMultiDataSection?.setValue(
+                        this.initialSection?.type === 'multi-data-section', { emitEvent: false }
+                    );
                 },
                 error: (error) => this.toastService.error(error?.error?.message)
             }

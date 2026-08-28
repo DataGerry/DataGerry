@@ -31,7 +31,7 @@ import { SpecialTypeService } from '../../../services/special-type.service';
 import { SpecialType, SpecialTypeSchema } from '../../../models/special-type';
 import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 import { LocationFieldDeletionService } from '../../services/location-field-deletion.service';
-import { BUILDER_DELETION_GUARD } from 'src/app/framework/builder/services/builder-deletion-guard';
+import { BUILDER_DELETION_GUARD, BuilderDeletionGuard } from 'src/app/framework/builder/services/builder-deletion-guard';
 import { CmdbTypeSchemaAdapter } from 'src/app/framework/builder/schema/cmdb-type-schema.adapter';
 import { BuilderSchemaAdapter } from 'src/app/framework/builder/schema/builder-schema.adapter';
 import { SectionControl } from 'src/app/framework/builder/controls/section.control';
@@ -52,7 +52,13 @@ import {
     templateUrl: './type-fields-step.component.html',
     styleUrls: ['./type-fields-step.component.scss'],
     // Only the type builder guards a deletion: a persisted location field still referenced by objects.
-    providers: [{ provide: BUILDER_DELETION_GUARD, useExisting: LocationFieldDeletionService }],
+    // Typed factory rather than `useExisting`, whose `any` typing would not catch the service
+    // drifting out of shape with BuilderDeletionGuard.
+    providers: [{
+        provide: BUILDER_DELETION_GUARD,
+        useFactory: (guard: LocationFieldDeletionService): BuilderDeletionGuard => guard,
+        deps: [LocationFieldDeletionService]
+    }],
     standalone: false
 })
 export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements OnInit, DoCheck, OnDestroy {
@@ -95,12 +101,24 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
     new LocationControl()
   ]);
 
+  private cachedPaletteGroups: Array<BuilderPaletteGroup> | null = null;
+  private cachedPaletteKey: string | null = null;
+
   /**
-   * Rebuilt per change detection: the canvas mutates the two template arrays in place as templates
-   * are applied and released, so the palette has to re-read them rather than cache their items.
+   * The canvas mutates the two template arrays in place as templates are applied and released, so
+   * the palette has to re-read them. It must NOT return a fresh array every check though: the
+   * canvas is OnPush, and a changing input reference marks it - and its whole section subtree -
+   * dirty on every tick. So the result is cached against the only things that can change it.
    */
   public get paletteGroups(): Array<BuilderPaletteGroup> {
-    return [
+    const key = this.buildPaletteKey();
+
+    if (this.cachedPaletteGroups && this.cachedPaletteKey === key) {
+      return this.cachedPaletteGroups;
+    }
+
+    this.cachedPaletteKey = key;
+    this.cachedPaletteGroups = [
       {
         id: 'globalSectionTemplates',
         label: 'Global Section Templates',
@@ -130,6 +148,17 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
         items: this.specialItems
       }
     ];
+
+    return this.cachedPaletteGroups;
+  }
+
+
+  /** Identifies the palette's template contents: which templates, in which order. */
+  private buildPaletteKey(): string {
+    const names = (templates: Array<CmdbSectionTemplate>) =>
+      (templates ?? []).map(template => template?.public_id).join(',');
+
+    return `${names(this.globalSectionTemplates)}|${names(this.sectionTemplates)}`;
   }
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */

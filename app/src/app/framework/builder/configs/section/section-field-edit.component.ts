@@ -210,7 +210,9 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
      */
     updateSectionValue(newValue: string): void {
 
-        // Subscribe to getActiveIndex only once and store the latest index
+        // Re-subscribing per call would accumulate handles against an app-lifetime subject.
+        this.activeIndexSubscription?.unsubscribe();
+
         this.activeIndexSubscription = this.sectionIdentifier.getActiveIndex().subscribe((index) => {
             if (index !== null && index !== undefined) {
                 this.activeIndex = index;  // Update the latest active index
@@ -219,6 +221,13 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
 
         setTimeout(() => {
             if (newValue === this.currentValue) {
+                return;
+            }
+
+            // No active index means this section was never registered with the identifier service -
+            // the section template builder owns a single fixed section and never registers it. There
+            // is nothing to rename there, and asking anyway reports a false uniqueness failure.
+            if (this.activeIndex === null || this.activeIndex === undefined) {
                 return;
             }
 
