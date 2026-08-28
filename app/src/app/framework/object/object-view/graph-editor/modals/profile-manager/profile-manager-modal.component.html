@@ -53,24 +53,6 @@
                                     placeholder="Select relation type(s)">
                                 </app-form-select>
                             </div>
-
-                            <div class="form-actions d-flex gap-2">
-                                <app-button
-                                  *ngIf="editMode"
-                                  [bootstrapClass]="'btn-secondary'"
-                                  label="Cancel"
-                                  type="button"
-                                  (clicked)="cancelEdit()">
-                                </app-button>
-
-                                <app-button
-                                  [bootstrapClass]="'btn-success'"
-                                  [label]="editMode ? 'Update' : 'Create'"
-                                  type="submit"
-                                  [disabled]="profileForm.invalid">
-                                </app-button>
-                              </div>
-
                         </form>
                     </div>
                 </section>
@@ -161,6 +143,24 @@
                 </fieldset>
             </div>
         </main>
+    </div>
+
+    <div class="dg-modal-actions profile-footer-actions" dgModalFooter>
+        <app-button
+            *ngIf="editMode"
+            [bootstrapClass]="'btn-secondary'"
+            label="Cancel"
+            type="button"
+            (clicked)="cancelEdit()">
+        </app-button>
+
+        <app-button
+            [bootstrapClass]="'btn-success'"
+            [label]="editMode ? 'Update Profile' : 'Create Profile'"
+            type="button"
+            [disabled]="profileForm.invalid"
+            (clicked)="saveProfile()">
+        </app-button>
     </div>
 
     <app-button

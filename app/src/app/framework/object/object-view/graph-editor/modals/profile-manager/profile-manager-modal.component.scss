@@ -116,44 +116,9 @@
     color: #dc3545;
   }
   
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 16px;
-    
-    .btn {
-      flex: 1;
-      padding: 8px 16px;
-      border: none;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      
-      &.btn-primary {
-        background: var(--dg-brand);
-        color: white;
-        
-        &:hover:not(:disabled) {
-          background: var(--dg-brand-strong);
-        }
-        
-        &:disabled {
-          background: #6c757d;
-          cursor: not-allowed;
-        }
-      }
-      
-      &.btn-secondary {
-        background: #6c757d;
-        color: white;
-        
-        &:hover {
-          background: #5a6268;
-        }
-      }
-    }
+
+  .profile-footer-actions {
+    margin-right: auto;
   }
   
   .profile-details-content {
