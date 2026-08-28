@@ -15,6 +15,15 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for CmdbObjectRelationLogs
+
+A CmdbObjectRelationLog is an append-only audit record: it is written internally by
+``ObjectRelationLogsManager.build_object_relation_log`` whenever a CmdbObjectRelation is created,
+edited or deleted, which is why there is no create and no update route here - only two reads and a
+delete. Every route is gated by an ACL right (see ``ObjectRelationLogRight``) and requires the LOCKED
+API level; the feature itself is not license-gated, matching the two relation blueprints it records
+
+The frontend reads the paged list and a single log (``relation-log.service.ts``) and offers the delete
+behind a confirmation modal, so all three routes are live FE contract
 """
 from logging import Logger, getLogger
 from flask import request, abort
@@ -62,19 +71,24 @@ def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: Cm
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjectRelationLogs
 
+    Requires the ``base.framework.objectRelationLog.view`` right
+
     Args:
         params (CollectionParameters): Filter for requested CmdbObjectRelationLogs
         request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 400 when the iteration fails; 500 on an
+            unexpected error
 
     Returns:
         GetMultiResponse: All the CmdbObjectRelationLogs matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
-
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
-                                                            ManagerType.OBJECT_RELATION_LOGS,
-                                                            request_user)
+            ManagerType.OBJECT_RELATION_LOGS,
+            request_user,
+        )
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
@@ -84,12 +98,14 @@ def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: Cm
                                      object_relation_log in iteration_result.results]
 
         api_response = GetMultiResponse(object_relation_logs_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+                                        total=iteration_result.total,
+                                        params=params,
+                                        url=request.url,
+                                        body=request.method == 'HEAD')
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except ObjectRelationLogsManagerIterationError as err:
         LOGGER.error("[get_cmdb_object_relation_logs] %s", err, exc_info=True)
         abort(400, "Failed to retrieve ObjectRelationLogs from database!")
@@ -106,17 +122,24 @@ def get_cmdb_object_relation_log(public_id: int, request_user: CmdbUser) -> Resp
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbObjectRelationLog
 
+    Requires the ``base.framework.objectRelationLog.view`` right
+
     Args:
         public_id (int): public_id of the CmdbObjectRelationLog
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when no CmdbObjectRelationLog carries the
+            public_id; 400 when the read fails; 500 on an unexpected error
 
     Returns:
         GetSingleResponse: The requested CmdbObjectRelationLog
     """
     try:
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
-                                                            ManagerType.OBJECT_RELATION_LOGS,
-                                                            request_user)
+            ManagerType.OBJECT_RELATION_LOGS,
+            request_user,
+        )
 
         requested_object_relation_log = object_relation_logs_manager.get_object_relation_log(public_id)
 
@@ -145,17 +168,25 @@ def delete_object_relation_log(public_id: int, request_user: CmdbUser) -> Respon
     """
     HTTP `DELETE` route to delete a single CmdbObjectRelationLog
 
+    Requires the ``base.framework.objectRelationLog.delete`` right. The log is read before it is
+    deleted because the response hands back the deleted document
+
     Args:
         public_id (int): public_id of the CmdbObjectRelationLog which should be deleted
         request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right; 404 when no CmdbObjectRelationLog carries the
+            public_id; 400 when the read or the deletion fails; 500 on an unexpected error
 
     Returns:
         DeleteSingleResponse: The deleted CmdbObjectRelationLog data
     """
     try:
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
-                                                            ManagerType.OBJECT_RELATION_LOGS,
-                                                            request_user)
+            ManagerType.OBJECT_RELATION_LOGS,
+            request_user,
+        )
 
         to_delete_object_relation_log = object_relation_logs_manager.get_object_relation_log(public_id)
 

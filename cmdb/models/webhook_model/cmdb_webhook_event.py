@@ -39,6 +39,22 @@ class CmdbWebhookEvent(CmdbDAO):
     """
     COLLECTION = 'framework.webhookEvents'
     DEFAULT_VERSION: str = '1.0.0'
+
+    # This collection is append-only and unbounded - one document per object write per matching active
+    # webhook - and it is never read by public_id from the UI. The log table sorts by webhook_id (its
+    # default) and searches webhook_id / event_time, so without these two declarations every page view
+    # is a collection scan plus an in-memory sort over a collection that only ever grows
+    INDEX_KEYS: list[dict[str, Any]] = [
+        {
+            'keys': [('webhook_id', CmdbDAO.DAO_ASCENDING)],
+            'name': 'webhook_id',
+        },
+        {
+            'keys': [('event_time', CmdbDAO.DAO_DESCENDING)],
+            'name': 'event_time',
+        },
+    ]
+
     REQUIRED_INIT_KEYS: list[str] = [
         'event_time',
         'operation',

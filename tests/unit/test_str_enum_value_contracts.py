@@ -41,6 +41,7 @@ from cmdb.models.extendable_option_model.option_type_enum import OptionType
 from cmdb.models.object_group_model.object_group_mode_enum import ObjectGroupMode
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.group_model.group_delete_mode_enum import GroupDeleteMode
+from cmdb.models.group_model.group_constants import GroupKey
 from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 from cmdb.models.isms_model.risk_type_enum import RiskType
 from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
@@ -134,6 +135,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'LIKELIHOOD_ID': 'likelihood_id',
         'LIKELIHOOD_VALUE': 'likelihood_value',
     }),
+    (GroupKey, {'NAME': 'name', 'LABEL': 'label', 'RIGHTS': 'rights'}),
     (DocapiTemplateType, {'OBJECT': 'OBJECT', 'DEFAULT': 'DEFAULT'}),
     (WebhookEventType, {'CREATE': 'CREATE', 'UPDATE': 'UPDATE', 'DELETE': 'DELETE'}),
     (PersonReferenceType, {'PERSON': 'PERSON', 'PERSON_GROUP': 'PERSON_GROUP'}),

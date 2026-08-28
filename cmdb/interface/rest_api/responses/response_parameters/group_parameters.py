@@ -15,15 +15,17 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of GroupDeletionParameters
+
+The parameters of the group-delete route: what to do with the group's users, and which group to move
+them to. Unlike its siblings this is not a pager - it inherits APIParameters only for the query-string
+and ``optional`` plumbing
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.group_model import GroupDeleteMode
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
+from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import ParameterKey
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            GroupDeletionParameters - CLASS                                           #
@@ -31,9 +33,9 @@ LOGGER: Logger = getLogger(__name__)
 class GroupDeletionParameters(APIParameters):
     """
     Handles parameters for deleting a group
-    
-    This class parses and stores the parameters needed to delete a group, including the action to perform
-    and the ID of another group for user reassignment if necessary.
+
+    Parses and stores the parameters needed to delete a group: the action to perform and the id of
+    another group for user reassignment if necessary
     """
 
     def __init__(
@@ -41,7 +43,7 @@ class GroupDeletionParameters(APIParameters):
         query_string: str,
         action: GroupDeleteMode | None = None,
         group_id: int | str | None = None,
-        **kwargs
+        **kwargs: Any
     ) -> None:
         """
         Initialises GroupDeletionParameters
@@ -55,7 +57,7 @@ class GroupDeletionParameters(APIParameters):
             action (GroupDeleteMode, optional): The action to perform when deleting a group
             group_id (int | str | None, optional): The public_id of another group to which users
                 must be moved. Accepts ``str`` from query parsing and coerces to ``int``
-            **kwargs: Additional optional parameters
+            **kwargs (Any): Additional optional parameters
 
         Raises:
             ValueError: When ``group_id`` is provided but cannot be parsed as an integer
@@ -66,23 +68,8 @@ class GroupDeletionParameters(APIParameters):
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
-    @classmethod
-    def from_data(cls, query_string: str, **optional) -> "GroupDeletionParameters":
-        """
-        Creates GroupDeletionParameters from an HTTP query string
-
-        Args:
-            query_string (str): The raw HTTP query string
-            **optional: Additional optional parameters
-
-        Returns:
-            GroupDeletionParameters: A new instance populated with the provided data
-        """
-        return cls(query_string, **optional)
-
-
-    @classmethod
-    def to_dict(cls, parameters: "GroupDeletionParameters") -> dict[str, Any]:
+    @staticmethod
+    def to_dict(parameters: "GroupDeletionParameters") -> dict[str, Any]:
         """
         Converts an instance of `GroupDeletionParameters` to a dictionary
 
@@ -90,10 +77,10 @@ class GroupDeletionParameters(APIParameters):
             parameters (GroupDeletionParameters): The instance to convert
 
         Returns:
-            dict: A dictionary representation of the group deletion parameters
+            dict[str, Any]: A dictionary representation of the group deletion parameters
         """
         return {
-            "action": parameters.action,
-            "group_id": parameters.group_id,
-            "optional": parameters.optional
+            ParameterKey.ACTION.value: parameters.action,
+            ParameterKey.GROUP_ID.value: parameters.group_id,
+            ParameterKey.OPTIONAL.value: parameters.optional,
         }

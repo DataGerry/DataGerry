@@ -32,7 +32,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.type_model import FieldKey, FieldType, SectionType, TypeSchemaKey
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.manager.manager_provider_model import ManagerType
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeOverviewKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (

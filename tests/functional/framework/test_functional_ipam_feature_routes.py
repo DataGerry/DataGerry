@@ -67,8 +67,17 @@ ASSIGNED_IP: str = '10.1.4.5'
 
 UNKNOWN_PUBLIC_ID: int = 49999
 
+# A second carrier whose interface row carries a real multi_data_id, as the application assigns it
+# (highest_id + 1, so the FIRST row is 1 while its position in 'values' is 0). The frontend sends that
+# id as 'row_index' when it pre-validates an edit, so the self-exclusion has to be keyed on it
+ID_CARRIER_ID: int = 4606
+# Parked on the ORPHAN subnet on purpose: the child subnet's used_ips count is asserted elsewhere
+ID_CARRIER_IP: str = '192.168.5.11'
+FIRST_ROW_ID: int = 1
+
 TYPE_IDS: list[int] = [SUPERNET_TYPE_ID, SUBNET_TYPE_ID, CARRIER_TYPE_ID]
-OBJECT_IDS: list[int] = [SUPERNET_ID, SUBNET_PARENT_ID, SUBNET_CHILD_ID, SUBNET_ORPHAN_ID, CARRIER_ID]
+OBJECT_IDS: list[int] = [SUPERNET_ID, SUBNET_PARENT_ID, SUBNET_CHILD_ID, SUBNET_ORPHAN_ID, CARRIER_ID,
+                         ID_CARRIER_ID]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -123,6 +132,19 @@ def _seed_ipam_route_topology(request, database_manager, database_name):
                 make_field(InterfaceField.TYPE, IpAddressFamily.IPV4),
             ]}],
         }]),
+        make_object_doc(ID_CARRIER_ID, CARRIER_TYPE_ID, [make_field('dg-name', 'fn-host-with-row-id')],
+                        mds=[{
+                            CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
+                            CmdbObjectMdsKey.HIGHEST_ID: FIRST_ROW_ID,
+                            CmdbObjectMdsKey.VALUES: [{
+                                CmdbObjectMdsRowKey.MULTI_DATA_ID: FIRST_ROW_ID,
+                                CmdbObjectMdsRowKey.DATA: [
+                                    make_field(InterfaceField.SUBNET, SUBNET_ORPHAN_ID),
+                                    make_field(InterfaceField.IP, ID_CARRIER_IP),
+                                    make_field(InterfaceField.TYPE, IpAddressFamily.IPV4),
+                                ],
+                            }],
+                        }]),
     ])
 
     def _cleanup() -> None:
@@ -338,3 +360,58 @@ class TestIpamValidationRoutes:
         body = response.get_json()
         assert body['valid'] is False
         assert any('is required' in e['message'] for e in body['errors'])
+
+
+class TestInterfaceEditDoesNotCollideWithItself:
+    """
+    Editing an interface row that already holds an IP must not report that IP as in use
+
+    Regression for the reported bug: the frontend pre-validates every keystroke against
+    ``POST /ipam/validate/interface``, sending the row's ``multi_data_id`` as ``row_index`` plus its
+    own object id as ``exclude_object_id``. The backend compared that id against the stored row's
+    POSITION, so the exclusion never matched - ids start at 1, positions at 0 - and the field showed
+    "IP ... is already used ... by object <itself>", which blocked the save.
+    """
+
+    def _payload(self, row_index: int, exclude_object_id: int | None) -> dict[str, Any]:
+        """Builds the request the frontend's interface-mds-validator service builds."""
+        body: dict[str, Any] = {
+            'rows': [{
+                'row_index': row_index,
+                'subnet_id': SUBNET_ORPHAN_ID,
+                'ip_address': ID_CARRIER_IP,
+                'interface_type': IpAddressFamily.IPV4.value,
+            }],
+        }
+
+        if exclude_object_id is not None:
+            body['exclude_object_id'] = exclude_object_id
+
+        return body
+
+    def test_editing_the_own_row_is_valid(self, rest_api):
+        """The frontend's exact payload: row_index is the row's multi_data_id (1), not its index"""
+        response = rest_api.post(f'{VALIDATE_URL}/interface',
+                                 json=self._payload(FIRST_ROW_ID, ID_CARRIER_ID))
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == {'valid': True, 'errors': []}
+
+    def test_the_same_ip_without_the_exclusion_is_still_rejected(self, rest_api):
+        """The fix must not disable the check: without exclude_object_id the IP is still in use"""
+        response = rest_api.post(f'{VALIDATE_URL}/interface', json=self._payload(FIRST_ROW_ID, None))
+
+        body = response.get_json()
+
+        assert body['valid'] is False
+        assert any('is already used in subnet' in error['message'] for error in body['errors'])
+
+    def test_another_object_claiming_the_ip_is_still_rejected(self, rest_api):
+        """Excluding one object's own row must not hide the IP being taken by a different object"""
+        response = rest_api.post(f'{VALIDATE_URL}/interface',
+                                 json=self._payload(FIRST_ROW_ID, CARRIER_ID))
+
+        body = response.get_json()
+
+        assert body['valid'] is False
+        assert any(f'by object {ID_CARRIER_ID}' in error['message'] for error in body['errors'])

@@ -22,17 +22,26 @@ codes and the JSON envelopes for the CmdbLocation routes - POST create, GET-list
 ``/children`` lookups, the PUT update round-trip, and DELETE + follow-up 404. CRUD
 correctness itself is asserted at the manager layer; these tests only verify the routes wrap
 it correctly.
+
+Since 2026-08-27 also: the per-route error tails no test reached (the ``/tree/search`` 500 and the two
+move routes' manager-error and unexpected-error arms), the HTTPException pass-throughs the five read
+routes were missing, and the ``/<id>/parent`` route answering 200 with ``null`` for a dangling parent
+instead of 404.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.location_model.cmdb_location import CmdbLocation
+from cmdb.manager import LocationsManager
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
+from cmdb.errors.manager.locations_manager import LocationsManagerGetError, LocationsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/locations'
@@ -56,6 +65,10 @@ CHILD_LOCATION_ID: int = 9884
 CHILD_OBJECT_ID: int = 9884
 
 LOCATION_ID_FOR_UPDATE: int = 9885
+
+DANGLING_LOCATION_ID: int = 9895
+DANGLING_OBJECT_ID: int = 9895
+MISSING_PARENT_ID: int = 9899
 OBJECT_ID_FOR_UPDATE: int = 9885
 
 LOCATION_ID_FOR_DELETE: int = 9886
@@ -630,3 +643,132 @@ class TestDeleteLocation:
             assert child['parent'] == ROOT_PARENT_ID
         finally:
             _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID, CHILD_LOCATION_ID])
+
+def _raiser(exc: Exception):
+    """Returns a function that ignores its args and raises the given exception."""
+    def _fail(*_args, **_kwargs):
+        raise exc
+
+    return _fail
+
+
+class TestReadRouteErrorTails:
+    """The read routes map an unmapped failure to a 500 rather than letting it escape."""
+
+    def test_tree_search_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while searching the tree."""
+        monkeypatch.setattr(LocationsManager, 'search_locations_with_ancestors', _raiser(RuntimeError('boom')))
+
+        response = rest_api.get(f'{ROUTE_URL}/tree/search?query=anything')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestReadRouteHttpExceptionPassThrough:
+    """
+    An HTTPException raised by a collaborator keeps its own status on every read route
+
+    Five of them had no re-raise arm, so an abort from inside would have become a 500. Two of the arms
+    are ONLY reachable this way - ``/<id>/children`` never aborts in its own body, and neither does
+    ``/<id>/parent`` since a dangling parent stopped being a 404.
+    """
+
+    @pytest.mark.parametrize('url, manager_method', [
+        ('/', 'iterate'),
+        ('/tree', 'iterate'),
+        ('/tree/roots', 'get_locations_by'),
+        ('/tree/search?query=x', 'search_locations_with_ancestors'),
+        ('/tree/1/children', 'get_locations_by'),
+        (f'/{OBJECT_ID_FOR_GET}/children', 'get_location_for_object'),
+        (f'/{OBJECT_ID_FOR_GET}/parent', 'get_location_for_object'),
+    ], ids=['list', 'tree', 'tree-roots', 'tree-search', 'tree-children', 'object-children',
+            'object-parent'])
+    def test_route_keeps_the_status(self, rest_api, monkeypatch, url: str, manager_method: str) -> None:
+        """Each route re-raises the HTTPException instead of wrapping it in its own 500."""
+        monkeypatch.setattr(LocationsManager, manager_method, _raiser(NotFound()))
+
+        assert rest_api.get(f'{ROUTE_URL}{url}').status_code == HTTPStatus.NOT_FOUND
+
+
+class TestMoveRouteErrorTails:
+    """The two move routes map manager failures and unmapped failures to 400 / 500."""
+
+    def test_move_one_objects_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """An ObjectsManagerUpdateError while moving one placement surfaces as 400."""
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
+            '.move_object_location',
+            _raiser(ObjectsManagerUpdateError('boom')),
+        )
+
+        response = rest_api.patch(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/parent', json={'parent': ROOT_PARENT_ID})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_move_one_locations_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A LocationsManagerUpdateError while moving one placement surfaces as 400."""
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
+            '.move_object_location',
+            _raiser(LocationsManagerUpdateError('boom')),
+        )
+
+        response = rest_api.patch(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/parent', json={'parent': ROOT_PARENT_ID})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_move_one_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while moving one placement."""
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
+            '.move_object_location',
+            _raiser(RuntimeError('boom')),
+        )
+
+        response = rest_api.patch(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/parent', json={'parent': ROOT_PARENT_ID})
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    @pytest.mark.parametrize('error, expected', [
+        (ObjectsManagerGetError('boom'), HTTPStatus.BAD_REQUEST),
+        (LocationsManagerGetError('boom'), HTTPStatus.BAD_REQUEST),
+        (RuntimeError('boom'), HTTPStatus.INTERNAL_SERVER_ERROR),
+    ], ids=['objects-error', 'locations-error', 'unexpected'])
+    def test_bulk_move_error_mapping(self, rest_api, monkeypatch, error: Exception, expected: int) -> None:
+        """The bulk move maps the same error families as the single move."""
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
+            '.validate_object_location_moves',
+            _raiser(error),
+        )
+
+        response = rest_api.patch(f'{ROUTE_URL}/parents',
+                                  json={'object_ids': [OBJECT_ID_FOR_GET], 'parent': ROOT_PARENT_ID})
+
+        assert response.status_code == expected
+
+
+class TestParentOfDanglingLocation:
+    """"There is no parent" is one answer, so it has one encoding."""
+
+    def test_dangling_parent_answers_200_with_null(self, rest_api, database_manager: MongoDatabaseManager,
+                                                   database_name: str) -> None:
+        """
+        A location whose parent id resolves to nothing answers 200 + null (regression)
+
+        It used to 404, while an object with no location at all answered 200 + null - the same outcome
+        with two encodings, and a data-integrity problem reported as a missing resource.
+        """
+        collection = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        collection.insert_one({
+            'public_id': DANGLING_LOCATION_ID, 'object_id': DANGLING_OBJECT_ID,
+            'parent': MISSING_PARENT_ID, 'name': 'Dangling', 'type_id': TYPE_ID,
+            'type_label': 'T', 'type_icon': 'fas fa-cube', 'type_selectable': True,
+        })
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/{DANGLING_OBJECT_ID}/parent')
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.get_json() is None
+        finally:
+            collection.delete_one({'public_id': DANGLING_LOCATION_ID})

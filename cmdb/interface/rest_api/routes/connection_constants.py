@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,25 +14,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provide all classes for the CmdbUserGroup logics
+Shared constants for the connection routes mounted at the ``/rest`` root
 """
-from .group_constants import (
-    ADMIN_GROUP_ID,
-    USER_GROUP_ID,
-    PROTECTED_GROUP_IDS,
-    MASTER_RIGHT_NAME,
-    GroupKey,
-)
-from .cmdb_user_group import CmdbUserGroup
-from .group_delete_mode_enum import GroupDeleteMode
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'ADMIN_GROUP_ID',
-    'USER_GROUP_ID',
-    'PROTECTED_GROUP_IDS',
-    'MASTER_RIGHT_NAME',
-    'GroupKey',
-    'CmdbUserGroup',
-    'GroupDeleteMode',
+    'ConnectionInfoKey',
 ]
+
+
+class ConnectionInfoKey(BaseStrEnum):
+    """
+    Keys of the ``GET /rest/`` response (frontend contract)
+
+    ``TITLE`` and ``VERSION`` share their string values with ``SystemInfoKey``, which names the keys of
+    ``GET /settings/system/``. That overlap is incidental and the two enums are deliberately NOT merged:
+    the two routes are separate contracts with different key sets - this one carries ``CONNECTED`` and
+    none of the db-version / runtime / startup fields - so one enum would misrepresent both and let a
+    change to one route's payload silently edit the other's
+    """
+    TITLE = 'title'
+    VERSION = 'version'
+    CONNECTED = 'connected'

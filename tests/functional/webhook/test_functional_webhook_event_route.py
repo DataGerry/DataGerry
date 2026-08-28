@@ -19,11 +19,17 @@ Functional smoke for the ``/webhook_events`` REST routes
 Covers the read + delete routes over the GenericManager-backed WebhooksEventManager: HTTP status
 codes, the 404 on a missing id, and the manager-error -> 400 / 500 mappings. WebhookEvents are
 created internally (on object changes), so these routes are read/delete only.
+
+Since 2026-08-27 the DELETE route no longer carries a trailing slash its GET sibling lacked, so the
+frontend's slash-less call is served directly instead of through a 308. Added at the same time: the
+per-route error tails no test reached (the get-single 500, and the delete route's own read-failure arm
+plus its 500) and the HTTPException pass-through the list route was missing.
 """
 from http import HTTPStatus
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.webhooks_event_manager import WebhooksEventManager
@@ -97,21 +103,38 @@ class TestGetWebhookEvent:
 
 
 class TestDeleteWebhookEvent:
-    """DELETE /webhook_events/<id>/ removes an event."""
+    """DELETE /webhook_events/<id> removes an event."""
 
     def test_delete_removes_event(self, rest_api,
                                  database_manager: MongoDatabaseManager, database_name: str) -> None:
         """A DELETE succeeds and a subsequent GET returns 404."""
         _insert_event(database_manager, database_name, EVENT_ID_FOR_DELETE)
 
-        response = rest_api.delete(f'{ROUTE_URL}/{EVENT_ID_FOR_DELETE}/')
+        response = rest_api.delete(f'{ROUTE_URL}/{EVENT_ID_FOR_DELETE}')
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{EVENT_ID_FOR_DELETE}').status_code == HTTPStatus.NOT_FOUND
 
     def test_delete_missing_returns_404(self, rest_api) -> None:
         """Deleting a non-existent event returns 404."""
-        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_EVENT_ID}/').status_code == HTTPStatus.NOT_FOUND
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_EVENT_ID}').status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_needs_no_trailing_slash(self, rest_api,
+                                           database_manager: MongoDatabaseManager,
+                                           database_name: str) -> None:
+        """
+        The slash-less form is served directly, not via a redirect (regression)
+
+        The route was registered as ``/<public_id>/`` while its GET sibling had no slash, so the
+        frontend's slash-less DELETE (``webhookLog.service.ts``) took a 308 first. Same defect the
+        webhook routes had.
+        """
+        _insert_event(database_manager, database_name, EVENT_ID_FOR_DELETE)
+
+        response = rest_api.delete(f'{ROUTE_URL}/{EVENT_ID_FOR_DELETE}')
+
+        assert response.status_code != HTTPStatus.PERMANENT_REDIRECT
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
 
 
 def _raiser(exc: Exception):
@@ -148,4 +171,44 @@ class TestErrorMapping:
         _insert_event(database_manager, database_name, EVENT_ID_FOR_DELETE)
         monkeypatch.setattr(WebhooksEventManager, 'delete_item', _raiser(WebhooksEventManagerDeleteError('boom')))
 
-        assert rest_api.delete(f'{ROUTE_URL}/{EVENT_ID_FOR_DELETE}/').status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.delete(f'{ROUTE_URL}/{EVENT_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+class TestUnexpectedErrorMapping:
+    """Each route reports an error it does not map as a 500 rather than letting it escape."""
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while reading one event."""
+        monkeypatch.setattr(WebhooksEventManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_EVENT_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """
+        The delete route reads the event before removing it, so the read can fail there too
+
+        Its own arm, distinct from the DeleteError one - and reachable over HTTP, which is why it is a
+        gap rather than an unreachable tail.
+        """
+        monkeypatch.setattr(WebhooksEventManager, 'get_item', _raiser(WebhooksEventManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_EVENT_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch,
+                                                 database_manager: MongoDatabaseManager,
+                                                 database_name: str) -> None:
+        """An unmapped failure while deleting an event that was found."""
+        _insert_event(database_manager, database_name, EVENT_ID_FOR_DELETE)
+        monkeypatch.setattr(WebhooksEventManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{EVENT_ID_FOR_DELETE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestHttpExceptionPassThrough:
+    """An HTTPException raised inside a route keeps its own status instead of becoming a 500."""
+
+    def test_list_keeps_the_status(self, rest_api, monkeypatch) -> None:
+        """The list route had no re-raise arm, so an abort inside it would have become a 500."""
+        monkeypatch.setattr(WebhooksEventManager, 'iterate_items', _raiser(NotFound()))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.NOT_FOUND

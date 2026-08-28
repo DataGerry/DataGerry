@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,9 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-REST route package for CmdbObjectRelationLogs
-
-Holds the ``object_relation_logs_blueprint`` (registered at ``/object_relation_logs`` by
-``init_rest_api``) and the ACL rights guarding it. Nothing is re-exported here - consumers import
-from the module path - so the package declares no ``__all__``
+Unit tests for the REST request/response parameter classes
 """
