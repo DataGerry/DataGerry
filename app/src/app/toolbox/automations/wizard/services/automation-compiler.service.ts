@@ -638,8 +638,11 @@ export class AutomationCompilerService {
         return {
             parent: previous.id,
             below: false,
-            // A condition passes on what it did not catch, and only through its `false` exit.
-            branch: previous.kind === 'if' ? 'false' : undefined
+            // Named after what the step before it is: the editor follows a condition on from its
+            // `false` exit and a loop from its `right` one, and a call along its only exit, which
+            // is unnamed. Leave one of those out and everything behind it drops out of the
+            // sequence - the editor stops walking where it finds no exit it knows.
+            branch: CONTINUES_AT[previous.kind]
         };
     }
 
@@ -2642,6 +2645,19 @@ type SourceValue =
     | { kind: 'constant'; value: string };
 
 
+/**
+ * The exit each kind of step carries on to the next one by.
+ *
+ * The editor's own walk of a sequence, restated: from a condition it takes the `false` exit, from a
+ * loop the `right` one, and from a call the single unnamed exit.
+ */
+const CONTINUES_AT: Record<'method' | 'if' | 'loop', 'false' | 'right' | undefined> = {
+    method: undefined,
+    if: 'false',
+    loop: 'right'
+};
+
+
 /** How a node hangs into the drawn graph: what it is drawn from, and through which exit. */
 interface Attachment {
     /** Ui id of the node the edge leaves. */
@@ -2650,8 +2666,16 @@ interface Attachment {
     /** True when the node runs inside that one and is drawn a row below it. */
     below: boolean;
 
-    /** Which exit of an `if` leads here. */
-    branch?: 'true' | 'false';
+    /**
+     * Which exit of the node it is drawn from leads here.
+     *
+     * The editor walks a sequence by following one exit per step, and which one is named depends on
+     * what that step is: a condition passes what it caught down `true` and everything else along
+     * `false`, a loop runs its body from `bottom` and continues at `right`, and a call has one exit
+     * that is not named at all. An edge leaving by any other exit is not followed - the steps behind
+     * it fall out of the sequence entirely.
+     */
+    branch?: 'true' | 'false' | 'right';
 }
 
 
@@ -2718,8 +2742,8 @@ interface GraphNode {
     /** True when the node runs inside its parent and is drawn a row below it. */
     below?: boolean;
 
-    /** Which exit of an `if` parent leads here. */
-    branch?: 'true' | 'false';
+    /** Which exit of the parent leads here - see Attachment. */
+    branch?: 'true' | 'false' | 'right';
 
     /** Rule tree for an `if` whose expression does not read back as a single rule. */
     tree?: OcUiGroup;

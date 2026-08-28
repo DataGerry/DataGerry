@@ -211,6 +211,61 @@ function incomingDefinition(): AutomationDefinition {
 }
 
 
+/*
+ * OpenCelium's own reading of the drawn graph, restated from its editor.
+ *
+ * It walks the sequence from the start node, taking exactly one exit per step - `true` into a
+ * condition and `bottom` into a loop, then `false` on from a condition, `right` on from a loop and
+ * the single unnamed exit on from a call - and numbers what it reaches as it goes. Two edges out of
+ * one exit are not a fork: it follows the nearer one and never comes back. So a step it does not
+ * reach is not in the sequence at all, whatever index was sent with it - which is why the editor
+ * has to be able to walk the graph the compiler draws, and why this is asserted rather than the
+ * edges themselves.
+ */
+function indicesTheEditorDerives(ui: any): Map<string, string> {
+    const nodes = new Map<string, any>(ui.workflowNodes.map((node: any) => [node.id, node]));
+    const derived = new Map<string, string>();
+    const seen = new Set<string>();
+    const into = (node: any) => (node.type === 'if' ? 'true' : node.type === 'loop' ? 'bottom' : undefined);
+    const onward = (node: any) => (node.type === 'if' ? 'false' : node.type === 'loop' ? 'right' : undefined);
+
+    const exit = (source: string, handle: string | undefined, downwards: boolean) =>
+        ui.workflowEdges.find((edge: any) =>
+            edge.source === source
+            && edge.sourceHandle === handle
+            && !seen.has(edge.target)
+            && (!edge.targetHandle || edge.targetHandle === (downwards ? 'top' : 'left'))
+            && nodes.has(edge.target));
+
+    const walk = (source: string, handle: string | undefined, downwards: boolean, prefix: string) => {
+        let edge = exit(source, handle, downwards);
+
+        for (let position = 0; edge; position += 1) {
+            const node = nodes.get(edge.target);
+
+            if (!node || seen.has(node.id)) {
+                break;
+            }
+
+            const index = prefix ? `${prefix}_${position}` : String(position);
+
+            derived.set(node.id, index);
+            seen.add(node.id);
+
+            if (into(node)) {
+                walk(node.id, into(node), true, index);
+            }
+
+            edge = exit(node.id, onward(node), false);
+        }
+    };
+
+    walk('start-1', undefined, false, '');
+
+    return derived;
+}
+
+
 describe('AutomationCompilerService', () => {
     let compiler: AutomationCompilerService;
 
@@ -1015,6 +1070,58 @@ describe('AutomationCompilerService', () => {
                     targetHandle: 'top'
                 }));
             }
+        });
+
+
+        /*
+         * The whole sequence, read back the way the editor reads it. A step the walk does not reach
+         * keeps the index it was sent with in the payload and loses it in the editor, which numbers
+         * it as a sequence of its own - so it is not enough for the indices to be right, the drawn
+         * graph has to carry the editor to every one of them.
+         */
+        it('draws a graph the editor walks to every step of', () => {
+            const definition = withExtra({
+                id: 'extra-if-1',
+                kind: 'if',
+                operation: '',
+                condition: { left: '#C77E7E.(response).body.$.result[*]', operator: 'IsEmpty', right: '' }
+            });
+
+            definition.extras = [
+                ...definition.extras,
+                { id: 'inside-1', after: 'extra-if-1', kind: 'operation', operation: 'cmdb.object.update' },
+                {
+                    id: 'extra-if-2',
+                    after: '1_0',
+                    kind: 'if',
+                    operation: '',
+                    condition: { left: '#C77E7E.(response).body.$.result[*]', operator: 'NotEmpty', right: '' }
+                },
+                { id: 'inside-2', after: 'extra-if-2', kind: 'operation', operation: 'cmdb.object.update' },
+                {
+                    id: 'extra-loop',
+                    after: '1_0',
+                    kind: 'loop',
+                    operation: '',
+                    loop: { list: '#C77E7E.(response).body.$.result[*]', iterator: 'j' }
+                },
+                { id: 'inside-loop', after: 'extra-loop', kind: 'operation', operation: 'cmdb.object.update' },
+                { id: 'after-loop', after: '1_0', kind: 'operation', operation: 'cmdb.object.update' }
+            ];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const connector = payload.connection.fromConnector;
+            const derived = indicesTheEditorDerives(payload.connection.ui);
+            const steps = [...connector.methods, ...connector.operators];
+
+            // Every step is reached, and lands exactly where the payload says it does.
+            for (const step of steps) {
+                expect(derived.get(step.id)).toBe(step.index);
+            }
+
+            // Nothing else is reachable either: the start node is the only one it does not number.
+            expect(derived.size).toBe(steps.length);
+            expect(payload.connection.ui.workflowNodes.length).toBe(steps.length + 1);
         });
 
 
