@@ -949,6 +949,75 @@ describe('AutomationCompilerService', () => {
         });
 
 
+        /*
+         * Two conditions placed after the same call: the second one runs after the first, so it is
+         * drawn from the first one's `false` exit. Drawing both from the call they were placed
+         * after forks the sequence, and OpenCelium then shows them side by side.
+         */
+        it('chains a second condition behind the first instead of forking the sequence', () => {
+            const definition = withExtra({
+                id: 'extra-if-1',
+                kind: 'if',
+                operation: '',
+                condition: { left: '#C77E7E.(response).body.$.result[*]', operator: 'IsEmpty', right: '' }
+            });
+
+            definition.extras = [
+                ...definition.extras,
+                {
+                    id: 'extra-inside-1',
+                    after: 'extra-if-1',
+                    kind: 'operation',
+                    operation: 'cmdb.object.update'
+                },
+                {
+                    id: 'extra-if-2',
+                    // Placed after the same call as the first condition, which makes the two
+                    // siblings: one runs, then the other.
+                    after: '1_0',
+                    kind: 'if',
+                    operation: '',
+                    condition: { left: '#C77E7E.(response).body.$.result[*]', operator: 'NotEmpty', right: '' }
+                },
+                {
+                    id: 'extra-inside-2',
+                    after: 'extra-if-2',
+                    kind: 'operation',
+                    operation: 'cmdb.object.update'
+                }
+            ];
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const operators = payload.connection.fromConnector.operators;
+            const first = operators.find(entry => entry.id === 'if-extra-if-1');
+            const second = operators.find(entry => entry.id === 'if-extra-if-2');
+            const edges = payload.connection.ui.workflowEdges;
+            const anchorId = payload.connection.fromConnector.methods
+                .find(method => method.index === '1_0').id;
+
+            expect(first.index).toBe('1_1');
+            expect(second.index).toBe('1_2');
+
+            // The first condition follows the call; the second follows the first.
+            expect(edges.some(edge => edge.source === anchorId && edge.target === first.id)).toBeTrue();
+            expect(edges.some(edge => edge.source === anchorId && edge.target === second.id)).toBeFalse();
+            expect(edges.find(edge => edge.target === second.id)).toEqual(jasmine.objectContaining({
+                source: first.id,
+                sourceHandle: 'false',
+                targetHandle: 'left'
+            }));
+
+            // Each condition keeps its own branch below it.
+            for (const [gate, inside] of [[first, 'method-extra-inside-1'], [second, 'method-extra-inside-2']]) {
+                expect(edges.find(edge => edge.target === inside)).toEqual(jasmine.objectContaining({
+                    source: (gate as any).id,
+                    sourceHandle: 'true',
+                    targetHandle: 'top'
+                }));
+            }
+        });
+
+
         it('reports a loop that walks nothing', () => {
             const definition = withExtra({
                 id: 'extra-loop',
