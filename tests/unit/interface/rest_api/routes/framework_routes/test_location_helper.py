@@ -39,9 +39,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     delete_location_with_reparenting,
     normalize_parent_id,
     validate_object_location_move,
+    validate_object_location_moves,
+    validate_shared_move_parent,
     move_object_location,
 )
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.location_model.location_constants import RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper'
@@ -700,3 +703,214 @@ class TestBuildLocationLevel:
         assert node['type_selectable'] is True
         assert node['type_icon'] == 'fa-cube'
         assert node['object_id'] == 99
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_object_location_moves                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+BULK_OBJECT_IDS: list[int] = [11, 12, 13]
+SHARED_TYPE_ID: int = 700
+OTHER_TYPE_ID: int = 701
+
+
+def _bulk_object(public_id: int, type_id: int) -> MagicMock:
+    """A CmdbObject stand-in that has a location field and reports the given type."""
+    current_object = MagicMock(name=f'object-{public_id}')
+    current_object.get_public_id.return_value = public_id
+    current_object.get_type_id.return_value = type_id
+    current_object.has_fields_of_type.return_value = True
+
+    return current_object
+
+
+def _bulk_objects_manager(objects: list[MagicMock]) -> MagicMock:
+    """An ObjectsManager stand-in whose $in read returns the given objects."""
+    manager = MagicMock(name='objects_manager')
+    manager.get_objects_by.return_value = objects
+    manager.get_object_type.side_effect = lambda type_id: MagicMock(name=f'type-{type_id}')
+
+    return manager
+
+
+class TestValidateObjectLocationMoves:
+    """The batched pre-flight validates the same things without re-reading what the batch shares."""
+
+    def test_reads_every_object_in_one_query(self, flask_app: Flask) -> None:
+        """
+        One `$in` read for the whole batch instead of one get_object per object
+
+        This is the point of the helper: the bulk route used to pay a read per object for the objects
+        and another per object for their types.
+        """
+        objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
+        objects_manager = _bulk_objects_manager(objects)
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent'):
+            validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, objects_manager, MagicMock())
+
+        objects_manager.get_objects_by.assert_called_once_with(public_id={'$in': BULK_OBJECT_IDS})
+        objects_manager.get_object.assert_not_called()
+
+    def test_resolves_each_distinct_type_once(self, flask_app: Flask) -> None:
+        """Three objects sharing one type cost one type read, not three."""
+        objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
+        objects_manager = _bulk_objects_manager(objects)
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent'):
+            result = validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, objects_manager, MagicMock())
+
+        assert objects_manager.get_object_type.call_count == 1
+        assert set(result) == set(BULK_OBJECT_IDS)
+        assert len({id(object_type) for object_type in result.values()}) == 1
+
+    def test_two_types_are_resolved_once_each(self, flask_app: Flask) -> None:
+        """A mixed batch resolves one type per distinct type_id, and maps each object to its own."""
+        objects = [_bulk_object(11, SHARED_TYPE_ID), _bulk_object(12, OTHER_TYPE_ID),
+                   _bulk_object(13, SHARED_TYPE_ID)]
+        objects_manager = _bulk_objects_manager(objects)
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent'):
+            result = validate_object_location_moves([11, 12, 13], PARENT_ID, objects_manager, MagicMock())
+
+        assert objects_manager.get_object_type.call_count == 2
+        assert result[11] is result[13]
+        assert result[12] is not result[11]
+
+    def test_validates_the_shared_parent_once(self, flask_app: Flask) -> None:
+        """The parent is the same for the whole batch, so it is checked once."""
+        objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent') as shared_parent:
+            validate_object_location_moves(
+                BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), MagicMock()
+            )
+
+        shared_parent.assert_called_once()
+
+    def test_still_runs_the_cycle_check_per_object(self, flask_app: Flask) -> None:
+        """The per-object half depends on where each object sits, so it is NOT batched away."""
+        objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change') as per_object, \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent'):
+            validate_object_location_moves(
+                BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), MagicMock()
+            )
+
+        assert per_object.call_count == len(BULK_OBJECT_IDS)
+
+    def test_a_missing_object_aborts_404(self, flask_app: Flask) -> None:
+        """An id the $in read did not return is a 404, naming that id."""
+        objects_manager = _bulk_objects_manager([_bulk_object(11, SHARED_TYPE_ID)])
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent'):
+            with pytest.raises(HTTPException) as raised:
+                validate_object_location_moves([11, 12], PARENT_ID, objects_manager, MagicMock())
+
+        assert raised.value.code == HTTP_NOT_FOUND
+        assert '12' in raised.value.description
+
+    def test_an_unresolvable_type_aborts_500(self, flask_app: Flask) -> None:
+        """A type that does not resolve is a server error, as in the single-object validator."""
+        objects_manager = _bulk_objects_manager([_bulk_object(11, SHARED_TYPE_ID)])
+        objects_manager.get_object_type.side_effect = None
+        objects_manager.get_object_type.return_value = None
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent'):
+            with pytest.raises(HTTPException) as raised:
+                validate_object_location_moves([11], PARENT_ID, objects_manager, MagicMock())
+
+        assert raised.value.code == HTTP_INTERNAL_SERVER_ERROR
+
+    def test_an_object_without_a_location_field_aborts_400(self, flask_app: Flask) -> None:
+        """Only objects whose type declares a location field can sit in the tree."""
+        placeless = _bulk_object(11, SHARED_TYPE_ID)
+        placeless.has_fields_of_type.return_value = False
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent'):
+            with pytest.raises(HTTPException) as raised:
+                validate_object_location_moves([11], PARENT_ID, _bulk_objects_manager([placeless]),
+                                               MagicMock())
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+
+
+class TestValidateSharedMoveParent:
+    """The object-independent half of the placement validation."""
+
+    def test_none_parent_is_allowed(self, flask_app: Flask) -> None:
+        """Removing the placement needs no parent, so nothing is read."""
+        locations_manager = MagicMock(name='locations_manager')
+
+        with flask_app.test_request_context('/'):
+            validate_shared_move_parent(None, locations_manager)
+
+        locations_manager.get_location.assert_not_called()
+
+    def test_the_root_is_always_selectable(self, flask_app: Flask) -> None:
+        """The synthetic root needs no lookup either."""
+        locations_manager = MagicMock(name='locations_manager')
+
+        with flask_app.test_request_context('/'):
+            validate_shared_move_parent(RootLocationDefault.PUBLIC_ID, locations_manager)
+
+        locations_manager.get_location.assert_not_called()
+
+    def test_a_missing_parent_aborts_400(self, flask_app: Flask) -> None:
+        """A parent id that resolves to nothing is a client error."""
+        locations_manager = MagicMock(name='locations_manager')
+        locations_manager.get_location.return_value = None
+
+        with flask_app.test_request_context('/'):
+            with pytest.raises(HTTPException) as raised:
+                validate_shared_move_parent(PARENT_ID, locations_manager)
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+
+    def test_a_non_selectable_parent_aborts_400(self, flask_app: Flask) -> None:
+        """type_selectable is denormalised onto the node, so the check needs no type read."""
+        locations_manager = MagicMock(name='locations_manager')
+        locations_manager.get_location.return_value = {'public_id': PARENT_ID, 'type_selectable': False}
+
+        with flask_app.test_request_context('/'):
+            with pytest.raises(HTTPException) as raised:
+                validate_shared_move_parent(PARENT_ID, locations_manager)
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+
+class TestSyncObjectLocationRemovalWithoutNode:
+    """Removing a placement an object never had is a no-op, not an error."""
+
+    def test_no_existing_node_means_nothing_is_deleted(self, flask_app: Flask) -> None:
+        """
+        parent None + no existing CmdbLocation -> return without deleting anything
+
+        A name has to be supplied to get here at all: with no name and no parent change the earlier
+        no-op guard returns first. The branch matters because the bulk move normalises "unplace" to
+        parent None for every listed object, including ones that were never in the tree.
+        """
+        locations_manager = MagicMock(name='locations_manager')
+        locations_manager.get_location_for_object.return_value = None
+        objects_manager = MagicMock(name='objects_manager')
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as delete_helper:
+            sync_object_location(OBJECT_ID, None, EXPLICIT_NAME, MagicMock(), MagicMock(),
+                                 objects_manager, locations_manager)
+
+        delete_helper.assert_not_called()
+        locations_manager.insert_location.assert_not_called()

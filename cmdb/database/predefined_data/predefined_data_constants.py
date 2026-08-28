@@ -14,28 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Key and value constants for the predefined (seed) data documents
+Key constants for the predefined (seed) data documents
 
 The factory functions in this package build the documents inserted at setup. The document keys are
-model-field identifiers reused across the codebase, so they are named here (one BaseStrEnum per
-document type) instead of repeated as string literals. RootLocationDefault names the identity and
-sentinel values of the synthetic CmdbLocations root. All string enums extend BaseStrEnum, so members
-compare equal to their string value for dict construction, lookup and JSON/BSON serialization.
+model-field identifiers, so they are named here (one BaseStrEnum per document type) instead of
+repeated as string literals. All string enums extend BaseStrEnum, so members compare equal to their
+string value for dict construction, lookup and JSON/BSON serialization.
+
+Only keys whose consumers are inside ``cmdb/database`` belong here. ``LocationKey`` and
+``RootLocationDefault`` moved to ``cmdb.models.location_model.location_constants`` on 2026-08-27
+because the manager, route, helper and Rack layers all consume them, and importing a document-key
+enum upward from the database layer is the wrong direction. ``ExtendableOptionKey`` below has the same
+problem (the CmdbExtendableOption routes and helper import it) and has NOT been moved - it belongs
+with that feature's own audit rather than with this one.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-class LocationKey(BaseStrEnum):
-    """Document keys of a CmdbLocation"""
-    PUBLIC_ID = 'public_id'
-    NAME = 'name'
-    PARENT = 'parent'
-    OBJECT_ID = 'object_id'
-    TYPE_ID = 'type_id'
-    TYPE_LABEL = 'type_label'
-    TYPE_ICON = 'type_icon'
-    TYPE_SELECTABLE = 'type_selectable'
 
 
 class ExtendableOptionKey(BaseStrEnum):
@@ -57,20 +51,3 @@ class RiskMatrixKey(BaseStrEnum):
     PUBLIC_ID = 'public_id'
     RISK_MATRIX = 'risk_matrix'
     MATRIX_UNIT = 'matrix_unit'
-
-
-class RootLocationDefault:
-    """
-    Identity and sentinel values of the synthetic CmdbLocations root document
-
-    PUBLIC_ID is the fixed root id. NO_PARENT / NO_OBJECT / NO_TYPE are the 0 sentinels marking the
-    root as top-of-tree and not backed by a real object or type. NAME doubles as the type label,
-    and ICON / SELECTABLE complete the root's render metadata.
-    """
-    PUBLIC_ID: int = 1
-    NAME: str = 'Root'
-    NO_PARENT: int = 0
-    NO_OBJECT: int = 0
-    NO_TYPE: int = 0
-    ICON: str = 'fas fa-globe'
-    SELECTABLE: bool = True

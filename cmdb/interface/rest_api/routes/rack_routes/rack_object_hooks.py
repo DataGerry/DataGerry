@@ -44,7 +44,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
 from cmdb.models.user_model import CmdbUser
 
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+from cmdb.models.location_model.location_constants import LocationKey
 
 from cmdb.security.license.license_constants import LicenseFeature
 

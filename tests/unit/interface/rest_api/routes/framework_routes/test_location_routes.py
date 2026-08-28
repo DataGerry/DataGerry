@@ -49,7 +49,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_rou
     move_cmdb_locations,
     delete_cmdb_location_for_object,
 )
-from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
+from cmdb.models.location_model.location_constants import RootLocationDefault
 
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
@@ -286,7 +286,7 @@ class TestGetCmdbLocations:
             result = self._call(flask_app)
 
         assert response_ctor.call_args.args[0] == ['json-raw1', 'json-raw2']
-        assert response_ctor.call_args.args[1] == TOTAL_LOCATIONS
+        assert response_ctor.call_args.kwargs['total'] == TOTAL_LOCATIONS
         assert result is sentinel_response
 
     def test_iteration_error_maps_to_400(
@@ -548,18 +548,23 @@ class TestGetCmdbLocationParent:
         response_ctor.assert_called_once_with(None)
         managers[ManagerType.LOCATIONS].get_location.assert_not_called()
 
-    def test_missing_parent_aborts_404(
+    def test_missing_parent_answers_none(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
-        """A dangling parent reference (parent location not found) aborts 404."""
+        """
+        A dangling parent reference answers 200 with None, like an object with no location at all
+
+        It used to abort 404, which gave the one outcome "there is no parent" two encodings and
+        reported a data-integrity problem as if the object did not exist.
+        """
         del patched_provider
         managers[ManagerType.LOCATIONS].get_location_for_object.return_value = {'parent': PARENT_ID}
         managers[ManagerType.LOCATIONS].get_location.return_value = None
 
-        with pytest.raises(HTTPException) as excinfo:
+        with patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
             self._call(flask_app, OBJECT_ID)
 
-        assert excinfo.value.code == HTTP_NOT_FOUND
+        response_ctor.assert_called_once_with(None)
 
     def test_get_error_maps_to_400(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
@@ -1106,18 +1111,40 @@ class TestMoveCmdbLocations:
         assert excinfo.value.code == HTTP_BAD_REQUEST
 
     def test_validates_all_targets_then_moves_each(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+        self, flask_app: Flask, patched_provider: Any,
     ) -> None:
-        """Every target is validated up front, then each is moved with its pre-validated type."""
+        """
+        The whole batch is validated in ONE call up front, then each target is moved
+
+        The pre-flight used to call the single-object validator once per object; it is now the batched
+        ``validate_object_location_moves``, called once with every id, so the shared reads happen once.
+        """
         del patched_provider
+        validated = {1: MagicMock(), 2: MagicMock()}
 
         with patch(f'{ROUTE_PATH}.DefaultResponse'), \
-             patch(f'{ROUTE_PATH}.validate_object_location_move', return_value=MagicMock()) as validate_move, \
+             patch(f'{ROUTE_PATH}.validate_object_location_moves', return_value=validated) as validate_moves, \
              patch(f'{ROUTE_PATH}.move_object_location') as move:
             self._call(flask_app, {'object_ids': [1, 2], 'parent': PARENT_ID})
 
-        assert validate_move.call_count == 2
+        validate_moves.assert_called_once()
+        assert validate_moves.call_args.args[0] == [1, 2]
         assert move.call_count == 2
+
+    def test_each_move_gets_its_own_pre_validated_type(
+        self, flask_app: Flask, patched_provider: Any,
+    ) -> None:
+        """The type the batch validator resolved for an object is the one handed to its move."""
+        del patched_provider
+        first_type, second_type = MagicMock(name='type-1'), MagicMock(name='type-2')
+
+        with patch(f'{ROUTE_PATH}.DefaultResponse'), \
+             patch(f'{ROUTE_PATH}.validate_object_location_moves',
+                   return_value={1: first_type, 2: second_type}), \
+             patch(f'{ROUTE_PATH}.move_object_location') as move:
+            self._call(flask_app, {'object_ids': [1, 2], 'parent': PARENT_ID})
+
+        assert [call.args[-1] for call in move.call_args_list] == [first_type, second_type]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

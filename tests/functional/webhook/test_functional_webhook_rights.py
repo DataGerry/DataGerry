@@ -53,10 +53,10 @@ GUARDED_ROUTES: list[tuple[str, str, str, str]] = [
     ('get_webhook', 'GET', f'{WEBHOOKS_URL}/{WEBHOOK_ID}', WebhookRight.VIEW.value),
     ('get_webhooks', 'GET', f'{WEBHOOKS_URL}/', WebhookRight.VIEW.value),
     ('update_webhook', 'PUT', f'{WEBHOOKS_URL}/{WEBHOOK_ID}?{CREATE_QUERY}', WebhookRight.EDIT.value),
-    ('delete_webhook', 'DELETE', f'{WEBHOOKS_URL}/{WEBHOOK_ID}/', WebhookRight.DELETE.value),
+    ('delete_webhook', 'DELETE', f'{WEBHOOKS_URL}/{WEBHOOK_ID}', WebhookRight.DELETE.value),
     ('get_webhook_event', 'GET', f'{WEBHOOK_EVENTS_URL}/{WEBHOOK_ID}', WebhookRight.VIEW.value),
     ('get_webhook_events', 'GET', f'{WEBHOOK_EVENTS_URL}/', WebhookRight.VIEW.value),
-    ('delete_webhook_event', 'DELETE', f'{WEBHOOK_EVENTS_URL}/{WEBHOOK_ID}/', WebhookRight.DELETE.value),
+    ('delete_webhook_event', 'DELETE', f'{WEBHOOK_EVENTS_URL}/{WEBHOOK_ID}', WebhookRight.DELETE.value),
 ]
 
 ROUTE_IDS: list[str] = [route[0] for route in GUARDED_ROUTES]

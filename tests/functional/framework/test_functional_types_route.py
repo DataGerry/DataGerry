@@ -264,6 +264,26 @@ class TestPutType:
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 
+    def test_update_response_is_the_persisted_document(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The PUT body is a fresh read of the stored Type (the side effects may mutate it further)."""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}',
+                json=_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL),
+            )
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+            follow_up = rest_api.get(f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}')
+            assert response.get_json()['result'] == follow_up.get_json()['result']
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       DELETE                                                         #
@@ -356,6 +376,30 @@ class TestSelectableAsParentGuard:
         finally:
             _drop_object(database_manager, database_name, PLACED_OBJECT_ID)
             _drop_type(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+
+    def test_both_usage_routes_answer_identically(self, rest_api, database_manager, database_name) -> None:
+        """The two pre-check routes share one body, so the same Type must produce the same payload."""
+        _insert_type_doc_with_location(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+        _insert_placed_object(database_manager, database_name, PLACED_OBJECT_ID, TYPE_ID_FOR_SELECTABLE)
+        try:
+            location_usage = rest_api.get(f'{ROUTE_URL}/location_field_usage/{TYPE_ID_FOR_SELECTABLE}')
+            selectable_usage = rest_api.get(f'{ROUTE_URL}/selectable_as_parent_usage/{TYPE_ID_FOR_SELECTABLE}')
+
+            assert location_usage.status_code == HTTPStatus.OK
+            assert selectable_usage.status_code == HTTPStatus.OK
+            # The projected query still returns the placed object's public_id
+            assert location_usage.get_json()['object_public_ids'] == [PLACED_OBJECT_ID]
+            assert location_usage.get_json() == selectable_usage.get_json()
+        finally:
+            _drop_object(database_manager, database_name, PLACED_OBJECT_ID)
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
+
+    @pytest.mark.parametrize('usage_route', ['location_field_usage', 'selectable_as_parent_usage'])
+    def test_usage_of_missing_type_returns_404(self, rest_api, usage_route: str) -> None:
+        """Both pre-check routes 404 for a Type that does not exist."""
+        response = rest_api.get(f'{ROUTE_URL}/{usage_route}/{MISSING_TYPE_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
     def test_usage_false_when_no_object_placed(self, rest_api, database_manager, database_name) -> None:
         """The pre-check route reports in_use False when no object of the type is placed."""

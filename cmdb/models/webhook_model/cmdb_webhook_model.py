@@ -78,7 +78,18 @@ class CmdbWebhook(CmdbDAO):
     @classmethod
     def from_data(cls, data: dict) -> "CmdbWebhook":
         """
-        Convert data to instance of CmdbWebhook
+        Creates a CmdbWebhook instance from a dict
+
+        Reads every field with ``.get()``, so a missing key yields None rather than raising. The
+        required fields are therefore NOT enforced here: ``CmdbWebhook.SCHEMA`` marks ``name``, ``url``
+        and ``event_types`` required but is never applied, so the guarantee comes from
+        ``webhook_helper.parse_webhook_params`` on the create and update routes
+
+        Args:
+            data (dict): Data with which the CmdbWebhook should be instantiated
+
+        Returns:
+            CmdbWebhook: CmdbWebhook instance with the given data
         """
         return cls(
             public_id=data.get('public_id'),
@@ -91,7 +102,19 @@ class CmdbWebhook(CmdbDAO):
 
     @classmethod
     def to_json(cls, instance: "CmdbWebhook") -> dict:
-        """Convert a CmdbWebhook instance to json conform data"""
+        """
+        Converts a CmdbWebhook into a json compatible dict
+
+        This is both the response body and what is persisted: ``GenericManager.insert_item`` and
+        ``update_item`` serialise the instance through this method, so the five keys below are exactly
+        the stored document
+
+        Args:
+            instance (CmdbWebhook): The CmdbWebhook which should be converted
+
+        Returns:
+            dict: Json dict of the CmdbWebhook values
+        """
         return {
             'public_id': instance.get_public_id(),
             'name': instance.name,

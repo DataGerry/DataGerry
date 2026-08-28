@@ -27,7 +27,7 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.framework.results import IterationResult
 
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey, RootLocationDefault
+from cmdb.models.location_model.location_constants import LocationKey, RootLocationDefault
 
 from cmdb.errors.manager import (
     BaseManagerGetError,

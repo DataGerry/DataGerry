@@ -23,7 +23,20 @@ the rights of the webhook the event belongs to (see ``WebhookRight``)
 
 For the cloud API they are ``ApiLevel.LOCKED``, which is a deliberate refusal rather than a level:
 ``__check_api_level`` denies a LOCKED route outright, so the delivery log is reachable from the
-DataGerry frontend only
+DataGerry frontend only. Note the asymmetry with the sibling blueprint: the webhook DEFINITIONS are
+``ApiLevel.ADMIN``, so a cloud API client can create and edit a webhook but can not read its deliveries
+
+Three properties of this log matter before changing anything here:
+
+* **It is append-only and unbounded.** Every object write produces one document per matching active
+  webhook. There is no retention policy and no bulk prune - the delete route removes one row - and
+  deleting a CmdbWebhook deliberately leaves its events behind, so orphans accumulate. The indexes
+  declared on ``CmdbWebhookEvent`` are what keep reading it from degrading as it grows.
+* **Each row holds the full object documents.** ``object_before`` and ``object_after`` are complete
+  serialised CmdbObjects, and this route returns them for every row even though the frontend's table
+  renders four scalar columns.
+* **Reading it needs no object ACL.** Those field values are readable with
+  ``base.framework.webhook.view`` alone, whatever the object's own permissions say.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -102,15 +115,28 @@ def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @webhook_event_blueprint.route('/', methods=['GET', 'HEAD'])
-@webhook_event_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @webhook_event_blueprint.protect(auth=True, right=WebhookRight.VIEW.value)
+@webhook_event_blueprint.parse_collection_parameters()
 def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a paged list of CmdbWebhookEvents
 
     Requires the ``base.framework.webhook.view`` right
+
+    Two things about this route are unlike the other list routes and are tracked as decisions rather
+    than settled here:
+
+    - the frontend's log table sends ``?filter=`` as a **list of aggregation stages**
+      (``$addFields`` + ``$match``, built in ``webhook-log-viewer.component.ts``), not as a plain
+      criteria dict. Those stages reach the pipeline as given, which is why the filter shape can not
+      simply be locked down on this route alone
+    - each row carries the complete ``object_before`` / ``object_after`` documents, while the table
+      renders only four scalar columns
+
+    The collection is indexed on ``webhook_id`` and ``event_time`` (see ``CmdbWebhookEvent``), the two
+    keys this route is sorted and searched by
 
     Args:
         params (CollectionParameters): Filter, sort and paging parameters
@@ -135,12 +161,14 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
         ]
 
         api_response = GetMultiResponse(webhook_event_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        request.method == 'HEAD')
+                                        total=iteration_result.total,
+                                        params=params,
+                                        url=request.url,
+                                        body=request.method == 'HEAD')
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except WebhooksEventManagerIterationError as err:
         LOGGER.error("[get_webhook_events] WebhooksEventManagerIterationError: %s", err, exc_info=True)
         abort(400, "Could not retrieve Webhook Events!")
@@ -150,7 +178,7 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-@webhook_event_blueprint.route('/<int:public_id>/', methods=['DELETE'])
+@webhook_event_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @webhook_event_blueprint.protect(auth=True, right=WebhookRight.DELETE.value)
@@ -160,6 +188,9 @@ def delete_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
 
     Requires the ``base.framework.webhook.delete`` right. Deleting a delivery prunes the log only; the
     CmdbWebhook that produced it is untouched
+
+    Registered WITHOUT a trailing slash, like the GET route above it. It used to carry one, which made
+    the frontend's slash-less DELETE (``webhookLog.service.ts``) take a 308 redirect first
 
     Args:
         public_id (int): public_id of the CmdbWebhookEvent which should be deleted

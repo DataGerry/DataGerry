@@ -32,7 +32,7 @@ from typing import Any
 from pymongo import IndexModel
 
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
 from cmdb.models.location_model.cmdb_location import CmdbLocation

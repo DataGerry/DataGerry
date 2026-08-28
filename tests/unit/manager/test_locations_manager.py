@@ -31,7 +31,7 @@ import pytest
 
 from cmdb.manager.locations_manager import LocationsManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
-from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
+from cmdb.models.location_model.location_constants import RootLocationDefault
 
 from cmdb.errors.models.cmdb_location import CmdbLocationToJsonError
 from cmdb.errors.manager import (

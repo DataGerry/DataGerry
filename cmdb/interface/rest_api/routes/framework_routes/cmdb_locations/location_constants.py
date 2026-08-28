@@ -34,3 +34,7 @@ OBJECT_ID_NAME_TEMPLATE: str = 'ObjectID: {object_id}'
 
 # Response-only key added to each lazy location-tree node signalling whether it can be expanded
 LOCATION_TREE_HAS_CHILDREN_KEY: str = 'has_children'
+
+# Request/response body key carrying the objects of a bulk placement move. Not a CmdbLocation document
+# key (those live in LocationKey) - it exists only in the PATCH /parents payload
+BULK_MOVE_OBJECT_IDS_KEY: str = 'object_ids'

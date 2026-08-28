@@ -27,15 +27,17 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager.groups_manager import GroupsManager, PROTECTED_GROUP_IDS
+from cmdb.manager.groups_manager import GroupsManager
 from cmdb.manager.query_builder.builder_parameters import BuilderParameters
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import (
+    CmdbUserGroup,
+    ADMIN_GROUP_ID,
+    USER_GROUP_ID,
+    MASTER_RIGHT_NAME,
+)
 
 from cmdb.errors.manager.groups_manager import GroupsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
-
-ADMIN_GROUP_ID: int = PROTECTED_GROUP_IDS[0]
-USER_GROUP_ID: int = PROTECTED_GROUP_IDS[1]
 
 GROUP_ID_FOR_GET: int = 9801
 GROUP_ID_FOR_UPDATE: int = 9802
@@ -141,6 +143,19 @@ class TestGetGroup:
     def test_returns_none_for_missing_id(self, groups_manager: GroupsManager) -> None:
         """A missing id returns None instead of attempting to rehydrate (this is the refactor's bug fix)."""
         assert groups_manager.get_group(MISSING_GROUP_ID) is None
+
+    def test_bootstrap_admin_group_holds_the_master_right(self, groups_manager: GroupsManager) -> None:
+        """
+        The seeded administrator group carries the master right
+
+        This is the invariant the update route defends: ``base.*`` is the only right the admin group
+        is seeded with, and losing it would leave nobody able to hand it back
+        """
+        admin_group = groups_manager.get_group(ADMIN_GROUP_ID)
+
+        assert admin_group is not None
+        assert admin_group.has_right(MASTER_RIGHT_NAME)
+        assert admin_group.has_extended_right('base.user-management.group.edit')
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -14,17 +14,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module prove all API Response parameters for ISMS
+Request/response parameter classes of the REST API
+
+Nothing here is feature-specific: ``CollectionParameters`` is the pager of EVERY list route (and the
+source of the ``parameters`` block a GetMultiResponse echoes back), ``TypeIterationParameters`` adds the
+type listing's ``active`` flag, and ``GroupDeletionParameters`` carries the group-delete arguments. The
+query keys and echoed keys are named in ``response_parameters_constants.ParameterKey`` and are frontend
+contract on both sides
 """
 from .api_parameters import APIParameters
 from .collection_parameters import CollectionParameters
 from .group_parameters import GroupDeletionParameters
+from .response_parameters_constants import BuilderParamKey, ParameterKey
 from .type_parameters import TypeIterationParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'APIParameters',
+    'BuilderParamKey',
     'CollectionParameters',
     'GroupDeletionParameters',
+    'ParameterKey',
     'TypeIterationParameters',
 ]
