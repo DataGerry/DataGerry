@@ -30,7 +30,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.location_node import LocationNode
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.rendering.render_result import RenderResult
-from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault, LocationKey
+from cmdb.models.location_model.location_constants import RootLocationDefault, LocationKey
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     OBJECT_ID_NAME_TEMPLATE,
@@ -249,6 +249,34 @@ def extract_object_location_parent(fields: list[dict[str, Any]]) -> tuple[bool, 
     return True, parent if parent > 0 else None
 
 
+def validate_shared_move_parent(parent: int | None, locations_manager: LocationsManager) -> None:
+    """
+    Validates the target parent of a placement change - the half that does not depend on the object
+
+    The synthetic root is always a valid, selectable parent; any other parent must exist and belong to
+    a type that is selectable as a parent (``type_selectable``, denormalized onto the location node).
+    Removing the placement (``parent`` None) is always allowed. Split out so a bulk move can check the
+    parent it shares across the whole batch once instead of once per object
+
+    Args:
+        parent (int | None): The new parent CmdbLocation id, or None to remove the placement
+        locations_manager (LocationsManager): db interface for CmdbLocations
+
+    Raises:
+        HTTPException: 400 when the parent does not exist or is not selectable as a parent
+    """
+    if parent is None or parent == RootLocationDefault.PUBLIC_ID:
+        return
+
+    parent_location: dict[str, Any] | None = locations_manager.get_location(parent)
+
+    if not parent_location:
+        abort(400, f"The selected parent Location (ID:{parent}) does not exist!")
+
+    if not parent_location.get(LocationKey.TYPE_SELECTABLE.value, True):
+        abort(400, f"The selected parent Location (ID:{parent}) is not selectable as a parent!")
+
+
 def validate_object_location_change(
         object_id: int,
         parent: int | None,
@@ -282,16 +310,7 @@ def validate_object_location_change(
         # the node's own parent (see LocationsManager.delete_location), so this is always allowed
         return
 
-    # The synthetic root is always a valid, selectable parent; any other parent must exist and be
-    # selectable as a parent (its type's selectable_as_parent, denormalized onto the location node)
-    if parent != RootLocationDefault.PUBLIC_ID:
-        parent_location: dict[str, Any] | None = locations_manager.get_location(parent)
-
-        if not parent_location:
-            abort(400, f"The selected parent Location (ID:{parent}) does not exist!")
-
-        if not parent_location.get(LocationKey.TYPE_SELECTABLE.value, True):
-            abort(400, f"The selected parent Location (ID:{parent}) is not selectable as a parent!")
+    validate_shared_move_parent(parent, locations_manager)
 
     if existing:
         forbidden: set[int] = {existing['public_id']}
@@ -406,6 +425,77 @@ def validate_object_location_move(
     validate_object_location_change(object_id, parent, locations_manager)
 
     return object_type
+
+
+def validate_object_location_moves(
+        object_ids: list[int],
+        parent: int | None,
+        objects_manager: ObjectsManager,
+        locations_manager: LocationsManager) -> dict[int, CmdbType]:
+    """
+    Read-only validation of a BULK placement move; returns each object's type for the caller to reuse
+
+    Runs the same checks as ``validate_object_location_move`` in the same order per object, but
+    without re-reading what the whole batch shares:
+
+    - the objects are fetched in ONE ``$in`` query instead of one read per object
+    - each distinct type is resolved ONCE, however many objects of it are in the batch
+    - the target parent is the same for the entire batch, so its existence and selectable-as-parent
+      check runs once rather than per object (the per-object cycle check still runs individually,
+      because it depends on where each object currently sits)
+
+    One consequence of validating the shared parent up front: when BOTH the parent is invalid and a
+    listed object is missing, the parent error is what the caller sees. Previously the first object's
+    404 won. The batch is rejected either way
+
+    Args:
+        object_ids (list[int]): public_ids of the CmdbObjects to move
+        parent (int | None): The new parent CmdbLocation id, or None to remove the placements
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        locations_manager (LocationsManager): db interface for CmdbLocations
+
+    Raises:
+        HTTPException: 404 when a listed object is missing, 400 when one has no location field or a
+            placement is invalid, 500 when an object's type cannot be resolved
+
+    Returns:
+        dict[int, CmdbType]: The resolved CmdbType per object_id (reused by move_object_location)
+    """
+    validate_shared_move_parent(parent, locations_manager)
+
+    objects_by_id: dict[int, CmdbObject] = {
+        current_object.get_public_id(): current_object
+        for current_object in objects_manager.get_objects_by(public_id={'$in': object_ids})
+    }
+
+    types_by_id: dict[int, CmdbType] = {}
+    validated_types: dict[int, CmdbType] = {}
+
+    for object_id in object_ids:
+        current_object: CmdbObject | None = objects_by_id.get(object_id)
+
+        if not current_object:
+            abort(404, f"Object with ID:{object_id} not found!")
+
+        type_id: int = current_object.get_type_id()
+
+        if type_id not in types_by_id:
+            object_type: CmdbType | None = objects_manager.get_object_type(type_id)
+
+            if not object_type:
+                abort(500, f"Type of Object with ID:{object_id} not found in database!")
+
+            types_by_id[type_id] = object_type
+
+        if not current_object.has_fields_of_type(FieldType.LOCATION):
+            abort(400,
+                  f"Object with ID:{object_id} has no location field and cannot be placed in the location tree!")
+
+        validate_object_location_change(object_id, parent, locations_manager)
+
+        validated_types[object_id] = types_by_id[type_id]
+
+    return validated_types
 
 
 def move_object_location(

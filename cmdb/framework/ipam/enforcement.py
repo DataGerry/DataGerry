@@ -46,7 +46,7 @@ from cmdb.framework.ipam.cidr import parse_cidr, parse_ip
 from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
-from cmdb.framework.ipam.interface_validator import validate_interface_rows
+from cmdb.framework.ipam.interface_validator import interface_row_keys, validate_interface_rows
 from cmdb.framework.ipam.references import (
     find_subnets_referencing_supernet,
     find_vlans_referencing_subnet,
@@ -328,11 +328,15 @@ def _extract_interface_rows(
     non-empty string and None otherwise; legacy rows without the selector therefore skip the
     type-family consistency check downstream
 
+    The row key is the row's ``multi_data_id`` via ``interface_row_keys``, NOT its position. It
+    doubles as the self-exclusion key against the stored object, and the stored side keys rows the
+    same way - using the position on either side made an edited row collide with its own stored row
+
     Args:
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
 
     Returns:
-        list[tuple[int, int | None, str | None, str | None]]: (row_index, subnet_ref,
+        list[tuple[int, int | None, str | None, str | None]]: (row_key, subnet_ref,
             ip_address, interface_type) tuples
     """
     rows_out: list[tuple[int, int | None, str | None, str | None]] = []
@@ -341,7 +345,9 @@ def _extract_interface_rows(
         if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
             continue
 
-        for row_index, row in enumerate(section.get(CmdbObjectMdsKey.VALUES, []) or []):
+        section_rows: list[dict[str, Any]] = section.get(CmdbObjectMdsKey.VALUES, []) or []
+
+        for row_index, row in zip(interface_row_keys(section), section_rows):
             subnet_ref: int | None = None
             ip_address: str | None = None
             interface_type: str | None = None

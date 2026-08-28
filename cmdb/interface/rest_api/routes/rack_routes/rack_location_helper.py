@@ -53,7 +53,7 @@ from cmdb.models.rack_model.rack_mount_constants import RackMountKey
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+from cmdb.models.location_model.location_constants import LocationKey
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     sync_object_location,

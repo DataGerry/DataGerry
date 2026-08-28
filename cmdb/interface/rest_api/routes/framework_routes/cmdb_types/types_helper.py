@@ -45,7 +45,7 @@ from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey
+from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.framework.ipam.special_type_wiring import (
     handle_special_types,
     cleanup_type_references_from_all_types,
@@ -376,7 +376,7 @@ def realign_type_objects_if_fields_changed(
     Args:
         request_user (CmdbUser): User performing the request
         old_type (CmdbType): State of the CmdbType before the update
-        updated_type (CmdbType): The re-read CmdbType after the base update
+        updated_type (CmdbType): The CmdbType as just written by the base update
     """
     old_field_names: set[str] = {field[FieldKey.NAME] for field in old_type.fields}
     new_field_names: set[str] = {field[FieldKey.NAME] for field in updated_type.fields}
@@ -407,7 +407,8 @@ def get_objects_using_location_field(
     Returns the public_ids of CmdbObjects that currently store a location value
     (an integer > 0) in the location-typed field of the given CmdbType
 
-    Returns an empty list if the CmdbType has no location field
+    Returns an empty list if the CmdbType has no location field. The result is unbounded - every
+    matching public_id is returned, which for a large type is a large list (discussion backlog #187)
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -433,7 +434,13 @@ def get_objects_using_location_field(
         },
     }
 
-    matching_objects: list[dict[str, Any]] = objects_manager.find_objects(criteria, as_dict=True)
+    # Only the public_ids are used, so the query projects them instead of loading whole documents -
+    # this runs on every type-edit page load and inside both update guards
+    matching_objects: list[dict[str, Any]] = objects_manager.find_objects(
+        criteria,
+        as_dict=True,
+        projection={CmdbObjectKey.PUBLIC_ID: 1},
+    )
 
     return [obj[CmdbObjectKey.PUBLIC_ID] for obj in matching_objects]
 
@@ -794,7 +801,7 @@ def apply_type_update_side_effects(
         request_user (CmdbUser): User performing the request
         types_manager (TypesManager): db interface for CmdbTypes
         old_type (CmdbType): State of the CmdbType before the update
-        updated_type (CmdbType): The re-read CmdbType after the base update
+        updated_type (CmdbType): The CmdbType as just written by the base update
         removed_templates (tuple): (removed template names, per-template section hints) as returned
             by compute_removed_global_templates
     """

@@ -36,7 +36,7 @@ from typing import Any
 
 from cmdb.manager import LocationsManager, ObjectsManager
 
-from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
+from cmdb.models.location_model.location_constants import RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CHILD_LOCATION_REL_COLOR: str = '#C084FC'

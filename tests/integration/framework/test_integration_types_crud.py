@@ -180,6 +180,32 @@ class TestUpdateType:
         finally:
             _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 
+    def test_matched_count_reports_whether_the_type_existed(
+        self,
+        types_manager: TypesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The UpdateResult distinguishes "updated" from "no such type"
+
+        The update route relies on this instead of reading the document back after the write, so
+        the contract is pinned here against a real MongoDB
+        """
+        try:
+            types_manager.insert_type(_type_data(TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL))
+
+            hit = types_manager.update_type(TYPE_ID_FOR_UPDATE, _type_data(TYPE_ID_FOR_UPDATE, UPDATED_LABEL))
+            miss = types_manager.update_type(MISSING_TYPE_ID, _type_data(MISSING_TYPE_ID, UPDATED_LABEL))
+
+            assert hit.matched_count == 1
+            assert miss.matched_count == 0
+            # A miss must not upsert a new document either
+            assert types_manager.get_type(MISSING_TYPE_ID) is None
+        finally:
+            _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_UPDATE)
+            _delete_type_by_id(database_manager, database_name, MISSING_TYPE_ID)
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       DELETE                                                         #

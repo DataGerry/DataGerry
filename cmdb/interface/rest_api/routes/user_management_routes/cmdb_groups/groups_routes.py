@@ -76,7 +76,10 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_co
     GROUPS_COLLECTION_ROUTE,
     GROUP_ITEM_ROUTE,
 )
-from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import resolve_move_target
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import (
+    resolve_move_target,
+    ensure_admin_group_keeps_master_right,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -240,18 +243,21 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
     names through the manager's cached right tree, then persists with ``insert_mode`` serialization
     (rights stored as name strings)
 
+    The administrator group keeps one hard invariant: its payload must still carry the master
+    right (see ``ensure_admin_group_keeps_master_right``), so it can never be edited into a state
+    where nobody can administrate DataGerry. Everything else about it stays editable, and the
+    bootstrap groups are otherwise not protected against editing here (unlike the delete route,
+    which refuses them outright via ``is_protected_group``).
+
     Note:
-        Unlike the delete route, this route does NOT guard protected / bootstrap groups
-        (``is_protected_group``): an admin / user bootstrap group can currently be edited here,
-        including reducing its rights. This is a deliberate current behavior pending a product
-        decision on whether protected groups should be non-editable.
         The response serializes ``rights`` as name strings (insert-mode), which differs from the
         create / read routes (full right dicts); reconciling that shape is a pending FE-contract
         decision.
 
     Status codes:
         202 ACCEPTED: Update applied; body is the persisted serialization
-        400 BAD_REQUEST: Lookup or update failed at the manager layer
+        400 BAD_REQUEST: The administrator group's master right was dropped, or the lookup /
+            update failed at the manager layer
         404 NOT_FOUND: No group with the given public_id exists
         500: Unexpected error
 
@@ -270,6 +276,9 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 
         if not to_update_group:
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
+
+        # The administrator group may never lose the master right (it would lock everyone out)
+        ensure_admin_group_keeps_master_right(public_id, data)
 
         # Pin the identity to the URL: a payload public_id can never rewrite the document's id
         data[CmdbObjectKey.PUBLIC_ID] = public_id
