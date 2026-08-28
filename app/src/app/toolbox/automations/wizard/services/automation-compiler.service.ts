@@ -474,11 +474,12 @@ export class AutomationCompilerService {
             const index = anchor.contains
                 ? this.nextChildIndex(anchor.index, out)
                 : this.nextSiblingIndex(anchor.index, out);
+            const attachment = this.attachmentFor(anchor, index, out);
 
             if (extra.kind === 'if' || extra.kind === 'loop') {
                 const container = extra.kind === 'if'
-                    ? this.appendConditionStep(extra, anchor, index, out)
-                    : this.appendLoopStep(extra, anchor, index, out);
+                    ? this.appendConditionStep(extra, attachment, index, out)
+                    : this.appendLoopStep(extra, attachment, index, out);
 
                 if (container) {
                     placed.set(extra.id, container);
@@ -516,16 +517,11 @@ export class AutomationCompilerService {
             out.graph.push({
                 id: method.id,
                 kind: 'method',
-                parent: anchor.id,
+                parent: attachment.parent,
                 method,
-                // A call that follows another sits beside it; one inside a condition drops below it
-                // and hangs off the exit that was taken.
-                below: !!anchor.contains,
-                branch: anchor.contains === 'if' ? 'true' : undefined
+                below: attachment.below,
+                branch: attachment.branch
             });
-
-            if (anchor.method) {
-            }
 
             placed.set(extra.id, { id: method.id, index: method.index, method });
 
@@ -610,6 +606,70 @@ export class AutomationCompilerService {
 
 
     /**
+     * Where an added step is drawn from - which is not always the step it was placed after.
+     *
+     * Placed inside a condition or a loop, it drops a row below its anchor and enters from the top,
+     * down the exit that was taken. Placed beside it, it lands behind whatever already follows that
+     * anchor, so the step it is drawn from is the one occupying the position before its own: a
+     * second condition after the same call is reached from the first condition's `false` exit, the
+     * way OpenCelium's own captures wire "otherwise". Drawing it from the call instead forks the
+     * sequence, and the editor then shows the two conditions side by side rather than one after the
+     * other - while the execution indices say they run in turn.
+     */
+    private attachmentFor(
+        anchor: Anchor,
+        index: string,
+        out: { methods: OcMethod[]; operators: OcOperator[] }
+    ): Attachment {
+        if (anchor.contains) {
+            return {
+                parent: anchor.id,
+                below: true,
+                branch: anchor.contains === 'if' ? 'true' : undefined
+            };
+        }
+
+        const previous = this.entryBefore(index, out);
+
+        if (!previous) {
+            return { parent: anchor.id, below: false };
+        }
+
+        return {
+            parent: previous.id,
+            below: false,
+            // A condition passes on what it did not catch, and only through its `false` exit.
+            branch: previous.kind === 'if' ? 'false' : undefined
+        };
+    }
+
+
+    /** The step occupying the position right before this one, on the same level of the tree. */
+    private entryBefore(
+        index: string,
+        out: { methods: OcMethod[]; operators: OcOperator[] }
+    ): { id: string; kind: 'method' | 'if' | 'loop' } | null {
+        const parts = index.split('_');
+        const position = Number(parts[parts.length - 1]);
+
+        if (!(position > 0)) {
+            return null;
+        }
+
+        const before = [...parts.slice(0, -1), position - 1].join('_');
+        const operator = out.operators.find(candidate => candidate.index === before);
+
+        if (operator) {
+            return { id: operator.id, kind: operator.type };
+        }
+
+        const method = out.methods.find(candidate => candidate.index === before);
+
+        return method ? { id: method.id, kind: 'method' } : null;
+    }
+
+
+    /**
      * The condition itself: an operator in the tree, and the node the editor draws for it.
      *
      * No method and no colour - a condition sends nothing. What follows it in the sequence finds it
@@ -617,7 +677,7 @@ export class AutomationCompilerService {
      */
     private appendConditionStep(
         extra: AutomationExtraCall,
-        anchor: Anchor,
+        attachment: Attachment,
         index: string,
         out: { operators: OcOperator[]; graph: GraphNode[]; warnings: string[] }
     ): Anchor | null {
@@ -646,12 +706,10 @@ export class AutomationCompilerService {
         out.graph.push({
             id: operator.id,
             kind: 'if',
-            parent: anchor.id,
+            parent: attachment.parent,
+            below: attachment.below,
+            branch: attachment.branch,
             operator,
-            // A condition after a call is its sibling and enters from the left; one after another
-            // condition runs inside it and drops below, which is what the captured nesting shows.
-            below: !!anchor.contains,
-            branch: anchor.contains === 'if' ? 'true' : undefined,
             tree: rendered.tree
         });
 
@@ -670,7 +728,7 @@ export class AutomationCompilerService {
      */
     private appendLoopStep(
         extra: AutomationExtraCall,
-        anchor: Anchor,
+        attachment: Attachment,
         index: string,
         out: { operators: OcOperator[]; graph: GraphNode[]; warnings: string[] }
     ): Anchor | null {
@@ -699,10 +757,10 @@ export class AutomationCompilerService {
         out.graph.push({
             id,
             kind: 'loop',
-            parent: anchor.id,
+            parent: attachment.parent,
+            below: attachment.below,
+            branch: attachment.branch,
             operator,
-            below: !!anchor.contains,
-            branch: anchor.contains === 'if' ? 'true' : undefined,
             tree: this.loopTree(id, list)
         });
 
@@ -2582,6 +2640,19 @@ export class AutomationCompilerService {
 type SourceValue =
     | { kind: 'path'; path: string }
     | { kind: 'constant'; value: string };
+
+
+/** How a node hangs into the drawn graph: what it is drawn from, and through which exit. */
+interface Attachment {
+    /** Ui id of the node the edge leaves. */
+    parent: string;
+
+    /** True when the node runs inside that one and is drawn a row below it. */
+    below: boolean;
+
+    /** Which exit of an `if` leads here. */
+    branch?: 'true' | 'false';
+}
 
 
 /**
