@@ -222,4 +222,137 @@ describe('BuilderMutationHelper', () => {
             expect(multi.fields.length).toBe(1);
         });
     });
+
+
+    /**
+     * A type arrives from the API with `render_meta.sections[].fields` holding field *names*; only
+     * once the builder commits a drop does it hold resolved field objects. Anything that walks a
+     * section's fields has to cope with both, or it silently finds nothing.
+     */
+    describe('hiding a multi-data-section field as a column', () => {
+
+        function seedMultiSection(fields: Array<any>): any {
+            const multi = { name: 'md', label: 'MD', type: 'multi-data-section', fields, hidden_fields: [] };
+            ctx.sections = [multi];
+            ctx.typeInstance.render_meta.sections = [multi];
+            ctx.typeInstance.fields = [fieldA];
+            return multi;
+        }
+
+        it('hides a field on a type that is still holding field names', () => {
+            const multi = seedMultiSection(['field_a']);
+
+            helper.onFieldChange({ inputName: 'hideField', fieldName: 'field_a', newValue: true });
+
+            expect(multi.hidden_fields).toEqual(['field_a']);
+        });
+
+
+        it('hides a field once the section holds resolved field objects', () => {
+            const multi = seedMultiSection([fieldA]);
+
+            helper.onFieldChange({ inputName: 'hideField', fieldName: 'field_a', newValue: true });
+
+            expect(multi.hidden_fields).toEqual(['field_a']);
+        });
+
+
+        it('ignores a hide request for a field that belongs to no section', () => {
+            const multi = seedMultiSection(['field_a']);
+
+            expect(() => helper.onFieldChange({ inputName: 'hideField', fieldName: 'ghost', newValue: true }))
+                .not.toThrow();
+            expect(multi.hidden_fields).toEqual([]);
+        });
+    });
+
+
+    /**
+     * `activeIndex` is the focused section's position and takes precedence over the by-name lookup
+     * when a section edit is applied, so it has to survive the list changing underneath it.
+     */
+    describe('the focused section index after a removal', () => {
+
+        it('follows the focused section when one above it is removed', () => {
+            ctx.activeIndex = 1;
+
+            helper.removeSection(sectionA, 0);
+            helper.onFieldChange({
+                inputName: 'label', newValue: 'B renamed', fieldName: 'section_b',
+                previousName: 'section_b', elementType: 'section'
+            });
+
+            expect(ctx.typeInstance.render_meta.sections.map((s: any) => `${s.name}:${s.label}`))
+                .toEqual(['section_b:B renamed']);
+        });
+
+
+        it('clears the focus when the focused section is the one removed', () => {
+            ctx.activeIndex = 0;
+
+            helper.removeSection(sectionA, 0);
+
+            expect(ctx.activeIndex).toBeNull();
+        });
+
+
+        it('leaves the focus alone when a section below it is removed', () => {
+            ctx.activeIndex = 0;
+
+            helper.removeSection(sectionB, 1);
+
+            expect(ctx.activeIndex).toBe(0);
+        });
+    });
+
+
+    describe('removing a section that owns fields', () => {
+
+        it('removes a multi-data-section\'s fields from the model with it', () => {
+            const multi = { name: 'md', label: 'MD', type: 'multi-data-section', fields: [fieldA], hidden_fields: [] };
+            ctx.sections = [multi, sectionB];
+            ctx.typeInstance.render_meta.sections = [multi, sectionB];
+
+            helper.removeSection(multi, 0);
+
+            expect(ctx.typeInstance.fields.map((f: any) => f.name)).toEqual(['field_b']);
+        });
+
+
+        /**
+         * The ref-section's companion field is named after the section, so a rename leaves the two
+         * out of step. Falling back to `indexOf` of a name that no longer exists returns -1, and
+         * `splice(-1, 1)` would drop whatever field happens to sit last.
+         */
+        it('leaves unrelated fields alone when a renamed ref-section is removed', () => {
+            const companion = { name: 'ref_original-field', type: 'ref-section-field', label: 'Ref' };
+            const refSection = {
+                name: 'ref_renamed', label: 'Ref', type: 'ref-section',
+                fields: ['ref_original-field'],
+                reference: { type_id: 1, section_name: 's' }
+            };
+            ctx.sections = [refSection, sectionB];
+            ctx.typeInstance.render_meta.sections = [refSection, sectionB];
+            ctx.typeInstance.fields = [companion, fieldB];
+
+            helper.removeSection(refSection, 0);
+
+            expect(ctx.typeInstance.fields.map((f: any) => f.name)).toEqual(['field_b']);
+        });
+
+
+        it('removes nothing when a ref-section has no companion field left', () => {
+            const refSection = {
+                name: 'ref_gone', label: 'Ref', type: 'ref-section', fields: [],
+                reference: { type_id: 1, section_name: 's' }
+            };
+            ctx.sections = [refSection, sectionB];
+            ctx.typeInstance.render_meta.sections = [refSection, sectionB];
+            ctx.typeInstance.fields = [fieldB];
+
+            helper.removeSection(refSection, 0);
+
+            expect(ctx.typeInstance.fields.map((f: any) => f.name)).toEqual(['field_b']);
+        });
+    });
 });

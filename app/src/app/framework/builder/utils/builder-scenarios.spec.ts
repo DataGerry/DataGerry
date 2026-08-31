@@ -127,6 +127,27 @@ describe('Type Builder scenarios (A-K)', () => {
             expect(h.ctx.globalSectionTemplates.map((t: any) => t.name)).toContain('other');
         });
 
+        /**
+         * A type keeps the *names* of the global templates applied to it. Delete one of those
+         * templates from the system and the saved name matches nothing on the next load - which
+         * must leave the palette alone rather than evict whatever sits last in it.
+         */
+        it('A2b: an applied global template that no longer exists leaves the palette intact', () => {
+            const h = harness({
+                globalSectionTemplates: [
+                    { name: 'other', label: 'Other', public_id: 4, fields: [] },
+                    { name: 'last', label: 'Last', public_id: 5, fields: [] }
+                ],
+                typeInstance: { fields: [], render_meta: { sections: [], externals: [] }, global_template_ids: ['deleted'] }
+            });
+
+            h.templateManager.setSelectedGlobalTemplates();
+
+            expect(h.ctx.globalSectionTemplates.map((t: any) => t.name)).toEqual(['other', 'last']);
+            expect(h.ctx.selectedGlobalSectionTemplates.length).toBe(0);
+        });
+
+
         // A1 (placeholder text/palette rendering) and A3 (groups shown only when templates exist) are
         // template-only (*ngIf) — covered by manual/e2e.
     });

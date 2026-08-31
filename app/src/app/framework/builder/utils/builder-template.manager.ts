@@ -50,7 +50,11 @@ export class BuilderTemplateManager {
                     }
                 }
 
-                this.ctx.globalSectionTemplates?.splice(index, 1);
+                // An id whose template has since been deleted matches nothing here, and splicing
+                // -1 would evict whichever template happens to sit last in the palette.
+                if (index >= 0) {
+                    this.ctx.globalSectionTemplates?.splice(index, 1);
+                }
             })
         }
     }
@@ -71,8 +75,12 @@ export class BuilderTemplateManager {
 
         if (isGlobalTemplate) {
             const globalTemplateIds = this.ctx.schema.readGlobalTemplateIds();
-            const nameIndex = globalTemplateIds?.indexOf(sectionData?.name, 0);
-            globalTemplateIds?.splice(nameIndex, 1);
+            const nameIndex = globalTemplateIds?.indexOf(sectionData?.name, 0) ?? -1;
+
+            if (nameIndex >= 0) {
+                globalTemplateIds.splice(nameIndex, 1);
+            }
+
             this.ctx.selectedGlobalSectionTemplates?.splice(globalTemplateIndex, 1);
         }
     }

@@ -109,11 +109,32 @@ export class BuilderMutationHelper {
         this.ctx.schema.writeFields(this.ctx.schema.readFields());
     }
 
+    /**
+     * The companion field is named after the section it was created for, so renaming the section
+     * leaves the two out of step. The section's own `fields` entry still points at it, so that is
+     * the handle to trust - and an unresolvable one means there is nothing to remove, never
+     * `splice(-1, 1)`, which would drop whatever field happens to be last.
+     */
     private removeRefSectionSelectionField(refSection: BuilderSection): void {
         const fields = this.ctx.schema.readFields();
-        const index = fields?.map(field => field?.name).indexOf(`${refSection?.name}-field`);
-        fields?.splice(index, 1);
+        const companionName = this.refSectionCompanionName(refSection);
+        const index = fields?.map(field => field?.name).indexOf(companionName) ?? -1;
+
+        if (index < 0) {
+            return;
+        }
+
+        fields.splice(index, 1);
         this.ctx.schema.writeFields(fields);
+    }
+
+
+    private refSectionCompanionName(refSection: BuilderSection): string {
+        const tracked = (refSection?.fields ?? [])
+            .map(field => typeof field === 'string' ? field : field?.name)
+            .find(Boolean);
+
+        return tracked ?? `${refSection?.name}-field`;
     }
 
     /* --------------------------------------------------- SECTION DND -------------------------------------------------- */
@@ -315,6 +336,10 @@ export class BuilderMutationHelper {
         let sectionIndex: number = this.getSectionOfField(data?.fieldName);
         let section: BuilderSection = sections[sectionIndex];
 
+        if (!section) {
+            return;
+        }
+
         if (!("hidden_fields" in section)) {
             section.hidden_fields = [];
         }
@@ -355,12 +380,18 @@ export class BuilderMutationHelper {
         return false;
     }
 
+    /**
+     * Sections hold field names at rest and resolved field objects once the builder has committed,
+     * so both shapes have to be matched - a freshly loaded type reaches here as names.
+     */
     private getSectionOfField(fieldName: string) {
         let index = 0;
 
         for (let aSection of this.ctx.schema.readSections()) {
-            for (let aField of aSection?.fields) {
-                if (aField.name == fieldName) {
+            for (let aField of aSection?.fields ?? []) {
+                const name = typeof aField === 'string' ? aField : aField?.name;
+
+                if (name == fieldName) {
                     return index;
                 }
             }
@@ -403,10 +434,12 @@ export class BuilderMutationHelper {
 
         if (data.elementType == "section" || data?.elementType == "multi-data-section") {
             index = this.getSectionIndexForName(fieldName);
+            const modelSections = this.ctx.schema.readSections();
             const sectionIndex = this.ctx.activeIndex !== null ? this.ctx.activeIndex : index;
 
-            if (sectionIndex >= 0) {
-                this.ctx.schema.readSections()[sectionIndex][inputName] = newValue;
+            // Any stale focus index must fall through rather than write past the end of the list.
+            if (sectionIndex >= 0 && sectionIndex < modelSections.length) {
+                modelSections[sectionIndex][inputName] = newValue;
                 if (this.ctx.sections[sectionIndex]) {
                     this.ctx.sections[sectionIndex][inputName] = newValue;
                 }
@@ -553,9 +586,7 @@ export class BuilderMutationHelper {
     }
 
     private performSectionRemoval(item: BuilderSection, sectionIndex: number): void {
-        if (this.ctx.activeIndex === sectionIndex) {
-            this.ctx.activeIndex = null
-        }
+        this.realignActiveIndex(sectionIndex);
 
         this.templateManager.handleGlobalTemplates(item);
         this.deps.sectionIdentifierService?.removeSection(sectionIndex);
@@ -566,7 +597,7 @@ export class BuilderMutationHelper {
             : modelSections?.indexOf(item);
 
         if (index !== -1) {
-            if (item.type === 'section') {
+            if (item.type === 'section' || item.type === 'multi-data-section') {
                 const modelFields = this.ctx.schema.readFields();
                 const fields = modelSections[index]?.fields ?? [];
 
@@ -594,6 +625,23 @@ export class BuilderMutationHelper {
 
             this.deps.validationService.setSectionValid(item?.name, true);
             this.releaseDuplicateLockIfResolved();
+        }
+    }
+
+    /**
+     * `activeIndex` is the focused section's position and outranks the by-name lookup when a section
+     * edit is applied. Removing a section above it shifts it, so it has to follow - otherwise the
+     * next edit lands on the wrong section, or past the end of the list.
+     */
+    private realignActiveIndex(removedIndex: number): void {
+        if (this.ctx.activeIndex === null) {
+            return;
+        }
+
+        if (this.ctx.activeIndex === removedIndex) {
+            this.ctx.activeIndex = null;
+        } else if (this.ctx.activeIndex > removedIndex) {
+            this.ctx.activeIndex -= 1;
         }
     }
 
