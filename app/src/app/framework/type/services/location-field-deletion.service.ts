@@ -24,7 +24,7 @@ import { LocationFieldUsageResponse } from '../../models/location-field-usage';
 import {
     LocationFieldInUseModalComponent,
     LocationFieldDeletionScope
-} from '../builder/modals/location-field-in-use-modal/location-field-in-use-modal.component';
+} from 'src/app/framework/builder/modals/location-field-in-use-modal/location-field-in-use-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -77,14 +77,20 @@ export class LocationFieldDeletionService {
     }
 
 
-    public sectionContainsLocationField(section: CmdbTypeSection, typeInstance: CmdbType): boolean {
+    /**
+     * @param fields the model's flat field list, which a section's entries resolve against.
+     *               Entries may be names or already-hydrated field objects.
+     */
+    public sectionContainsLocationField(section: CmdbTypeSection, fields: Array<any>): boolean {
         if (!section?.fields?.length) {
             return false;
         }
 
+        const candidates = Array.isArray(fields) ? fields : [];
+
         return section.fields.some(field => {
             const fieldName = typeof field === 'string' ? field : field?.name;
-            const resolved = typeInstance?.fields?.find(f => f?.name === fieldName);
+            const resolved = candidates.find(candidate => candidate?.name === fieldName);
             return this.isLocationField(resolved);
         });
     }

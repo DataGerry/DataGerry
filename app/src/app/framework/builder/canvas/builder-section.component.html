@@ -1,0 +1,166 @@
+<div class="card" [style.background-color]="section?.bg_color || '#ffffff'">
+    <div class="card-header" [ngClass]="host.getSectionHeaderClass(section)">
+        <fa-icon [icon]="sectionIcon"></fa-icon>
+        {{ section?.label }}
+        <span class="float-end" *ngIf="host.showSectionActions">
+            <button
+                class="btn btn-link me-1"
+                type="button"
+                data-bs-toggle="collapse"
+                [attr.data-bs-target]="'#' + collapseId"
+            >
+                <fa-icon [icon]="host.getSectionCollapseIcon(section)"></fa-icon>
+            </button>
+
+            <button
+                class="btn btn-link me-1"
+                type="button"
+                dndHandle
+                (dragstart)="host.onSectionDragStart($event, section)"
+                [class.disabled]="sectionDragDisabled"
+            >
+                <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
+            </button>
+
+            <button
+                class="btn btn-link"
+                type="button"
+                (click)="host.onSectionRemove(section, index)"
+                [class.disabled]="!host.canRemoveSection(section)"
+            >
+                <fa-icon [icon]="['far', 'window-close']"></fa-icon>
+            </button>
+        </span>
+    </div>
+
+    <div class="collapse show" [id]="collapseId">
+        <div class="card-body" (focusin)="host.onSectionFocus(index)" tabindex="0">
+            <cmdb-section-field-edit
+                *ngIf="host.staticSectionEditor; else dynamicSectionEditor"
+                [data]="section"
+                [mode]="host.getSectionMode(section)"
+                [sections]="host.sections"
+                [fields]="host.fields"
+                (valuesChanged)="host.onValuesChanged($event)"
+            />
+            <ng-template #dynamicSectionEditor>
+                <cmdb-config-edit
+                    [types]="host.types"
+                    [mode]="host.getSectionMode(section)"
+                    [sections]="host.sections"
+                    [fields]="host.fields"
+                    [data]="section"
+                    (valuesChanged)="host.onValuesChanged($event)"
+                />
+            </ng-template>
+
+            <ng-content />
+
+            <ng-container *ngIf="holdsFields">
+                <p>Fields:</p>
+                <div
+                    [dndDropzone]="host.getFieldDropTypes(section)"
+                    [dndDisableDropIf]="!host.canDropFieldsIntoSection(section)"
+                    (dndDrop)="host.onFieldDrop($event, section)"
+                >
+                    <div *ngIf="section?.fields?.length == 0" class="empty-section" data-content="Drop controls here">
+                    </div>
+                    <div
+                        *ngIf="host.canDropFieldsIntoSection(section)"
+                        class="field-drop-placeholder"
+                        dndPlaceholderRef
+                    >
+                        Drop field here
+                    </div>
+
+                    <ng-container *ngFor="let field of section.fields; let y = index">
+                        <div
+                            [dndEffectAllowed]="host.getFieldDragEffect(field)"
+                            [dndType]="field?.type === 'location' ? 'location' : 'inputs'"
+                            [dndDraggable]="field"
+                            (dndStart)="host.onFieldDragStart(field, section, y)"
+                        >
+                            <div class="fields card">
+                                <div
+                                    class="card-header d-flex justify-content-between align-items-center"
+                                    [ngClass]="{
+                                        'global-section-item': host.isLockedField(field),
+                                        'highlight-field-header': host.isFieldHighlighted(field, section)
+                                    }"
+                                >
+                                    <span>
+                                        <fa-icon [icon]="['fas', host.matchedType(field.type)]"></fa-icon> {{ field?.label }}
+                                    </span>
+                                    <span *ngIf="!host.isLockedField(field)">
+                                        <button
+                                            class="btn btn-link me-1"
+                                            type="button"
+                                            data-bs-toggle="collapse"
+                                            [attr.data-bs-target]="'#' + fieldCollapseId(field, y)"
+                                            [class.disabled]="host.isLocked() || host.disableFields"
+                                        >
+                                            <fa-icon [icon]="['far', 'edit']"></fa-icon>
+                                        </button>
+                                        <button
+                                            class="btn btn-link me-1"
+                                            type="button"
+                                            dndHandle
+                                            (dragstart)="host.onFieldDragBlocked($event, section)"
+                                            [class.disabled]="fieldDragDisabled(field)"
+                                        >
+                                            <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
+                                        </button>
+                                        <button
+                                            *ngIf="host.externalField(field) as externalLink; else removeFieldContainer"
+                                            class="btn btn-link"
+                                            type="button"
+                                            [disabled]="externalLink?.links?.length"
+                                            [ngbTooltip]="tipContent"
+                                            [disableTooltip]="!externalLink?.links?.length"
+                                            (click)="host.onFieldRemove(field, section)"
+                                            [class.disabled]="host.disableFields || !host.canRemoveField(field)"
+                                        >
+                                            <fa-icon [icon]="['far', 'window-close']"></fa-icon>
+                                            <ng-template #tipContent>
+                                                <b>Used by external links</b>
+                                                <span *ngFor="let linked of externalLink.links">
+                                                    <br><strong>Label</strong>: {{ linked.label }}
+                                                </span>
+                                                <p>
+                                                    <strong>Show</strong>: {{ externalLink?.links?.length }}
+                                                    <strong>Total</strong>: {{ externalLink?.total }}
+                                                </p>
+                                            </ng-template>
+                                        </button>
+                                        <ng-template #removeFieldContainer>
+                                            <button
+                                                class="btn btn-link"
+                                                type="button"
+                                                [class.disabled]="host.disableFields || !host.canRemoveField(field)"
+                                                (click)="host.onFieldRemove(field, section)"
+                                            >
+                                                <fa-icon [icon]="['far', 'window-close']"></fa-icon>
+                                            </button>
+                                        </ng-template>
+                                    </span>
+                                </div>
+                                <div class="card-body collapse" [id]="fieldCollapseId(field, y)">
+                                    <cmdb-config-edit
+                                        [mode]="host.getFieldMode(field)"
+                                        [types]="host.types"
+                                        [sections]="host.sections"
+                                        [data]="field"
+                                        [fieldSectionType]="host.getFieldSectionType(section)"
+                                        [hiddenStatus]="host.getFieldHiddenState(section, field)"
+                                        (valuesChanged)="host.onValuesChanged($event, index, y)"
+                                        [isDisabled]="host.isFieldEditDisabled(index, y)"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </ng-container>
+                </div>
+            </ng-container>
+        </div>
+    </div>
+</div>

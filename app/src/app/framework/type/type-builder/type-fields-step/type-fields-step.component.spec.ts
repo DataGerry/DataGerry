@@ -191,4 +191,73 @@ describe('TypeFieldsStepComponent (type creation - content step)', () => {
             expect(specialTypeService.getCachedSchema).not.toHaveBeenCalled();
         });
     });
+
+    /* ------------------------------------ PALETTE GROUPS ------------------------------------ */
+
+    describe('paletteGroups', () => {
+
+        it('exposes the five groups in order, with the basic controls unchanged', () => {
+            const ids = component.paletteGroups.map(group => group.id);
+
+            expect(ids).toEqual([
+                'globalSectionTemplates',
+                'sectionTemplates',
+                'structureControls',
+                'basicControls',
+                'specialControls'
+            ]);
+
+            const basic = component.paletteGroups.find(group => group.id === 'basicControls');
+            expect(basic.items.map(item => item.label.toLowerCase())).toEqual([
+                'text', 'number', 'password', 'textarea', 'checkbox', 'radio', 'select', 'date'
+            ]);
+
+            // Only the global template group starts open, so with no global templates the whole
+            // accordion starts collapsed - the palette hides empty groups.
+            expect(component.paletteGroups.filter(group => group.expanded).map(g => g.id))
+                .toEqual(['globalSectionTemplates']);
+        });
+
+
+        it('returns a STABLE reference while the templates are unchanged', () => {
+            // The canvas is OnPush: a fresh array each check would mark it, and its whole section
+            // subtree, dirty on every tick.
+            const first = component.paletteGroups;
+
+            expect(component.paletteGroups).toBe(first);
+            expect(component.paletteGroups).toBe(first);
+        });
+
+
+        it('rebuilds when the canvas splices a template out of the palette in place', () => {
+            component.globalSectionTemplates = [
+                { public_id: 7, label: 'Network', name: 'dg_gst-net', fields: [] } as any,
+                { public_id: 8, label: 'Owner', name: 'dg_gst-own', fields: [] } as any
+            ];
+
+            const before = component.paletteGroups;
+            expect(before.find(g => g.id === 'globalSectionTemplates').items.length).toBe(2);
+
+            // Applying a global template splices it out of the array in place.
+            component.globalSectionTemplates.splice(0, 1);
+
+            const after = component.paletteGroups;
+            expect(after).not.toBe(before);
+            expect(after.find(g => g.id === 'globalSectionTemplates').items.length).toBe(1);
+            expect(after.find(g => g.id === 'globalSectionTemplates').items[0].label).toBe('Owner');
+        });
+
+
+        it('renders a section template with its public id as a badge', () => {
+            component.sectionTemplates = [
+                { public_id: 12, label: 'Contact', name: 'section_template-c', fields: [] } as any
+            ];
+
+            const item = component.paletteGroups.find(g => g.id === 'sectionTemplates').items[0];
+
+            expect(item.badge).toBe('#12');
+            expect(item.label).toBe('Contact');
+            expect(item.dndType).toBe('sections');
+        });
+    });
 });

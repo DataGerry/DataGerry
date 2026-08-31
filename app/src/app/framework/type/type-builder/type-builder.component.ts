@@ -18,14 +18,14 @@
 import { Component, inject, ChangeDetectorRef, Input, OnDestroy, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 
-import { finalize, Observable, ReplaySubject, Subscription, takeUntil } from 'rxjs';
+import { finalize, ReplaySubject, takeUntil } from 'rxjs';
 
 import { TypeService } from '../../services/type.service';
 import { UserService } from '../../../management/services/user.service';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { GroupService } from '../../../management/services/group.service';
 import { SidebarService } from '../../../layout/services/sidebar.service';
-import { ValidationService } from '../services/validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 
 import { CmdbType, CmdbTypeSection } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
@@ -35,6 +35,7 @@ import { CollectionParameters } from '../../../services/models/api-parameter';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { BuilderWizardBlockingState } from 'src/app/framework/builder/wizard/builder-wizard-blocking.state';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -55,8 +56,9 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
     private readonly loaderService = inject(LoaderService);
 
     private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
-    private subscriptions = new Subscription();
-    isHighlighted: boolean = false;
+
+    /** Canvas states that block Next and Save. */
+    public readonly blocking = new BuilderWizardBlockingState(this.validationService);
 
     @Input() public typeInstance: CmdbType;
 
@@ -90,16 +92,6 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
 
     isNameValid = true;
     isLabelValid = true;
-    isValid$: Observable<boolean>;
-    isSectionValid$: Observable<boolean>;
-
-    public isIdentifierValid: boolean;
-    private subscription: Subscription;
-
-    isSectionHighlighted: boolean = false;
-    isFieldHighlighted: boolean = false;
-    disableFields: boolean = false
-    isSectionWithoutFields: boolean = false
 
     public isLoading$ = this.loaderService.isLoading$;
 
@@ -108,43 +100,6 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
     /* ------------------------------------------------------------------------------------------------------------------ */
 
     public ngOnInit(): void {
-
-        const sectionHighlightSubscription = this.validationService?.isSectionHighlighted$.subscribe((highlighted) => {
-
-            setTimeout(() => {
-                this.isSectionHighlighted = highlighted;
-            });
-        });
-
-        // Subscribe to the field highlight state
-        const fieldHighlightSubscription = this.validationService?.isFieldHighlighted$.subscribe((highlighted) => {
-
-            setTimeout(() => {
-                this.isFieldHighlighted = highlighted;
-            });
-        });
-
-        const disableFieldsSubscription = this.validationService?.disableFields$.subscribe((disableFields) => {
-
-            setTimeout(() => {
-                this.disableFields = disableFields;
-            });
-        });
-
-        const sectionWithoutFieldSubscription = this.validationService?.isSectionWithoutField$.subscribe((disabledSection) => {
-            setTimeout(() => {
-                this.isSectionWithoutFields = disabledSection
-            });
-        });
-
-        this.subscriptions?.add(sectionHighlightSubscription);
-        this.subscriptions?.add(fieldHighlightSubscription);
-        this.subscriptions?.add(disableFieldsSubscription)
-        this.subscriptions?.add(sectionWithoutFieldSubscription)
-
-        this.isValid$ = this.validationService?.getIsValid();
-        this.isSectionValid$ = this.validationService?.overallSectionValidity();
-
         if (this.mode === CmdbMode.Create) {
             this.typeInstance = new CmdbType();
             this.typeInstance.active = true;
@@ -205,9 +160,7 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
     public ngOnDestroy(): void {
         this.subscriber?.next();
         this.subscriber?.complete();
-        if (this.subscription) {
-            this.subscription?.unsubscribe();
-        }
+        this.blocking.destroy();
     }
 
     /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
@@ -234,7 +187,8 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
 
 
     get isSaveButtonDisabled(): boolean {
-        return !this.basicValid || !this.contentValid || !this.metaValid || !this.accessValid || !this.isLabelValid || !this.isNameValid || this.isSectionHighlighted || this.isFieldHighlighted || this.disableFields || !this.isSectionWithoutFields;
+        return !this.basicValid || !this.contentValid || !this.metaValid || !this.accessValid
+            || !this.isLabelValid || !this.isNameValid || this.blocking.blocked;
     }
 
 

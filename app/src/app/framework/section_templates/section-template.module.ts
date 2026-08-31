@@ -25,7 +25,8 @@ import { NgSelectModule } from '@ng-select/ng-select';
 import { NgbDatepickerModule } from '@ng-bootstrap/ng-bootstrap';
 
 import { SectionTemplateRoutingModule } from './section-template-routing.module';
-import { BuilderModule } from '../type/builder/builder.module';
+import { BuilderKernelModule } from '../builder/builder-kernel.module';
+import { BuilderPaletteComponent } from '../builder/palette/builder-palette.component';
 import { ToastModule } from 'src/app/layout/toast/toast.module';
 import { AuthModule } from 'src/app/modules/auth/auth.module';
 
@@ -58,7 +59,8 @@ import { CoreModule } from 'src/app/core/core.module';
         NgSelectModule,
         NgbDatepickerModule,
         DndModule,
-        BuilderModule,
+        BuilderKernelModule,
+        BuilderPaletteComponent,
         ToastModule,
         AuthModule,
         CoreModule

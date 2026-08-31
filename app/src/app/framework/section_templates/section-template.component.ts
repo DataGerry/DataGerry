@@ -31,7 +31,7 @@ import { SectionTemplateDeleteModalComponent } from './layout/modals/section-tem
 import { CmdbSectionTemplate, Field } from '../models/cmdb-section-template';
 import { SectionTemplateTransformModalComponent } from './layout/modals/section-template-transform/section-template-transform-modal.component';
 import { SectionTemplateCloneModalComponent } from './layout/modals/section-template-clone/section-template-clone-modal.component';
-import { PreviewModalComponent } from '../type/builder/modals/preview-modal/preview-modal.component';
+import { PreviewModalComponent } from 'src/app/framework/builder/modals/preview-modal/preview-modal.component';
 import { LoaderService } from 'src/app/core/services/loader.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 

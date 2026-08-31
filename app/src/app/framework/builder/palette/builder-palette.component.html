@@ -1,0 +1,58 @@
+<div id="controlWrapper" ui-block [blocked]="blocked()">
+    <div class="accordion" id="controlsPanel">
+        @for (group of groups(); track group.id) {
+            @if (group.items.length > 0) {
+                <div class="card">
+                    <div class="card-header">
+                        <a
+                            href="#"
+                            class="btn btn-link"
+                            data-bs-toggle="collapse"
+                            [attr.data-bs-target]="'#' + group.id"
+                        >
+                            {{ group.label }}
+                        </a>
+                    </div>
+                    <div
+                        [id]="group.id"
+                        class="collapse"
+                        [class.show]="group.expanded"
+                        data-bs-parent="#controlsPanel"
+                    >
+                        <div class="card-body">
+                            <div class="list-group section-template-item">
+                                @for (item of group.items; track $index) {
+                                    <div
+                                        class="list-group-item list-group-item-action"
+                                        [class.disabled]="dragDisabled()"
+                                        [dndType]="item.dndType"
+                                        [dndDraggable]="item.payload()"
+                                        [dndDisableIf]="group.lockMode !== 'draggable-attr' && dragDisabled()"
+                                        [attr.draggable]="
+                                            group.lockMode === 'draggable-attr'
+                                                ? (dragDisabled() ? 'false' : 'true')
+                                                : null
+                                        "
+                                    >
+                                        <span>
+                                            @if (item.icon) {
+                                                <i class="{{ item.icon }}"></i>
+                                            }
+                                            @if (item.badge) {
+                                                {{ item.badge }} - <b>{{ item.label }}</b>
+                                            } @else {
+                                                {{ item.label }}
+                                            }
+                                        </span>
+                                        <div class="clearfix"></div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+    <ng-content />
+</div>
