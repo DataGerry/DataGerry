@@ -155,6 +155,13 @@ export class BuilderHighlightHelper {
         this.updateSectionFieldStatus();
         this.validationService?.setSectionHighlightState(isSectionHighlighted);
         this.validationService?.setFieldHighlightState(isFieldHighlighted);
+
+        // `checkAndUpdateHighlightState` skips its push whenever the state matches what was last
+        // reported, so that record has to be written here too. The mutation paths call this method
+        // directly; leaving the record behind lets it drift from what the wizard was actually told,
+        // and the next real change that happens to match the stale record is then swallowed.
+        this.ctx.prevSectionHighlighted = isSectionHighlighted;
+        this.ctx.prevFieldHighlighted = isFieldHighlighted;
     }
 
     /**
@@ -203,13 +210,9 @@ export class BuilderHighlightHelper {
         const isSectionHighlighted = this.isAnySectionHighlighted();
         const isFieldHighlighted = this.isAnyFieldHighlighted();
 
-        // Only update if the highlight state has changed
+        // Only update if the highlight state has changed; `updateHighlightState` keeps the record.
         if (isSectionHighlighted !== this.ctx.prevSectionHighlighted || isFieldHighlighted !== this.ctx.prevFieldHighlighted) {
             this.updateHighlightState();
-
-            // Store the current states as the new previous states
-            this.ctx.prevSectionHighlighted = isSectionHighlighted;
-            this.ctx.prevFieldHighlighted = isFieldHighlighted;
         }
     }
 

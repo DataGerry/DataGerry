@@ -225,6 +225,48 @@ describe('BuilderMutationHelper', () => {
 
 
     /**
+     * The toggle is a type-level flag, but the location editor seeds its checkbox from the field.
+     * Write only one of the two and the editor re-seeds a stale default on its next redraw and
+     * pushes that straight back over the type.
+     */
+    describe('the selectable-as-location toggle', () => {
+
+        function seedLocationField(): any {
+            const location = { name: 'dg_location', type: 'location', label: 'Location' };
+            const section = { name: 'loc', label: 'Loc', type: 'section', fields: [location] };
+            ctx.sections = [section];
+            ctx.typeInstance.render_meta.sections = [section];
+            ctx.typeInstance.fields = [location];
+            return location;
+        }
+
+        it('records the choice on the type and on the location field', () => {
+            const location = seedLocationField();
+
+            helper.onFieldChange({ inputName: 'selectable_as_parent', newValue: true,
+                fieldName: 'dg_location', elementType: 'location' });
+
+            expect(ctx.typeInstance.selectable_as_parent).toBeTrue();
+            expect(location.selectable_as_parent)
+                .withContext('the editor seeds from here on its next redraw').toBeTrue();
+        });
+
+
+        it('clears both again when the toggle is unticked', () => {
+            const location = seedLocationField();
+
+            helper.onFieldChange({ inputName: 'selectable_as_parent', newValue: true,
+                fieldName: 'dg_location', elementType: 'location' });
+            helper.onFieldChange({ inputName: 'selectable_as_parent', newValue: false,
+                fieldName: 'dg_location', elementType: 'location' });
+
+            expect(ctx.typeInstance.selectable_as_parent).toBeFalse();
+            expect(location.selectable_as_parent).toBeFalse();
+        });
+    });
+
+
+    /**
      * A type arrives from the API with `render_meta.sections[].fields` holding field *names*; only
      * once the builder commits a drop does it hold resolved field objects. Anything that walks a
      * section's fields has to cope with both, or it silently finds nothing.

@@ -138,7 +138,6 @@ export class LocationFieldEditComponent extends ConfigEditBaseComponent implemen
         this.setDraggable("true");
         this.subscriber?.next();
         this.subscriber?.complete();
-        this.validationService?.cleanup();
     }
 
 
@@ -183,12 +182,24 @@ export class LocationFieldEditComponent extends ConfigEditBaseComponent implemen
 
     //TODO: this is just a work around and need to be set with proper angular code 
     //sets the special control location to not draggable when there is already a location present
+    /**
+     * Reaches into the palette markup by id and position, so it finds nothing in a builder that
+     * offers no location control - and it runs as the very first statement of `ngOnInit`. Left
+     * unguarded it throws there, and the editor is then left completely uninitialised: no form
+     * controls, no patched label, no change subscriptions, just an empty card.
+     */
     private setDraggable(isDraggable: string): void {
-        let opacity: string = isDraggable == "true" ? "1.0" : "0.5";
+        const opacity: string = isDraggable == "true" ? "1.0" : "0.5";
 
         //this only works if the special control "location" is the 2nd element
-        let specialControlLocation: Element = document.getElementById('specialControls').getElementsByClassName('list-group-item')[1];
+        const specialControlLocation = document.getElementById('specialControls')
+            ?.getElementsByClassName('list-group-item')?.[1] as HTMLElement | undefined;
+
+        if (!specialControlLocation) {
+            return;
+        }
+
         specialControlLocation.setAttribute('draggable', isDraggable);
-        (specialControlLocation as HTMLElement).style.opacity = opacity;
+        specialControlLocation.style.opacity = opacity;
     }
 }

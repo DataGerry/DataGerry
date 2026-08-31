@@ -431,6 +431,43 @@ describe('Builder highlighting', () => {
         });
 
 
+        /**
+         * The memo compares against what was *last reported*, and the mutation paths report through
+         * `updateHighlightState` rather than through the memo. If that direct call does not refresh
+         * the record, the record and the wizard drift apart - and the next real change that happens
+         * to match the stale record is dropped on the floor.
+         *
+         * The route in: a field editor that writes straight onto the field object and emits nothing
+         * (the Location editor does this with its label, the Reference editor with `ref_types` and
+         * `summaries`), so `ngAfterViewChecked` is the only thing that can notice.
+         */
+        it('still reports a change that arrives after a direct update', () => {
+            const silent = field('dg_location', { label: 'Location', type: 'location' });
+            const broken = field('', { label: '' });
+            const h = harness({ sections: [section('s', { fields: [silent, broken] })] });
+
+            // the unnamed field is noticed through the memo, which records "highlighted"
+            h.highlight.checkAndUpdateHighlightState();
+            expect(h.validationService.setFieldHighlightState).toHaveBeenCalledWith(true);
+
+            // the user fixes it; a mutation path reports directly, without going through the memo
+            broken.name = 'fixed';
+            broken.label = 'Fixed';
+            h.highlight.updateHighlightState();
+            expect(h.validationService.setFieldHighlightState).toHaveBeenCalledWith(false);
+
+            // an editor now empties a label in place and emits nothing
+            silent.label = '';
+            h.validationService.setFieldHighlightState.calls.reset();
+            h.highlight.checkAndUpdateHighlightState();
+
+            expect(h.highlight.isAnyFieldHighlighted())
+                .withContext('the field really is invalid').toBeTrue();
+            expect(h.validationService.setFieldHighlightState)
+                .withContext('and the wizard has to hear about it').toHaveBeenCalledWith(true);
+        });
+
+
         it('remembers the last reported state', () => {
             const h = harness({ sections: [section('s', { fields: [field('', { label: '' })] })] });
 

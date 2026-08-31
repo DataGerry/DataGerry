@@ -312,6 +312,11 @@ export class BuilderMutationHelper {
                 this.setDisableFields(false);
             }
 
+            // The section editors raise the section highlight themselves when they spot a duplicate,
+            // which leaves the wizard holding a flag the helper never published. Republishing the
+            // computed truth here is what lowers it again once the conflict is gone.
+            this.highlight.updateHighlightState();
+
             return;
         }
 
@@ -410,6 +415,7 @@ export class BuilderMutationHelper {
 
         if (data.inputName === 'selectable_as_parent') {
             this.ctx.schema.setSelectableAsParent(!!data.newValue);
+            this.seedLocationFieldsSelectableAsParent(!!data.newValue);
             this.highlight.updateHighlightState();
             return;
         }
@@ -461,6 +467,21 @@ export class BuilderMutationHelper {
         this.refreshFieldIdentifiers();
         this.highlight.updateHighlightState();
     }
+
+    /**
+     * The toggle lives on the type, but the location editor seeds itself from the *field*. Writing
+     * only the type leaves the field without it, so a re-rendered editor seeds `false` again and
+     * immediately pushes that back over the type - the user's tick disappears on the next redraw.
+     * `TypeBasicStepComponent.enforceRackParentSelection` keeps the same two in step.
+     */
+    private seedLocationFieldsSelectableAsParent(value: boolean): void {
+        for (const field of this.ctx.schema.readFields()) {
+            if (field?.type === 'location') {
+                field.selectable_as_parent = value;
+            }
+        }
+    }
+
 
     private getFieldIndexForName(targetName: string): number {
         return BuilderUtils?.getFieldIndexForName(this.ctx.schema, targetName);
