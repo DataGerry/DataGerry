@@ -137,4 +137,21 @@ export class BuilderUtils {
                 return 'font';
         }
     }
+
+
+    /**
+     * Matches a section type to its icon.
+     * @param value The section type.
+     * @returns The icon prefix and name the palette entry uses.
+     */
+    static matchedSectionType(value: string): [string, string] {
+        switch (value) {
+            case 'multi-data-section':
+                return ['fas', 'list-ol'];
+            case 'ref-section':
+                return ['fas', 'layer-group'];
+            default:
+                return ['fas', 'object-group'];
+        }
+    }
 }

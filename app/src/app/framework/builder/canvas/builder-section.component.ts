@@ -19,6 +19,7 @@ import { Component, Input } from '@angular/core';
 
 import { CmdbMode } from '../../modes.enum';
 import { BuilderSection } from '../schema/builder-section.model';
+import { BuilderUtils } from '../utils/builder-utils';
 import { BuilderSectionHost } from './builder-section-host';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -55,6 +56,11 @@ export class BuilderSectionComponent {
 
     public fieldCollapseId(field: any, fieldIndex: number): string {
         return `field-${this.index}${fieldIndex}${field?.name ?? ''}`;
+    }
+
+    /** Mirrors the palette icon of the control the section was dragged from. */
+    public get sectionIcon(): [string, string] {
+        return BuilderUtils.matchedSectionType(this.section?.type);
     }
 
     public get holdsFields(): boolean {

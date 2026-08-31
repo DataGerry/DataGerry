@@ -1,6 +1,6 @@
 <div class="card" [style.background-color]="section?.bg_color || '#ffffff'">
     <div class="card-header" [ngClass]="host.getSectionHeaderClass(section)">
-        <fa-icon [icon]="['far', 'object-group']"></fa-icon>
+        <fa-icon [icon]="sectionIcon"></fa-icon>
         {{ section?.label }}
         <span class="float-end" *ngIf="host.showSectionActions">
             <button
