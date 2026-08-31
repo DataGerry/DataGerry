@@ -61,6 +61,16 @@ export interface BuilderSectionHost {
 
     /** ngx-drag-drop types the section's field zone accepts. */
     getFieldDropTypes(section: BuilderSection): Array<string>;
+
+    /**
+     * The section flavour the field editors are told they sit in.
+     *
+     * This is not always the section's own type. A field editor renders the multi-data-section
+     * "hide this field as column" control purely from this value, and that control is only
+     * meaningful where the host routes `hideField` into the section's `hidden_fields`. A host that
+     * does not must report a plain section, or it shows a control it cannot honour.
+     */
+    getFieldSectionType(section: BuilderSection): string;
     getFieldDragEffect(field: any): string;
     getFieldHiddenState(section: BuilderSection, field: any): boolean;
 

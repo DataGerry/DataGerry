@@ -93,6 +93,20 @@ export class SingleSectionBuilderHost implements BuilderSectionHost {
         return ['inputs'];
     }
 
+    /**
+     * Always a plain section, even when the template itself is a multi-data-section.
+     *
+     * A section template has no `hidden_fields`: this page serialises `initialSection.fields`
+     * straight to the backend, and nothing here routes a `hideField` change anywhere. Reporting the
+     * real type would render the MDS "hide this field as column" checkbox, and ticking it would
+     * write a stray `hideField` flag onto the field and save it. The old page bound no
+     * `fieldSectionType` at all, so the control never appeared.
+     */
+    public getFieldSectionType(): string {
+        return 'section';
+    }
+
+
     public getFieldDragEffect(): string {
         return 'move';
     }
@@ -183,21 +197,40 @@ export class SingleSectionBuilderHost implements BuilderSectionHost {
 
         const dropped = event?.data;
         const targetIndex = event?.index ?? fields.length;
-        const sourceIndex = fields.findIndex(field => field === dropped);
+        const sourceIndex = this.indexOfDraggedField(fields, dropped);
 
         if (sourceIndex < 0) {
             fields.splice(targetIndex, 0, dropped);
             return;
         }
 
-        // Reorder: take the field out first so the target index still refers to the intended slot.
+        // Reorder: take the field out first so the target index still refers to the intended slot,
+        // and put the ORIGINAL entry back rather than the payload copy.
         const [moved] = fields.splice(sourceIndex, 1);
         fields.splice(targetIndex > sourceIndex ? targetIndex - 1 : targetIndex, 0, moved);
     }
 
 
+    /**
+     * Where the dropped payload already lives in this section, or -1 if it is a new field.
+     *
+     * ngx-drag-drop puts the payload through `JSON.stringify`/`JSON.parse`, so what a drop hands back
+     * is **never** the array entry that was dragged. Matching on object identity therefore always
+     * misses, and the reorder silently becomes an insert - i.e. the field gets duplicated. The
+     * identifier is the only thing that survives the round trip, which is what the canvas' own
+     * `isExistingField` matches on too.
+     */
+    private indexOfDraggedField(fields: Array<any>, dropped: any): number {
+        if (!dropped?.name) {
+            return -1;
+        }
+
+        return fields.findIndex(field => field === dropped || field?.name === dropped.name);
+    }
+
+
     public onFieldDragStart(): void {
-        // The drop handler resolves a reorder on its own.
+        // The drop handler resolves a reorder from the payload's identifier.
     }
 
 
@@ -227,6 +260,14 @@ export class SingleSectionBuilderHost implements BuilderSectionHost {
 
         if (data.elementType === 'section' || data.elementType === 'multi-data-section') {
             section[data.inputName] = data.newValue;
+            return;
+        }
+
+        // `hidden_fields` is a type-level concept. This page has nowhere to put it, and its fields
+        // are serialised verbatim into the saved template, so storing the flag would ship a stray
+        // property to the backend. The control is not offered here (see getFieldSectionType); this
+        // guard keeps that true no matter where the event came from.
+        if (data.inputName === 'hideField') {
             return;
         }
 

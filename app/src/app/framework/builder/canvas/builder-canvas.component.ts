@@ -353,6 +353,12 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
         return ['inputs', 'location'];
     }
 
+    /** On the canvas a field editor is told the real section type, so an MDS offers its hide control. */
+    public getFieldSectionType(section: BuilderSection): string {
+        return section?.type;
+    }
+
+
     public getFieldDragEffect(field: any): string {
         return this.policy.canMoveField(field) ? "move" : "none";
     }

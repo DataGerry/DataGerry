@@ -81,20 +81,79 @@ describe('BuilderSectionComponent (fixed single section)', () => {
     });
 
 
+    /**
+     * ngx-drag-drop puts the payload through `JSON.stringify` on dragstart and `JSON.parse` on drop,
+     * so `event.data` is ALWAYS a fresh object — never the array entry that was dragged. Handing a
+     * drop handler the live reference is the single easiest way to write a reorder test that passes
+     * while the feature duplicates the field in the browser.
+     */
+    function dropEvent(payload: any, index: number, dropEffect: string): any {
+        return { data: JSON.parse(JSON.stringify(payload)), index, dropEffect };
+    }
+
     it('adds dropped fields and reorders them without duplicating', () => {
         const host = fixture.componentInstance.host;
         const section = fixture.componentInstance.section;
 
-        host.onFieldDrop({ data: { name: 'n1', label: 'Number', type: 'number' }, dropEffect: 'copy', index: 0 } as any, section);
-        host.onFieldDrop({ data: { name: 't1', label: 'Text', type: 'text' }, dropEffect: 'copy', index: 1 } as any, section);
+        host.onFieldDrop(dropEvent({ name: 'n1', label: 'Number', type: 'number' }, 0, 'copy'), section);
+        host.onFieldDrop(dropEvent({ name: 't1', label: 'Text', type: 'text' }, 1, 'copy'), section);
         fixture.detectChanges();
 
         expect(section.fields.map((field: any) => field.name)).toEqual(['n1', 't1']);
         expect(element.querySelectorAll('.fields.card').length).toBe(2);
 
-        host.onFieldDrop({ data: section.fields[1], dropEffect: 'move', index: 0 } as any, section);
+        host.onFieldDrop(dropEvent(section.fields[1], 0, 'move'), section);
 
         expect(section.fields.map((field: any) => field.name)).toEqual(['t1', 'n1']);
+        expect(section.fields.length).withContext('the field must not be duplicated').toBe(2);
+    });
+
+
+    it('keeps the dragged field\'s own object, not the deserialized copy', () => {
+        const host = fixture.componentInstance.host;
+        const section = fixture.componentInstance.section;
+
+        host.onFieldDrop(dropEvent({ name: 'n1', label: 'Number', type: 'number' }, 0, 'copy'), section);
+        host.onFieldDrop(dropEvent({ name: 't1', label: 'Text', type: 'text' }, 1, 'copy'), section);
+
+        const original = section.fields[1];
+        host.onFieldDrop(dropEvent(original, 0, 'move'), section);
+
+        expect(section.fields[0]).toBe(original);
+    });
+
+
+    /**
+     * The old section-template page bound no `[fieldSectionType]` on its field editors, so the
+     * multi-data-section "hide this field as column" checkbox never appeared there. The shared
+     * section card passes it for every host, which would surface a control this page cannot honour:
+     * its `hideField` change is not routed to `hidden_fields`, it would just be written onto the
+     * field and serialised straight into the saved template.
+     */
+    it('does not offer the multi-data-section hide control on a section template', () => {
+        const host = fixture.componentInstance.host;
+        const section = fixture.componentInstance.section;
+        section.type = 'multi-data-section';
+
+        host.onFieldDrop(dropEvent({ name: 't1', label: 'Text', type: 'text' }, 0, 'copy'), section);
+        fixture.detectChanges();
+
+        expect(element.querySelector('.fields.card')).withContext('the field card renders').toBeTruthy();
+        expect(element.querySelector('input[name^="hideFieldControl"]')).toBeNull();
+    });
+
+
+    it('never writes a hideField flag onto a section template field', () => {
+        const host = fixture.componentInstance.host;
+        const section = fixture.componentInstance.section;
+        section.type = 'multi-data-section';
+
+        host.onFieldDrop(dropEvent({ name: 't1', label: 'Text', type: 'text' }, 0, 'copy'), section);
+        host.onValuesChanged({ newValue: true, inputName: 'hideField', fieldName: 't1', elementType: 'text' });
+
+        expect(section.fields[0].hideField)
+            .withContext('a stray hideField would be serialised into the saved template')
+            .toBeUndefined();
     });
 
 

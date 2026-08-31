@@ -150,7 +150,7 @@
                                         [types]="host.types"
                                         [sections]="host.sections"
                                         [data]="field"
-                                        [fieldSectionType]="section?.type"
+                                        [fieldSectionType]="host.getFieldSectionType(section)"
                                         [hiddenStatus]="host.getFieldHiddenState(section, field)"
                                         (valuesChanged)="host.onValuesChanged($event, index, y)"
                                         [isDisabled]="host.isFieldEditDisabled(index, y)"
