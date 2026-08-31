@@ -73,6 +73,9 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
     // Nested summaries
     public summaries: any[] = [];
 
+    // Stable reference so the fields dropdown does not rebuild its item list on every change detection run
+    private readonly emptyFieldList: Array<any> = [];
+
     // Object list for default reference value
     public objectList: RenderResult[];
 
@@ -220,6 +223,7 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
             } else {
                 // Clear data if no types selected
                 this.summaries = [];
+                this.data.summaries = this.summaries;
                 this.data.value = '';
                 this.objectList = [];
             }
@@ -231,13 +235,15 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
 
     /**
      * Filters the summaries based on the reference types available in the data.
-     * Only includes summaries where the type_id exists in the ref_types.
+     * Only includes summaries where the type_id exists in the ref_types. The filtered list is written
+     * back to the field, otherwise prepareSummaries() reads the dropped rows back in on the next change.
     */
     private filterSummaries() {
         if (this.data.ref_types) {
             this.summaries = this.summaries.filter(summary =>
                 this.data.ref_types.includes(summary.type_id)
             );
+            this.data.summaries = this.summaries;
         }
     }
 
@@ -349,36 +355,53 @@ export class RefFieldEditComponent extends ConfigEditBaseComponent implements On
     }
 
 
-    public summaryFieldFilter(id: number) {
-        const found = this.typeList.find(s => s.public_id === id);
+    public summaryFieldFilter(id: number): Array<any> {
+        if (!id) {
+            return this.emptyFieldList;
+        }
 
-        return id ? found ? found.fields : [] : [];
+        return this.typeList.find(type => type.public_id === id)?.fields ?? this.emptyFieldList;
     }
 
 
     /**
-     * Handles the change event for the ng-select component.
-     * Updates the corresponding summary item with the selected type's label and icon.
-     * @param type - The selected type object containing the public_id, label, and render_meta.icon.
+     * Applies the type picked in a summary row: takes over its label and icon and drops the fields that
+     * were selected for the type the row pointed at before, because the new type does not hold them.
+     * @param type the selected type, null when the row was cleared
+     * @param summary the summary row the selection belongs to
     */
     public changeSummaryOption(type: CmdbType, summary: any) {
-
         if (!type) {
             summary.label = '';
+            summary.icon = null;
             summary.line = '';
             summary.fields = [];
+
             return;
         }
-        const nestedSummary = this.summaries.find(s => s.type_id === type.public_id);
-        if (nestedSummary) {
-            nestedSummary.label = type.label;
-            nestedSummary.icon = type.render_meta.icon;
-        } else {
-        }
+
+        summary.label = type.label;
+        summary.icon = type.render_meta?.icon;
+        summary.fields = this.fieldsBelongingToType(summary.fields, type);
     }
 
 
     /* ------------------------------------------------- HELPER SECTION ------------------------------------------------- */
+
+    /**
+     * Keeps only the field names the given type actually holds. A fresh array is returned so the fields
+     * dropdown picks the pruned selection up - mutating the bound array in place would not reach ngModel.
+     */
+    private fieldsBelongingToType(selectedFields: Array<string>, type: CmdbType): Array<string> {
+        if (!selectedFields?.length) {
+            return [];
+        }
+
+        const availableNames = new Set((type.fields ?? []).map(field => field?.name));
+
+        return selectedFields.filter(name => availableNames.has(name));
+    }
+
 
     public hasValidator(control: string): void {
         if (this.form.controls[control].hasValidator(Validators.required)) {

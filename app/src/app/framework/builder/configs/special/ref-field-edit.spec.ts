@@ -169,6 +169,90 @@ describe('RefFieldEditComponent', () => {
         expect(component['initialValue']).toBe(component.nameControl.value);
     });
 
+    /* ------------------------------------------- summary rows ------------------------------------------- */
+
+    it('should drop the fields of the previous type when a summary row switches type', () => {
+        const previousType = { public_id: 1, label: 'Router', render_meta: { icon: 'fas fa-server' }, fields: [
+            { name: 'network_range', label: 'Network Range' }
+        ] } as any;
+        const nextType = { public_id: 2, label: 'Switch', render_meta: { icon: 'fas fa-plug' }, fields: [
+            { name: 'ports', label: 'Ports' }
+        ] } as any;
+        component.typeList = [previousType, nextType];
+        const summary = { type_id: 2, line: null, label: 'Router', fields: ['network_range'], icon: null, prefix: false };
+        component.summaries = [summary];
+
+        component.changeSummaryOption(nextType, summary);
+
+        expect(summary.fields).toEqual([]);
+        expect(summary.label).toBe('Switch');
+        expect(summary.icon).toBe('fas fa-plug');
+    });
+
+    it('should keep the fields the newly selected type also holds', () => {
+        const nextType = { public_id: 2, label: 'Switch', render_meta: { icon: 'fas fa-plug' }, fields: [
+            { name: 'hostname', label: 'Hostname' },
+            { name: 'ports', label: 'Ports' }
+        ] } as any;
+        const summary = { type_id: 2, line: null, label: 'Router', fields: ['hostname', 'network_range'], icon: null, prefix: false };
+        component.summaries = [summary];
+
+        component.changeSummaryOption(nextType, summary);
+
+        expect(summary.fields).toEqual(['hostname']);
+    });
+
+    it('should only touch the summary row the selection belongs to', () => {
+        const nextType = { public_id: 2, label: 'Switch', render_meta: { icon: 'fas fa-plug' }, fields: [] } as any;
+        const untouched = { type_id: 2, line: 'keep me', label: 'Switch', fields: ['ports'], icon: null, prefix: false };
+        const edited = { type_id: 2, line: null, label: 'Router', fields: ['network_range'], icon: null, prefix: false };
+        component.summaries = [untouched, edited];
+
+        component.changeSummaryOption(nextType, edited);
+
+        expect(untouched.fields).toEqual(['ports']);
+        expect(untouched.line).toBe('keep me');
+        expect(edited.fields).toEqual([]);
+    });
+
+    it('should reset the summary row when the type selection is cleared', () => {
+        const summary = { type_id: null, line: 'Hostname: {}', label: 'Router', fields: ['network_range'], icon: 'fas fa-server', prefix: false };
+        component.summaries = [summary];
+
+        component.changeSummaryOption(undefined as any, summary);
+
+        expect(summary.label).toBe('');
+        expect(summary.icon).toBeNull();
+        expect(summary.line).toBe('');
+        expect(summary.fields).toEqual([]);
+    });
+
+    it('should return the same empty field list reference while no type is selected', () => {
+        expect(component.summaryFieldFilter(null)).toBe(component.summaryFieldFilter(undefined));
+    });
+
+    it('should list the fields of the selected type', () => {
+        const fields = [{ name: 'ports', label: 'Ports' }];
+        component.typeList = [{ public_id: 7, label: 'Switch', fields } as any];
+
+        expect(component.summaryFieldFilter(7)).toBe(fields);
+    });
+
+    it('should write the filtered summaries back to the field so dropped rows stay dropped', () => {
+        component.data.ref_types = [1, 2];
+        component.data.summaries = [
+            { type_id: 1, fields: ['network_range'] },
+            { type_id: 2, fields: ['ports'] }
+        ];
+        component.summaries = component.data.summaries;
+
+        component.data.ref_types = [2];
+        component['filterSummaries']();
+
+        expect(component.summaries.map(summary => summary.type_id)).toEqual([2]);
+        expect(component.data.summaries).toBe(component.summaries);
+    });
+
     it('should emit a ref field change with the full contract', () => {
         component.nameControl.setValue('ref_name', { emitEvent: false });
         const events: any[] = [];

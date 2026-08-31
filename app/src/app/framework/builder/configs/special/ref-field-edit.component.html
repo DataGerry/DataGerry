@@ -97,7 +97,15 @@
     </div>
     <div class="col-md-12 mb-3">
         <label class="form-label mb-1">Summaries:</label>
-        <table class="table table-bordered">
+        <table class="table table-bordered summaries-table">
+            <colgroup>
+                <col class="summary-col-index">
+                <col class="summary-col-type">
+                <col class="summary-col-label">
+                <col class="summary-col-line">
+                <col class="summary-col-fields">
+                <col class="summary-col-actions">
+            </colgroup>
             <thead>
                 <tr>
                     <th scope="col">#</th>
@@ -110,13 +118,16 @@
             </thead>
             <tbody>
                 @for (summary of summaries; track summary; let i = $index) {
-<tr>
+                <tr>
                     <th scope="row">{{i + 1}}</th>
                     <td>
                         <ng-select
                             [items]="filteredTypeList"
                             bindLabel="label"
                             bindValue="public_id"
+                            placeholder="Select type"
+                            loadingText="Loading..."
+                            [loading]="typeLoading"
                             (change)="changeSummaryOption($event, summary)"
                             [(ngModel)]="summary.type_id"
                             [ngModelOptions]="{standalone: true}"
@@ -146,10 +157,6 @@
                             [(ngModel)]="summary.line"
                             [ngModelOptions]="{standalone: true}"
                         >
-                        <small class="form-text text-muted">Enter curved brackets for field interpolation.
-                            <br>
-                            (Example) Hostname: <b>{{"{}"}}</b> IP-Address : <b>{{"{}"}}</b>
-                        </small>
                     </td>
                     <td>
                         <ng-select
@@ -173,7 +180,7 @@
                         </button>
                     </td>
                 </tr>
-}
+                }
                 <tr>
                     <td colspan="6">
                         <button type="button" class="btn btn-outline-secondary" (click)="addSummary()">
@@ -183,6 +190,10 @@
                 </tr>
             </tbody>
         </table>
+        <small class="form-text text-muted">
+            Enter curved brackets in a summary line for field interpolation.
+            (Example) Hostname: <b>{{"{}"}}</b> IP-Address: <b>{{"{}"}}</b>
+        </small>
     </div>
     <div class="col-md-12 mb-3">
         <label class="form-label mb-1">Default value:</label>
