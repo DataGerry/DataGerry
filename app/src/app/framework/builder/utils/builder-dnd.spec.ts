@@ -294,7 +294,7 @@ describe('Builder drag and drop', () => {
             h.mutation.onSectionDrop(dropEvent(moved, 2, 'move'));
             h.mutation.onSectionMoved(moved, 'move');
 
-            expect(h.ctx.sections.map(s => s.name)).toEqual(['b', 'c', 'a']);
+            expect(h.ctx.sections.map(s => s.name)).toEqual(['b', 'a', 'c']);
             expect(h.ctx.sections.filter(s => s.name === 'a').length).toBe(1);
         });
 
@@ -320,6 +320,50 @@ describe('Builder drag and drop', () => {
             h.mutation.onSectionMoved(moved, 'move');
 
             expect(h.ctx.sections.map(s => s.name)).toEqual(['a', 'b', 'c']);
+        });
+
+
+        /**
+         * The dragged section stays rendered for the whole drag, so the placeholder index counts it
+         * too whenever the drop point is below it. Reordering downwards therefore has to step the
+         * index back by one - without that, a section dropped into the second-to-last slot skipped
+         * past the last one and appended instead.
+         */
+        it('moves a section down into the slot the placeholder showed', () => {
+            const h = harness(seeded([section('a'), section('b'), section('c'), section('d')]));
+            const moved = h.ctx.sections[1];
+
+            h.mutation.onDragStart(1);
+            h.mutation.onSectionDrop(dropEvent(moved, 3, 'move'));
+            h.mutation.onSectionMoved(moved, 'move');
+
+            expect(h.ctx.sections.map(s => s.name)).toEqual(['a', 'c', 'b', 'd']);
+            expect(h.ctx.schema.readSections().map(s => s.name)).toEqual(['a', 'c', 'b', 'd']);
+        });
+
+
+        /** The slot directly below the dragged section is the one it already occupies. */
+        it('leaves the order unchanged when a section is dropped just below itself', () => {
+            const h = threeSections();
+            const moved = h.ctx.sections[1];
+
+            h.mutation.onDragStart(1);
+            h.mutation.onSectionDrop(dropEvent(moved, 2, 'move'));
+            h.mutation.onSectionMoved(moved, 'move');
+
+            expect(h.ctx.sections.map(s => s.name)).toEqual(['a', 'b', 'c']);
+        });
+
+
+        it('moves the first section past the last one', () => {
+            const h = threeSections();
+            const moved = h.ctx.sections[0];
+
+            h.mutation.onDragStart(0);
+            h.mutation.onSectionDrop(dropEvent(moved, 3, 'move'));
+            h.mutation.onSectionMoved(moved, 'move');
+
+            expect(h.ctx.sections.map(s => s.name)).toEqual(['b', 'c', 'a']);
         });
 
 
@@ -372,7 +416,7 @@ describe('Builder drag and drop', () => {
             const locked = h.ctx.sections[0];
 
             h.mutation.onDragStart(0);
-            h.mutation.onSectionDrop(dropEvent(locked, 1, 'move'));
+            h.mutation.onSectionDrop(dropEvent(locked, 2, 'move'));
             h.mutation.onSectionMoved(locked, 'move');
 
             expect(h.ctx.sections.map(s => s.name)).toEqual(['locked', 'b']);
@@ -384,7 +428,7 @@ describe('Builder drag and drop', () => {
             const system = h.ctx.sections[0];
 
             h.mutation.onDragStart(0);
-            h.mutation.onSectionDrop(dropEvent(system, 1, 'move'));
+            h.mutation.onSectionDrop(dropEvent(system, 2, 'move'));
             h.mutation.onSectionMoved(system, 'move');
 
             expect(h.ctx.sections.map(s => s.name)).toEqual(['dg_gst-x', 'b']);
@@ -401,7 +445,7 @@ describe('Builder drag and drop', () => {
             const globalSection = h.ctx.sections[0];
 
             h.mutation.onDragStart(0);
-            h.mutation.onSectionDrop(dropEvent(globalSection, 1, 'move'));
+            h.mutation.onSectionDrop(dropEvent(globalSection, 2, 'move'));
             h.mutation.onSectionMoved(globalSection, 'move');
 
             expect(h.ctx.sections.map(s => s.name)).toEqual(['b', 'gt']);
@@ -441,7 +485,7 @@ describe('Builder drag and drop', () => {
             h.deps.sectionIdentifierService.syncSections.calls.reset();
             h.mutation.onSectionMoved(moved, 'move');
 
-            expect(h.deps.sectionIdentifierService.syncSections).toHaveBeenCalledWith(['b', 'c', 'a']);
+            expect(h.deps.sectionIdentifierService.syncSections).toHaveBeenCalledWith(['b', 'a', 'c']);
         });
     });
 

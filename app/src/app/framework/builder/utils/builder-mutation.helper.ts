@@ -219,13 +219,19 @@ export class BuilderMutationHelper {
         this.refreshFieldIdentifiers();
     }
 
+    /**
+     * `targetIndex` is the placeholder's position among the rendered sections, and the dragged
+     * section is still one of them. Dropping below its own slot therefore counts it once too often,
+     * so the index has to shrink by one before the shortened list is spliced.
+     */
     private moveSection(sourceIndex: number, targetIndex: number): void {
         if (sourceIndex < 0 || sourceIndex >= this.ctx.sections.length) {
             return;
         }
 
         const [movedSection] = this.ctx.sections.splice(sourceIndex, 1);
-        const nextIndex = Math.max(0, Math.min(targetIndex, this.ctx.sections.length));
+        const adjustedIndex = targetIndex > sourceIndex ? targetIndex - 1 : targetIndex;
+        const nextIndex = Math.max(0, Math.min(adjustedIndex, this.ctx.sections.length));
 
         this.ctx.sections.splice(nextIndex, 0, movedSection);
         this.commitSections();
