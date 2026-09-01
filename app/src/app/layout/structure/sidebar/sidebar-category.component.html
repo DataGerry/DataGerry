@@ -4,7 +4,7 @@
   (click)="toggle()">
   <span class="shorten-long-text" data-bs-toggle="tooltip" [attr.title]="categoryNode.category.label">
     <i [ngClass]="categoryNode.category.meta.icon || 'far fa-folder-open'"></i>
-    {{ categoryNode.category.label }}
+    <span class="node-label">{{ categoryNode.category.label }}</span>
   </span>
 </a>
 <ul class="collapse collapse-element" [class.show]="isExpanded" id="{{categoryNode.category.name}}">

@@ -369,6 +369,7 @@ $sb-speed : 200ms;
       display: flex !important;
       align-items: center !important;
       flex: 1 1 auto !important;
+      min-width: 0 !important;
       overflow: hidden !important;
       white-space: nowrap !important;
       color: $sb-text-primary !important;
@@ -388,6 +389,14 @@ $sb-speed : 200ms;
         margin: 0 !important;
         font-size: 15px !important;
         color: #2d2d3b !important;
+      }
+
+      .node-label {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
       }
     }
 
@@ -413,10 +422,11 @@ $sb-speed : 200ms;
     >a.list-group-item,
     >div>a.list-group-item {
       position: relative !important;
+      /* Keeps the label from running underneath the expand chevron */
+      padding-right: 30px !important;
 
       .shorten-long-text {
         font-weight: 600 !important;
-        padding-right: 20px !important;
       }
 
       /* Animated Chevron */
