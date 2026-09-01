@@ -43,7 +43,7 @@ from cmdb.models.type_model import (
     DG_LOCATION_FIELD_NAME,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.utils.helpers import duplicate_names, parse_import_bool, is_non_blank_string
+from cmdb.utils import duplicate_names, parse_import_bool, is_non_blank_string
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     location_field_removal_blocker,
     selectable_as_parent_change_blocker,

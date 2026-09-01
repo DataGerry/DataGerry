@@ -49,7 +49,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.rack_model.rack_mount_constants import RackMountKey, RackMountKind
 
-from cmdb.utils.validation_error import build_error
+from cmdb.utils import build_error
 
 from cmdb.errors.manager.rack_mounts_manager import (
     RackMountsManagerInsertError,

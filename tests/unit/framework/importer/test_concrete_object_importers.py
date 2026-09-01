@@ -418,7 +418,7 @@ class TestCsvMultiDataSectionsImport:
         import csv as _csv
         from io import StringIO
         from types import SimpleNamespace
-        from cmdb.utils.cast import auto_cast
+        from cmdb.utils import auto_cast
         from cmdb.framework.exporter.format.csv_export_format import CsvExportFormat
 
         sections = [{'type': 'multi-data-section', 'name': 'nics', 'label': 'nics',

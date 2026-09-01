@@ -21,8 +21,12 @@ Provides:
       the database updater (per-version `updater_<date>` modules) and the exporter
       framework (per-format classes under `cmdb.framework.exporter.format.*`)
     * `str_to_bool` — lenient string/bool coercer used to normalise REST query params
+    * `is_truthy_query_arg` — the never-raising wrapper around `str_to_bool` the routes apply to an
+      optional query flag, falling back to a default instead of rejecting the request
     * `parse_import_bool` — the more permissive boolean parser the object- and type-imports apply to
       an uploaded flag, reporting an unusable value instead of raising
+    * `coerce_whole_number` — the "this is a count / an index / a slot" coercer, shared by the
+      request-parameter parsers, the rack layout rules and the config-file port check
     * `is_non_blank_string` — the "usable name / label" predicate the type import applies to every
       name, label and icon it reads
     * `duplicate_names` — reports the values occurring more than once in a sequence, used by the
@@ -41,6 +45,8 @@ from logging import Logger, getLogger
 from typing import Any, Iterable
 
 from dateutil.parser import parse
+
+from cmdb.errors.utils import ClassLoadError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -53,8 +59,9 @@ _FALSY_IMPORT_VALUES: frozenset[str] = frozenset({'false', 'no', '0'})
 _HEX_COLOR_MAX: int = 0xFFFFFF
 _HEX_COLOR_WIDTH: int = 6
 
-# A '#RRGGBB' color, the only spelling accepted from a user - the same form random_hex_color produces
-_HEX_COLOR_PATTERN: re.Pattern = re.compile(r'^#[0-9A-Fa-f]{6}$')
+# A '#RRGGBB' color, the only spelling accepted from a user - the same form random_hex_color produces.
+# Anchored with \Z rather than $, because $ also matches immediately before a trailing newline
+_HEX_COLOR_PATTERN: re.Pattern = re.compile(r'\A#[0-9A-Fa-f]{6}\Z')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -78,22 +85,19 @@ def load_class(classname: str) -> type:
         type: The resolved class object
 
     Raises:
-        Exception: When `classname` does not contain a dot (the split fails)
+        ClassLoadError: When `classname` does not contain a dot, so it cannot be split into a
+            module path and an attribute name
         ModuleNotFoundError: When the module portion cannot be imported
         AttributeError: When the module is imported but the named attribute is missing
     """
-    pattern = re.compile(r"(.*)\.(.*)")
-    match = pattern.fullmatch(classname)
+    module_name, _, class_name = classname.rpartition('.')
 
-    if match is None:
-        raise Exception(f"Could not load class {classname}")
+    if not module_name:
+        raise ClassLoadError(f"Could not load class {classname}")
 
-    module_name = match.group(1)
-    class_name = match.group(2)
     loaded_module = importlib.import_module(module_name)
-    loaded_class = getattr(loaded_module, class_name)
 
-    return loaded_class
+    return getattr(loaded_module, class_name)
 
 
 def str_to_bool(s: Any) -> bool:
@@ -158,8 +162,9 @@ def process_bar(name: str, total: int, progress: int) -> None:
     newline once `progress >= total` so the next stdout write starts cleanly. The bar is
     a fixed 50 chars wide, filled in proportion to `progress / total`. The `[x/y]`
     segment shows the raw step counts (`progress` and `total`) while the bar fill and
-    percentage are clamped to a maximum of 100%. Calls with `total <= 0` return without
-    writing anything
+    percentage are clamped to the 0-100% range, so neither an overshooting nor a negative
+    `progress` can render a bar wider than its 50 chars. Calls with `total <= 0` return
+    without writing anything
 
     Args:
         name (str): Label printed before the bar
@@ -173,7 +178,7 @@ def process_bar(name: str, total: int, progress: int) -> None:
     if total <= 0:
         return
 
-    fraction = min(float(progress) / float(total), 1.0)
+    fraction = min(max(float(progress) / float(total), 0.0), 1.0)
     status = "\r\n" if fraction >= 1.0 else ""
 
     bar_length = 50
@@ -181,7 +186,7 @@ def process_bar(name: str, total: int, progress: int) -> None:
 
     progress_percentage = f"{fraction * 100:.0f}%"
     through_of = f"[{progress}/{total}]"
-    progress_bar = f'[{ "#" * block + "-" * (bar_length - block)}] {progress_percentage} {through_of}'
+    progress_bar = f'[{"#" * block + "-" * (bar_length - block)}] {progress_percentage} {through_of}'
 
     sys.stdout.write(f'\r{name}: {progress_bar}{status}')
     sys.stdout.flush()
@@ -242,9 +247,9 @@ def is_hex_color(value: Any) -> bool:
     Reports whether a value is a '#RRGGBB' color string
 
     The predicate behind every user-supplied color. Deliberately strict about the form - the shorthand
-    '#RGB', a bare 'RRGGBB' and a CSS color name are all rejected, so a stored color is always the one
-    spelling a frontend has to render and the one `random_hex_color` produces. Case-insensitive, since
-    '#4caf50' and '#4CAF50' are the same color
+    '#RGB', a bare 'RRGGBB', a CSS color name and a value carrying any surrounding whitespace are all
+    rejected, so a stored color is always the one spelling a frontend has to render and the one
+    `random_hex_color` produces. Case-insensitive, since '#4caf50' and '#4CAF50' are the same color
 
     Args:
         value (Any): The value to check
@@ -353,11 +358,13 @@ def duplicate_names(names: Iterable[Any]) -> list:
         list: The duplicated values (empty when all are unique)
     """
     seen: set = set()
+    reported: set = set()
     duplicates: list = []
 
     for name in names:
-        if name in seen and name not in duplicates:
+        if name in seen and name not in reported:
             duplicates.append(name)
+            reported.add(name)
 
         seen.add(name)
 

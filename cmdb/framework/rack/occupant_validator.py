@@ -37,7 +37,7 @@ the other refuses
 from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.utils.helpers import coerce_datetime, is_hex_color
+from cmdb.utils import coerce_datetime, is_hex_color
 
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey, RackMountKind
 

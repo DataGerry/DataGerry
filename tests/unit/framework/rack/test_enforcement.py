@@ -28,7 +28,7 @@ import pytest
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField
-from cmdb.utils.validation_error import ValidationErrorKey
+from cmdb.utils import ValidationErrorKey
 from cmdb.framework.rack.rack_constants import ABORT_PREFIX, RackValidationError
 from cmdb.framework.rack.enforcement import (
     enforce_rack_object_invariants,

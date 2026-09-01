@@ -15,6 +15,15 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for DataGerry Rights
+
+Three read-only routes over the static rights tree - the flat paginated list, one right by its
+qualified name, and the level enum. There is no write side: rights are declared in
+`cmdb.models.right_model.all_rights` at import time, not stored, so nothing here can create or edit
+one; what a *group* holds is the CmdbUserGroup routes' business.
+
+Because the tree is in-memory, a single `RightsManager` is built once at import and shared across
+requests instead of re-flattening ~200 rights per call, and none of the routes carries an ACL right -
+the catalogue is product metadata, identical for every installation.
 """
 from logging import Logger, getLogger
 
@@ -57,18 +66,30 @@ def get_rights(params: CollectionParameters) -> Response:
     Supports two views via the `view` query parameter: `tree` returns the nested rights tree
     (unpaginated), any other value returns the flat, paginated and sorted list.
 
+    Both views report the same `total`: the number of rights. `len(ALL_RIGHTS)` would be the number
+    of top-level groups (10) rather than the ~200 rights the payload carries, which is why the count
+    comes from the flattened tree the manager already holds.
+
     Args:
         params (CollectionParameters): Passed parameters over the http query string
 
     Returns:
         GetMultiResponse: Which includes an IterationResult of the BaseRight
+
+    Raises:
+        HTTPException: 500 when the rights could not be assembled (e.g. an unknown `?sort=` value,
+                       which reaches `BaseRight.__getitem__` as an unknown attribute)
+
+    Notes:
+        No ACL right is required - the rights catalogue is static product metadata.
+        Calling the route over HTTP HEAD will result in an empty body
     """
     try:
         body: bool = request.method == 'HEAD'
 
         if params.optional['view'] == 'tree':
-            api_response = GetMultiResponse(rights_manager.tree_to_json(ALL_RIGHTS),
-                                            total=len(ALL_RIGHTS),
+            api_response = GetMultiResponse(RightsManager.tree_to_json(ALL_RIGHTS),
+                                            total=len(rights_manager.rights),
                                             params=params,
                                             url=request.url,
                                             body=body)
@@ -108,8 +129,14 @@ def get_right(name: str) -> Response:
         name (str): Name of the right
 
     Returns:
-        GetSingleResponse: Which includes the json data of a BaseRight; aborts 404 when no
-            right matches the given name
+        GetSingleResponse: Which includes the json data of a BaseRight
+
+    Raises:
+        HTTPException: 404 when no right matches the given name, 500 when the lookup itself failed
+
+    Notes:
+        No ACL right is required - the rights catalogue is static product metadata.
+        Calling the route over HTTP HEAD will result in an empty body
     """
     try:
         right: BaseRight | None = rights_manager.get_right(name)
@@ -135,9 +162,14 @@ def get_levels() -> Response:
     HTTP `GET`/`HEAD` route for a static collection of levels
 
     Returns:
-        GetSingleResponse: Which includes a levels as enum
+        GetSingleResponse: The name -> level mapping (`NAME_TO_LEVEL`), keyed by name because the
+            frontend renders a selector from the names and sends back the numeric value
+
+    Raises:
+        HTTPException: 500 when the mapping could not be serialised
 
     Notes:
+        No ACL right is required - the levels are a static enum.
         Calling the route over HTTP HEAD method will result in an empty body
     """
     try:

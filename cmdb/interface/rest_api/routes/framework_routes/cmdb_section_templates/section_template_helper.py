@@ -27,7 +27,7 @@ from flask import abort
 
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
-from cmdb.utils.helpers import str_to_bool
+from cmdb.utils import str_to_bool
 # -------------------------------------------------------------------------------------------------------------------- #
 
 

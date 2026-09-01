@@ -20,7 +20,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.all_rights import ALL_RIGHTS
+from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager.rights_manager import (
@@ -118,8 +118,9 @@ class RightsManager:
         """
         Flattens a nested right tree into a flat list of rights
 
-        Recurses into nested tuples/lists and collects every leaf `BaseRight` into a single
-        flat list, discarding the grouping structure.
+        Kept as the manager-side entry point, but the recursion itself lives once in
+        `cmdb.models.right_model.all_rights.flat_rights_tree`, which `GroupsManager` also uses - the
+        two had byte-identical bodies before
 
         Args:
             right_tree (tuple | list): A nested structure containing rights
@@ -127,15 +128,7 @@ class RightsManager:
         Returns:
             list[BaseRight]: A flat list containing all rights
         """
-        rights: list[BaseRight] = []
-
-        for right in right_tree:
-            if isinstance(right, (tuple, list)):
-                rights = rights + RightsManager.flat_tree(right)
-            else:
-                rights.append(right)
-
-        return rights
+        return flat_rights_tree(right_tree)
 
 
     @staticmethod

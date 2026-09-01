@@ -40,7 +40,7 @@ import multiprocessing
 import threading
 from time import sleep
 
-from cmdb.utils.helpers import load_class
+from cmdb.utils import load_class
 from cmdb.process_management.cmdb_process import CmdbProcess
 from cmdb.process_management.process_controller import ProcessController
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -16,7 +16,6 @@
 """
 Represents a CmdbUserGroup in DataGerry
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -31,8 +30,6 @@ from cmdb.errors.models.cmdb_user_group import (
     CmdbUserGroupToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbUserGroup - CLASS                                                #
@@ -71,7 +68,7 @@ class CmdbUserGroup(CmdbDAO):
         try:
             self.name: str = name
             self.label: str = label or name.title()
-            self.rights: list = rights or []
+            self.rights: list[BaseRight] = rights or []
 
             super().__init__(public_id=public_id)
         except Exception as err:
@@ -97,7 +94,10 @@ class CmdbUserGroup(CmdbDAO):
         """
         try:
             if rights:
-                rights = [right for right in rights if right['name'] in data.get('rights', [])]
+                # A set, not the raw list: the tree holds ~200 rights and every one of them was
+                # tested against the stored name list, which made deserialising a group O(n*m)
+                granted_names: set[str] = set(data.get('rights') or [])
+                rights = [right for right in rights if right['name'] in granted_names]
             else:
                 rights = []
 
@@ -127,14 +127,12 @@ class CmdbUserGroup(CmdbDAO):
         Returns:
             dict: Json compatible dict of the CmdbUserGroup values
         """
-        rights = []
-
-        if insert_mode:
-            rights = [right.name for right in instance.rights]
-        else:
-            rights = [BaseRight.to_dict(right) for right in instance.rights]
-
         try:
+            if insert_mode:
+                rights: list[Any] = [right.name for right in instance.rights]
+            else:
+                rights = [BaseRight.to_dict(right) for right in instance.rights]
+
             return {
                 'public_id': instance.public_id,
                 'name': instance.name,
@@ -163,18 +161,27 @@ class CmdbUserGroup(CmdbDAO):
         """
         Recursively checks if a CmdbUserGroup has an extended right
 
+        Walks the qualified name outwards one segment at a time and asks whether the group holds the
+        wildcard right of that parent - so `base.framework.object.view` is granted by
+        `base.framework.object.*`, by `base.framework.*` or by the master right `base.*`.
+
+        The recursion stops when a segment can no longer be stripped, which is also the guard
+        against a name that carries no dot at all: `rsplit` returns such a name unchanged, so
+        recursing on it would never terminate.
+
         Args:
-            right_name (str): The name of the right to check
+            right_name (str): The qualified name of the right to check
 
         Returns:
             bool: True if the extended right exists, otherwise False
         """
         parent_right_name: str = right_name.rsplit(".", 1)[0]
 
+        if parent_right_name == right_name:
+            # Nothing left to strip - an unqualified name, or the outermost segment already checked
+            return False
+
         if self.has_right(f'{parent_right_name}.{GLOBAL_RIGHT_IDENTIFIER}'):
             return True
-
-        if parent_right_name == 'base':
-            return self.has_right(f'{parent_right_name}.{GLOBAL_RIGHT_IDENTIFIER}')
 
         return self.has_extended_right(right_name=parent_right_name)

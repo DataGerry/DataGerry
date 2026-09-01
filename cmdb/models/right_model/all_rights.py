@@ -15,6 +15,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all DataGerry rights
+
+Every right in the product is declared here, once, as a nested tuple tree: a branch is a tuple whose
+first element is the wildcard right of that level and whose remaining elements are its children (each
+in turn a right or a nested tuple). `ALL_RIGHTS` is the root, and the nesting is what
+`CmdbUserGroup.has_extended_right` mirrors at check time - holding a branch's '*' right grants
+everything below it.
+
+The tree is built at import time and never mutated, so adding a right means adding a line here and
+nothing else; `RightsManager` and `GroupsManager` flatten it for lookup, and
+`RightsManager.tree_to_json` serialises it with the nesting preserved for the frontend's rights picker.
 """
 from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.import_rights import ImportRight, ImportObjectRight, ImportTypeRight
@@ -443,15 +453,19 @@ ALL_RIGHTS = (
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
-def flat_rights_tree(right_tree) -> list[BaseRight]:
+def flat_rights_tree(right_tree: tuple | list) -> list[BaseRight]:
     """
-    Flat the right tree to list
+    Flattens a nested right tree into a flat list of rights
+
+    Recurses into nested tuples/lists and collects every leaf `BaseRight` into a single flat list,
+    discarding the grouping structure. This is the one implementation of the flattening;
+    `RightsManager.flat_tree` delegates to it
 
     Args:
-        right_tree: Tuple tree of rights
+        right_tree (tuple | list): A nested structure containing rights
 
     Returns:
-        list[BaseRight]: Flatted right tree
+        list[BaseRight]: A flat list containing all rights
     """
     rights: list[BaseRight] = []
 

@@ -24,7 +24,7 @@ the same candidate, and that a valid candidate yields None so the caller does no
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from cmdb.utils.validation_error import ValidationErrorKey
+from cmdb.utils import ValidationErrorKey
 from cmdb.framework.object_invariants import enforce_object_write_invariants
 # -------------------------------------------------------------------------------------------------------------------- #
 

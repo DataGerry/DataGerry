@@ -14,7 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of Levels Enumeration
+Implementation of the Levels enumeration
+
+A level is the sensitivity of a right, and the enum is an `IntEnum` because the **ordering is
+load-bearing**: `BaseRight`'s level setter compares a candidate against the subclass `MIN_LEVEL` /
+`MAX_LEVEL` bounds, so a subclass narrows what it accepts purely by naming two members.
+
+The values are spaced in steps of 10-30 rather than 1-6 so a level can be inserted between two
+existing ones later without renumbering the others - stored group documents reference rights by
+name, but any code comparing raw values would shift underneath.
 """
 from enum import IntEnum
 # -------------------------------------------------------------------------------------------------------------------- #
