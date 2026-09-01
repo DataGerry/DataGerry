@@ -16,7 +16,6 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, ElementRef, inject, Input, OnDestroy, OnInit, ViewChild } from '@angular/core';
-import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -52,7 +51,7 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
 
     @Input() public title = 'Select a location';
 
-    public readonly treeControl = new NestedTreeControl<LocationTreeSelectNode>((node) => node.children$);
+    public readonly childrenAccessor = (node: LocationTreeSelectNode) => node.children$;
     public readonly dataSource = new MatTreeNestedDataSource<LocationTreeSelectNode>();
 
     public hasLocations = false;
@@ -77,7 +76,6 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
 
     public ngOnInit(): void {
         this.listenForSearch();
-        this.listenForExpansion();
         this.loadInitialTree();
     }
 
@@ -105,9 +103,24 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
         this.searchString = '';
     }
 
-    /** Toggling expansion triggers the lazy child load (see listenForExpansion), pointer or keyboard. */
     public toggleNode(node: LocationTreeSelectNode): void {
-        this.treeControl.toggle(node);
+        node.expanded = !node.expanded;
+
+        if (node.expanded) {
+            this.loadChildrenIfNeeded(node);
+        }
+    }
+
+    /**
+     * Mirrors the tree's expansion state back onto the node so pointer and keyboard (ArrowLeft/Right)
+     * stay in sync, and fetches the children the first time a branch opens.
+     */
+    public onExpandedChange(node: LocationTreeSelectNode, expanded: boolean): void {
+        node.expanded = expanded;
+
+        if (expanded) {
+            this.loadChildrenIfNeeded(node);
+        }
     }
 
     /** Selecting a valid node closes the modal with the picked location. */
@@ -175,17 +188,6 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
         ).subscribe((results: LocationTreeSearchNode[]) => this.applySearchResults(results));
     }
 
-    /** Fetches a node's children the first time it is expanded (chevron click or keyboard). */
-    private listenForExpansion(): void {
-        this.treeControl.expansionModel.changed.pipe(takeUntil(this.unsubscribe)).subscribe((change) => {
-            for (const node of change.added) {
-                if (node.has_children && !node.loaded && !node.loading) {
-                    this.loadChildren(node);
-                }
-            }
-        });
-    }
-
     /** Reveals the pre-selected location's full path when one is set, otherwise shows the root level. */
     private loadInitialTree(): void {
         if (this.selectedId != null && this.selectedId !== this.root.public_id) {
@@ -210,8 +212,8 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
                 this.isLoadingRoots = false;
                 this.inSearchMode = false;
                 this.hasLocations = nodes.length > 0;
-                this.dataSource.data = nodes;
                 this.expandPath(nodes);
+                this.dataSource.data = nodes;
                 this.scrollSelectedIntoView();
             },
             error: () => this.loadRoots()
@@ -234,6 +236,13 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
         });
     }
 
+    /** Fetches a branch's children the first time it opens; a no-op for loaded or in-flight nodes. */
+    private loadChildrenIfNeeded(node: LocationTreeSelectNode): void {
+        if (node.has_children && !node.loaded && !node.loading) {
+            this.loadChildren(node);
+        }
+    }
+
     private loadChildren(node: LocationTreeSelectNode): void {
         node.loading = true;
 
@@ -242,12 +251,26 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
                 node.children$.next(children.map((child) => this.toBrowseNode(child, node.excluded)));
                 node.loaded = true;
                 node.loading = false;
+                this.republishTree();
             },
             error: () => {
                 node.loading = false;
-                this.treeControl.collapse(node);
+                node.expanded = false;
                 this.toast.error(LocationTreePickerModalComponent.CHILDREN_ERROR);
             }
+        });
+    }
+
+    /**
+     * Re-emits the current level so the tree rebuilds its flattened node cache. That cache — which is
+     * what arrow-key navigation walks — is a snapshot taken when a branch opens, so without this the
+     * children that arrive afterwards are skipped. The nodes keep their identity, so nothing re-renders.
+     */
+    private republishTree(): void {
+        // Deferred: the tree re-flattens several times while a branch opens, and an inline re-emit
+        // races those runs and loses. A microtask lands after the burst, on settled state.
+        Promise.resolve().then(() => {
+            this.dataSource.data = [...this.dataSource.data];
         });
     }
 
@@ -261,8 +284,8 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
         const nodes = results.map((result) => this.toSearchNode(result, false));
         this.isSearching = false;
         this.hasSearchResults = nodes.length > 0;
-        this.dataSource.data = nodes;
         this.expandAll(nodes);
+        this.dataSource.data = nodes;
     }
 
     private exitSearchMode(): void {
@@ -289,7 +312,8 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
             excluded: parentExcluded || this.isSelf(raw.object_id),
             children$: new BehaviorSubject<LocationTreeSelectNode[]>([]),
             loaded: !raw.has_children,
-            loading: false
+            loading: false,
+            expanded: false
         };
     }
 
@@ -309,7 +333,8 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
             excluded,
             children$: new BehaviorSubject<LocationTreeSelectNode[]>(children),
             loaded: hasInlineChildren || !raw.has_children,
-            loading: false
+            loading: false,
+            expanded: false
         };
     }
 
@@ -328,14 +353,15 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
             excluded,
             children$: new BehaviorSubject<LocationTreeSelectNode[]>(children),
             loaded: true,
-            loading: false
+            loading: false,
+            expanded: false
         };
     }
 
     private expandAll(nodes: LocationTreeSelectNode[]): void {
         for (const node of nodes) {
             if (node.has_children) {
-                this.treeControl.expand(node);
+                node.expanded = true;
                 this.expandAll(node.children$.value);
             }
         }
@@ -345,7 +371,7 @@ export class LocationTreePickerModalComponent implements OnInit, OnDestroy {
     private expandPath(nodes: LocationTreeSelectNode[]): void {
         for (const node of nodes) {
             if (node.loaded && node.children$.value.length > 0) {
-                this.treeControl.expand(node);
+                node.expanded = true;
                 this.expandPath(node.children$.value);
             }
         }

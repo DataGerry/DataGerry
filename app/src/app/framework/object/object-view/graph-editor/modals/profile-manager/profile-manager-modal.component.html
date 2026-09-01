@@ -8,7 +8,7 @@
     <div class="modal-layout">
         <aside class="modal-sidebar">
             <div class="profile-configuration">
-                <section class="config-section">
+                <section class="config-section" *ngIf="canEdit">
                     <h5 class="config-heading">
                         <i class="fas fa-plus"></i>
                         {{ editMode ? 'Edit Profile' : 'Create Profile' }}
@@ -104,7 +104,7 @@
                                     </div>
                                 </div>
 
-                                <div class="profile-actions">
+                                <div class="profile-actions" *ngIf="canEdit">
                                     <i class="far fa-edit icon-margin btn-edit"
                                        (click)="startEdit(profile)"
                                        title="Edit profile">
@@ -147,7 +147,7 @@
 
     <div class="dg-modal-actions profile-footer-actions" dgModalFooter>
         <app-button
-            *ngIf="editMode"
+            *ngIf="editMode && canEdit"
             [bootstrapClass]="'btn-secondary'"
             label="Cancel"
             type="button"
@@ -155,6 +155,7 @@
         </app-button>
 
         <app-button
+            *ngIf="canEdit"
             [bootstrapClass]="'btn-success'"
             [label]="editMode ? 'Update Profile' : 'Create Profile'"
             type="button"

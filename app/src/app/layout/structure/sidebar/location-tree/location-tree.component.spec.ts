@@ -25,6 +25,7 @@ import { LocationTreeComponent } from './location-tree.component';
 import { LocationService, LocationTreeNode, LocationTreeSearchNode } from 'src/app/framework/services/location.service';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
+import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 /* -------------------------------------------------------------------------- */
 /*                                   MOCKS                                    */
@@ -68,6 +69,7 @@ describe('LocationTreeComponent', () => {
 
     let locationService: jasmine.SpyObj<LocationService> & { locationActionSource: Subject<unknown> };
     let objectService: { objectActionSource: Subject<unknown> };
+    let sidebarService: { reloaded: Subject<boolean> };
     let router: jasmine.SpyObj<Router>;
     let toast: jasmine.SpyObj<ToastService>;
 
@@ -80,6 +82,7 @@ describe('LocationTreeComponent', () => {
         locationService.searchTree.and.returnValue(of([]));
 
         objectService = { objectActionSource: new Subject() };
+        sidebarService = { reloaded: new Subject<boolean>() };
         router = jasmine.createSpyObj<Router>('Router', ['navigateByUrl']);
         toast = jasmine.createSpyObj<ToastService>('ToastService', ['error']);
 
@@ -89,6 +92,7 @@ describe('LocationTreeComponent', () => {
             providers: [
                 { provide: LocationService, useValue: locationService },
                 { provide: ObjectService, useValue: objectService },
+                { provide: SidebarService, useValue: sidebarService },
                 { provide: Router, useValue: router },
                 { provide: ToastService, useValue: toast }
             ]
@@ -153,13 +157,13 @@ describe('LocationTreeComponent', () => {
             expect(node.loaded).toBeTrue();
             expect(node.children$.value.length).toBe(1);
             expect(node.children$.value[0].name).toBe('Room 1.01');
-            expect(component.treeControl.isExpanded(node)).toBeTrue();
+            expect(node.expanded).toBeTrue();
 
             // Collapse then re-expand must not trigger another request
             component.toggleNode(node);
-            expect(component.treeControl.isExpanded(node)).toBeFalse();
+            expect(node.expanded).toBeFalse();
             component.toggleNode(node);
-            expect(component.treeControl.isExpanded(node)).toBeTrue();
+            expect(node.expanded).toBeTrue();
             expect(locationService.getTreeChildren).toHaveBeenCalledTimes(1);
         });
 
@@ -173,18 +177,54 @@ describe('LocationTreeComponent', () => {
 
             expect(toast.error).toHaveBeenCalled();
             expect(node.loading).toBeFalse();
-            expect(component.treeControl.isExpanded(node)).toBeFalse();
+            expect(node.expanded).toBeFalse();
         });
 
-        it('reloads the root level on an object action while browsing', () => {
+        it('reloads the root level on an object action while browsing', fakeAsync(() => {
             locationService.getTreeRoots.and.returnValue(of([rootNode()]));
             fixture.detectChanges();
             expect(locationService.getTreeRoots).toHaveBeenCalledTimes(1);
 
             objectService.objectActionSource.next('create');
+            tick(200);
 
             expect(locationService.getTreeRoots).toHaveBeenCalledTimes(2);
-        });
+        }));
+
+        it('reloads once for a save that announces itself more than once', fakeAsync(() => {
+            locationService.getTreeRoots.and.returnValue(of([rootNode()]));
+            fixture.detectChanges();
+
+            // One object save patches the object, writes its active state and refreshes the sidebar.
+            objectService.objectActionSource.next('update');
+            tick(30);
+            sidebarService.reloaded.next(true);
+            tick(30);
+            objectService.objectActionSource.next('update');
+            tick(200);
+
+            expect(locationService.getTreeRoots).toHaveBeenCalledTimes(2);
+        }));
+
+        it('reloads the root level when the sidebar is refreshed', fakeAsync(() => {
+            locationService.getTreeRoots.and.returnValue(of([rootNode()]));
+            fixture.detectChanges();
+
+            sidebarService.reloaded.next(true);
+            tick(200);
+
+            expect(locationService.getTreeRoots).toHaveBeenCalledTimes(2);
+        }));
+
+        it('reloads the root level when a location was moved', fakeAsync(() => {
+            locationService.getTreeRoots.and.returnValue(of([rootNode()]));
+            fixture.detectChanges();
+
+            locationService.locationActionSource.next('update');
+            tick(200);
+
+            expect(locationService.getTreeRoots).toHaveBeenCalledTimes(2);
+        }));
     });
 
     /* --------------------------------- SEARCH --------------------------------- */
@@ -213,8 +253,8 @@ describe('LocationTreeComponent', () => {
             expect(root.has_children).toBeTrue();
             expect(leaf.name).toBe('Server-alpha');
             expect(leaf.has_children).toBeFalse();
-            expect(component.treeControl.isExpanded(root)).toBeTrue();
-            expect(component.treeControl.isExpanded(child)).toBeTrue();
+            expect(root.expanded).toBeTrue();
+            expect(child.expanded).toBeTrue();
         }));
 
         it('debounces and cancels superseded queries', fakeAsync(() => {

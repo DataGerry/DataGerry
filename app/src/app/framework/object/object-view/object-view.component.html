@@ -31,7 +31,7 @@
                   [class.btn-outline-primary]="isGraphView" (click)="toggleView(false)" title="Table View">
                   <i class="fas fa-table"></i>
                 </button>
-                <button *permissionLink="['base.framework.ciExplorer.view', 'base.framework.ciExplorer.edit']"
+                <button *permissionLink="[ciExplorerViewRight]"
                   type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
                   [class.btn-outline-primary]="!isGraphView" (click)="toggleView(true)" title="Graph View">
                   <i class="fas fa-project-diagram"></i>

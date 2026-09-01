@@ -25,6 +25,7 @@ import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 import { Location } from '@angular/common';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 @Component({
     selector: 'app-webhook-log-viewer',
@@ -38,6 +39,7 @@ export class WebhookLogViewerComponent implements OnInit {
     private readonly deleteModalService = inject(DeleteModalService);
     private readonly location = inject(Location);
     private readonly loaderService = inject(LoaderService);
+    private readonly permissionService = inject(PermissionService);
 
     public logs: any[] = [];
     public loading = false;
@@ -52,6 +54,9 @@ export class WebhookLogViewerComponent implements OnInit {
 
     private unsubscribe$ = new ReplaySubject<void>(1);
 
+    /** Keeps the actions column out of the table when the user may not delete logs */
+    private readonly canDeleteLogs = this.hasWebhookRight('base.framework.webhook.delete');
+
 
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>;
 
@@ -60,9 +65,15 @@ export class WebhookLogViewerComponent implements OnInit {
             { display: 'Webhook ID', name: 'webhook_id', data: 'webhook_id', searchable: true, sortable: true, style: { width: '30px', 'text-align': 'center' } },
             { display: 'Date', data: 'event_time', style: { 'text-align': 'center' } },
             { display: 'Status', data: 'status', style: { 'text-align': 'center' } },
-            { display: 'Response Code', data: 'response_code', style: { width: '140px', 'text-align': 'center' } },
-            { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '80px', 'text-align': 'center' } }
+            { display: 'Response Code', data: 'response_code', style: { width: '140px', 'text-align': 'center' } }
         ];
+
+        if (this.canDeleteLogs) {
+            this.columns.push(
+                { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '80px', 'text-align': 'center' } }
+            );
+        }
+
         this.loadLogs();
     }
 
@@ -264,5 +275,11 @@ export class WebhookLogViewerComponent implements OnInit {
      */
     goBack(): void {
         this.location.back()
+    }
+
+    /* --------------------------------------------------- PRIVATE FUNCTIONS -------------------------------------------------- */
+
+    private hasWebhookRight(right: string): boolean {
+        return this.permissionService.hasRight(right) || this.permissionService.hasExtendedRight(right);
     }
 }

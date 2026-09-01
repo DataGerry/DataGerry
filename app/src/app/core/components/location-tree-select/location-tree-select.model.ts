@@ -43,6 +43,8 @@ export interface LocationTreeSelectNode {
     children$: BehaviorSubject<LocationTreeSelectNode[]>;
     loaded: boolean;
     loading: boolean;
+    /** Expansion state of the node — bound to the tree via `isExpanded`. */
+    expanded: boolean;
 }
 
 /**

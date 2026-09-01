@@ -58,6 +58,7 @@ import { duplicateSectionById } from '../../utils/docapi-outline-duplicate.util'
 import { deleteSectionById } from '../../utils/docapi-outline-delete.util';
 import { moveItemInTree, serializeTreeToHtml } from '../../utils/docapi-outline-tree-move.util';
 import { DocapiOutlineContextMenuService } from '../../services/docapi-outline-context-menu.service';
+import { PermissionService } from '../../../auth/services/permission.service';
 
 interface EditorInstance {
     getBody: () => HTMLElement;
@@ -164,6 +165,7 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     private readonly modalService = inject(NgbModal);
     private readonly editorConfigService = inject(DocapiEditorConfigService);
     private readonly outlineContextMenuService = inject(DocapiOutlineContextMenuService);
+    private readonly permissionService = inject(PermissionService);
     private readonly cdr = inject(ChangeDetectorRef);
 
     private pageMargins: PageMargins = { ...this.defaultPageMargins };
@@ -357,6 +359,10 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     }
 
     private initEditorConfig(): void {
+        const reportViewRight = 'base.framework.report.view';
+        const canInsertReports = this.permissionService.hasRight(reportViewRight)
+            || this.permissionService.hasExtendedRight(reportViewRight);
+
         this.editorConfig = this.editorConfigService.createConfig({
             getTemplateType: () => this.templateType,
             getTemplateHelperData: () => this.templateHelperData,
@@ -382,11 +388,13 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
                 windowClass: 'dg-modal-window',
                 backdropClass: 'dg-modal-window-backdrop'
             }, { rootTypeId: this.templateTypeId }),
-            onReportTemplateRequested: () => this.openModalAndInsertContent(ReportTemplateSelectorModalComponent, {
-                size: 'xl',
-                windowClass: 'dg-modal-window',
-                backdropClass: 'dg-modal-window-backdrop'
-            })
+            onReportTemplateRequested: canInsertReports
+                ? () => this.openModalAndInsertContent(ReportTemplateSelectorModalComponent, {
+                    size: 'xl',
+                    windowClass: 'dg-modal-window',
+                    backdropClass: 'dg-modal-window-backdrop'
+                })
+                : undefined
         });
     }
 

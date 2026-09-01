@@ -36,7 +36,6 @@ import { TableModule } from './layout/table/table.module';
 import { PreviousRouteService } from './services/previous-route.service';
 import { RequestCacheService } from './services/request-cache.service';
 import { SessionTimeoutService } from './modules/auth/services/session-timeout.service';
-import { TreeManagerService } from './services/tree-manager.service';
 import { ObjectService } from './framework/services/object.service';
 
 import { HttpErrorInterceptor } from './modules/error/interceptors/http-error.interceptor';
@@ -79,7 +78,6 @@ import { RuntimeConfigService } from './modules/connect/services/runtime-config.
         DateFormatterPipe,
         SessionTimeoutService,
         RequestCacheService,
-        TreeManagerService,
         ObjectService,
         { provide: HTTP_INTERCEPTORS, useClass: BasicAuthInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: HttpErrorInterceptor, multi: true },

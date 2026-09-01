@@ -60,27 +60,29 @@
 
         <p class="ipam-section-label">Supernets</p>
 
-        <mat-tree [dataSource]="supernetDataSource" [treeControl]="treeControl" class="ipam-tree">
+        <mat-tree [dataSource]="supernetDataSource" [childrenAccessor]="childrenAccessor" class="ipam-tree">
 
             <!-- Leaf Node -->
-            <mat-tree-node *matTreeNodeDef="let node" [style.display]="filterLeafNode(node) ? 'none' : 'block'"
-                class="tree-node leaf-node" [class.is-selected]="node.public_id === selectedNodeId">
+            <mat-nested-tree-node *matTreeNodeDef="let node"
+                [style.display]="filterLeafNode(node) ? 'none' : 'block'" class="tree-node leaf-node"
+                [class.is-selected]="node.public_id === selectedNodeId">
                 <div class="node-wrapper">
                     <div class="node-indent"></div>
                     <div class="node-content" (click)="onNodeClicked(node.public_id)">
                         <ng-container *ngTemplateOutlet="nodeBody; context: { $implicit: node }"></ng-container>
                     </div>
                 </div>
-            </mat-tree-node>
+            </mat-nested-tree-node>
 
             <!-- Parent Node (lazy-loaded children) -->
-            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild">
+            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild" [isExpandable]="true"
+                [isExpanded]="isNodeExpanded(node)" (expandedChange)="onExpandedChange(node, $event)">
                 <div class="tree-node parent-node" [style.display]="filterParentNode(node) ? 'none' : 'block'"
                     [class.is-selected]="node.public_id === selectedNodeId"
-                    [class.is-expanded]="treeControl.isExpanded(node)">
+                    [class.is-expanded]="isNodeExpanded(node)">
                     <div class="node-wrapper">
                         <button class="expand-toggle" type="button" [attr.aria-label]="'Toggle ' + node.name"
-                            [attr.aria-expanded]="treeControl.isExpanded(node)" (click)="onToggleSupernet(node)">
+                            [attr.aria-expanded]="isNodeExpanded(node)" (click)="onToggleSupernet(node)">
                             @if (isNodeLoading(node)) {
                             <i class="fas fa-spinner fa-spin"></i>
                             }
@@ -96,7 +98,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="children-wrapper" [class.is-collapsed]="!treeControl.isExpanded(node)" role="group">
+                <div class="children-wrapper" [class.is-collapsed]="!isNodeExpanded(node)" role="group">
                     <ng-container matTreeNodeOutlet></ng-container>
                 </div>
             </mat-nested-tree-node>

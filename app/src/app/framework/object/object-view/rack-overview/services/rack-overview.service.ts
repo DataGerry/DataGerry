@@ -18,7 +18,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { finalize, map } from 'rxjs/operators';
 
 import { ApiCallService, resp } from '../../../../../services/api-call.service';
 import { CollectionParameters } from '../../../../../services/models/api-parameter';
@@ -28,6 +28,7 @@ import {
     APIInsertSingleResponse,
     APIUpdateSingleResponse
 } from '../../../../../services/models/api-response';
+import { LocationService } from '../../../../services/location.service';
 import { COOCKIENAME as OBJECT_ACTIVE_COOKIE } from '../../../../services/object.service';
 import {
     RackArea,
@@ -50,6 +51,7 @@ export class RackOverviewService {
     public servicePrefix = 'racks';
 
     private readonly api = inject(ApiCallService);
+    private readonly locationService = inject(LocationService);
 
     private readonly jsonHeaders = new HttpHeaders({ 'Content-Type': 'application/json' });
 
@@ -148,6 +150,7 @@ export class RackOverviewService {
     }
 
 
+    /** The backend mirrors a mount into the location tree, so the three writes below announce it. */
     public mountObject(rackId: number, payload: RackMountPayload): Observable<APIInsertSingleResponse<RackMountRow>> {
         return this.api
             .callPost<APIInsertSingleResponse<RackMountRow>>(
@@ -155,7 +158,10 @@ export class RackOverviewService {
                 payload,
                 this.requestOptions()
             )
-            .pipe(map(response => response?.body as APIInsertSingleResponse<RackMountRow>));
+            .pipe(
+                map(response => response?.body as APIInsertSingleResponse<RackMountRow>),
+                finalize(() => this.locationService.executedAction('update'))
+            );
     }
 
 
@@ -171,7 +177,10 @@ export class RackOverviewService {
                 payload,
                 this.requestOptions()
             )
-            .pipe(map(response => response?.body as APIUpdateSingleResponse<RackMountRow>));
+            .pipe(
+                map(response => response?.body as APIUpdateSingleResponse<RackMountRow>),
+                finalize(() => this.locationService.executedAction('update'))
+            );
     }
 
 
@@ -182,7 +191,10 @@ export class RackOverviewService {
                 `${this.servicePrefix}/${rackId}/mounts/${mountId}`,
                 this.requestOptions()
             )
-            .pipe(map(response => response?.body as APIDeleteSingleResponse<RackMountRow>));
+            .pipe(
+                map(response => response?.body as APIDeleteSingleResponse<RackMountRow>),
+                finalize(() => this.locationService.executedAction('update'))
+            );
     }
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

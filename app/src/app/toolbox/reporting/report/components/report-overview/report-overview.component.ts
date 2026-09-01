@@ -28,6 +28,7 @@ import { Router } from '@angular/router';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ReportService } from '../../../services/report.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 @Component({
     selector: 'app-report-overview',
@@ -42,6 +43,17 @@ export class ReportOverviewComponent implements OnInit, OnDestroy {
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly loaderService = inject(LoaderService);
+  private readonly permissionService = inject(PermissionService);
+
+  /** The category page is only actionable for users who may change categories */
+  private readonly categoryRights = [
+    'base.framework.report.add',
+    'base.framework.report.edit',
+    'base.framework.report.delete'
+  ];
+
+  public canManageCategories = this.categoryRights.some(right =>
+    this.permissionService.hasRight(right) || this.permissionService.hasExtendedRight(right));
 
   private unsubscribe$ = new ReplaySubject<void>(1);
   public reports: Array<any> = [];

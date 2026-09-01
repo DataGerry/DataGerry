@@ -1,9 +1,11 @@
 <div class="d-flex justify-content-between align-items-center">
     <h1>Reports Overview</h1>
     <div>
+    @if (canManageCategories) {
     <button type="button" class="btn btn-sm btn-secondary ms-2 text-white margin" [routerLink]="['/reports/categories']">
         <i class="fas fa-edit"></i> Edit Report Categories
       </button>
+    }
     <button type="button" class="btn btn-sm btn-success" *permissionLink="'base.framework.report.add'"
       [routerLink]="['/reports/create']">
       <i class="fas fa-plus"></i> Add

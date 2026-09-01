@@ -37,6 +37,8 @@ import { SpecialType } from 'src/app/framework/models/special-type';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { RACK_VIEW_RIGHT } from './rack-overview/models/rack-overview.types';
+import { CI_EXPLORER_VIEW_RIGHT } from 'src/app/framework/models/ci-explorer.model';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 @Component({
   selector: 'cmdb-object-view',
@@ -58,6 +60,8 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   public isGraphView = false;
   /** The section only frames the rack drawing, so it needs the rack view right. */
   public readonly rackViewRight = RACK_VIEW_RIGHT;
+  /** The graph view is the CI Explorer, so its toggle answers to the CI Explorer view right. */
+  public readonly ciExplorerViewRight = CI_EXPLORER_VIEW_RIGHT;
 
   // Graph header object selector
   public allTypeIds: number[] = [];
@@ -90,6 +94,11 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   private readonly objectChanges = inject(ObjectChangeNotifierService);
   private readonly loaderService = inject(LoaderService);
   private readonly premiumFeatureService = inject(PremiumFeatureService);
+  private readonly permissionService = inject(PermissionService);
+
+  /** `?view=graph` is a link anyone can follow, so the right decides whether it opens. */
+  private readonly canViewCiExplorer = this.permissionService.hasRight(CI_EXPLORER_VIEW_RIGHT)
+    || this.permissionService.hasExtendedRight(CI_EXPLORER_VIEW_RIGHT);
 
   /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -112,7 +121,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
       .pipe(takeUntil(this.unsubscribe))
       .subscribe(params => {
         if (params.get('view') === 'graph') {
-          this.isGraphView = true;
+          this.toggleView(true);
         }
       });
 
@@ -168,7 +177,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   }
 
   public toggleView(showGraph: boolean): void {
-    this.isGraphView = showGraph;
+    this.isGraphView = showGraph && this.canViewCiExplorer;
   }
 
   /** Graph header selector change */

@@ -27,6 +27,7 @@ import { ObjectService } from '../../services/object.service';
 import { TypeService } from '../../services/type.service';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { ObjectViewComponent } from './object-view.component';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -38,6 +39,11 @@ const renderResultWith = (notes: string): RenderResult => ({
     object_information: { object_id: OBJECT_ID },
     fields: [{ name: NOTES, value: notes }]
 } as RenderResult);
+
+const permissionServiceWith = (granted: boolean) => ({
+    hasRight: () => granted,
+    hasExtendedRight: () => granted
+});
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -68,6 +74,7 @@ describe('ObjectViewComponent (re-read after a write)', () => {
                 { provide: LoaderService, useValue: loaderService },
                 { provide: Router, useValue: jasmine.createSpyObj('Router', ['navigate']) },
                 { provide: PremiumFeatureService, useValue: { isAvailable: () => true } },
+                { provide: PermissionService, useValue: permissionServiceWith(true) },
                 {
                     provide: TypeService,
                     useValue: { getTypes: () => of({ results: [] }) }
@@ -156,5 +163,54 @@ describe('ObjectViewComponent (re-read after a write)', () => {
         objectChanges.notifyChanged(OBJECT_ID);
 
         expect(objectService.getObject).not.toHaveBeenCalled();
+    });
+});
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+describe('ObjectViewComponent (the graph view answers to the CI Explorer right)', () => {
+
+    const buildView = async (queryParams: Record<string, string>, granted: boolean) => {
+        await TestBed.configureTestingModule({
+            declarations: [ObjectViewComponent],
+            providers: [
+                { provide: ObjectService, useValue: { getObject: () => of(renderResultWith('note')) } },
+                { provide: ToastService, useValue: jasmine.createSpyObj('ToastService', ['success', 'error']) },
+                { provide: LoaderService, useValue: { show: () => { }, hide: () => { }, isLoading$: of(false) } },
+                { provide: Router, useValue: jasmine.createSpyObj('Router', ['navigate']) },
+                { provide: PremiumFeatureService, useValue: { isAvailable: () => true } },
+                { provide: PermissionService, useValue: permissionServiceWith(granted) },
+                { provide: TypeService, useValue: { getTypes: () => of({ results: [] }) } },
+                {
+                    provide: ActivatedRoute,
+                    useValue: {
+                        data: of({ object: renderResultWith('note') }),
+                        queryParamMap: of(convertToParamMap(queryParams))
+                    }
+                }
+            ],
+            schemas: [NO_ERRORS_SCHEMA]
+        }).compileComponents();
+
+        const view = TestBed.createComponent(ObjectViewComponent).componentInstance;
+        view.ngOnInit();
+
+        return view;
+    };
+
+    it('opens the graph for ?view=graph when the right is granted', async () => {
+        expect((await buildView({ view: 'graph' }, true)).isGraphView).toBeTrue();
+    });
+
+    it('keeps the table on screen for ?view=graph when the right is missing', async () => {
+        expect((await buildView({ view: 'graph' }, false)).isGraphView).toBeFalse();
+    });
+
+    it('refuses the toggle when the right is missing', async () => {
+        const view = await buildView({}, false);
+
+        view.toggleView(true);
+
+        expect(view.isGraphView).toBeFalse();
     });
 });

@@ -58,7 +58,8 @@
             <span>{{ isSearching ? 'Searching…' : 'Loading…' }}</span>
         </div>
         } @else if (inSearchMode ? hasSearchResults : hasLocations) {
-        <mat-tree [dataSource]="dataSource" [treeControl]="treeControl" class="lto-mat-tree" aria-label="Locations">
+        <mat-tree [dataSource]="dataSource" [childrenAccessor]="childrenAccessor" class="lto-mat-tree"
+            aria-label="Locations">
 
             <!-- Leaf node -->
             <mat-nested-tree-node *matTreeNodeDef="let node">
@@ -84,7 +85,8 @@
             </mat-nested-tree-node>
 
             <!-- Parent node -->
-            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild">
+            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild" [isExpandable]="true"
+                [isExpanded]="node.expanded" (expandedChange)="onExpandedChange(node, $event)">
                 <div class="lto-node" [class.is-selected]="isSelected(node)"
                     [class.is-disabled-target]="!node.selectable"
                     [class.is-drop-valid]="dropTargetId === node.public_id && dropTargetValid"
@@ -95,9 +97,9 @@
                     (dragleave)="onDragLeave(node.public_id)" (drop)="onDrop($event, node.public_id)">
                     <input type="checkbox" class="lto-check" [checked]="isSelected(node)" (change)="toggleSelect(node)"
                         [attr.aria-label]="'Select ' + node.name">
-                    <button type="button" class="lto-toggle" [class.is-open]="treeControl.isExpanded(node)"
-                        tabindex="-1" [disabled]="node.loading"
-                        [attr.aria-label]="(treeControl.isExpanded(node) ? 'Collapse ' : 'Expand ') + node.name"
+                    <button type="button" class="lto-toggle" [class.is-open]="node.expanded" tabindex="-1"
+                        [disabled]="node.loading"
+                        [attr.aria-label]="(node.expanded ? 'Collapse ' : 'Expand ') + node.name"
                         (click)="toggleNode(node)">
                         @if (node.loading) {
                         <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
@@ -115,7 +117,7 @@
                     </button>
                     }
                 </div>
-                <div class="lto-children" role="group" [class.is-collapsed]="!treeControl.isExpanded(node)">
+                <div class="lto-children" role="group" [class.is-collapsed]="!node.expanded">
                     <ng-container matTreeNodeOutlet></ng-container>
                 </div>
             </mat-nested-tree-node>

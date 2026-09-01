@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal, NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { Subject } from 'rxjs';
@@ -27,6 +27,8 @@ import { FilterProfile } from '../../interfaces/graph.interfaces';
 import { GraphProfileService } from '../../services/graph-profile.service';
 import { ProfileDeleteModalComponent } from '../profile-delete/profile-delete-modal.component';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
+import { CI_EXPLORER_EDIT_RIGHT } from 'src/app/framework/models/ci-explorer.model';
 
 @Component({
     selector: 'app-profile-manager-modal',
@@ -36,6 +38,11 @@ import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.s
 })
 export class ProfileManagerModalComponent implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();
+  private readonly permissionService = inject(PermissionService);
+
+  /** The modal is opened from code, so it re-checks the right instead of trusting its caller. */
+  readonly canEdit = this.permissionService.hasRight(CI_EXPLORER_EDIT_RIGHT)
+    || this.permissionService.hasExtendedRight(CI_EXPLORER_EDIT_RIGHT);
 
   profileForm: FormGroup;
   profiles: FilterProfile[] = [];
@@ -131,6 +138,10 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
    * @returns 
    */
   saveProfile(): void {
+    if (!this.canEdit) {
+      return;
+    }
+
     if (this.profileForm.invalid) {
       this.profileForm.markAllAsTouched();
       return;
@@ -170,6 +181,10 @@ export class ProfileManagerModalComponent implements OnInit, OnDestroy {
    * @param profile 
    */
   deleteProfile(profile: FilterProfile): void {
+    if (!this.canEdit) {
+      return;
+    }
+
     const modalRef: NgbModalRef = this.fullscreenModalService.open(this.modalService, ProfileDeleteModalComponent, {
       size: 'md',
       centered: false,

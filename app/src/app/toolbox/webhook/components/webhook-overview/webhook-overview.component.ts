@@ -24,6 +24,7 @@ import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { debounceTime, finalize, Subject, Subscription } from 'rxjs';
 import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 @Component({
     selector: 'app-webhook-overview',
@@ -38,6 +39,7 @@ export class WebhookOverviewComponent implements OnInit {
     private readonly deleteModalService = inject(DeleteModalService);
     private readonly loaderService = inject(LoaderService);
     private readonly filterBuilderService = inject(FilterBuilderService);
+    private readonly permissionService = inject(PermissionService);
 
     public webhooks: Webhook[] = [];
     public totalWebhooks: number = 0;
@@ -61,6 +63,10 @@ export class WebhookOverviewComponent implements OnInit {
         { name: 'url' },
     ];
 
+    /** Keeps the actions column out of the table when no row action is available */
+    private readonly canUseRowActions =
+        this.hasWebhookRight('base.framework.webhook.edit') || this.hasWebhookRight('base.framework.webhook.delete');
+
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
     ngOnInit(): void {
@@ -74,9 +80,15 @@ export class WebhookOverviewComponent implements OnInit {
             { display: 'ID', name: 'public_id_str', data: 'public_id', searchable: true, sortable: true, style: { width: '80px', 'text-align': 'center' } },
             { display: 'Name', name: 'name', data: 'name', sortable: true },
             { display: 'URL', name: 'url', data: 'url', sortable: true },
-            { display: 'Status', name: 'active', data: 'active', sortable: false, template: this.statusTemplate, style: { width: '140px', 'text-align': 'center' } },
-            { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '80px', 'text-align': 'center' } },
+            { display: 'Status', name: 'active', data: 'active', sortable: false, template: this.statusTemplate, style: { width: '140px', 'text-align': 'center' } }
         ];
+
+        if (this.canUseRowActions) {
+            this.columns.push(
+                { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '80px', 'text-align': 'center' } }
+            );
+        }
+
         this.loadWebhooks();
     }
 
@@ -189,5 +201,11 @@ export class WebhookOverviewComponent implements OnInit {
             warningIconClass: 'fas fa-exclamation-triangle',
             onConfirm: () => this.deleteWebhook(webhook.public_id)
         });
+    }
+
+    /* --------------------------------------------------- PRIVATE FUNCTIONS -------------------------------------------------- */
+
+    private hasWebhookRight(right: string): boolean {
+        return this.permissionService.hasRight(right) || this.permissionService.hasExtendedRight(right);
     }
 }

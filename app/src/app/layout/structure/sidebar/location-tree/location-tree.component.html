@@ -70,10 +70,10 @@
 
         <!-- Tree -->
         @if (inSearchMode ? hasSearchResults : hasLocations) {
-        <mat-tree [dataSource]="dataSource" [treeControl]="treeControl" class="location-tree">
+        <mat-tree [dataSource]="dataSource" [childrenAccessor]="childrenAccessor" class="location-tree">
 
             <!-- Leaf Node -->
-            <mat-tree-node *matTreeNodeDef="let node" matTreeNodeToggle class="tree-node leaf-node"
+            <mat-nested-tree-node *matTreeNodeDef="let node" class="tree-node leaf-node"
                 [class.is-selected]="node.object_id == selectedLocationID">
                 <div class="node-wrapper">
                     <div class="node-indent"></div>
@@ -85,15 +85,16 @@
                         <span class="node-text">{{node.name}}</span>
                     </div>
                 </div>
-            </mat-tree-node>
+            </mat-nested-tree-node>
 
             <!-- Parent Node -->
-            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild">
+            <mat-nested-tree-node *matTreeNodeDef="let node; when: hasChild" [isExpandable]="true"
+                [isExpanded]="node.expanded" (expandedChange)="onExpandedChange(node, $event)">
                 <div class="tree-node parent-node" [class.is-selected]="node.object_id == selectedLocationID"
-                    [class.is-expanded]="treeControl.isExpanded(node)">
+                    [class.is-expanded]="node.expanded">
                     <div class="node-wrapper">
                         <button mat-icon-button class="expand-toggle" [attr.aria-label]="'Toggle ' + node.name"
-                            [attr.aria-expanded]="treeControl.isExpanded(node)" [disabled]="node.loading"
+                            [attr.aria-expanded]="node.expanded" [disabled]="node.loading"
                             (click)="toggleNode(node)">
                             @if (node.loading) {
                             <span class="chevron-spinner" aria-hidden="true"></span>
@@ -113,7 +114,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="children-wrapper" [class.is-collapsed]="!treeControl.isExpanded(node)" role="group">
+                <div class="children-wrapper" [class.is-collapsed]="!node.expanded" role="group">
                     <ng-container matTreeNodeOutlet></ng-container>
                 </div>
             </mat-nested-tree-node>
