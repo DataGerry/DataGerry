@@ -27,6 +27,7 @@ import { LocationService, LocationTreeNode, LocationTreeSearchNode } from 'src/a
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LocationOrganizerService } from 'src/app/core/components/location-tree-organizer/location-organizer.service';
+import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 /* -------------------------------------------------------------------------- */
 /*                                 INTERFACES                                 */
@@ -57,6 +58,11 @@ interface LocationNode {
 export class LocationTreeComponent implements OnInit, OnDestroy {
 
     private static readonly SEARCH_DEBOUNCE_MS = 300;
+    /**
+     * One save writes more than once - the object, then its active state - and each write announces
+     * itself, so the reloads are collapsed into the last one instead of reloading the tree per write.
+     */
+    private static readonly REFRESH_DEBOUNCE_MS = 200;
     private static readonly ROOTS_ERROR = "We couldn't load the locations. Please try again.";
     private static readonly SEARCH_ERROR = "We couldn't complete the location search. Please try again.";
     private static readonly CHILDREN_ERROR = "We couldn't load the child locations. Please try again.";
@@ -115,6 +121,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     private readonly route = inject(Router);
     private readonly cdRef = inject(ChangeDetectorRef);
     private readonly locationOrganizer = inject(LocationOrganizerService);
+    private readonly sidebarService = inject(SidebarService);
 
     /* -------------------------------------------------------------------------- */
     /*                                LIFE - CYCLE                                */
@@ -128,6 +135,9 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
         this.locationServiceSubscription = this.locationService.locationActionSource.subscribe(
             (action: string) => this.onLocationActionEventRecieved(action)
         );
+
+        // The tree is a section of the sidebar, so it reloads on the same signal the rest of it does.
+        this.sidebarService.reloaded.pipe(takeUntil(this.unsubscribe)).subscribe(() => this.refresh$.next());
 
         this.listenForSearch();
         this.loadRoots();
@@ -287,7 +297,12 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
             distinctUntilChanged()
         );
 
-        merge(typedTerm$, this.refresh$.pipe(map(() => this._searchString.trim())))
+        const refreshedTerm$ = this.refresh$.pipe(
+            debounceTime(LocationTreeComponent.REFRESH_DEBOUNCE_MS),
+            map(() => this._searchString.trim())
+        );
+
+        merge(typedTerm$, refreshedTerm$)
             .pipe(
                 switchMap((term) => {
                     if (!term) {

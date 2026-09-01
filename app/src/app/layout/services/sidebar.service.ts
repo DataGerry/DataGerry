@@ -16,7 +16,7 @@
 */
 import { Injectable } from '@angular/core';
 
-import { BehaviorSubject, Subscription, catchError, firstValueFrom, of } from 'rxjs';
+import { BehaviorSubject, Observable, Subscription, catchError, firstValueFrom, of, skip } from 'rxjs';
 
 import { UserService } from 'src/app/management/services/user.service';
 import { ObjectService } from '../../framework/services/object.service';
@@ -58,6 +58,18 @@ export class SidebarService {
      */
     public get categoryTree(): BehaviorSubject<CmdbCategoryTree> {
         return this.categoryTreeObserver;
+    }
+
+
+    /**
+     * Emits whenever the sidebar was asked to refresh what it shows, so every section can reload
+     * itself off one signal instead of each one listening to the services it happens to read from.
+     *
+     * The current value is skipped: a section subscribes right after it has loaded, and would
+     * otherwise reload immediately.
+     */
+    public get reloaded(): Observable<boolean> {
+        return this.reloadData.asObservable().pipe(skip(1));
     }
 
     /* ------------------------------------------------------------------------------------------------------------------ */
@@ -178,6 +190,7 @@ export class SidebarService {
     }
 
 
+    /** Announces that the sidebar's data is stale. Every section listening on `reloaded` reloads. */
     public ReloadSideBarData() {
         this.reloadData.next(true);
     }
