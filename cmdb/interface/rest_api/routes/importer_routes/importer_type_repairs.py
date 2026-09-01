@@ -40,7 +40,7 @@ from cmdb.models.type_model import (
 )
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
-from cmdb.utils.helpers import random_hex_color, is_non_blank_string
+from cmdb.utils import random_hex_color, is_non_blank_string
 from cmdb.security.acl.acl_constants import AclKey
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     TypeStructure,

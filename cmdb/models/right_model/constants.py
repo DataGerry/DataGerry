@@ -14,21 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Module for defining and mapping access right levels
+Shared constants of the rights domain
+
+``GLOBAL_RIGHT_IDENTIFIER`` is the wildcard segment ('*') that turns a right into a group-wide one:
+`BaseRight` marks such a right `is_master`, and `CmdbUserGroup.has_extended_right` walks a qualified
+name segment by segment asking whether the group holds the '*' right of each parent.
+
+``NAME_TO_LEVEL`` is the level mapping the API serves (`GET /rest/rights/levels`), keyed by name
+because that is the direction the frontend needs: it renders a level selector from names and sends
+back the numeric value.
 """
 from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
 GLOBAL_RIGHT_IDENTIFIER = '*'
-
-LEVEL_TO_NAME = {
-    Levels.CRITICAL: 'CRITICAL',
-    Levels.DANGER: 'DANGER',
-    Levels.SECURE: 'SECURE',
-    Levels.PROTECTED: 'PROTECTED',
-    Levels.PERMISSION: 'PERMISSION',
-    Levels.NOTSET: 'NOTSET',
-}
 
 NAME_TO_LEVEL = {
     'CRITICAL': Levels.CRITICAL,

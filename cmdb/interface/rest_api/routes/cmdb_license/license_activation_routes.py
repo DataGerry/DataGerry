@@ -37,7 +37,7 @@ from cmdb.security.license import (
     get_machine_fingerprint,
 )
 
-from cmdb.utils.helpers import str_to_bool
+from cmdb.utils import str_to_bool
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access

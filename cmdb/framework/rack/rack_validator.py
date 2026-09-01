@@ -34,7 +34,7 @@ from typing import Any
 
 from cmdb.models.object_model.cmdb_object_helpers import extract_field_value
 from cmdb.models.special_type_model.rack_constants import RackField
-from cmdb.utils.helpers import coerce_whole_number
+from cmdb.utils import coerce_whole_number
 from cmdb.framework.rack.rack_constants import RackLimits, RackValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 

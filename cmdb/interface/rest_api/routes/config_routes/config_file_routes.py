@@ -38,7 +38,7 @@ from cmdb.interface.rest_api.routes.config_routes.config_file_constants import (
     OcConfigStatusKey,
 )
 from cmdb.open_celium.oc_constants import OC_CONFIG_KEYS, OC_CONFIG_SECTION, OcConfigKey
-from cmdb.utils.helpers import coerce_whole_number
+from cmdb.utils import coerce_whole_number
 
 from cmdb.errors.system_config import ConfigNotLoaded, SectionError
 # -------------------------------------------------------------------------------------------------------------------- #

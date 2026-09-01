@@ -26,7 +26,7 @@ from cmdb.database.mongo_database_manager import MongoDatabaseManager
 
 from cmdb.manager import SettingsManager
 
-from cmdb.utils.helpers import process_bar, load_class
+from cmdb.utils import process_bar, load_class
 
 from cmdb.errors.system_config import SectionError
 # -------------------------------------------------------------------------------------------------------------------- #

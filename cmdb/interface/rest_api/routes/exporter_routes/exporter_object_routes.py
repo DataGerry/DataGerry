@@ -51,7 +51,7 @@ from cmdb.interface.rest_api.responses.response_parameters import CollectionPara
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import resolve_export_format
-from cmdb.utils.helpers import load_class
+from cmdb.utils import load_class
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.security import AccessDeniedError

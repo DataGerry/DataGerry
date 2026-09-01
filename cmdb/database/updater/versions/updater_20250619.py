@@ -47,7 +47,7 @@ from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 
-from cmdb.utils.helpers import random_hex_color
+from cmdb.utils import random_hex_color
 
 from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #

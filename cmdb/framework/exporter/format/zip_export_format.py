@@ -21,7 +21,7 @@ from itertools import groupby
 import io
 import zipfile
 
-from cmdb.utils.helpers import load_class
+from cmdb.utils import load_class
 from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
     TYPE_INFO_ID_KEY,

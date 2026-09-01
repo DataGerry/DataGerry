@@ -125,6 +125,30 @@ class TestCsvObjectParser:
         assert entry[0] == 42
         assert entry[1] == 'hello'
 
+    def test_a_boolean_column_is_cast_whatever_its_capitalisation(self, tmp_path: Path) -> None:
+        """
+        Every cell of an upload goes through auto_cast, and a spreadsheet writes TRUE / FALSE.
+
+        Those two spellings used to survive as the strings 'TRUE' / 'FALSE' while the lowercase
+        ones became real booleans, so one logical column could store both a bool and a str
+        depending on which tool wrote the file.
+        """
+        path = _write(tmp_path, 'bools.csv', 'a,b,c,d\nTRUE,true,FALSE,false\n')
+
+        entry = CsvObjectParser().parse(path).entries[0]
+
+        assert entry == {0: True, 1: True, 2: False, 3: False}
+
+    def test_a_numeric_flag_column_stays_numeric(self, tmp_path: Path) -> None:
+        """The boolean caster claims only true/false, so 1 and 0 are still numbers - which is what
+        keeps a quantity column from turning into flags."""
+        path = _write(tmp_path, 'flags.csv', 'a,b\n1,0\n')
+
+        entry = CsvObjectParser().parse(path).entries[0]
+
+        assert entry == {0: 1, 1: 0}
+        assert not isinstance(entry[0], bool)
+
     def test_header_disabled_keeps_all_rows(self, tmp_path: Path) -> None:
         """With header=False no row is consumed as a header."""
         path = _write(tmp_path, 'noheader.csv', '1,alice\n2,bob\n')

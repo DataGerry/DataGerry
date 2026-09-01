@@ -23,7 +23,11 @@ tree view switch, sorting/pagination, the single-right lookup, the 404 on a miss
 """
 from http import HTTPStatus
 
+from werkzeug.exceptions import NotFound
+
 from cmdb.manager import RightsManager
+from cmdb.interface.rest_api.routes.user_management_routes import rights_routes
+from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
 from cmdb.errors.manager.rights_manager import RightsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -35,6 +39,14 @@ MISSING_RIGHT_NAME: str = 'base.does.not.exist'
 
 PAGE_LIMIT: int = 5
 ORDER_DESC: int = -1
+
+# The number of rights the tree declares - what BOTH views have to report as their total. The tree
+# view used to report len(ALL_RIGHTS) instead, i.e. the number of top-level groups
+DECLARED_RIGHTS_COUNT: int = len(flat_rights_tree(ALL_RIGHTS))
+TOP_LEVEL_GROUP_COUNT: int = len(ALL_RIGHTS)
+
+# A ?sort= value that is not an attribute of BaseRight
+UNKNOWN_SORT_FIELD: str = 'not_an_attribute'
 
 
 class TestGetRightsList:
@@ -82,6 +94,26 @@ class TestGetRightsList:
         results = response.get_json()['results']
         assert any(isinstance(node, list) for node in results)
 
+    def test_tree_view_total_counts_rights_not_groups(self, rest_api) -> None:
+        """The tree view reports the number of rights, not the number of top-level groups."""
+        response = rest_api.get(f'{ROUTE_URL}/?view=tree')
+
+        assert int(response.headers['X-Total-Count']) == DECLARED_RIGHTS_COUNT
+        assert DECLARED_RIGHTS_COUNT > TOP_LEVEL_GROUP_COUNT
+
+    def test_flat_view_total_counts_every_right(self, rest_api) -> None:
+        """The flat view's total is the full number of rights, independent of the page size."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit={PAGE_LIMIT}')
+
+        assert int(response.headers['X-Total-Count']) == DECLARED_RIGHTS_COUNT
+
+    def test_both_views_report_the_same_total(self, rest_api) -> None:
+        """Flat and tree are two renderings of one collection, so their totals must agree."""
+        flat = rest_api.get(f'{ROUTE_URL}/')
+        tree = rest_api.get(f'{ROUTE_URL}/?view=tree')
+
+        assert flat.headers['X-Total-Count'] == tree.headers['X-Total-Count']
+
 
 class TestGetSingleRight:
     """Tests for GET /rights/<name>"""
@@ -121,6 +153,12 @@ def _raise(exc: Exception):
 class TestErrorMapping:
     """The route maps manager / unexpected failures to the right HTTP status."""
 
+    def test_unknown_sort_field_returns_500(self, rest_api) -> None:
+        """An unknown ?sort= reaches BaseRight.__getitem__ as an unknown attribute."""
+        response = rest_api.get(f'{ROUTE_URL}/?sort={UNKNOWN_SORT_FIELD}')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
     def test_get_rights_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected failure while iterating surfaces as 500."""
         monkeypatch.setattr(RightsManager, 'iterate_rights', _raise(RuntimeError('boom')))
@@ -138,3 +176,17 @@ class TestErrorMapping:
         monkeypatch.setattr(RightsManager, 'get_right', _raise(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/base.*').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_rights_http_exception_passes_through(self, rest_api, monkeypatch) -> None:
+        """An HTTPException raised inside the list route keeps its own status, not a 500."""
+        monkeypatch.setattr(RightsManager, 'iterate_rights', _raise(NotFound()))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.NOT_FOUND
+
+    def test_get_levels_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """A failure while serialising the levels mapping surfaces as 500."""
+        monkeypatch.setattr(rights_routes, 'GetSingleResponse', _raise(RuntimeError('boom')))
+
+        response = rest_api.get(f'{ROUTE_URL}/levels')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR

@@ -27,7 +27,7 @@ from flask import abort, Response
 
 from cmdb.database.database_utils import default
 from cmdb.models.type_model import CmdbType
-from cmdb.utils.helpers import is_truthy_query_arg
+from cmdb.utils import is_truthy_query_arg
 from cmdb.framework.exporter.export_filename_helper import build_type_export_filename
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (

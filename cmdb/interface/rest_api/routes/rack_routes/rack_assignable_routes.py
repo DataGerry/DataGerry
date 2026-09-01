@@ -50,7 +50,7 @@ from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerGetError
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.utils.helpers import is_truthy_query_arg
+from cmdb.utils import is_truthy_query_arg
 
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel

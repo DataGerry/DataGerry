@@ -29,7 +29,7 @@ from typing import Any, Self
 
 from cmdb.interface.rest_api.responses.response_parameters.collection_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import ParameterKey
-from cmdb.utils.helpers import str_to_bool
+from cmdb.utils import str_to_bool
 # -------------------------------------------------------------------------------------------------------------------- #
 
 

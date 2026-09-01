@@ -29,7 +29,7 @@ from flask import abort
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.rack_mounts_manager import RackMountsManager
 
-from cmdb.utils.helpers import coerce_datetime
+from cmdb.utils import coerce_datetime
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.object_model.cmdb_object_helpers import extract_field_value

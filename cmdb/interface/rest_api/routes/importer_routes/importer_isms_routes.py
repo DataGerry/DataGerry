@@ -57,7 +57,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsImportType, ControlMeasureType, RiskType
 from cmdb.models.extendable_option_model import OptionType
-from cmdb.utils.helpers import parse_import_bool
+from cmdb.utils import parse_import_bool
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access

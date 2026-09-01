@@ -26,7 +26,7 @@ import csv
 import re
 from logging import Logger, getLogger
 
-from cmdb.utils.cast import auto_cast
+from cmdb.utils import auto_cast
 from cmdb.framework.importer.content_types import CSVContent
 from cmdb.framework.importer.importer_constants import (
     CSV_HEADER_IDENTIFIER_PATTERN,

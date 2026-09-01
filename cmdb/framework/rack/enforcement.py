@@ -32,7 +32,7 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 
-from cmdb.utils.validation_error import ValidationErrorKey, build_error
+from cmdb.utils import ValidationErrorKey, build_error
 
 from cmdb.framework.rack.rack_constants import ABORT_PREFIX
 from cmdb.framework.rack.rack_validator import coerce_rack_height, validate_rack_object

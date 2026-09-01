@@ -31,7 +31,7 @@ from typing import Any
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
 from cmdb.models.rack_model.rack_mount_helpers import bottom_slot_of, occupied_slots_of, top_slot_of
 
-from cmdb.utils.helpers import coerce_whole_number
+from cmdb.utils import coerce_whole_number
 from cmdb.framework.rack.rack_constants import RackMountError, RackMountLimits
 # -------------------------------------------------------------------------------------------------------------------- #
 

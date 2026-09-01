@@ -45,7 +45,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.utils.helpers import duplicate_names, parse_import_bool
+from cmdb.utils import duplicate_names, parse_import_bool
 from cmdb.framework.rack import normalize_rack_object, validate_rack_field_values
 from cmdb.framework.importer.importer_constants import DEFAULT_OBJECT_VERSION
 from cmdb.framework.importer.helper.improve_object import ImproveObject

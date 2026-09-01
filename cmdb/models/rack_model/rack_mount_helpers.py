@@ -30,7 +30,7 @@ without a framework import
 """
 from typing import Any
 
-from cmdb.utils.helpers import coerce_whole_number
+from cmdb.utils import coerce_whole_number
 
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -207,6 +207,23 @@ class TestGetValue:
         """bool / int / None / float all arrive as their Python type."""
         assert _reader(config_dir).get_value(key, WEBSERVER_SECTION) == expected
 
+    @pytest.mark.parametrize('spelling', ['true', 'True', 'TRUE', ' true '])
+    def test_a_boolean_is_cast_whatever_its_capitalisation(
+        self,
+        config_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        spelling: str,
+    ) -> None:
+        """
+        A setting written TRUE is the same setting as one written true.
+
+        The caster used to compare the two exact spellings 'True' / 'true', so an uppercase value
+        stayed a string - truthy, but not the bool the reader promises.
+        """
+        monkeypatch.setenv(_env_key(WEBSERVER_SECTION, 'threaded'), spelling)
+
+        assert _reader(config_dir).get_value('threaded', WEBSERVER_SECTION) is True
+
     def test_environment_overrides_the_file(self, config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A DATAGERRY_* variable wins over the same key in the file."""
         monkeypatch.setenv(_env_key(DATABASE_SECTION, HOST_KEY), ENV_HOST)

@@ -57,6 +57,8 @@ ALL_TYPE_IDS: list[int] = [ACTIVE_TYPE_ID, INACTIVE_TYPE_ID, OTHER_TYPE_ID]
 EXISTING_OBJECT_ID: int = 47350  # the public_id an overwrite import carries
 
 CSV_BODY: bytes = b'dg-name\nhost-1\n'
+# A boolean column written the way a spreadsheet exports it - the spelling that used to stay a string
+UPPERCASE_BOOL_CSV_BODY: bytes = b'dg-name,dg-active\nhost-1,TRUE\n'
 # A header-only file: what a freshly downloaded import template looks like before it is filled in
 HEADER_ONLY_CSV_BODY: bytes = b'dg-name\n'
 # The JSON counterpart of an empty file - answered the same way since the two formats were aligned
@@ -152,6 +154,25 @@ class TestParseObjects:
 
         assert response.status_code == HTTPStatus.OK
 
+    def test_parse_casts_an_uppercase_boolean_column(self, rest_api) -> None:
+        """
+        The parse preview shows the caller what their file will import as.
+
+        A spreadsheet writes TRUE, which used to come back as the string 'TRUE' while a
+        lowercase 'true' came back as a real boolean - so the preview showed two types for one
+        logical column.
+        """
+        form = {
+            'file': (BytesIO(UPPERCASE_BOOL_CSV_BODY), 'import.csv'),
+            'file_format': 'csv',
+            'parser_config': json.dumps({}),
+        }
+
+        response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['entries'] == [{'0': 'host-1', '1': True}]
+
     def test_parse_missing_file_returns_400(self, rest_api) -> None:
         """A parse request with no file is a client error -> 400 (was wrongly 500)."""
         form = {'file_format': 'csv', 'parser_config': json.dumps({})}
@@ -245,6 +266,31 @@ class TestImportObjects:
         assert stored['author_id'] == ADMIN_PUBLIC_ID
         assert stored['editor_id'] is None
         assert stored['last_edit_time'] is None
+
+    def test_an_uppercase_boolean_is_stored_as_a_boolean(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """
+        End to end: the spelling a spreadsheet writes reaches MongoDB as a bool, not as text.
+
+        The caster used to accept only 'True' / 'true', so a file exported from Excel stored the
+        string 'TRUE' in `active` - truthy in Python, but not the boolean the field is declared as,
+        and not equal to the `true` a file written by hand produced for the same column.
+        """
+        form = {
+            'file': (BytesIO(UPPERCASE_BOOL_CSV_BODY), 'import.csv'),
+            'file_format': 'csv',
+            'parser_config': json.dumps({}),
+            'importer_config': json.dumps({'type_id': ACTIVE_TYPE_ID}),
+        }
+
+        response = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.OK
+        stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .find_one({'type_id': ACTIVE_TYPE_ID})
+        assert stored is not None
+        assert stored['active'] is True
 
     def test_no_importer_config_returns_400(self, rest_api) -> None:
         """An import with a file but no importer_config is rejected with 400."""

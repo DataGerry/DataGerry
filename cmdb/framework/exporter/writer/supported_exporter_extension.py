@@ -20,7 +20,7 @@ from logging import Logger, getLogger
 from functools import lru_cache
 from typing import Any
 
-from cmdb.utils.helpers import load_class
+from cmdb.utils import load_class
 from cmdb.framework.exporter.exporter_constants import EXPORT_FORMAT_MODULE_PREFIX, ExporterExtensionKey
 # -------------------------------------------------------------------------------------------------------------------- #
 

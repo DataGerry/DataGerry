@@ -35,7 +35,7 @@ from logging import Logger, getLogger
 from typing import Any, Mapping
 
 import configparser
-from cmdb.utils.cast import auto_cast
+from cmdb.utils import auto_cast
 from cmdb.manager.system_manager.system_env_reader import SystemEnvironmentReader
 from cmdb.manager.system_manager.system_reader import SystemReader
 

@@ -22,7 +22,7 @@ from typing import Any
 
 from dateutil.parser import parse
 
-from cmdb.utils.helpers import coerce_datetime
+from cmdb.utils import coerce_datetime
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey, RackMountKind

@@ -29,6 +29,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.groups_manager import GroupsManager
 from cmdb.manager.query_builder.builder_parameters import BuilderParameters
+from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.group_model import (
     CmdbUserGroup,
     ADMIN_GROUP_ID,
@@ -43,6 +44,7 @@ GROUP_ID_FOR_GET: int = 9801
 GROUP_ID_FOR_UPDATE: int = 9802
 GROUP_ID_FOR_DELETE: int = 9803
 GROUP_ID_FOR_INSERT: int = 9804
+GROUP_ID_FOR_RIGHTS: int = 9805
 GROUP_IDS_FOR_ITERATE: list[int] = [9811, 9812, 9813]
 MISSING_GROUP_ID: int = 9899
 FORGED_GROUP_ID: int = 9898
@@ -52,6 +54,7 @@ ALL_SEEDED_IDS: list[int] = [
     GROUP_ID_FOR_UPDATE,
     GROUP_ID_FOR_DELETE,
     GROUP_ID_FOR_INSERT,
+    GROUP_ID_FOR_RIGHTS,
     MISSING_GROUP_ID,
     FORGED_GROUP_ID,
     *GROUP_IDS_FOR_ITERATE,
@@ -59,6 +62,12 @@ ALL_SEEDED_IDS: list[int] = [
 
 ORIGINAL_LABEL: str = 'Original'
 UPDATED_LABEL: str = 'Updated'
+
+# Rights used for the round-trip: one branch wildcard plus one leaf, both declared in ALL_RIGHTS so
+# from_data can resolve them, plus a name the tree does not declare
+BRANCH_RIGHT_NAME: str = 'base.framework.object.*'
+LEAF_RIGHT_NAME: str = 'base.framework.type.view'
+UNDECLARED_RIGHT_NAME: str = 'base.framework.retired.view'
 
 
 def _group_data(public_id: int, label: str = ORIGINAL_LABEL) -> dict[str, Any]:
@@ -156,6 +165,94 @@ class TestGetGroup:
         assert admin_group is not None
         assert admin_group.has_right(MASTER_RIGHT_NAME)
         assert admin_group.has_extended_right('base.user-management.group.edit')
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  RIGHTS ROUND TRIP                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestRightsRoundTrip:
+    """A group's rights survive the store-and-load cycle through the two asymmetric serialisers."""
+
+    def test_rights_are_stored_as_names_and_read_back_as_instances(
+        self,
+        groups_manager: GroupsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        insert_group writes right NAMES, get_group hands back BaseRight instances
+
+        The two directions use different serialisations on purpose (``to_json(insert_mode=True)`` vs
+        ``from_data`` against the cached tree), so this is the test that catches drift between them.
+        """
+        groups_manager.insert_group({
+            'public_id': GROUP_ID_FOR_RIGHTS,
+            'name': f'group-{GROUP_ID_FOR_RIGHTS}',
+            'label': ORIGINAL_LABEL,
+            'rights': [BRANCH_RIGHT_NAME, LEAF_RIGHT_NAME],
+        })
+
+        stored = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)\
+            .find_one({'public_id': GROUP_ID_FOR_RIGHTS})
+
+        assert stored['rights'] == [BRANCH_RIGHT_NAME, LEAF_RIGHT_NAME]
+
+        loaded = groups_manager.get_group(GROUP_ID_FOR_RIGHTS)
+
+        assert loaded is not None
+        assert sorted(right.name for right in loaded.rights) == sorted(
+            [BRANCH_RIGHT_NAME, LEAF_RIGHT_NAME]
+        )
+        assert all(isinstance(right, BaseRight) for right in loaded.rights)
+
+        _delete_group_by_id(database_manager, database_name, GROUP_ID_FOR_RIGHTS)
+
+    def test_loaded_rights_answer_the_membership_checks(
+        self,
+        groups_manager: GroupsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A branch wildcard read back from the database still grants the rights below it."""
+        groups_manager.insert_group({
+            'public_id': GROUP_ID_FOR_RIGHTS,
+            'name': f'group-{GROUP_ID_FOR_RIGHTS}',
+            'label': ORIGINAL_LABEL,
+            'rights': [BRANCH_RIGHT_NAME],
+        })
+
+        loaded = groups_manager.get_group(GROUP_ID_FOR_RIGHTS)
+
+        assert loaded.has_right(BRANCH_RIGHT_NAME)
+        assert loaded.has_extended_right('base.framework.object.view')
+        assert not loaded.has_extended_right(LEAF_RIGHT_NAME)
+
+        _delete_group_by_id(database_manager, database_name, GROUP_ID_FOR_RIGHTS)
+
+    def test_a_right_the_tree_no_longer_declares_is_dropped(
+        self,
+        groups_manager: GroupsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        A stored name with no counterpart in ALL_RIGHTS is dropped on load, not fatal
+
+        This is what happens to an existing installation after a right is renamed or retired: the
+        group document still names it, and the group has to remain loadable.
+        """
+        groups_manager.insert_group({
+            'public_id': GROUP_ID_FOR_RIGHTS,
+            'name': f'group-{GROUP_ID_FOR_RIGHTS}',
+            'label': ORIGINAL_LABEL,
+            'rights': [LEAF_RIGHT_NAME, UNDECLARED_RIGHT_NAME],
+        })
+
+        loaded = groups_manager.get_group(GROUP_ID_FOR_RIGHTS)
+
+        assert [right.name for right in loaded.rights] == [LEAF_RIGHT_NAME]
+
+        _delete_group_by_id(database_manager, database_name, GROUP_ID_FOR_RIGHTS)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
