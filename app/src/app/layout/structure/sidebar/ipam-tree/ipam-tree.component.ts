@@ -19,8 +19,11 @@ import { ChangeDetectorRef, Component, EventEmitter, inject, Input, OnDestroy, O
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
 
-import { BehaviorSubject, ReplaySubject } from 'rxjs';
-import { finalize, takeUntil } from 'rxjs/operators';
+import { BehaviorSubject, ReplaySubject, Subject } from 'rxjs';
+import { debounceTime, finalize, takeUntil } from 'rxjs/operators';
+
+import { ObjectService } from 'src/app/framework/services/object.service';
+import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 import { IpamTreeService } from './services/ipam-tree.service';
 import { IpamSupernetChildrenResponse, IpamTreeNode, IpamTreeResponse } from './models/ipam-tree.types';
@@ -33,6 +36,12 @@ import { IpamSupernetChildrenResponse, IpamTreeNode, IpamTreeResponse } from './
     standalone: false
 })
 export class IpamTreeComponent implements OnInit, OnDestroy {
+
+    /**
+     * One save writes more than once - the object, then its active state - and each write announces
+     * itself, so the reloads are collapsed into the last one instead of reloading the tree per write.
+     */
+    private static readonly REFRESH_DEBOUNCE_MS = 200;
 
     /**
      * Sidebar expansion state forwarded from the parent sidebar.
@@ -72,15 +81,21 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
 
     private _searchString: string = '';
 
+    /** Re-reads the tree after a network object was written elsewhere. */
+    private readonly refresh$ = new Subject<void>();
+
     private unsubscribe: ReplaySubject<void> = new ReplaySubject<void>();
 
     private readonly ipamTreeService = inject(IpamTreeService);
+    private readonly objectService = inject(ObjectService);
+    private readonly sidebarService = inject(SidebarService);
     private readonly router = inject(Router);
     private readonly cdRef = inject(ChangeDetectorRef);
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
+        this.listenForChanges();
         this.loadTree();
     }
 
@@ -88,6 +103,7 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
     public ngOnDestroy(): void {
         this.childStreams.forEach((stream) => stream.complete());
         this.childStreams.clear();
+        this.refresh$.complete();
         this.unsubscribe.next();
         this.unsubscribe.complete();
     }
@@ -264,8 +280,32 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    private loadTree(): void {
-        this.isLoadingTree = true;
+    /**
+     * Re-reads the tree whenever a network object is written. The tree is a section of the sidebar,
+     * so it reloads on the same signal the rest of it does, and on the object writes that reach the
+     * networks themselves - a supernet added, renamed or deleted from anywhere in the app.
+     */
+    private listenForChanges(): void {
+        this.sidebarService.reloaded.pipe(takeUntil(this.unsubscribe)).subscribe(() => this.refresh$.next());
+
+        this.objectService.objectActionSource.pipe(takeUntil(this.unsubscribe))
+            .subscribe(() => this.refresh$.next());
+
+        this.refresh$
+            .pipe(debounceTime(IpamTreeComponent.REFRESH_DEBOUNCE_MS), takeUntil(this.unsubscribe))
+            .subscribe(() => this.loadTree(false));
+    }
+
+
+    /**
+     * Reads the top level of the tree.
+     *
+     * @param showSpinner whether to blank the panel while reading. A reload triggered by a write
+     *   keeps the current tree on screen instead of flashing the loading state, and re-opens the
+     *   branches that were open - the node objects are replaced, so their children are gone with them.
+     */
+    private loadTree(showSpinner: boolean = true): void {
+        this.isLoadingTree = showSpinner;
 
         this.ipamTreeService.getTree()
             .pipe(takeUntil(this.unsubscribe), finalize(() => {
@@ -278,7 +318,26 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
                 this.unassigned = response?.unassigned ?? [];
                 this.hasSupernets = this.supernetDataSource.data.length > 0;
                 this.hasUnassigned = this.unassigned.length > 0;
+                this.restoreExpansion();
             });
+    }
+
+
+    /**
+     * Re-fetches the branches that were open before a reload. One supernet read returns its whole
+     * nested subtree, so re-reading the open top-level supernets restores the descendants too - the
+     * deeper ids are still in `expandedNodeIds` and their children arrive inline.
+     */
+    private restoreExpansion(): void {
+        if (!this.expandedNodeIds.size) {
+            return;
+        }
+
+        for (const node of this.supernetDataSource.data) {
+            if (node.has_children && !node.children && this.expandedNodeIds.has(node.public_id)) {
+                this.loadChildren(node);
+            }
+        }
     }
 
 
