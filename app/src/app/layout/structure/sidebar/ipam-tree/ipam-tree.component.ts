@@ -16,7 +16,6 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { ChangeDetectorRef, Component, EventEmitter, inject, Input, OnDestroy, OnInit, Output } from '@angular/core';
-import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
 
@@ -46,7 +45,7 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
      */
     @Output() expandClicked = new EventEmitter<void>();
 
-    treeControl = new NestedTreeControl<IpamTreeNode>(node => node.children);
+    childrenAccessor = (node: IpamTreeNode) => node.children ?? [];
     supernetDataSource = new MatTreeNestedDataSource<IpamTreeNode>();
     unassigned: IpamTreeNode[] = [];
 
@@ -59,6 +58,11 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
      * public_ids of supernets currently fetching their children (drives the inline spinner).
      */
     private loadingNodeIds = new Set<number>();
+
+    /**
+     * public_ids of the currently expanded supernets. Bound to the tree via `isExpanded`.
+     */
+    private expandedNodeIds = new Set<number>();
 
     private _searchString: string = '';
 
@@ -88,8 +92,8 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
      * @param node the supernet node being toggled
      */
     public onToggleSupernet(node: IpamTreeNode): void {
-        if (this.treeControl.isExpanded(node)) {
-            this.treeControl.collapse(node);
+        if (this.isNodeExpanded(node)) {
+            this.expandedNodeIds.delete(node.public_id);
             return;
         }
 
@@ -98,7 +102,28 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
             return;
         }
 
-        this.treeControl.expand(node);
+        this.expandedNodeIds.add(node.public_id);
+    }
+
+
+    /**
+     * Mirrors the tree's expansion state back onto the component, so branches opened with the
+     * keyboard (ArrowLeft/ArrowRight) stay in sync with the chevron, and lazy-loads on first expand.
+     *
+     * @param node the supernet whose expansion changed
+     * @param expanded the new expansion state
+     */
+    public onExpandedChange(node: IpamTreeNode, expanded: boolean): void {
+        if (!expanded) {
+            this.expandedNodeIds.delete(node.public_id);
+            return;
+        }
+
+        this.expandedNodeIds.add(node.public_id);
+
+        if (node.has_children && !node.children && !this.isNodeLoading(node)) {
+            this.loadChildren(node);
+        }
     }
 
 
@@ -145,6 +170,14 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
 
 
     /**
+     * Indicates whether a supernet is currently expanded.
+     */
+    public isNodeExpanded(node: IpamTreeNode): boolean {
+        return this.expandedNodeIds.has(node.public_id);
+    }
+
+
+    /**
      * Tree predicate: a node is expandable when it announces children or already has them loaded.
      */
     hasChild = (_: number, node: IpamTreeNode): boolean =>
@@ -181,12 +214,7 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
             return false;
         }
 
-        if (this.matchesSearch(node)) {
-            return false;
-        }
-
-        const descendants = this.treeControl.getDescendants(node);
-        return !descendants.some(descendant => this.matchesSearch(descendant));
+        return !this.subtreeMatchesSearch(node);
     }
 
 
@@ -250,8 +278,8 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
             }))
             .subscribe((response: IpamSupernetChildrenResponse) => {
                 node.children = response?.children ?? [];
+                this.expandedNodeIds.add(node.public_id);
                 this.refreshSupernetTree();
-                this.treeControl.expand(node);
             });
     }
 
@@ -263,6 +291,15 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
         const data = this.supernetDataSource.data;
         this.supernetDataSource.data = [];
         this.supernetDataSource.data = data;
+    }
+
+
+    /**
+     * Case-insensitive match against a node's name or CIDR, walking the already-loaded subtree.
+     */
+    private subtreeMatchesSearch(node: IpamTreeNode): boolean {
+        return this.matchesSearch(node)
+            || (node.children ?? []).some(child => this.subtreeMatchesSearch(child));
     }
 
 

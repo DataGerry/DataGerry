@@ -16,7 +16,6 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, inject, OnDestroy, OnInit } from '@angular/core';
-import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -52,7 +51,7 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
     public readonly root = ROOT_LOCATION;
     public readonly nonSelectableHint = 'This type cannot hold child locations';
 
-    public readonly treeControl = new NestedTreeControl<LocationTreeSelectNode>((node) => node.children$);
+    public readonly childrenAccessor = (node: LocationTreeSelectNode) => node.children$;
     public readonly dataSource = new MatTreeNestedDataSource<LocationTreeSelectNode>();
 
     public hasLocations = false;
@@ -96,7 +95,6 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
         this.canEdit = this.permission.hasRight(LocationTreeOrganizerModalComponent.EDIT_RIGHT)
             || this.permission.hasExtendedRight(LocationTreeOrganizerModalComponent.EDIT_RIGHT);
         this.listenForSearch();
-        this.listenForExpansion();
         this.loadRoots();
     }
 
@@ -121,7 +119,23 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
     }
 
     public toggleNode(node: LocationTreeSelectNode): void {
-        this.treeControl.toggle(node);
+        node.expanded = !node.expanded;
+
+        if (node.expanded) {
+            this.loadChildrenIfNeeded(node);
+        }
+    }
+
+    /**
+     * Mirrors the tree's expansion state back onto the node so pointer and keyboard (ArrowLeft/Right)
+     * stay in sync, and fetches the children the first time a branch opens.
+     */
+    public onExpandedChange(node: LocationTreeSelectNode, expanded: boolean): void {
+        node.expanded = expanded;
+
+        if (expanded) {
+            this.loadChildrenIfNeeded(node);
+        }
     }
 
     public isSelected(node: LocationTreeSelectNode): boolean {
@@ -244,17 +258,6 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
             .subscribe((results: LocationTreeSearchNode[]) => this.applySearchResults(results));
     }
 
-    /** Fetches a node's children the first time it is expanded. */
-    private listenForExpansion(): void {
-        this.treeControl.expansionModel.changed.pipe(takeUntil(this.unsubscribe)).subscribe((change) => {
-            for (const node of change.added) {
-                if (node.has_children && !node.loaded && !node.loading) {
-                    this.loadChildren(node);
-                }
-            }
-        });
-    }
-
     private loadRoots(): void {
         this.isLoadingRoots = true;
         this.errorMessage = null;
@@ -272,6 +275,13 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
         });
     }
 
+    /** Fetches a branch's children the first time it opens; a no-op for loaded or in-flight nodes. */
+    private loadChildrenIfNeeded(node: LocationTreeSelectNode): void {
+        if (node.has_children && !node.loaded && !node.loading) {
+            this.loadChildren(node);
+        }
+    }
+
     private loadChildren(node: LocationTreeSelectNode): void {
         node.loading = true;
 
@@ -283,7 +293,7 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
             },
             error: () => {
                 node.loading = false;
-                this.treeControl.collapse(node);
+                node.expanded = false;
                 this.toast.error(LocationTreeOrganizerModalComponent.CHILDREN_ERROR);
             }
         });
@@ -300,8 +310,8 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
         const nodes = results.map((result) => this.toSearchNode(result));
         this.isSearching = false;
         this.hasSearchResults = nodes.length > 0;
-        this.dataSource.data = nodes;
         this.expandAll(nodes);
+        this.dataSource.data = nodes;
     }
 
     private exitSearchMode(): void {
@@ -400,7 +410,7 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
         if (remaining.length === 0) {
             parent.has_children = false;
             parent.loaded = true;
-            this.treeControl.collapse(parent);
+            parent.expanded = false;
         }
     }
 
@@ -420,9 +430,12 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
 
         if (target.loaded) {
             target.children$.next([...target.children$.value, ...movedNodes]);
+        } else {
+            // Fetch the authoritative post-move list; the branch opens as soon as it arrives.
+            this.loadChildrenIfNeeded(target);
         }
-        // When not loaded, expanding lets the lazy loader fetch the authoritative post-move list.
-        this.treeControl.expand(target);
+
+        target.expanded = true;
     }
 
     /** Runs the pure drop-eligibility rules against the current node index. */
@@ -435,7 +448,7 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
     private expandAll(nodes: LocationTreeSelectNode[]): void {
         for (const node of nodes) {
             if (node.has_children) {
-                this.treeControl.expand(node);
+                node.expanded = true;
                 this.expandAll(node.children$.value);
             }
         }
@@ -474,7 +487,8 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
             excluded: false,
             children$: new BehaviorSubject<LocationTreeSelectNode[]>([]),
             loaded: !raw.has_children,
-            loading: false
+            loading: false,
+            expanded: false
         });
     }
 
@@ -492,7 +506,8 @@ export class LocationTreeOrganizerModalComponent implements OnInit, OnDestroy {
             excluded: false,
             children$: new BehaviorSubject<LocationTreeSelectNode[]>(children),
             loaded: true,
-            loading: false
+            loading: false,
+            expanded: false
         });
     }
 

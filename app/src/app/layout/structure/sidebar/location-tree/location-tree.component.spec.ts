@@ -153,13 +153,13 @@ describe('LocationTreeComponent', () => {
             expect(node.loaded).toBeTrue();
             expect(node.children$.value.length).toBe(1);
             expect(node.children$.value[0].name).toBe('Room 1.01');
-            expect(component.treeControl.isExpanded(node)).toBeTrue();
+            expect(node.expanded).toBeTrue();
 
             // Collapse then re-expand must not trigger another request
             component.toggleNode(node);
-            expect(component.treeControl.isExpanded(node)).toBeFalse();
+            expect(node.expanded).toBeFalse();
             component.toggleNode(node);
-            expect(component.treeControl.isExpanded(node)).toBeTrue();
+            expect(node.expanded).toBeTrue();
             expect(locationService.getTreeChildren).toHaveBeenCalledTimes(1);
         });
 
@@ -173,7 +173,7 @@ describe('LocationTreeComponent', () => {
 
             expect(toast.error).toHaveBeenCalled();
             expect(node.loading).toBeFalse();
-            expect(component.treeControl.isExpanded(node)).toBeFalse();
+            expect(node.expanded).toBeFalse();
         });
 
         it('reloads the root level on an object action while browsing', () => {
@@ -213,8 +213,8 @@ describe('LocationTreeComponent', () => {
             expect(root.has_children).toBeTrue();
             expect(leaf.name).toBe('Server-alpha');
             expect(leaf.has_children).toBeFalse();
-            expect(component.treeControl.isExpanded(root)).toBeTrue();
-            expect(component.treeControl.isExpanded(child)).toBeTrue();
+            expect(root.expanded).toBeTrue();
+            expect(child.expanded).toBeTrue();
         }));
 
         it('debounces and cancels superseded queries', fakeAsync(() => {

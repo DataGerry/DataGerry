@@ -17,7 +17,6 @@
 */
 
 import { Component, inject, OnInit, OnDestroy, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
-import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
 
@@ -43,6 +42,8 @@ interface LocationNode {
     children$: BehaviorSubject<LocationNode[]>;
     loaded: boolean;
     loading: boolean;
+    /** Expansion state of the node — bound to the tree via `isExpanded`. */
+    expanded: boolean;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -65,7 +66,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     objectServiceSubscription: Subscription;
     locationServiceSubscription: Subscription;
 
-    treeControl = new NestedTreeControl<LocationNode>(node => node.children$);
+    childrenAccessor = (node: LocationNode) => node.children$;
     dataSource = new MatTreeNestedDataSource<LocationNode>();
 
     /**
@@ -186,8 +187,8 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
      * @param node the node to toggle
      */
     public toggleNode(node: LocationNode): void {
-        if (this.treeControl.isExpanded(node)) {
-            this.treeControl.collapse(node);
+        if (node.expanded) {
+            node.expanded = false;
             this.expandedIds.delete(node.public_id);
             return;
         }
@@ -198,6 +199,27 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
         }
 
         this.expandNode(node);
+    }
+
+
+    /**
+     * Mirrors the tree's expansion state back onto the node, so branches opened with the keyboard
+     * (ArrowLeft/ArrowRight) stay in sync with the chevron and the browse-restore memory.
+     *
+     * @param node the node whose expansion changed
+     * @param expanded the new expansion state
+     */
+    public onExpandedChange(node: LocationNode, expanded: boolean): void {
+        node.expanded = expanded;
+
+        // Search results are opened wholesale, so they must not overwrite the browse-restore memory.
+        if (!this.inSearchMode) {
+            expanded ? this.expandedIds.add(node.public_id) : this.expandedIds.delete(node.public_id);
+        }
+
+        if (expanded && node.has_children && !node.loaded && !node.loading) {
+            this.loadChildren(node);
+        }
     }
 
     /**
@@ -344,8 +366,8 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
         const nodes = results.map((result) => this.toSearchNode(result));
         this.isSearching = false;
         this.hasSearchResults = nodes.length > 0;
-        this.dataSource.data = nodes;
         this.expandAll(nodes);
+        this.dataSource.data = nodes;
         this.cdRef.markForCheck();
     }
 
@@ -378,7 +400,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
                     const childNodes = children.map((child) => this.toBrowseNode(child));
                     node.children$.next(childNodes);
                     node.loaded = true;
-                    this.treeControl.expand(node);
+                    node.expanded = true;
                     this.restoreExpansion(childNodes);
                     this.cdRef.markForCheck();
                 });
@@ -391,7 +413,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
      * @param node the node to expand
      */
     private expandNode(node: LocationNode): void {
-        this.treeControl.expand(node);
+        node.expanded = true;
         this.expandedIds.add(node.public_id);
         this.cdRef.markForCheck();
     }
@@ -404,7 +426,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
     private expandAll(nodes: LocationNode[]): void {
         for (const node of nodes) {
             if (node.has_children) {
-                this.treeControl.expand(node);
+                node.expanded = true;
                 this.expandAll(node.children$.value);
             }
         }
@@ -436,7 +458,8 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
             has_children: raw.has_children,
             children$: new BehaviorSubject<LocationNode[]>([]),
             loaded: !raw.has_children,
-            loading: false
+            loading: false,
+            expanded: false
         };
     }
 
@@ -458,7 +481,8 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
             has_children: children.length > 0,
             children$: new BehaviorSubject<LocationNode[]>(children),
             loaded: true,
-            loading: false
+            loading: false,
+            expanded: false
         };
     }
 }
