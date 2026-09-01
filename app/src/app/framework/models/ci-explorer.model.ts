@@ -16,6 +16,12 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+/** Guards every CI Explorer read route, and with it the graph view of an object. */
+export const CI_EXPLORER_VIEW_RIGHT = 'base.framework.ciExplorer.view';
+
+/** Guards every CI Explorer write route - the filter profiles are the only one the UI writes. */
+export const CI_EXPLORER_EDIT_RIGHT = 'base.framework.ciExplorer.edit';
+
 /* -------- basic primitives -------------------------------------------- */
 export interface Field {
     name: string;

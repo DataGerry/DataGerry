@@ -15,12 +15,12 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, ElementRef, HostListener, Input, OnInit, ViewChild, OnDestroy, ChangeDetectorRef, SimpleChanges, Output, EventEmitter } from '@angular/core';
+import { Component, ElementRef, HostListener, Input, OnInit, ViewChild, OnDestroy, ChangeDetectorRef, SimpleChanges, Output, EventEmitter, inject } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { Subject, fromEvent } from 'rxjs';
 import { takeUntil, debounceTime, finalize } from 'rxjs/operators';
 import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
-import { CIEdge, CINode, GraphRespWithRoot } from 'src/app/framework/models/ci-explorer.model';
+import { CI_EXPLORER_EDIT_RIGHT, CIEdge, CINode, GraphRespWithRoot } from 'src/app/framework/models/ci-explorer.model';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { RelationService } from 'src/app/framework/services/relaion.service';
 
@@ -46,6 +46,7 @@ import { GraphRootNodeService } from './services/graph-root-node.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.service';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 @Component({
   selector: 'app-graph-editor',
@@ -61,6 +62,9 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   @ViewChild('graphContainer') graphContainer!: ElementRef;
   @Input() rootNodeId: number = null;
   @Output() rootNodeSelected = new EventEmitter<number>();
+
+  /** Filter profiles are written through the CI Explorer edit routes, so their controls need that right. */
+  readonly ciExplorerEditRight = CI_EXPLORER_EDIT_RIGHT;
 
   // Filter state
   typesFilter: number[] = [];
@@ -146,6 +150,12 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();
   private animationFrameId?: number;
   private lastFrameTime = 0;
+
+  private readonly permissionService = inject(PermissionService);
+
+  /** `*permissionLink` only hides the buttons, so both profile write paths re-check the right. */
+  private readonly canEditProfiles = this.permissionService.hasRight(CI_EXPLORER_EDIT_RIGHT)
+    || this.permissionService.hasExtendedRight(CI_EXPLORER_EDIT_RIGHT);
 
   // Loader state
   public isLoading$ = this.loaderService.isLoading$;
@@ -1202,6 +1212,10 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
    * Opens the profile manager modal to manage filter profiles.
    */
   openProfileManager(): void {
+    if (!this.canEditProfiles) {
+      return;
+    }
+
     this.profileService.openProfileManager(
       this.modalService,
       this.typeOptionList,
@@ -1276,6 +1290,10 @@ export class GraphEditorComponent implements OnInit, OnDestroy {
    * Saves the current filters as a new profile.
    */
   saveCurrentFiltersAsProfile(): void {
+    if (!this.canEditProfiles) {
+      return;
+    }
+
     this.profileService.saveCurrentFiltersAsProfile(
       this.modalService,
       this.typeOptionList,
