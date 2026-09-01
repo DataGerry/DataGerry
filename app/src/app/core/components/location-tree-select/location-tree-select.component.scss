@@ -9,9 +9,19 @@ $text-faint: #9ca3af;
 :host {
     display: block;
     width: 100%;
-    /* Behave as a form control when projected into a Bootstrap .input-group */
-    flex: 1 1 auto;
     min-width: 0;
+}
+
+/* Projected into a Bootstrap .input-group: share the row with the appended buttons.
+   The 1% basis mirrors what Bootstrap gives a .form-control so nothing wraps. */
+:host-context(.input-group) {
+    flex: 1 1 auto;
+    width: 1%;
+
+    .lts-display {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+    }
 }
 
 .lts-field {
