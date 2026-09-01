@@ -219,6 +219,13 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
 
         if (expanded && node.has_children && !node.loaded && !node.loading) {
             this.loadChildren(node);
+            return;
+        }
+
+        if (expanded) {
+            // The branch opened over children that were already fetched, so the tree flattened itself
+            // before the expansion landed. Refresh the keyboard order now that both are in place.
+            this.republishTree();
         }
     }
 
@@ -336,6 +343,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
                     node.loaded = true;
                     node.loading = false;
                     this.expandNode(node);
+                    this.republishTree();
                 },
                 error: () => {
                     node.loading = false;
@@ -402,6 +410,7 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
                     node.loaded = true;
                     node.expanded = true;
                     this.restoreExpansion(childNodes);
+                    this.republishTree();
                     this.cdRef.markForCheck();
                 });
         }
@@ -430,6 +439,19 @@ export class LocationTreeComponent implements OnInit, OnDestroy {
                 this.expandAll(node.children$.value);
             }
         }
+    }
+
+    /**
+     * Re-emits the current level so the tree rebuilds its flattened node cache. That cache — which is
+     * what arrow-key navigation walks — is a snapshot taken when a branch opens, so without this the
+     * children that arrive afterwards are skipped. The nodes keep their identity, so nothing re-renders.
+     */
+    private republishTree(): void {
+        // Deferred: the tree re-flattens several times while a branch opens, and an inline re-emit
+        // races those runs and loses. A microtask lands after the burst, on settled state.
+        Promise.resolve().then(() => {
+            this.dataSource.data = [...this.dataSource.data];
+        });
     }
 
     /**
