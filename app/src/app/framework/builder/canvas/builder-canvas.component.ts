@@ -43,7 +43,7 @@ import { FieldIdentifierValidationService } from '../services/field-identifier-v
 import { BUILDER_DELETION_GUARD, BuilderDeletionGuard } from '../services/builder-deletion-guard';
 
 import { CmdbType } from '../../models/cmdb-type';
-import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
+import { SectionTemplateListItem } from '../../section_templates/models/virtual-section-template.model';
 import { CmdbMode } from '../../modes.enum';
 
 import { BuilderSection } from '../schema/builder-section.model';
@@ -98,7 +98,7 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
     public sectionReference: Array<BuilderSection> | null = null;
     public initialFieldNames: Set<string> | null = null;
 
-    public selectedGlobalSectionTemplates: Array<CmdbSectionTemplate> = [];
+    public selectedGlobalSectionTemplates: Array<SectionTemplateListItem> = [];
     private selectedGlobalTemplatesInitialized = false;
 
     public showColorPickerForSection: string | null = null;  // Keep track of which section's color picker is open
@@ -124,7 +124,7 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
     /** The draggable controls this builder offers, in display order. */
     @Input() public paletteGroups: Array<BuilderPaletteGroup> = [];
 
-    @Input() public globalSectionTemplates: Array<CmdbSectionTemplate> = [];
+    @Input() public globalSectionTemplates: Array<SectionTemplateListItem> = [];
     @Input() public lockedSectionNames: Array<string> = [];
     @Input() public lockedFieldNames: Array<string> = [];
 

@@ -1,9 +1,9 @@
-import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
+import { SectionTemplateListItem } from 'src/app/framework/section_templates/models/virtual-section-template.model';
 import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderIcon, SECTION_EDIT_ICON, SECTION_READONLY_ICON } from './builder-icons';
 
 export interface BuilderInteractionPolicyContext {
-    selectedGlobalSectionTemplates: Array<CmdbSectionTemplate>;
+    selectedGlobalSectionTemplates: Array<SectionTemplateListItem>;
     globalTemplateIds: Array<string>;
     globalFieldNames: Array<string>;
     schemaLockedSectionNames: Array<string>;

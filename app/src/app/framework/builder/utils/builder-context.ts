@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
+import { SectionTemplateListItem } from '../../section_templates/models/virtual-section-template.model';
 import { CmdbMode } from '../../modes.enum';
 import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderSchemaAdapter } from '../schema/builder-schema.adapter';
@@ -34,8 +34,8 @@ export interface BuilderContext {
     newSections: Array<BuilderSection>;
     newFields: Array<any>;
 
-    globalSectionTemplates: Array<CmdbSectionTemplate>;
-    selectedGlobalSectionTemplates: Array<CmdbSectionTemplate>;
+    globalSectionTemplates: Array<SectionTemplateListItem>;
+    selectedGlobalSectionTemplates: Array<SectionTemplateListItem>;
     lockedSectionNames: Array<string>;
     lockedFieldNames: Array<string>;
 

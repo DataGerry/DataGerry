@@ -8,6 +8,7 @@ import { SpecialTypeService } from '../../../services/special-type.service';
 import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 import { CmdbType } from '../../../models/cmdb-type';
 import { SpecialType } from '../../../models/special-type';
+import { LoaderService } from 'src/app/core/services/loader.service';
 
 function buildType(overrides: Partial<CmdbType> = {}): CmdbType {
     return {
@@ -33,22 +34,30 @@ describe('TypeFieldsStepComponent (type creation - content step)', () => {
     let sectionTemplateService: jasmine.SpyObj<SectionTemplateService>;
     let toastService: jasmine.SpyObj<ToastService>;
     let specialTypeService: jasmine.SpyObj<SpecialTypeService>;
+    let loaderService: jasmine.SpyObj<LoaderService>;
 
     beforeEach(async () => {
-        sectionTemplateService = jasmine.createSpyObj<SectionTemplateService>('SectionTemplateService', ['getSectionTemplates']);
+        sectionTemplateService = jasmine.createSpyObj<SectionTemplateService>(
+            'SectionTemplateService',
+            ['getSectionTemplates', 'getVirtualSectionTemplates']
+        );
         sectionTemplateService.getSectionTemplates.and.returnValue(of({ results: [], total: 0, count: 0 } as any));
+        sectionTemplateService.getVirtualSectionTemplates.and.returnValue(of([]));
 
         toastService = jasmine.createSpyObj<ToastService>('ToastService', ['error']);
 
         specialTypeService = jasmine.createSpyObj<SpecialTypeService>('SpecialTypeService', ['getCachedSchema', 'getSchema']);
         specialTypeService.getCachedSchema.and.returnValue(null);
 
+        loaderService = jasmine.createSpyObj<LoaderService>('LoaderService', ['show', 'hide']);
+
         await TestBed.configureTestingModule({
             declarations: [TypeFieldsStepComponent],
             providers: [
                 { provide: SectionTemplateService, useValue: sectionTemplateService },
                 { provide: ToastService, useValue: toastService },
-                { provide: SpecialTypeService, useValue: specialTypeService }
+                { provide: SpecialTypeService, useValue: specialTypeService },
+                { provide: LoaderService, useValue: loaderService }
             ]
         })
             .overrideComponent(TypeFieldsStepComponent, { set: { template: '' } })
@@ -154,11 +163,33 @@ describe('TypeFieldsStepComponent (type creation - content step)', () => {
             expect(component.globalSectionTemplates.map((t) => t.name)).toEqual(['shared']);
         });
 
+        it('lists the virtual templates ahead of the stored global ones', () => {
+            component.typeInstance = buildType();
+            sectionTemplateService.getSectionTemplates.and.returnValue(of({
+                results: [{ public_id: 2, name: 'shared', label: 'Shared', is_global: true }],
+                total: 1,
+                count: 1
+            } as any));
+            sectionTemplateService.getVirtualSectionTemplates.and.returnValue(
+                of([{ name: 'dg-virtual-tpl-ports', label: 'Ports', is_global: true, predefined: true, fields: [] }] as any)
+            );
+
+            component.ngOnInit();
+
+            expect(component.globalSectionTemplates.map((t) => t.name)).toEqual(['dg-virtual-tpl-ports', 'shared']);
+
+            const items = component.paletteGroups.find(group => group.id === 'globalSectionTemplates').items;
+            expect(items.map(item => item.label)).toEqual(['Ports', 'Shared']);
+            // No public_id, so the virtual entry is listed by label alone.
+            expect(items[0].badge).toBeUndefined();
+        });
+
         it('surfaces an error toast if templates cannot be loaded', () => {
             component.typeInstance = buildType();
             sectionTemplateService.getSectionTemplates.and.returnValue(
                 throwError(() => ({ error: { message: 'templates unavailable' } }))
             );
+            sectionTemplateService.getVirtualSectionTemplates.and.returnValue(of([]));
 
             component.ngOnInit();
 
