@@ -27,7 +27,7 @@ import { BuilderUtils } from './builder-utils';
  * every time is therefore reporting a *new value* on every change detection run: the icon's rendered
  * HTML is recomputed, the view is marked dirty, another run is scheduled, and that run calls the
  * helper again. The section template builder runs on default change detection, so nothing damps
- * that cycle - the tab spins at 100% CPU and stops responding (DAT-3058).
+ * that cycle.
  *
  * Equality is not enough to pin this down; identity is the contract.
  */
