@@ -164,7 +164,7 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
                 let params = {
                     'name': sectionTemplate.name,
                     'label': sectionTemplate.label,
-                    'type': 'section',
+                    'type': sectionTemplate.type ?? 'section',
                     'is_global': true,
                     'predefined': false,
                     'fields': JSON.stringify(sectionTemplate.fields),
