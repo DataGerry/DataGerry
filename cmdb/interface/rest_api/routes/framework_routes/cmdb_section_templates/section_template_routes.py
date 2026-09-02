@@ -47,6 +47,13 @@ from cmdb.models.section_template_model.section_template_constants import (
 )
 from cmdb.models.type_model import SectionType
 from cmdb.framework.results import IterationResult
+from cmdb.framework.section_templates.virtual_section_templates import (
+    VIRTUAL_TEMPLATE_NAME_PREFIX,
+    get_virtual_section_templates,
+    is_virtual_template_name,
+)
+from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -126,6 +133,12 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 
         if existing_template:
             abort(400, f"A template with the name: {template_name} already exists!")
+
+        # The virtual-template name space is reserved: a stored template carrying such a name would
+        # shadow the virtual one for every frontend that resolves templates by name
+        if is_virtual_template_name(template_name):
+            abort(400, f"The name prefix '{VIRTUAL_TEMPLATE_NAME_PREFIX}' is reserved for virtual "
+                       "section templates!")
 
         if params[SectionTemplateKey.TYPE] not in [SectionType.SECTION, SectionType.MDS_SECTION]:
             abort(400, f"Invalid template type provided: {params[SectionTemplateKey.TYPE]}!")
@@ -290,6 +303,47 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
         )
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
+
+@section_template_blueprint.route('/virtual/', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
+@requires_feature(LicenseFeature.IPAM)
+def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
+    # request_user is not read here but must be in the signature: insert_request_user injects it and
+    # requires_feature reads it out of kwargs to resolve the active license
+    # pylint: disable=unused-argument
+    """
+    HTTP `GET`/`HEAD` route to retrieve the VIRTUAL section templates
+
+    A virtual template looks like a global section template to the frontend but is never stored: it has
+    no public_id, it is not in framework.sectionTemplates, and none of the other routes on this
+    blueprint know about it - see cmdb.framework.section_templates.virtual_section_templates for why
+    each of those matters.
+
+    Gated per route rather than per blueprint, because the rest of this blueprint is not a licensed
+    surface: `dg-virtual-tpl-ports` belongs to Port Connectivity, which is gated behind IPAM
+
+    Args:
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right or the IPAM license; 500 on an unexpected
+            error
+
+    Returns:
+        DefaultResponse: The virtual section templates as a list
+    """
+    # No `except HTTPException: raise` guard here, unlike the other routes on this blueprint: nothing
+    # inside the try aborts (the right and the license are checked by the decorators above it), so that
+    # arm would be unreachable
+    try:
+        return DefaultResponse(get_virtual_section_templates()).make_response()
+    except Exception as err:
+        LOGGER.error("[get_virtual_cmdb_section_templates] Exception: %s. Type: %s", err, type(err),
+                     exc_info=True)
+        abort(500, "An internal server error occured while retrieving the virtual SectionTemplates!")
+
 
 @section_template_blueprint.route('/', methods=['PUT', 'PATCH'])
 @insert_request_user

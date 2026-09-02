@@ -151,6 +151,18 @@ class RackRight(FrameworkRight):
         super().__init__(name, level, description=description)
 
 
+class PortRight(FrameworkRight):
+    """
+    Base class for Port rights (the Port Connectivity feature)
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.port'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
 class ExtendableOptionRight(FrameworkRight):
     """
     Base class for CmdbExtendableOption rights

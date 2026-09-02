@@ -16,9 +16,10 @@
 """
 Constants used by the CmdbExtendableOption REST routes
 
-Centralises the ACL rights each endpoint guards on, the request/document keys the routes read, and
-the field names on the referencing collections that the deletion in-use check queries - so the
-routes and helper carry no bare string literals.
+Holds the ACL rights each endpoint guards on. The document keys moved to
+``cmdb.models.extendable_option_model.extendable_option_constants`` (ExtendableOptionKey) and the
+referencing-collection field names to ``cmdb.framework.extendable_options`` - both are shared with
+the predefined-data factories and the database updaters, so neither can be owned by the REST layer.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -30,24 +31,3 @@ class ExtendableOptionRight(BaseStrEnum):
     VIEW = 'base.framework.extendableOption.view'
     EDIT = 'base.framework.extendableOption.edit'
     DELETE = 'base.framework.extendableOption.delete'
-
-
-class ExtendableOptionKey(BaseStrEnum):
-    """Request-body / document keys of a CmdbExtendableOption."""
-    PUBLIC_ID = 'public_id'
-    VALUE = 'value'
-    OPTION_TYPE = 'option_type'
-    PREDEFINED = 'predefined'
-
-
-class ExtendableOptionUsageField(BaseStrEnum):
-    """
-    Field names on the referencing collections that point at a CmdbExtendableOption public_id
-
-    Queried by ``is_extendable_option_used`` to decide whether an option may be deleted
-    """
-    SOURCE = 'source'                                # threats / vulnerabilities / control measures
-    CATEGORIES = 'categories'                        # object groups
-    IMPLEMENTATION_STATE = 'implementation_state'    # control measures
-    IMPLEMENTATION_STATUS = 'implementation_status'  # risk assessments / control-measure assignments
-    CATEGORY_ID = 'category_id'                      # risks

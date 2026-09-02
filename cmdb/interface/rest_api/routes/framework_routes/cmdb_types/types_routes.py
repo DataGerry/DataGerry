@@ -66,11 +66,16 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     get_type_instance_or_404,
     guard_location_field_removal,
     guard_selectable_as_parent_change,
+    guard_referenced_section_removal,
+    build_referenced_section_usage_payload,
+    guard_uses_ports_change,
+    build_uses_ports_usage_payload,
     compute_removed_global_templates,
     apply_type_update_side_effects,
     build_types_overview_items,
     enforce_special_type_license,
     enforce_rack_selectable_as_parent,
+    enforce_uses_ports_license,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.blueprints import APIBlueprint
@@ -104,6 +109,8 @@ types_blueprint = APIBlueprint('types', __name__)
 # What each pre-check route is determining, interpolated into the shared failure messages
 LOCATION_FIELD_USAGE_SUBJECT: str = 'location-field usage'
 SELECTABLE_AS_PARENT_USAGE_SUBJECT: str = 'selectable-as-parent usage'
+REFERENCED_SECTION_USAGE_SUBJECT: str = 'reference-section usage'
+USES_PORTS_USAGE_SUBJECT: str = 'port usage'
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -145,6 +152,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         # A Rack must stay selectable as a parent Location or nothing could be placed in it
         enforce_rack_selectable_as_parent(data.get(TypeSchemaKey.SPECIAL_TYPE), data)
+
+        # Declaring a Type as port-bearing requires a valid IPAM license
+        enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
 
         data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
         data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
@@ -489,6 +499,106 @@ def get_selectable_as_parent_usage_of_cmdb_type(public_id: int, request_user: Cm
         public_id, request_user, 'get_selectable_as_parent_usage_of_cmdb_type', SELECTABLE_AS_PARENT_USAGE_SUBJECT,
     )
 
+@types_blueprint.route('/referenced_section_usage/<int:public_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+def get_referenced_section_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns which CmdbTypes reference the given CmdbType, and which of its sections they pull
+
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. A section may only be removed
+    (or renamed - a ref-section resolves its target by NAME) once no other CmdbType pulls its fields
+    through a reference section, and the Type itself may only be deleted once nothing references it at
+    all. Both are enforced server-side by guard_referenced_section_removal and verify_type_deletable;
+    this route exists so the type builder can disable the delete action up front instead of learning
+    about it from a 400.
+
+    ``sections`` is keyed by section name and carries only the sections that ARE referenced, so a
+    section absent from it is free to remove
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists; 400 when the Type or the
+            referencing Types could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: { in_use: bool, count: int, referencing_type_ids: list[int],
+                           sections: { <section_name>: [{public_id, name, label}] } }
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
+
+        payload = build_referenced_section_usage_payload(request_user, target_type)
+
+        return DefaultResponse(payload).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except TypesManagerGetError as err:
+        LOGGER.error("[get_referenced_section_usage_of_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to determine {REFERENCED_SECTION_USAGE_SUBJECT} for Type with ID: {public_id}!")
+    except Exception as err:
+        LOGGER.error(
+            "[get_referenced_section_usage_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True,
+        )
+        abort(
+            500,
+            "An internal server error occured while determining "
+            f"{REFERENCED_SECTION_USAGE_SUBJECT} for Type with ID: {public_id}!",
+        )
+
+@types_blueprint.route('/uses_ports_usage/<int:public_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns how many Ports exist on the CmdbObjects of the given CmdbType
+
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. A CmdbType may only stop using
+    ports once none of its objects has one, because the frontend renders the ports panel for a
+    port-bearing type only - the same check is enforced server-side on update by
+    `guard_uses_ports_change`. ``in_use: false`` means the flag may be cleared.
+
+    Counts only, deliberately: the equivalent location payload returns every matching public_id and is
+    unbounded for a large Type (discussion backlog #187).
+
+    Note this read is NOT license-gated, unlike the rest of the feature. Turning the flag off is the
+    cleanup direction and is always allowed, so gating the pre-check would blind exactly the users who
+    need it after a license lapsed
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists; 400 when the Type, its Objects or
+            their Ports could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: { in_use: bool, port_count: int, object_count: int }
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
+
+        return DefaultResponse(build_uses_ports_usage_payload(request_user, target_type)).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except (ObjectsManagerGetError, TypesManagerGetError) as err:
+        LOGGER.error("[get_uses_ports_usage_of_cmdb_type] ManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to determine {USES_PORTS_USAGE_SUBJECT} for Type with ID: {public_id}!")
+    except Exception as err:
+        LOGGER.error("[get_uses_ports_usage_of_cmdb_type] Exception: %s. Type: %s", err, type(err),
+                     exc_info=True)
+        abort(500, "An internal server error occured while determining "
+                   f"{USES_PORTS_USAGE_SUBJECT} for Type with ID: {public_id}!")
+
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @types_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
@@ -538,6 +648,10 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # the STORED marker: the SpecialType of a type can never change (guarded further down)
         enforce_rack_selectable_as_parent(old_type.special_type, data)
 
+        # Turning 'uses_ports' on requires a valid IPAM license. Only the requested value is gated,
+        # so an unlicensed instance can still turn the flag back off
+        enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
+
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id
         # Pin the identity to the URL: a payload public_id can never rewrite the document's id
@@ -550,8 +664,16 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # Block removal of the location field while CmdbObjects still hold a location value
         guard_location_field_removal(request_user, old_type, new_type)
 
+        # A section another Type pulls its fields from may not be removed (or renamed) while
+        # that Type still references it - the reference resolves by NAME and would be left dangling
+        guard_referenced_section_removal(request_user, old_type, new_type)
+
         # Block disabling selectable_as_parent while CmdbObjects of this Type are placed in the tree
         guard_selectable_as_parent_change(request_user, old_type, new_type)
+
+        # Block disabling uses_ports while Ports of this Type's Objects still exist - clearing the flag
+        # hides the ports panel, so those ports would become rows nothing in the UI can reach
+        guard_uses_ports_change(request_user, old_type, new_type)
 
         # Compute templates being removed by comparing the pre-update state to the incoming
         # payload (NOT the post-update type) and snapshot each removed template's section info

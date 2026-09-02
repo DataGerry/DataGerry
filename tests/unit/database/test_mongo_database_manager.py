@@ -34,7 +34,7 @@ from pymongo.errors import (
 from pymongo.database import Database
 
 import cmdb.database.mongo_database_manager as mdm
-from cmdb.database.mongo_database_manager import MongoDatabaseManager
+from cmdb.database.mongo_database_manager import MongoDatabaseManager, is_public_id_conflict
 from cmdb.database.database_constants import (
     MAX_DUPLICATE_KEY_RETRIES,
     MONGO_LOCK_TIMEOUT_ERROR_CODE,
@@ -324,6 +324,65 @@ class TestInsert:
 
         with pytest.raises(DocumentNetworkError):
             mgr.insert(COLL, DB, {'name': 'x'})
+
+    def test_a_non_public_id_duplicate_is_not_retried(self, mgr: MongoDatabaseManager) -> None:
+        """A violated unique index other than public_id means the document itself is a duplicate.
+
+        Retrying it would consume MAX_DUPLICATE_KEY_RETRIES ids from the counter and then blame the
+        public_id for a conflict it had nothing to do with."""
+        collection = _stub_collection(mgr)
+        collection.insert_one.side_effect = DuplicateKeyError(
+            'dup', details={'keyPattern': {'option_type': 1, 'value': 1},
+                            'keyValue': {'option_type': 'PORT_TYPE', 'value': 'RJ45'}},
+        )
+        mgr.get_next_public_id = MagicMock(return_value=1)
+
+        with pytest.raises(DocumentInsertError) as raised:
+            mgr.insert(COLL, DB, {'name': 'x'})
+
+        assert collection.insert_one.call_count == 1
+        assert mgr.get_next_public_id.call_count == 1
+        assert 'RJ45' in str(raised.value)
+
+    def test_a_public_id_duplicate_is_still_retried(self, mgr: MongoDatabaseManager) -> None:
+        """A reported public_id conflict keeps its retry loop."""
+        collection = _stub_collection(mgr)
+        collection.insert_one.side_effect = [
+            DuplicateKeyError('dup', details={'keyPattern': {'public_id': 1}}),
+            None,
+        ]
+        mgr.get_next_public_id = MagicMock(side_effect=[5, 6])
+
+        assert mgr.insert(COLL, DB, {'name': 'x'}) == 6
+
+
+class TestIsPublicIdConflict:
+    """Which duplicate-key errors a fresh public_id can resolve."""
+
+    def test_a_public_id_only_key_pattern_is_retryable(self) -> None:
+        """The collection's own public_id index - a new id resolves it."""
+        assert is_public_id_conflict(DuplicateKeyError('dup', details={'keyPattern': {'public_id': 1}})) is True
+
+    def test_another_index_is_not_retryable(self) -> None:
+        """A unique index on real data - a new public_id changes nothing about it."""
+        error = DuplicateKeyError('dup', details={'keyPattern': {'option_type': 1, 'value': 1}})
+
+        assert is_public_id_conflict(error) is False
+
+    def test_a_compound_index_containing_public_id_is_not_retryable(self) -> None:
+        """A fresh id cannot make the rest of a compound key unique."""
+        error = DuplicateKeyError('dup', details={'keyPattern': {'public_id': 1, 'resource': 1}})
+
+        assert is_public_id_conflict(error) is False
+
+    def test_the_id_index_is_not_a_public_id_conflict(self) -> None:
+        """MongoDB's own _id index is a different index with a different fix."""
+        assert is_public_id_conflict(DuplicateKeyError('dup', details={'keyPattern': {'_id': 1}})) is False
+
+    @pytest.mark.parametrize('details', [None, {}, {'keyPattern': None}, {'keyPattern': {}}], ids=str)
+    def test_an_unidentifiable_index_keeps_the_historical_retry(self, details) -> None:
+        """Pre-4.2 servers report no key pattern; with nothing to go on, the old behaviour stands."""
+        assert is_public_id_conflict(DuplicateKeyError('dup', details=details)) is True
 
 
 class TestInsertManyAndBulk:

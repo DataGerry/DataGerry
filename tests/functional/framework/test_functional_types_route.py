@@ -58,7 +58,14 @@ TYPE_ID_FOR_GET: int = 9703
 TYPE_ID_FOR_UPDATE: int = 9704
 TYPE_ID_FOR_DELETE: int = 9705
 TYPE_ID_FOR_SELECTABLE: int = 9706
+# The bug report's two types: 'User' owns the referenced section, 'test' references it
+TYPE_ID_REFERENCED: int = 9707
+TYPE_ID_DEPENDENT: int = 9708
 MISSING_TYPE_ID: int = 9799
+
+REFERENCED_SECTION_NAME: str = 'personal-data'
+UNREFERENCED_SECTION_NAME: str = 'other'
+REF_SECTION_NAME: str = 'personal-data-ref'
 
 # selectable_as_parent guard fixtures
 LOCATION_FIELD_NAME: str = 'dg_location'
@@ -72,6 +79,8 @@ ALL_TYPE_IDS: list[int] = [
     TYPE_ID_FOR_UPDATE,
     TYPE_ID_FOR_DELETE,
     TYPE_ID_FOR_SELECTABLE,
+    TYPE_ID_REFERENCED,
+    TYPE_ID_DEPENDENT,
 ]
 
 ORIGINAL_LABEL: str = 'Original'
@@ -102,6 +111,51 @@ def _type_doc(public_id: int, label: str) -> dict[str, Any]:
     doc = _type_payload(public_id, label)
     doc['creation_time'] = datetime.now(timezone.utc)
     return doc
+
+
+def _referenced_type_payload(public_id: int = TYPE_ID_REFERENCED) -> dict[str, Any]:
+    """The bug report's 'User' type: a referenced section plus one nothing references."""
+    payload = _type_payload(public_id, 'User')
+    payload['render_meta']['sections'] = [
+        {'type': 'section', 'name': REFERENCED_SECTION_NAME, 'label': 'Personal Data',
+         'fields': [NAME_FIELD]},
+        {'type': 'section', 'name': UNREFERENCED_SECTION_NAME, 'label': 'Other', 'fields': []},
+    ]
+
+    return payload
+
+
+def _dependent_type_payload(public_id: int = TYPE_ID_DEPENDENT,
+                            section_name: str = REFERENCED_SECTION_NAME) -> dict[str, Any]:
+    """The bug report's 'test' type: a ref-section pulling the referenced section's field."""
+    payload = _type_payload(public_id, 'test')
+    payload['fields'].append({'type': 'ref', 'name': f'{REF_SECTION_NAME}-field', 'label': 'User',
+                              'ref_types': [TYPE_ID_REFERENCED]})
+    payload['render_meta']['sections'].append({
+        'type': 'ref-section', 'name': REF_SECTION_NAME, 'label': 'Personal Data',
+        'reference': {'type_id': TYPE_ID_REFERENCED, 'section_name': section_name,
+                      'selected_fields': [NAME_FIELD]},
+        'fields': [],
+    })
+
+    return payload
+
+
+def _without_section(payload: dict[str, Any], section_name: str) -> dict[str, Any]:
+    """Returns the payload with one section removed - step 5 of the bug report."""
+    stripped = {**payload, 'render_meta': {**payload['render_meta']}}
+    stripped['render_meta']['sections'] = [
+        section for section in payload['render_meta']['sections'] if section['name'] != section_name
+    ]
+
+    return stripped
+
+
+def _insert_payload(database_manager: MongoDatabaseManager, database_name: str,
+                    payload: dict[str, Any]) -> None:
+    """Inserts a type payload directly, bypassing the POST route."""
+    doc = {**payload, 'creation_time': datetime.now(timezone.utc)}
+    database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_one(doc)
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -537,6 +591,20 @@ class TestTypeErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/location_field_usage/{MISSING_TYPE_ID}').status_code \
             == HTTPStatus.BAD_REQUEST
 
+    def test_referenced_section_usage_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerGetError while resolving the type maps the reference-usage route to 400."""
+        monkeypatch.setattr(TypesManager, 'get_type_instance', _raiser(TypesManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/referenced_section_usage/{MISSING_TYPE_ID}').status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_referenced_section_usage_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """Any other failure while resolving the type is a 500, not a masked 400."""
+        monkeypatch.setattr(TypesManager, 'get_type_instance', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/referenced_section_usage/{MISSING_TYPE_ID}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
     # ---- UPDATE ---- #
     def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A TypesManagerGetError from the update lookup maps PUT to 400."""
@@ -627,3 +695,192 @@ class TestTypeErrorMapping:
         monkeypatch.setattr(TypesManager, 'get_type', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_TYPE_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    REFERENCED-SECTION REMOVAL GUARD                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestReferencedSectionGuard:
+    """
+    A section another Type pulls fields from through a ref-section may not be removed
+
+    Reproduces the reported bug end to end: before the guard, step 5 (deleting 'Personal Data' from
+    the User type) succeeded and left the dependent type's reference dangling, which blanked the
+    referenced block in every object view of that type.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds the report's two types and removes them afterwards."""
+        _drop_type(database_manager, database_name, TYPE_ID_REFERENCED)
+        _drop_type(database_manager, database_name, TYPE_ID_DEPENDENT)
+        _insert_payload(database_manager, database_name, _referenced_type_payload())
+        _insert_payload(database_manager, database_name, _dependent_type_payload())
+
+        yield
+
+        _drop_type(database_manager, database_name, TYPE_ID_REFERENCED)
+        _drop_type(database_manager, database_name, TYPE_ID_DEPENDENT)
+
+    def test_removing_the_referenced_section_returns_400(self, rest_api) -> None:
+        """Step 5 of the report is now refused, naming the dependent Type."""
+        payload = _without_section(_referenced_type_payload(), REFERENCED_SECTION_NAME)
+
+        response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        # The API's error envelope carries the abort text in 'message'; 'description' is werkzeug's
+        # generic per-status text
+        assert REFERENCED_SECTION_NAME in response.get_json()['message']
+        assert str(TYPE_ID_DEPENDENT) in response.get_json()['message']
+
+    def test_the_section_survives_the_refused_update(self, rest_api, database_manager, database_name) -> None:
+        """A refused update must persist nothing at all, not even the allowed half of it."""
+        payload = _without_section(_referenced_type_payload(), REFERENCED_SECTION_NAME)
+        payload['label'] = 'Renamed by a refused update'
+
+        rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload)
+
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .find_one({'public_id': TYPE_ID_REFERENCED})
+        section_names = [section['name'] for section in stored['render_meta']['sections']]
+
+        assert REFERENCED_SECTION_NAME in section_names
+        assert stored['label'] == 'User'
+
+    def test_renaming_the_referenced_section_returns_400(self, rest_api) -> None:
+        """A ref-section resolves its target by NAME, so a rename breaks it exactly as a delete does."""
+        payload = _referenced_type_payload()
+        payload['render_meta']['sections'][0]['name'] = 'renamed-personal-data'
+
+        response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_removing_an_unreferenced_section_succeeds(self, rest_api, database_manager, database_name) -> None:
+        """Only referenced sections are protected - the guard must not block ordinary edits."""
+        payload = _without_section(_referenced_type_payload(), UNREFERENCED_SECTION_NAME)
+
+        response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .find_one({'public_id': TYPE_ID_REFERENCED})
+
+        assert [section['name'] for section in stored['render_meta']['sections']] == [REFERENCED_SECTION_NAME]
+
+    def test_removing_the_section_after_the_dependent_is_gone_succeeds(
+            self, rest_api, database_manager, database_name) -> None:
+        """The documented way out: drop the reference section first, then the section."""
+        _drop_type(database_manager, database_name, TYPE_ID_DEPENDENT)
+
+        payload = _without_section(_referenced_type_payload(), REFERENCED_SECTION_NAME)
+        response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_deleting_the_referenced_type_returns_400(self, rest_api, database_manager, database_name) -> None:
+        """
+        The type-level half of the same rule
+
+        Deleting the whole referenced Type leaves the dependent pointing at a type_id that no longer
+        resolves - the same blank block, one level up. Reachable because verify_type_deletable only
+        checked objects and reports.
+        """
+        response = rest_api.delete(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert str(TYPE_ID_DEPENDENT) in response.get_json()['message']
+
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .find_one({'public_id': TYPE_ID_REFERENCED})
+
+        assert stored is not None
+
+    def test_deleting_the_dependent_type_is_unaffected(self, rest_api) -> None:
+        """The dependent side is free to go - it is the one holding the reference."""
+        response = rest_api.delete(f'{ROUTE_URL}/{TYPE_ID_DEPENDENT}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_emptying_the_referenced_section_returns_400(self, rest_api) -> None:
+        """
+        The field side of the same rule: the section survives but would show nothing
+
+        The dependent selects exactly one field; taking it out of the section leaves a valid
+        reference rendering an empty block - the same blank area, reached from the field side.
+        """
+        payload = _referenced_type_payload()
+        payload['render_meta']['sections'][0]['fields'] = []
+
+        response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'would show nothing' in response.get_json()['message']
+        assert str(TYPE_ID_DEPENDENT) in response.get_json()['message']
+
+    def test_reducing_the_referenced_section_succeeds(
+            self, rest_api, database_manager, database_name) -> None:
+        """
+        A reduction that leaves the dependent something to show is allowed
+
+        Losing the column of a field that was just deleted is the direct consequence of deleting it;
+        refusing it would make every field edit on a referenced Type a 400.
+        """
+        payload = _referenced_type_payload()
+        payload['fields'].append({'type': 'text', 'name': 'second-field', 'label': 'Second'})
+        payload['render_meta']['sections'][0]['fields'] = [NAME_FIELD, 'second-field']
+
+        assert rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload).status_code \
+            in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+        # now drop the field the dependent does NOT select
+        reduced = _referenced_type_payload()
+
+        response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=reduced)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .find_one({'public_id': TYPE_ID_REFERENCED})
+
+        assert stored['render_meta']['sections'][0]['fields'] == [NAME_FIELD]
+
+    def test_moving_the_selected_field_out_of_the_section_returns_400(self, rest_api) -> None:
+        """The trigger is a field leaving the SECTION - a move breaks the dependent identically."""
+        payload = _referenced_type_payload()
+        payload['render_meta']['sections'][0]['fields'] = []
+        payload['render_meta']['sections'][1]['fields'] = [NAME_FIELD]
+
+        response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'would show nothing' in response.get_json()['message']
+
+    def test_the_usage_route_names_the_blocked_section(self, rest_api) -> None:
+        """The pre-check the type builder needs to disable the delete action up front."""
+        response = rest_api.get(f'{ROUTE_URL}/referenced_section_usage/{TYPE_ID_REFERENCED}')
+
+        assert response.status_code == HTTPStatus.OK
+        body = response.get_json()
+        assert body['in_use'] is True
+        assert body['count'] == 1
+        assert body['referencing_type_ids'] == [TYPE_ID_DEPENDENT]
+        assert list(body['sections']) == [REFERENCED_SECTION_NAME]
+        assert body['sections'][REFERENCED_SECTION_NAME][0]['public_id'] == TYPE_ID_DEPENDENT
+
+    def test_the_usage_route_reports_an_unreferenced_type_as_free(self, rest_api) -> None:
+        """The dependent type itself is referenced by nothing."""
+        response = rest_api.get(f'{ROUTE_URL}/referenced_section_usage/{TYPE_ID_DEPENDENT}')
+
+        assert response.status_code == HTTPStatus.OK
+        body = response.get_json()
+        assert body['in_use'] is False
+        assert body['sections'] == {}
+
+    def test_the_usage_route_404s_for_a_missing_type(self, rest_api) -> None:
+        """Consistent with the other two pre-check routes."""
+        response = rest_api.get(f'{ROUTE_URL}/referenced_section_usage/{MISSING_TYPE_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND

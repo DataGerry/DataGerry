@@ -120,6 +120,11 @@ class CmdbMultiRender:
         self.types_cache: dict[int, CmdbType] = shared_types_cache if shared_types_cache is not None else {}
         self.users_cache: dict[int, CmdbUser] = shared_users_cache if shared_users_cache is not None else {}
 
+        # Which (type_id, section) pairs already had their broken reference reported. A list render
+        # walks many objects through the same type, so without this a single broken ref-section would
+        # emit one warning per object per request
+        self.reported_reference_problems: set[tuple[str, int, str]] = set()
+
         self.objects_cache.update(self.get_all_linked_objects())
         self.types_cache.update(self.get_all_linked_types())
         self.users_cache.update(self.get_all_linked_users())
@@ -957,6 +962,48 @@ class CmdbMultiRender:
         return field
 
 
+    def _report_reference_problem(
+        self,
+        section: TypeReferenceSection,
+        reason: str,
+        *reason_args: Any,
+    ) -> None:
+        """
+        Logs, once per render, that a reference section could not be resolved
+
+        These three situations - the referenced Type gone, its section gone, or the section no longer
+        carrying any of the referenced fields - all end with the frontend drawing nothing where a
+        block used to be, and every one of them used to be entirely silent. A CmdbType update refuses
+        the edits that cause them, but data written before that guard existed can still be in a
+        database, so the render says so instead of quietly dropping the block.
+
+        Deduplicated per reference: a list render walks many objects through the same type
+        definition, and one broken reference must not produce one line per object
+
+        Args:
+            section (TypeReferenceSection): The reference section that could not be resolved
+            reason (str): A %-style message describing what is missing
+            *reason_args (Any): Arguments for the reason template
+        """
+        # Keyed on the reference itself, not just the section: one section repointed at a different
+        # target is a different problem and has to be reported on its own
+        problem_key: tuple[str, int, str] = (
+            section.name,
+            getattr(section.reference, 'type_id', 0),
+            getattr(section.reference, 'section_name', ''),
+        )
+
+        if problem_key in self.reported_reference_problems:
+            return
+
+        self.reported_reference_problems.add(problem_key)
+
+        LOGGER.warning(
+            "[_merge_reference_section] Reference section '%s' shows nothing: " + reason,
+            section.name, *reason_args,
+        )
+
+
     def _merge_reference_section(
         self,
         section: TypeReferenceSection,
@@ -1003,6 +1050,9 @@ class CmdbMultiRender:
         try:
             ref_type: CmdbType | None = self.types_cache.get(section.reference.type_id)
             if not ref_type:
+                self._report_reference_problem(
+                    section, "referenced Type ID:%s does not exist", section.reference.type_id,
+                )
                 return None
 
             ref_section = ref_type.get_section(section.reference.section_name)
@@ -1018,14 +1068,23 @@ class CmdbMultiRender:
             return None
 
         if not ref_section:
+            self._report_reference_problem(
+                section, "Type ID:%s has no section '%s' any more",
+                section.reference.type_id, section.reference.section_name,
+            )
             return None
 
-        # Select the configured fields, else every field of the referenced section. Compute this
-        # locally - writing it back onto section.reference would mutate the shared cached type
-        if section.reference.selected_fields:
-            selected_ref_fields = [f for f in ref_section.fields if f in section.reference.selected_fields]
-        else:
-            selected_ref_fields = ref_section.fields
+        # Select the configured fields, else every field of the referenced section - one rule, shared
+        # with the update guard that refuses emptying a referenced section. Compute this locally:
+        # writing it back onto section.reference would mutate the shared cached type
+        selected_ref_fields = section.reference.resolve_pulled_field_names(ref_section.fields)
+
+        if not selected_ref_fields:
+            self._report_reference_problem(
+                section, "section '%s' of Type ID:%s carries none of the referenced field(s) %s",
+                section.reference.section_name, section.reference.type_id,
+                sorted(section.reference.selected_fields or []),
+            )
 
         for ref_section_field_name in selected_ref_fields:
             try:

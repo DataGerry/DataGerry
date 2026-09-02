@@ -58,6 +58,7 @@ from cmdb.models.type_model.type_constants import NestedSummaryKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.port_model.port_constants import PortSide
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     RenderMetaKey,
     CategoryBodyKey,
@@ -104,6 +105,10 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'IMPLEMENTATION_STATE': 'IMPLEMENTATION_STATE',
         'CONTROL_MEASURE': 'CONTROL_MEASURE',
         'RISK': 'RISK',
+        'PORT_STATUS': 'PORT_STATUS',
+        'PORT_TYPE': 'PORT_TYPE',
+        'PORT_SPEED': 'PORT_SPEED',
+        'CABLE_TYPE': 'CABLE_TYPE',
     }),
     (ObjectGroupMode, {'STATIC': 'STATIC', 'DYNAMIC': 'DYNAMIC'}),
     (ObjectReferenceType, {'OBJECT': 'OBJECT', 'OBJECT_GROUP': 'OBJECT_GROUP'}),
@@ -155,6 +160,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'OPTIONS': 'options',
         'VALUE': 'value',
         'SUMMARIES': 'summaries',
+        'OPTION_TYPE': 'option_type',
     }),
     (NestedSummaryKey, {
         'TYPE_ID': 'type_id',
@@ -194,11 +200,19 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'LAST_EDIT_TIME': 'last_edit_time',
         'GLOBAL_TEMPLATE_IDS': 'global_template_ids',
         'SELECTABLE_AS_PARENT': 'selectable_as_parent',
+        'USES_PORTS': 'uses_ports',
         'VERSION': 'version',
         'DESCRIPTION': 'description',
         'CI_EXPLORER_LABEL': 'ci_explorer_label',
         'CI_EXPLORER_COLOR': 'ci_explorer_color',
         'ACL': 'acl',
+    }),
+    # A CmdbPort's stored 'side'. Panel-ness is DERIVED from these values - a device is a patch panel
+    # exactly when its ports carry front/rear - so a renamed member would reclassify stored ports
+    (PortSide, {
+        'SINGLE': 'single',
+        'FRONT': 'front',
+        'REAR': 'rear',
     }),
     # DataGerry assistant key enums whose values are written into persisted CmdbType / CmdbCategory
     # documents (the assistant uses them as dict keys when building those documents)

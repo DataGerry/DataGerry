@@ -22,21 +22,13 @@ repeated as string literals. All string enums extend BaseStrEnum, so members com
 string value for dict construction, lookup and JSON/BSON serialization.
 
 Only keys whose consumers are inside ``cmdb/database`` belong here. ``LocationKey`` and
-``RootLocationDefault`` moved to ``cmdb.models.location_model.location_constants`` on 2026-08-27
-because the manager, route, helper and Rack layers all consume them, and importing a document-key
-enum upward from the database layer is the wrong direction. ``ExtendableOptionKey`` below has the same
-problem (the CmdbExtendableOption routes and helper import it) and has NOT been moved - it belongs
-with that feature's own audit rather than with this one.
+``RootLocationDefault`` moved to ``cmdb.models.location_model.location_constants`` on 2026-08-27,
+and ``ExtendableOptionKey`` to ``cmdb.models.extendable_option_model.extendable_option_constants``
+on 2026-09-02, for the same reason: the manager, route and helper layers all consume them, and
+importing a document-key enum upward from the database layer is the wrong direction.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-class ExtendableOptionKey(BaseStrEnum):
-    """Document keys of a CmdbExtendableOption"""
-    VALUE = 'value'
-    OPTION_TYPE = 'option_type'
-    PREDEFINED = 'predefined'
 
 
 class ProtectionGoalKey(BaseStrEnum):

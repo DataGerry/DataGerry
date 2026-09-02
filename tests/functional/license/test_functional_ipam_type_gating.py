@@ -41,6 +41,8 @@ NAME_FIELD: str = 'dg-name'
 SPECIAL_TYPE_ID: int = 47011
 NORMAL_TYPE_ID: int = 47012
 NEW_SPECIAL_TYPE_ID: int = 47013
+PORTS_TYPE_ID: int = 47014      # an existing type already declared port-bearing
+NEW_PORTS_TYPE_ID: int = 47015  # the id a create attempt uses
 
 
 def _special_type_payload(public_id: int) -> dict[str, Any]:
@@ -71,16 +73,32 @@ def _no_active_license(database_manager: MongoDatabaseManager, database_name: st
     database_manager.get_collection(ActiveLicenseManager.COLLECTION, database_name).delete_many({})
 
 
+def _ports_type_payload(public_id: int, uses_ports: bool) -> dict[str, Any]:
+    """Builds an ordinary (non-special) CmdbType payload carrying the 'uses_ports' flag"""
+    payload = _special_type_payload(public_id)
+    payload['name'] = f'lic-ports-{public_id}'
+    payload['label'] = 'Port Bearing Type'
+    payload.pop('special_type')
+    payload['uses_ports'] = uses_ports
+
+    return payload
+
+
 @pytest.fixture(autouse=True)
 def _seed_types(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds one IPAM special type and one normal type, cleaning up after each test"""
+    """Seeds one IPAM special type, one normal type and one port-bearing type, cleaning up after"""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    ports_type = make_type_doc(PORTS_TYPE_ID, 'lic-ports-type', None)
+    ports_type['uses_ports'] = True
     types.insert_many([
         make_type_doc(SPECIAL_TYPE_ID, 'lic-ipam-special', SpecialType.SUPERNET),
         make_type_doc(NORMAL_TYPE_ID, 'lic-normal-type', None),
+        ports_type,
     ])
     yield
-    types.delete_many({'public_id': {'$in': [SPECIAL_TYPE_ID, NORMAL_TYPE_ID, NEW_SPECIAL_TYPE_ID]}})
+    types.delete_many({'public_id': {'$in': [
+        SPECIAL_TYPE_ID, NORMAL_TYPE_ID, NEW_SPECIAL_TYPE_ID, PORTS_TYPE_ID, NEW_PORTS_TYPE_ID,
+    ]}})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -125,3 +143,76 @@ def test_delete_special_type_allowed_when_licensed(rest_api, monkeypatch: pytest
     )
 
     assert rest_api.delete(f'{TYPES_URL}/{SPECIAL_TYPE_ID}').status_code != HTTPStatus.FORBIDDEN
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    uses_ports (Port Connectivity, step 1)                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_create_type_with_uses_ports_blocked_without_license(rest_api) -> None:
+    """Declaring a new type as port-bearing is blocked with 403 when IPAM is not licensed"""
+    response = rest_api.post(f'{TYPES_URL}/', json=_ports_type_payload(NEW_PORTS_TYPE_ID, uses_ports=True))
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_update_type_turning_uses_ports_on_blocked_without_license(rest_api) -> None:
+    """Turning the flag on by update is blocked with 403 when IPAM is not licensed"""
+    response = rest_api.put(
+        f'{TYPES_URL}/{NORMAL_TYPE_ID}', json=_ports_type_payload(NORMAL_TYPE_ID, uses_ports=True)
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_create_type_without_uses_ports_allowed_unlicensed(rest_api) -> None:
+    """
+    An ordinary type is not gated by this feature.
+
+    The guard reads the requested value, so every existing type write - none of which carries the
+    flag - must stay unaffected by Port Connectivity being unlicensed.
+    """
+    response = rest_api.post(f'{TYPES_URL}/', json=_ports_type_payload(NEW_PORTS_TYPE_ID, uses_ports=False))
+
+    assert response.status_code != HTTPStatus.FORBIDDEN
+
+
+def test_turning_uses_ports_off_allowed_unlicensed(rest_api) -> None:
+    """
+    Cleanup is never blocked.
+
+    A customer whose IPAM license lapsed must still be able to switch a port-bearing type back,
+    which is why the guard reads the REQUESTED value and never the stored one.
+    """
+    response = rest_api.put(
+        f'{TYPES_URL}/{PORTS_TYPE_ID}', json=_ports_type_payload(PORTS_TYPE_ID, uses_ports=False)
+    )
+
+    assert response.status_code != HTTPStatus.FORBIDDEN
+
+
+def test_create_type_with_uses_ports_allowed_when_licensed(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With IPAM licensed, a port-bearing type is created and the flag is persisted"""
+    monkeypatch.setattr(
+        LicenseService,
+        'has_feature',
+        lambda _self, feature: feature == LicenseFeature.IPAM,
+    )
+
+    response = rest_api.post(f'{TYPES_URL}/', json=_ports_type_payload(NEW_PORTS_TYPE_ID, uses_ports=True))
+
+    assert response.status_code == HTTPStatus.CREATED
+    assert rest_api.get(f'{TYPES_URL}/{NEW_PORTS_TYPE_ID}').get_json()['result']['uses_ports'] is True
+
+
+def test_an_omitted_uses_ports_is_stored_as_false(rest_api) -> None:
+    """
+    The Cerberus schema default backfills the key on write.
+
+    This is the mechanism that makes step 1 migration-free: a payload that never mentions the flag
+    still produces a document carrying it, so a type gains the field the first time it is saved.
+    """
+    payload = _ports_type_payload(NEW_PORTS_TYPE_ID, uses_ports=False)
+    payload.pop('uses_ports')
+
+    assert rest_api.post(f'{TYPES_URL}/', json=payload).status_code == HTTPStatus.CREATED
+    assert rest_api.get(f'{TYPES_URL}/{NEW_PORTS_TYPE_ID}').get_json()['result']['uses_ports'] is False

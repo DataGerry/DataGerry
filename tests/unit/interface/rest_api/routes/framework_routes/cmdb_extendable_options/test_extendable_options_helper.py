@@ -14,24 +14,30 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the CmdbExtendableOption route helper ``is_extendable_option_used``
+Unit tests for the CmdbExtendableOption route helper
 
-Pure tests: ManagerProvider.get_manager is patched to hand out per-ManagerType mocks whose
-count_documents returns a configured value, so only the option_type -> referencing-collection
-routing (and the OR-ing within a type) is exercised - no Mongo. The THREAT_VULNERABILITY
-vulnerability-only case is the regression guard for the duplicate-``if`` bug that left the
-vulnerability check unreachable.
+Pure tests: ManagerProvider.get_manager is patched to hand out one manager mock whose dbm counts a
+configured number of documents per collection, so only the option_type -> referencing-collection
+routing (and the OR-ing within a type) is exercised - no Mongo. The routing itself lives in
+cmdb.framework.extendable_options and has its own suite; what is tested here is that the helper
+hands it the option's own option_type and public_id and the manager's database. The
+THREAT_VULNERABILITY vulnerability-only case is the regression guard for the duplicate-``if`` bug
+that once left the vulnerability check unreachable.
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cmdb.manager.manager_provider_model import ManagerType
-from cmdb.models.extendable_option_model import OptionType
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_constants import (
-    ExtendableOptionKey,
-)
+from cmdb.models.extendable_option_model import OptionType, ExtendableOptionKey
+from cmdb.models.isms_model.isms_threat import IsmsThreat
+from cmdb.models.isms_model.isms_vulnerability import IsmsVulnerability
+from cmdb.models.isms_model.isms_risk import IsmsRisk
+from cmdb.models.isms_model.isms_control_measure import IsmsControlMeasure
+from cmdb.models.isms_model.isms_risk_assessment import IsmsRiskAssessment
+from cmdb.models.isms_model.isms_control_measure_assignment import IsmsControlMeasureAssignment
+from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
+from cmdb.models.port_model import CmdbPort
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_helper import (
     is_extendable_option_used,
     option_value_exists,
@@ -41,6 +47,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.ext
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_helper'
 
 PUBLIC_ID: int = 7
+DB_NAME: str = 'testdb'
 
 
 def _option(option_type: str) -> dict[str, Any]:
@@ -48,25 +55,16 @@ def _option(option_type: str) -> dict[str, Any]:
     return {'public_id': PUBLIC_ID, 'option_type': option_type, 'value': 'v', 'predefined': False}
 
 
-def _provider(counts_by_type: dict[ManagerType, int]):
-    """A ManagerProvider.get_manager replacement handing out per-type mocks with a fixed count."""
-    managers: dict[ManagerType, MagicMock] = {}
+def _run(option_type: str, counts_by_collection: dict[str, int]) -> tuple[bool, MagicMock]:
+    """Runs is_extendable_option_used with the manager's dbm counting per collection."""
+    manager = MagicMock(name='extendable_options_manager')
+    manager.db_name = DB_NAME
+    manager.dbm.count.side_effect = lambda collection, _db, _criteria, limit=None: (
+        counts_by_collection.get(collection, 0)
+    )
 
-    def _get_manager(manager_type: ManagerType, _request_user: Any) -> MagicMock:
-        if manager_type not in managers:
-            manager = MagicMock(name=str(manager_type))
-            manager.count_documents.return_value = counts_by_type.get(manager_type, 0)
-            managers[manager_type] = manager
-
-        return managers[manager_type]
-
-    return _get_manager
-
-
-def _run(option_type: str, counts_by_type: dict[ManagerType, int]) -> bool:
-    """Runs is_extendable_option_used with the provider patched to the given per-type counts."""
-    with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=_provider(counts_by_type)):
-        return is_extendable_option_used(_option(option_type), MagicMock())
+    with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=manager):
+        return is_extendable_option_used(_option(option_type), MagicMock()), manager
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -74,18 +72,24 @@ def _run(option_type: str, counts_by_type: dict[ManagerType, int]) -> bool:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_threat_vulnerability_used_by_threat() -> None:
     """A THREAT_VULNERABILITY option referenced by a threat is in use."""
-    assert _run(OptionType.THREAT_VULNERABILITY, {ManagerType.THREAT: 1, ManagerType.VULNERABILITY: 0}) is True
+    used, _ = _run(OptionType.THREAT_VULNERABILITY, {IsmsThreat.COLLECTION: 1})
+
+    assert used is True
 
 
 def test_threat_vulnerability_used_by_vulnerability_only() -> None:
     """A THREAT_VULNERABILITY option referenced ONLY by a vulnerability is in use (regression for the
     duplicate-if bug that made the vulnerability check unreachable)."""
-    assert _run(OptionType.THREAT_VULNERABILITY, {ManagerType.THREAT: 0, ManagerType.VULNERABILITY: 1}) is True
+    used, _ = _run(OptionType.THREAT_VULNERABILITY, {IsmsVulnerability.COLLECTION: 1})
+
+    assert used is True
 
 
 def test_threat_vulnerability_unused() -> None:
     """A THREAT_VULNERABILITY option referenced by neither is not in use."""
-    assert _run(OptionType.THREAT_VULNERABILITY, {ManagerType.THREAT: 0, ManagerType.VULNERABILITY: 0}) is False
+    used, _ = _run(OptionType.THREAT_VULNERABILITY, {})
+
+    assert used is False
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -93,37 +97,86 @@ def test_threat_vulnerability_unused() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_object_group_used() -> None:
     """An OBJECT_GROUP option referenced by an object group is in use."""
-    assert _run(OptionType.OBJECT_GROUP, {ManagerType.OBJECT_GROUP: 1}) is True
+    used, _ = _run(OptionType.OBJECT_GROUP, {CmdbObjectGroup.COLLECTION: 1})
+
+    assert used is True
 
 
 def test_control_measure_used() -> None:
     """A CONTROL_MEASURE option referenced by a control measure is in use."""
-    assert _run(OptionType.CONTROL_MEASURE, {ManagerType.CONTROL_MEASURE: 1}) is True
+    used, _ = _run(OptionType.CONTROL_MEASURE, {IsmsControlMeasure.COLLECTION: 1})
+
+    assert used is True
 
 
 def test_risk_used() -> None:
     """A RISK option referenced by a risk is in use."""
-    assert _run(OptionType.RISK, {ManagerType.RISK: 1}) is True
+    used, _ = _run(OptionType.RISK, {IsmsRisk.COLLECTION: 1})
+
+    assert used is True
 
 
-@pytest.mark.parametrize('used_type', [
-    ManagerType.CONTROL_MEASURE,
-    ManagerType.RISK_ASSESSMENT,
-    ManagerType.CONTROL_MEASURE_ASSIGNMENT,
+@pytest.mark.parametrize('used_collection', [
+    IsmsControlMeasure.COLLECTION,
+    IsmsRiskAssessment.COLLECTION,
+    IsmsControlMeasureAssignment.COLLECTION,
 ])
-def test_implementation_state_used_by_any_referencing_collection(used_type: ManagerType) -> None:
+def test_implementation_state_used_by_any_referencing_collection(used_collection: str) -> None:
     """An IMPLEMENTATION_STATE option is in use when ANY of its three referencing collections matches."""
-    assert _run(OptionType.IMPLEMENTATION_STATE, {used_type: 1}) is True
+    used, _ = _run(OptionType.IMPLEMENTATION_STATE, {used_collection: 1})
+
+    assert used is True
 
 
 def test_implementation_state_unused() -> None:
     """An IMPLEMENTATION_STATE option referenced by none of the three collections is not in use."""
-    assert _run(OptionType.IMPLEMENTATION_STATE, {}) is False
+    used, _ = _run(OptionType.IMPLEMENTATION_STATE, {})
+
+    assert used is False
 
 
 def test_unrecognised_option_type_is_not_used() -> None:
-    """An unrecognised option_type resolves to not-in-use."""
-    assert _run('SOMETHING_ELSE', {}) is False
+    """An unrecognised option_type resolves to not-in-use without querying anything."""
+    used, manager = _run('SOMETHING_ELSE', {})
+
+    assert used is False
+    manager.dbm.count.assert_not_called()
+
+
+def test_a_port_option_is_checked_against_the_ports_collection() -> None:
+    """A PORT_STATUS option in use by a port must not be deletable (registered in step 3)."""
+    used, _ = _run(OptionType.PORT_STATUS, {CmdbPort.COLLECTION: 1})
+
+    assert used is True
+
+
+def test_the_cable_type_has_no_reference_yet() -> None:
+    """Nothing references a CABLE_TYPE option until framework.portConnections exists.
+
+    The step introducing connections has to register that reference - this test is what will fail
+    once a connection can hold a cable type."""
+    used, manager = _run(OptionType.CABLE_TYPE, {})
+
+    assert used is False
+    manager.dbm.count.assert_not_called()
+
+
+def test_the_option_id_and_the_managers_database_are_used() -> None:
+    """The count runs against the manager's database, filtered on the option's own public_id."""
+    _, manager = _run(OptionType.RISK, {})
+
+    collection, db_name, criteria = manager.dbm.count.call_args.args
+
+    assert collection == IsmsRisk.COLLECTION
+    assert db_name == DB_NAME
+    assert criteria == {'category_id': PUBLIC_ID}
+
+
+def test_existence_check_is_counted_with_a_limit() -> None:
+    """The in-use check only needs one match, so the count is capped and the server can stop early."""
+    _, manager = _run(OptionType.RISK, {})
+
+    assert manager.dbm.count.call_args.kwargs['limit'] == 1
 
 
 class TestOptionValueExists:

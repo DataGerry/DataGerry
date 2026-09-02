@@ -43,6 +43,7 @@ from cmdb.database.predefined_data.isms_data import (
     get_default_risk_matrix,
     get_default_isms_extendable_options,
 )
+from cmdb.database.predefined_data.port_data import get_default_port_extendable_options
 from cmdb.database.predefined_data.cmdb_data import get_root_location_data
 
 from cmdb.manager import (
@@ -284,11 +285,20 @@ class CollectionValidator:
 
 
     def _seed_predefined_extendable_options(self) -> None:
-        """Seeds the predefined ISMS extendable options into a freshly created collection"""
-        predefined_isms_options: list[dict[str, Any]] = get_default_isms_extendable_options()
+        """
+        Seeds every feature's predefined extendable options into a freshly created collection
 
-        for predefined_isms_option in predefined_isms_options:
-            self.dbm.insert(CmdbExtendableOption.COLLECTION, self.db_name, predefined_isms_option)
+        Runs only when the collection is created, so this path serves brand-new databases alone. An
+        installation that already has the collection - which is every one past setup - receives a
+        feature's options through that feature's updater instead
+        """
+        predefined_options: list[dict[str, Any]] = [
+            *get_default_isms_extendable_options(),
+            *get_default_port_extendable_options(),
+        ]
+
+        for predefined_option in predefined_options:
+            self.dbm.insert(CmdbExtendableOption.COLLECTION, self.db_name, predefined_option)
 
 
     def init_management_collections(self) -> None:

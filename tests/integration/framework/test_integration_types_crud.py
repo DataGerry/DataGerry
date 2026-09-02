@@ -40,6 +40,7 @@ TYPE_ID_FOR_GET: int = 9501
 TYPE_ID_FOR_UPDATE: int = 9502
 TYPE_ID_FOR_DELETE: int = 9503
 TYPE_ID_FOR_INSERT: int = 9504
+TYPE_ID_FOR_PORTS: int = 9505
 MISSING_TYPE_ID: int = 9599
 
 ORIGINAL_LABEL: str = 'Original Label'
@@ -227,3 +228,85 @@ class TestDeleteType:
         assert types_manager.get_type(TYPE_ID_FOR_DELETE) is None
         # belt-and-braces cleanup in case delete_type semantics ever change
         _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_DELETE)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       uses_ports (Port Connectivity, step 1)                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUsesPortsPersistence:
+    """The 'uses_ports' flag survives the round trip through MongoDB."""
+
+    def test_a_document_written_without_the_key_loads_as_false(
+        self,
+        types_manager: TypesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The pre-feature state, reproduced against a real database.
+
+        Every CmdbType in an existing installation looks exactly like this - the key simply is not
+        there - and each one has to hydrate as "does not use ports". This is the behaviour that lets
+        step 1 ship without a migration; step 2's updater then backfills the key itself.
+        """
+        try:
+            types_manager.insert_type(_type_data(TYPE_ID_FOR_PORTS, ORIGINAL_LABEL))
+
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+                .find_one({'public_id': TYPE_ID_FOR_PORTS})
+            assert stored is not None
+            assert 'uses_ports' not in stored  # the manager stores what it is given, nothing more
+
+            assert types_manager.get_type_instance(TYPE_ID_FOR_PORTS).uses_ports is False
+        finally:
+            _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_PORTS)
+
+    def test_the_flag_persists_and_hydrates(
+        self,
+        types_manager: TypesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A type stored as port-bearing comes back as one"""
+        try:
+            data = _type_data(TYPE_ID_FOR_PORTS, ORIGINAL_LABEL)
+            data['uses_ports'] = True
+            types_manager.insert_type(data)
+
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+                .find_one({'public_id': TYPE_ID_FOR_PORTS})
+            assert stored is not None
+            assert stored['uses_ports'] is True
+
+            assert types_manager.get_type_instance(TYPE_ID_FOR_PORTS).uses_ports is True
+        finally:
+            _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_PORTS)
+
+    def test_a_to_json_update_keeps_the_flag(
+        self,
+        types_manager: TypesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The update path writes CmdbType.to_json, so the flag has to survive that trip.
+
+        A to_json that dropped the key would silently clear the flag on every edit of a port-bearing
+        type - the write is a full-document update, so an absent key is a removed key.
+        """
+        try:
+            data = _type_data(TYPE_ID_FOR_PORTS, ORIGINAL_LABEL)
+            data['uses_ports'] = True
+            types_manager.insert_type(data)
+
+            instance = types_manager.get_type_instance(TYPE_ID_FOR_PORTS)
+            instance.label = 'Renamed'
+            types_manager.update_type(TYPE_ID_FOR_PORTS, CmdbType.to_json(instance))
+
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+                .find_one({'public_id': TYPE_ID_FOR_PORTS})
+            assert stored is not None
+            assert stored['label'] == 'Renamed'
+            assert stored['uses_ports'] is True
+        finally:
+            _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_PORTS)

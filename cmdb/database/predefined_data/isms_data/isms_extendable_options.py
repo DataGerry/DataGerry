@@ -18,8 +18,7 @@ This module provides the predefined CmdbExtendableOptions required for ISMS
 """
 from typing import Any
 
-from cmdb.models.extendable_option_model import OptionType
-from cmdb.database.predefined_data.predefined_data_constants import ExtendableOptionKey
+from cmdb.models.extendable_option_model import OptionType, ExtendableOptionKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_default_isms_extendable_options() -> list[dict[str, Any]]:

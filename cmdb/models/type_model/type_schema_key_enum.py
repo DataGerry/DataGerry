@@ -54,6 +54,7 @@ class TypeSchemaKey(BaseStrEnum):
     LAST_EDIT_TIME = 'last_edit_time'
     GLOBAL_TEMPLATE_IDS = 'global_template_ids'
     SELECTABLE_AS_PARENT = 'selectable_as_parent'
+    USES_PORTS = 'uses_ports'
     VERSION = 'version'
     DESCRIPTION = 'description'
     CI_EXPLORER_LABEL = 'ci_explorer_label'

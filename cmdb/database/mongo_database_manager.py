@@ -41,6 +41,9 @@ from cmdb.database.mongo_connector import MongoConnector
 from cmdb.database.database_constants import (
     PUBLIC_ID_COUNTER_COLLECTION,
     MAX_DUPLICATE_KEY_RETRIES,
+    PUBLIC_ID_FIELD,
+    MONGO_ERROR_KEY_PATTERN,
+    MONGO_ERROR_KEY_VALUE,
     BULK_WRITE_BATCH_SIZE,
     KEEPALIVE_PING_INTERVAL_SECONDS,
     MONGO_LOCK_TIMEOUT_ERROR_CODE,
@@ -70,6 +73,35 @@ from cmdb.errors.database import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def is_public_id_conflict(err: DuplicateKeyError) -> bool:
+    """
+    Decides whether a duplicate-key error can be resolved by taking a new public_id
+
+    Only a violation of the public_id index can: retrying any other unique constraint just burns
+    public_ids from the collection's counter and ends in a misleading "duplicate key attempts" error,
+    when the truthful answer is that the document itself duplicates one already stored.
+
+    A compound index that merely happens to contain public_id does not count either - a fresh id
+    would not make the rest of the key unique. When MongoDB reports no key pattern at all (pre-4.2
+    servers, or an error raised by something other than the server) the violated index cannot be
+    identified, and the historical behaviour - retry - is kept
+
+    Args:
+        err (DuplicateKeyError): The error raised by the insert
+
+    Returns:
+        bool: True if a fresh public_id may resolve the conflict, False if the document is a genuine
+            duplicate of an existing one
+    """
+    key_pattern: Any = (err.details or {}).get(MONGO_ERROR_KEY_PATTERN)
+
+    if not isinstance(key_pattern, dict) or not key_pattern:
+        return True
+
+    return set(key_pattern) == {PUBLIC_ID_FIELD}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             MongoDatabaseManager - CLASS                                             #
@@ -417,6 +449,10 @@ class MongoDatabaseManager:
         """
         Adds a document to a collection with retry on duplicate public_id.
 
+        The retry covers the public_id index only. A duplicate-key error from any other unique index
+        means the document duplicates one already stored, so it is reported as such immediately - see
+        is_public_id_conflict.
+
         Args:
             collection (str): Name of the database collection.
             db_name (str): Name of the database owning the collection
@@ -447,7 +483,19 @@ class MongoDatabaseManager:
                     self.get_collection(collection, db_name).insert_one(data)
                     return data['public_id']
 
-                except DuplicateKeyError:
+                except DuplicateKeyError as err:
+                    if not is_public_id_conflict(err):
+                        # A different unique index was violated, so the document is a real duplicate
+                        # of one already stored - e.g. a CmdbExtendableOption value that already
+                        # exists in its OptionType. Retrying with a new public_id cannot help, and
+                        # doing it anyway would consume MAX_DUPLICATE_KEY_RETRIES ids from the
+                        # counter before failing with an error blaming the public_id
+                        raise DocumentInsertError(
+                            f"Duplicate key error in collection '{collection}': "
+                            f"{(err.details or {}).get(MONGO_ERROR_KEY_VALUE)} already exists "
+                            f"(index on {sorted((err.details or {}).get(MONGO_ERROR_KEY_PATTERN, {}))})"
+                        ) from err
+
                     LOGGER.debug(
                         "Duplicate public_id %s detected on attempt %d, retrying...",
                         data['public_id'], attempt + 1

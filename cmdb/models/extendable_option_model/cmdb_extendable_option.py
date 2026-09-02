@@ -21,6 +21,10 @@ from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.extendable_option_model.option_type_enum import OptionType
+from cmdb.models.extendable_option_model.extendable_option_constants import (
+    ExtendableOptionKey,
+    OPTION_TYPE_VALUE_INDEX_NAME,
+)
 
 from cmdb.class_schema.extendable_option_model.cmdb_extendable_option_schema import get_cmdb_extendable_option_schema
 
@@ -44,7 +48,29 @@ class CmdbExtendableOption(CmdbDAO):
     """
     COLLECTION = "framework.extendableOptions"
     INDEX_KEYS: list[dict[str, Any]] = [
-        {'keys': [('option_type', CmdbDAO.DAO_ASCENDING)], 'name': 'option_type', 'unique': False}
+        # An option's identity is its value within its own list, and this index is the actual
+        # guarantee. The create and update routes check first (extendable_options_helper.
+        # option_value_exists), but that is a read-then-write, and the ISMS CSV importer resolves
+        # values through its own read-then-insert - so before this index concurrent writers could
+        # (and on installations older than 2026-07-06, without any check at all, did) leave two
+        # identical entries in the same dropdown.
+        #
+        # Compound with option_type FIRST, so it is also a usable index for every 'all options of
+        # this type' query - which is why the collection's former non-unique 'option_type' index was
+        # dropped rather than kept beside it (updater_20260902).
+        #
+        # Case- and whitespace-sensitive, exactly like the route guard: 'CAT6', 'cat6' and ' CAT6'
+        # are three different options. Existing databases are de-duplicated by updater_20260902
+        # before it builds this index; changing INDEX_KEYS alone would have changed nothing for them,
+        # since index reconciliation is name-based and purely additive
+        {
+            'keys': [
+                (ExtendableOptionKey.OPTION_TYPE.value, CmdbDAO.DAO_ASCENDING),
+                (ExtendableOptionKey.VALUE.value, CmdbDAO.DAO_ASCENDING),
+            ],
+            'name': OPTION_TYPE_VALUE_INDEX_NAME,
+            'unique': True,
+        },
     ]
 
     SCHEMA: dict = get_cmdb_extendable_option_schema()

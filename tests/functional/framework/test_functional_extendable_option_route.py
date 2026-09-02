@@ -16,9 +16,10 @@
 """
 Functional tests for the ``/extendable_options`` REST routes
 
-Covers the route-layer concerns: create (rejects predefined / invalid type / duplicate),
-read single + list, update (persists, pins the identity, refuses a predefined option), and the
-delete guards (missing -> 404, predefined -> 400, in-use -> 400, otherwise success).
+Covers the route-layer concerns: create (rejects predefined / invalid type / duplicate, and still
+answers 400 when only the database catches the duplicate), read single + list, update (persists,
+pins the identity, refuses a predefined option), and the delete guards (missing -> 404,
+predefined -> 400, in-use -> 400, otherwise success).
 """
 from http import HTTPStatus
 from typing import Any
@@ -27,7 +28,11 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
-from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
+from cmdb.models.extendable_option_model import (
+    CmdbExtendableOption,
+    OptionType,
+    OPTION_TYPE_VALUE_INDEX_NAME,
+)
 from cmdb.models.isms_model.isms_risk import IsmsRisk
 from cmdb.errors.manager.extendable_options_manager import (
     ExtendableOptionsManagerInsertError,
@@ -135,6 +140,40 @@ class TestCreate:
         response = rest_api.post(f'{ROUTE_URL}/', json=_payload(value='dupe-value'))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_create_duplicate_caught_only_by_the_index_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, monkeypatch,
+    ) -> None:
+        """A duplicate that slips past the pre-check is still refused, by the unique index.
+
+        This is the race the index exists for: option_value_exists is a read followed by a write, so
+        a concurrent writer can store the value in between. Patching the pre-check to miss the
+        existing option reproduces that without threads. The route must answer 400, not 500."""
+        options = _options(database_manager, database_name)
+        options.insert_one(_option_doc(OPTION_ID_DUPLICATE, 'index-guarded-value'))
+
+        # The test database is built without the declared indexes, so build the one under test
+        created_index: bool = OPTION_TYPE_VALUE_INDEX_NAME not in options.index_information()
+
+        if created_index:
+            database_manager.create_indexes(
+                CmdbExtendableOption.COLLECTION, database_name, CmdbExtendableOption.get_index_keys(),
+            )
+
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options'
+            '.extendable_option_routes.option_value_exists',
+            lambda *_args, **_kwargs: False,
+        )
+
+        try:
+            response = rest_api.post(f'{ROUTE_URL}/', json=_payload(value='index-guarded-value'))
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert options.count_documents({'value': 'index-guarded-value'}) == 1
+        finally:
+            if created_index:
+                options.drop_index(OPTION_TYPE_VALUE_INDEX_NAME)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -14,13 +14,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all CmdbExtendableOption relevant classes
+Provides all CmdbExtendableOption relevant classes and constants
 """
 from .option_type_enum import OptionType
+from .extendable_option_constants import (
+    ExtendableOptionKey,
+    OPTION_TYPE_VALUE_INDEX_NAME,
+    LEGACY_OPTION_TYPE_INDEX_NAME,
+)
 from .cmdb_extendable_option import CmdbExtendableOption
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'OptionType',
+    'ExtendableOptionKey',
+    'OPTION_TYPE_VALUE_INDEX_NAME',
+    'LEGACY_OPTION_TYPE_INDEX_NAME',
     'CmdbExtendableOption',
 ]
