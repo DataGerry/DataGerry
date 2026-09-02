@@ -305,7 +305,7 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
             switchMap((fields) => this.sectionTemplateService.postSectionTemplate({
                 'name': this.generateSectionTemplateName(isGlobal),
                 'label': label,
-                'type': 'section',
+                'type': sectionTemplate?.type ?? 'section',
                 'is_global': isGlobal,
                 'predefined': false,
                 'fields': JSON.stringify(fields)
