@@ -21,7 +21,7 @@
 
                 @for (sectionTemplate of sectionTemplates; track sectionTemplate) {
                 <tr>
-                    <td class="centered-text small-cell">{{sectionTemplate.public_id}}</td>
+                    <td class="centered-text small-cell">{{sectionTemplate.public_id ?? '–'}}</td>
                     <td class="centered-text">{{sectionTemplate.label}}</td>
                     <td class="centered-text medium-cell">{{getTemplateTypeLabel(sectionTemplate)}}</td>
                     <td class="centered-text big-cell">
@@ -46,10 +46,17 @@
                         </span>
                         <span *permissionLink="['base.framework.sectionTemplate.add',
                                                     'base.framework.sectionTemplate.edit']">
+                            @if (isVirtual(sectionTemplate)) {
+                            <button class="btn btn-sm btn-link" title="Virtual templates cannot be cloned" disabled>
+                                <i class="far fa-clone"></i>
+                            </button>
+                            }
+                            @if (!isVirtual(sectionTemplate)) {
                             <button class="btn btn-sm btn-link" title="Clone Section Template"
                                 (click)="showCloneModal(sectionTemplate)">
                                 <i class="far fa-clone icon-copy"></i>
                             </button>
+                            }
 
                             @if (sectionTemplate.is_global) {
                             <button title="Global Template" class="btn btn-sm btn-link" disabled>

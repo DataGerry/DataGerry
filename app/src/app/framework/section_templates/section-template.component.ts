@@ -18,7 +18,7 @@
 import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 
 import { finalize, takeUntil } from 'rxjs/operators';
-import { ReplaySubject } from 'rxjs';
+import { ReplaySubject, forkJoin } from 'rxjs';
 
 import { v4 as uuidv4 } from 'uuid';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
@@ -26,13 +26,15 @@ import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { SectionTemplateService } from './services/section-template.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
-import { APIGetMultiResponse, APIUpdateSingleResponse } from 'src/app/services/models/api-response';
+import { APIUpdateSingleResponse } from 'src/app/services/models/api-response';
 import { SectionTemplateDeleteModalComponent } from './layout/modals/section-template-delete/section-template-delete-modal.component';
 import { CmdbSectionTemplate, Field } from '../models/cmdb-section-template';
 import { SectionTemplateTransformModalComponent } from './layout/modals/section-template-transform/section-template-transform-modal.component';
 import { SectionTemplateCloneModalComponent } from './layout/modals/section-template-clone/section-template-clone-modal.component';
 import { PreviewModalComponent } from 'src/app/framework/builder/modals/preview-modal/preview-modal.component';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExtendableOptionCatalogService } from 'src/app/core/services/extendable-option-catalog.service';
+import { SectionTemplateListItem, isVirtualSectionTemplate } from './models/virtual-section-template.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export interface GlobalTemplateCounts {
@@ -51,8 +53,9 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
     private readonly modalService = inject(NgbModal);
     private readonly toastService = inject(ToastService);
     private readonly loaderService = inject(LoaderService);
+    private readonly optionCatalog = inject(ExtendableOptionCatalogService);
 
-    public sectionTemplates: any = [];
+    public sectionTemplates: SectionTemplateListItem[] = [];
     private unsubscribe: ReplaySubject<void> = new ReplaySubject<void>();
 
     private modalRef: NgbModalRef;
@@ -73,15 +76,20 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
 
     /* -------------------------------------------------- API FUNCTIONS ------------------------------------------------- */
 
-    /**
-     * Retrieves all section templates from database
-     */
+    /** Loads stored and virtual templates, rendering the table only once both arrived. */
     getAllSectionTemplates() {
         this.loaderService.show();
-        this.sectionTemplateService.getSectionTemplates().pipe(takeUntil(this.unsubscribe), finalize(() => this.loaderService.hide()))
+
+        forkJoin({
+            stored: this.sectionTemplateService.getSectionTemplates(),
+            virtual: this.sectionTemplateService.getVirtualSectionTemplates()
+        }).pipe(takeUntil(this.unsubscribe), finalize(() => this.loaderService.hide()))
         .subscribe({
-            next: (apiResponse: APIGetMultiResponse<CmdbSectionTemplate>) => {
-                        this.sectionTemplates = apiResponse.results;
+            next: ({ stored, virtual }) => {
+                const storedTemplates = (stored?.results ?? []) as CmdbSectionTemplate[];
+
+                // Virtual templates lead the list
+                this.sectionTemplates = [...virtual, ...storedTemplates];
             },
             error: (error) => this.toastService.error(error?.error?.message)}
         );
@@ -93,7 +101,11 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * Displays a modal view for user to confirm deletion of section template
      * @param sectionTemplate instance of section template which should be deleted
      */
-    showDeleteModal(sectionTemplate: CmdbSectionTemplate) {
+    showDeleteModal(sectionTemplate: SectionTemplateListItem) {
+        if (!this.isWritable(sectionTemplate)) {
+            return;
+        }
+
         this.loaderService.show();
 
         this.sectionTemplateService.getGlobalSectionTemplateCount(sectionTemplate.public_id).pipe(finalize(() => this.loaderService.hide()))
@@ -134,7 +146,11 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * 
      * @param sectionTemplate instance of section template which should be transformed
      */
-    showTransformModal(sectionTemplate: CmdbSectionTemplate) {
+    showTransformModal(sectionTemplate: SectionTemplateListItem) {
+        if (!this.isWritable(sectionTemplate)) {
+            return;
+        }
+
         this.modalRef = this.modalService.open(SectionTemplateTransformModalComponent, {
             size: 'lg',
             windowClass: 'dg-modal-window',
@@ -177,7 +193,11 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * 
      * @param sectionTemplate instance of section template which should be cloned
      */
-    public showCloneModal(sectionTemplate: CmdbSectionTemplate) {
+    public showCloneModal(sectionTemplate: SectionTemplateListItem) {
+        if (!this.isWritable(sectionTemplate)) {
+            return;
+        }
+
         this.modalRef = this.modalService.open(SectionTemplateCloneModalComponent, {
             size: 'lg',
             windowClass: 'dg-modal-window',
@@ -218,21 +238,36 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
 
 
     /**
-     * Displays a preview of a section template with all fields
+     * Displays a preview of a section template with all fields. Any select declaring an OptionType
+     * is resolved before the modal opens.
      * 
      * @param sectionTemplate The section template which should be previewed
      */
-    public showTemplatePreview(sectionTemplate: CmdbSectionTemplate) {
-        const previewModal = this.modalService.open(PreviewModalComponent, {
-            size: 'lg',
-            scrollable: true,
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop'
+    public showTemplatePreview(sectionTemplate: SectionTemplateListItem) {
+        this.loaderService.show();
+
+        this.optionCatalog.resolveFieldOptions(sectionTemplate?.fields ?? []).pipe(
+            takeUntil(this.unsubscribe),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: (resolvedFields) => this.openTemplatePreview(sectionTemplate, resolvedFields),
+            error: () => this.toastService.error('The options of this section template could not be loaded.')
         });
-        previewModal.componentInstance.sections = [sectionTemplate];
     }
 
     /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
+
+    /** Virtual templates cannot be cloned - they have no public_id and a reserved name. */
+    public isVirtual(sectionTemplate: SectionTemplateListItem): boolean {
+        return isVirtualSectionTemplate(sectionTemplate);
+    }
+
+
+    /** Narrows to a stored template, so no write path can run for a virtual one. */
+    private isWritable(sectionTemplate: SectionTemplateListItem): sectionTemplate is CmdbSectionTemplate {
+        return !this.isVirtual(sectionTemplate);
+    }
+
 
     /**
      * Creates new IDs for fields
@@ -254,7 +289,7 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * @param sectionTemplate The template for which the label should be calculated
      * @returns (string): Type name for the given section template
      */
-    public getTemplateTypeLabel(sectionTemplate: CmdbSectionTemplate): string {
+    public getTemplateTypeLabel(sectionTemplate: SectionTemplateListItem): string {
         if (sectionTemplate.predefined) {
             return "Predefined";
         }
@@ -287,5 +322,19 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
         }
 
         return `section_template-${uuidv4()}`;
+    }
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** Previews a copy, so resolved options never reach the model the table holds. */
+    private openTemplatePreview(sectionTemplate: SectionTemplateListItem, fields: Field[]): void {
+        this.modalRef = this.modalService.open(PreviewModalComponent, {
+            size: 'lg',
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
+
+        this.modalRef.componentInstance.sections = [{ ...sectionTemplate, fields }];
     }
 }
