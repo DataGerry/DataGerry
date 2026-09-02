@@ -53,13 +53,13 @@
 
 <!-- Row actions -->
 <ng-template #actionsTemplate let-item="item">
-  <span *permissionLink="['base.framework.objectRelations.view']">
+  <span *permissionLink="['base.framework.objectRelation.view']">
     <button type="button" class="relation-action" (click)="view.emit(item)"
       aria-label="View relation" title="View Relation">
       <i class="far fa-eye spacing-right icon-view"></i>
     </button>
   </span>
-  <span *permissionLink="['base.framework.objectRelations.edit']">
+  <span *permissionLink="['base.framework.objectRelation.edit']">
     <button type="button" class="relation-action" (click)="edit.emit(item)"
       aria-label="Edit relation" title="Edit Relation">
       <i class="far fa-edit btn-edit spacing-right icon-edit"></i>
