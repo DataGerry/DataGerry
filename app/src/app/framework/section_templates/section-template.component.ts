@@ -17,8 +17,8 @@
 */
 import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 
-import { finalize, takeUntil } from 'rxjs/operators';
-import { ReplaySubject, forkJoin } from 'rxjs';
+import { finalize, map, switchMap, takeUntil } from 'rxjs/operators';
+import { Observable, ReplaySubject, forkJoin, of } from 'rxjs';
 
 import { v4 as uuidv4 } from 'uuid';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
@@ -194,10 +194,6 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * @param sectionTemplate instance of section template which should be cloned
      */
     public showCloneModal(sectionTemplate: SectionTemplateListItem) {
-        if (!this.isWritable(sectionTemplate)) {
-            return;
-        }
-
         this.modalRef = this.modalService.open(SectionTemplateCloneModalComponent, {
             size: 'lg',
             windowClass: 'dg-modal-window',
@@ -206,34 +202,12 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
         this.modalRef.componentInstance.sectionTemplate = sectionTemplate;
 
         this.modalRef.result.then((values: any) => {
-            if (values) {
-
-                const updatedFields: Field[] = this.setNewFieldIDs(sectionTemplate.fields);
-
-                let params = {
-                    'name': sectionTemplate.name,
-                    'label': values.templateLabel,
-                    'type': 'section',
-                    'is_global': values.isGlobal,
-                    'predefined': false,
-                    'fields': JSON.stringify(updatedFields)
-                }
-
-                params.name = this.generateSectionTemplateName(values.isGlobal);
-
-                this.loaderService.show();
-
-                this.sectionTemplateService.postSectionTemplate(params).pipe(finalize(() => this.loaderService.hide())).subscribe({
-                    next: (res: any) => {
-                        this.toastService.success("Section Template cloned!");
-                        this.getAllSectionTemplates();
-                    },
-                    error: error => {
-                        this.toastService.error(error?.error?.message);
-                    }
-                });
+            if (!values) {
+                return;
             }
-        });
+
+            this.cloneSectionTemplate(sectionTemplate, values.templateLabel, !!values.isGlobal);
+        }, () => { /* dismissed */ });
     }
 
 
@@ -275,12 +249,8 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
      * @param fields Fields which require new IDs
      * @returns The given fields with new IDs
      */
-    private setNewFieldIDs(fields: Field[]) {
-        for (let field of fields) {
-            field.name = this.generateFieldName(field.type);
-        }
-
-        return fields;
+    private setNewFieldIDs(fields: readonly Field[]): Field[] {
+        return fields.map((field) => ({ ...field, name: this.generateFieldName(field.type) }));
     }
 
 
@@ -325,6 +295,57 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
     }
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** Clones a stored or virtual template into a new standard template. */
+    private cloneSectionTemplate(sectionTemplate: SectionTemplateListItem, label: string, isGlobal: boolean): void {
+        this.loaderService.show();
+
+        this.cloneFields(sectionTemplate).pipe(
+            takeUntil(this.unsubscribe),
+            switchMap((fields) => this.sectionTemplateService.postSectionTemplate({
+                'name': this.generateSectionTemplateName(isGlobal),
+                'label': label,
+                'type': 'section',
+                'is_global': isGlobal,
+                'predefined': false,
+                'fields': JSON.stringify(fields)
+            })),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: () => {
+                this.toastService.success('Section Template cloned!');
+                this.getAllSectionTemplates();
+            },
+            error: (error) => this.toastService.error(error?.error?.message
+                ?? 'The section template could not be cloned.')
+        });
+    }
+
+
+    /**
+     * Fields of the copy. A stored template is copied as it is; only a virtual template needs its
+     * `option_type` selects materialised, because the copy must not depend on the catalog anymore.
+     */
+    private cloneFields(sectionTemplate: SectionTemplateListItem): Observable<Field[]> {
+        const fields = sectionTemplate?.fields ?? [];
+
+        if (!this.isVirtual(sectionTemplate)) {
+            return of(this.setNewFieldIDs(fields));
+        }
+
+        return this.optionCatalog.resolveFieldOptions(fields).pipe(
+            map((resolvedFields) => this.detachFields(resolvedFields))
+        );
+    }
+
+
+    /** New field IDs and no `option_type`, so the clone is a plain, editable template. */
+    private detachFields(fields: readonly Field[]): Field[] {
+        return this.setNewFieldIDs(fields).map(({ option_type, options, ...field }) => (
+            options ? { ...field, options: options.map(({ label }) => ({ name: label, label })) } : field
+        ));
+    }
+
 
     /** Previews a copy, so resolved options never reach the model the table holds. */
     private openTemplatePreview(sectionTemplate: SectionTemplateListItem, fields: Field[]): void {

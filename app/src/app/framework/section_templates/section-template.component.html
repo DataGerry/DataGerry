@@ -46,17 +46,10 @@
                         </span>
                         <span *permissionLink="['base.framework.sectionTemplate.add',
                                                     'base.framework.sectionTemplate.edit']">
-                            @if (isVirtual(sectionTemplate)) {
-                            <button class="btn btn-sm btn-link" title="Virtual templates cannot be cloned" disabled>
-                                <i class="far fa-clone"></i>
-                            </button>
-                            }
-                            @if (!isVirtual(sectionTemplate)) {
                             <button class="btn btn-sm btn-link" title="Clone Section Template"
                                 (click)="showCloneModal(sectionTemplate)">
                                 <i class="far fa-clone icon-copy"></i>
                             </button>
-                            }
 
                             @if (sectionTemplate.is_global) {
                             <button title="Global Template" class="btn btn-sm btn-link" disabled>
