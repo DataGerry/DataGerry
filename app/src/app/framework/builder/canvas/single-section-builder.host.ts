@@ -23,6 +23,7 @@ import { ValidationService } from '../services/validation.service';
 import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderUtils } from '../utils/builder-utils';
 import { BuilderSectionHost } from './builder-section-host';
+import { BuilderIcon, SECTION_EDIT_ICON } from '../utils/builder-icons';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -42,6 +43,7 @@ export class SingleSectionBuilderHost implements BuilderSectionHost {
     /** Stable references so the bindings that consume them do not churn on every check. */
     private readonly noExternalLinks = { links: [] as Array<any>, total: 0 };
     private readonly headerClass: Record<string, boolean> = {};
+    private readonly fieldDropTypes: Array<string> = ['inputs'];
     private sectionsView: Array<BuilderSection> = [];
 
     constructor(
@@ -81,8 +83,8 @@ export class SingleSectionBuilderHost implements BuilderSectionHost {
         return CmdbMode.Edit;
     }
 
-    public getSectionCollapseIcon(): [string, string] {
-        return ['far', 'edit'];
+    public getSectionCollapseIcon(): BuilderIcon {
+        return SECTION_EDIT_ICON;
     }
 
     public getSectionHeaderClass(): Record<string, boolean> {
@@ -90,7 +92,7 @@ export class SingleSectionBuilderHost implements BuilderSectionHost {
     }
 
     public getFieldDropTypes(): Array<string> {
-        return ['inputs'];
+        return this.fieldDropTypes;
     }
 
     /**

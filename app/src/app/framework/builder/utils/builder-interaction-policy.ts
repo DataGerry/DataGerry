@@ -1,5 +1,6 @@
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
 import { BuilderSection } from '../schema/builder-section.model';
+import { BuilderIcon, SECTION_EDIT_ICON, SECTION_READONLY_ICON } from './builder-icons';
 
 export interface BuilderInteractionPolicyContext {
     selectedGlobalSectionTemplates: Array<CmdbSectionTemplate>;
@@ -21,8 +22,8 @@ const SYSTEM_SECTION_PREFIXES = ['dg_gst-'];
 export class BuilderInteractionPolicy {
     constructor(private readonly contextProvider: () => BuilderInteractionPolicyContext) {}
 
-    public getSectionCollapseIcon(section: BuilderSection): [string, string] {
-        return this.canEditSection(section) ? ['far', 'edit'] : ['far', 'eye'];
+    public getSectionCollapseIcon(section: BuilderSection): BuilderIcon {
+        return this.canEditSection(section) ? SECTION_EDIT_ICON : SECTION_READONLY_ICON;
     }
 
     public isSchemaLockedSection(section: BuilderSection): boolean {
