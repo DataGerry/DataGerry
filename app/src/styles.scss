@@ -54,7 +54,10 @@
 @import "scss/filemanager";
 @import "scss/premium";
 
-// Button styles
+// Button system — tokens live in scss/_button-tokens.scss
+@import "scss/button";
+
+// Legacy icon-button colours; removed once every call site uses app-button
 @import "scss/buttons";
 
 // material imports

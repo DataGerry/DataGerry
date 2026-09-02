@@ -15,95 +15,173 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, input, isDevMode, output } from '@angular/core';
 
+import { resolveBootstrapClass } from './app-button-class.adapter';
+import {
+    ButtonIconPosition,
+    ButtonSize,
+    ButtonTone,
+    ButtonType,
+    ButtonVariant
+} from './app-button.types';
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * The single button of the product.
+ *
+ * Emphasis and meaning are separate inputs: `variant` decides how filled the button is,
+ * `tone` decides what it means. Layout is never the button's job — spacing comes from a
+ * flex `gap` on the surrounding toolbar or footer.
+ */
 @Component({
     selector: 'app-button',
     templateUrl: './app-button.component.html',
     styleUrls: ['./app-button.component.scss'],
-    standalone: false
+    standalone: false,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    host: {
+        '[attr.data-block]': 'isBlock() ? "true" : null'
+    }
 })
 export class ButtonComponent implements OnInit {
-  /**
-   * Text shown on the button.
-   */
-  @Input() label: string = 'Button';
-
-  /**
-   * Set the HTML button type: 'submit', 'button', or 'reset'.
-   * Default is 'button'.
-   */
-  @Input() type: 'button' | 'submit' | 'reset' = 'button';
-
-  /**
-   * Pass in any Bootstrap class(es) you like, e.g. 'btn-success', 'btn-secondary me-2'.
-   * This will be applied along with the default 'btn' class.
-   */
-  @Input() bootstrapClass: string = 'btn-secondary';
-
-  /**
-   * If true, button is disabled.
-   */
-  @Input() disabled: boolean = false;
-
-  /**
-   * If true, button is disabled.
-   */
-  @Input() padding: string = '';
-
-  /**
-   * Optional icon class(es) rendered before the label, e.g. 'fa fa-expand'.
-   * Leave empty for a text-only button.
-   */
-  @Input() icon: string = '';
-
-  /**
-   * Accessible name, mapped to aria-label. Required for icon-only buttons
-   * (empty label) so screen readers can announce the action.
-   */
-  @Input() ariaLabel: string = '';
-
-  /**
-   * Native tooltip text, mapped to the title attribute.
-   */
-  @Input() title: string = '';
-
-  /**
-   * Toggle state for buttons that behave as a switch, mapped to aria-pressed.
-   * Leave null for regular (non-toggle) buttons.
-   */
-  @Input() ariaPressed: boolean | null = null;
-
-  /**
-   * Expanded state for buttons that reveal or hide a region, mapped to aria-expanded.
-   * Leave null for regular buttons.
-   */
-  @Input() ariaExpanded: boolean | null = null;
-
-  /**
-   * Optional counter rendered after the label, e.g. the number of selected rows.
-   * Leave null for no badge.
-   */
-  @Input() badge: string | number | null = null;
-
-  /**
-   * Bootstrap background class(es) of the badge, e.g. 'bg-primary'.
-   */
-  @Input() badgeClass: string = 'bg-primary';
-
-
-  /**
-   * Emitted when the button is clicked (unless disabled).
-   */
-  @Output() clicked = new EventEmitter<void>();
-
-  onClick(): void {
-    if (!this.disabled) {
-      this.clicked.emit();
     }
-  }
+})
+export class ButtonComponent {
 
-  ngOnInit(): void {
-    // Ensure the button has the 'btn' class by default
-  }
+    /** Text shown on the button. Leave empty together with `icon` for an icon-only button. */
+    readonly label = input<string>('');
+
+    /** Emphasis. Defaults to the quietest sensible choice. */
+    readonly variant = input<ButtonVariant | undefined>(undefined);
+
+    /** Meaning. Also drives the focus-ring hue. */
+    readonly tone = input<ButtonTone | undefined>(undefined);
+
+    /** Size step: sets height, padding, type size, radius and icon size together. */
+    readonly size = input<ButtonSize | undefined>(undefined);
+
+    /** Font Awesome class(es) rendered beside the label, e.g. 'fas fa-plus'. */
+    readonly icon = input<string>('');
+
+    readonly iconPosition = input<ButtonIconPosition>('start');
+
+    /** Swaps the icon for a spinner, marks the button busy and blocks activation. */
+    readonly loading = input<boolean>(false);
+
+    /** Optional label shown while `loading` is true, e.g. 'Saving…'. */
+    readonly loadingText = input<string>('');
+
+    /** Full width of its container. */
+    readonly block = input<boolean | undefined>(undefined);
+
+    /** Fully rounded ends. */
+    readonly pill = input<boolean>(false);
+
+    readonly disabled = input<boolean>(false);
+
+    readonly type = input<ButtonType>('button');
+
+    /** Accessible name. Required for icon-only buttons. */
+    readonly ariaLabel = input<string>('');
+
+    /** Native tooltip text, mapped to the title attribute. */
+    readonly title = input<string>('');
+
+    /** Toggle state for buttons that behave as a switch. Leave null for regular buttons. */
+    readonly ariaPressed = input<boolean | null>(null);
+
+    /** Expanded state for buttons that reveal or hide a region. Leave null for regular buttons. */
+    readonly ariaExpanded = input<boolean | null>(null);
+
+    /** Id of the region this button controls, for dropdown and disclosure triggers. */
+    readonly ariaControls = input<string>('');
+
+    /** Popup kind this button opens, e.g. 'menu' or 'dialog'. */
+    readonly ariaHasPopup = input<string>('');
+
+    /**
+     * @deprecated Pass `variant`, `tone` and `size` instead. Bootstrap strings are translated
+     * by `resolveBootstrapClass`; unrecognised tokens are discarded.
+     */
+    readonly bootstrapClass = input<string>('');
+
+    /** Emitted on activation, unless the button is disabled or loading. */
+    readonly clicked = output<void>();
+
+    private readonly styleFromClass = computed(() => resolveBootstrapClass(this.bootstrapClass()));
+
+    readonly resolvedVariant = computed<ButtonVariant>(
+        () => this.variant() ?? this.styleFromClass()?.variant ?? 'outline'
+    );
+
+    readonly resolvedTone = computed<ButtonTone>(
+        () => this.tone() ?? this.styleFromClass()?.tone ?? 'neutral'
+    );
+
+    readonly resolvedSize = computed<ButtonSize>(
+        () => this.size() ?? this.styleFromClass()?.size ?? 'md'
+    );
+
+    readonly isBlock = computed(() => this.block() ?? this.styleFromClass()?.block ?? false);
+
+    readonly isIconOnly = computed(() => !this.label() && !!this.icon());
+
+    readonly displayLabel = computed(() =>
+        this.loading() ? this.loadingText() || this.label() : this.label()
+    );
+
+    readonly accessibleName = computed(() => this.ariaLabel() || this.title() || null);
+
+    readonly isInactive = computed(() => this.disabled() || this.loading());
+
+    readonly buttonClass = computed(() => {
+        const classes = [
+            'dg-button',
+            `dg-button--${ this.resolvedVariant() }`,
+            `dg-button--${ this.resolvedTone() }`,
+            `dg-button--${ this.resolvedSize() }`
+        ];
+
+        if (this.isIconOnly()) {
+            classes.push('dg-button--icon-only');
+        }
+
+        if (this.pill()) {
+            classes.push('dg-button--pill');
+        }
+
+        if (this.loading()) {
+            classes.push('dg-button--loading');
+        }
+
+        return classes.join(' ');
+    });
+
+/* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
+    constructor() {
+        // Guarded here rather than inside the effect so production creates no effect at all —
+        // there can be hundreds of buttons on a page.
+        if (isDevMode()) {
+            effect(() => {
+                if (this.isIconOnly() && !this.accessibleName()) {
+                    console.error(
+                        '[app-button] An icon-only button needs an ariaLabel so screen readers ' +
+                        `can announce it. Icon: "${ this.icon() }".`
+                    );
+                }
+            });
+        }
+    }
+
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    onClick(): void {
+        if (this.isInactive()) {
+            return;
+        }
+
+        this.clicked.emit();
+    }
 }

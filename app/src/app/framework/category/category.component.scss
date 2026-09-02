@@ -170,7 +170,7 @@ $cat-head-surface: #f7f8fa;
     right: 0.25rem;
     transform: translateY(-50%);
 
-    ::ng-deep .btn {
+    ::ng-deep .dg-button {
         display: grid;
         place-items: center;
         width: 1.4rem;
@@ -194,7 +194,7 @@ $cat-head-surface: #f7f8fa;
     }
 }
 
-.cat-panel__toolbar-action ::ng-deep .btn {
+.cat-panel__toolbar-action ::ng-deep .dg-button {
     white-space: nowrap;
     font-size: 0.76rem;
 }

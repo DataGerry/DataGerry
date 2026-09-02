@@ -41,7 +41,7 @@
 
           <!-- Source Manage Button -->
           @if (!isViewMode) {
-          <app-button [bootstrapClass]="'btn-outline-secondary'" [padding]="'4.5px'" size="sm" label="Manage Sources"
+          <app-button [bootstrapClass]="'btn-outline-secondary'" size="sm" label="Manage Sources"
             (clicked)="openSourceManager()" type="button">
           </app-button>
           }
@@ -87,7 +87,7 @@
           <!-- Implementation State Manage Button -->
           @if (!isViewMode) {
           <app-button [bootstrapClass]="'btn-outline-secondary'" size="sm" label="Manage Implementation States"
-            [padding]="'4.5px'" (clicked)="openImplementationStateManager()" type="button">
+            (clicked)="openImplementationStateManager()" type="button">
           </app-button>
           }
         </div>

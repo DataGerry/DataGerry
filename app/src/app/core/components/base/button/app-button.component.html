@@ -1,17 +1,28 @@
 <button
-  [type]="type"
-  [disabled]="disabled"
-  class="btn"
-  [ngClass]="bootstrapClass"
-  [style.padding]="padding"
-  [attr.title]="title || null"
-  [attr.aria-label]="ariaLabel || null"
-  [attr.aria-pressed]="ariaPressed"
-  [attr.aria-expanded]="ariaExpanded"
+  [type]="type()"
+  [class]="buttonClass()"
+  [disabled]="isInactive()"
+  [attr.title]="title() || null"
+  [attr.aria-label]="accessibleName()"
+  [attr.aria-pressed]="ariaPressed()"
+  [attr.aria-expanded]="ariaExpanded()"
+  [attr.aria-controls]="ariaControls() || null"
+  [attr.aria-haspopup]="ariaHasPopup() || null"
+  [attr.aria-busy]="loading() ? 'true' : null"
   (click)="onClick()"
 >
-  @if (icon) {
-    <i [class]="icon" aria-hidden="true"></i>
+  @if (loading()) {
+    <span class="dg-button__spinner" aria-hidden="true"></span>
+  } @else if (icon() && iconPosition() === 'start') {
+    <i [class]="icon()" aria-hidden="true"></i>
+  }
+
+  @if (displayLabel()) {
+    <span class="dg-button__label">{{ displayLabel() }}</span>
+  }
+
+  @if (!loading() && icon() && iconPosition() === 'end') {
+    <i [class]="icon()" aria-hidden="true"></i>
   }
   {{ label }}
   @if (badge !== null) {

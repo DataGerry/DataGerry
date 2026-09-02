@@ -48,7 +48,7 @@
     width: 1.25rem;
 }
 
-.cat-node__toggle ::ng-deep .btn {
+.cat-node__toggle ::ng-deep .dg-button {
     display: grid;
     place-items: center;
     width: 1.25rem;
@@ -117,7 +117,7 @@
     gap: 0.25rem;
     transition: opacity 160ms ease;
 
-    ::ng-deep .btn {
+    ::ng-deep .dg-button {
         display: grid;
         place-items: center;
         width: 1.5rem;
@@ -130,7 +130,7 @@
 }
 
 /* Nesting controls sit on every row while organizing, so they stay quiet until used. */
-.cat-node__moves ::ng-deep .btn {
+.cat-node__moves ::ng-deep .dg-button {
     border: 0;
     background: transparent;
     color: var(--dg-muted);
