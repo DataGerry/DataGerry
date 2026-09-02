@@ -25,6 +25,8 @@ stubbed throughout.
 import json
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
@@ -65,6 +67,27 @@ from tests.utils.type_import_builders import (
     unreachable,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+TYPES_HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper'
+
+
+@pytest.fixture(autouse=True)
+def _no_section_dependents():
+    """
+    Stubs the CmdbType lookup the import's update rules perform, keeping these tests DB-free
+
+    `stored_type_update_blocker` delegates to the same blockers the PUT route aborts with, and two of
+    them ask the types collection whether another CmdbType references a section this entry removes.
+    That lookup goes through ManagerProvider, which needs an application context; these tests hand
+    their managers in explicitly and have none. Patched to "nothing references it", so the rules the
+    module is actually about are what gets exercised - the reference guard has its own suites.
+    """
+    manager = MagicMock(name='types_manager')
+    manager.find.return_value = []
+
+    with patch(f'{TYPES_HELPER_PATH}.ManagerProvider.get_manager', return_value=manager):
+        yield
+
 
 app = Flask(__name__)
 

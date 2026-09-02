@@ -35,6 +35,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.models.port_model import CmdbPort, PortKey, PortSide
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.location_model.cmdb_location import CmdbLocation
@@ -1222,6 +1223,20 @@ class TestImportUpdateGuards:
 
     LOCATION_FIELD: dict[str, Any] = {'type': 'location', 'name': 'dg_location', 'label': 'Location'}
     NAME_FIELD: dict[str, Any] = {'type': 'text', 'name': 'dg-name', 'label': 'Name'}
+    DEPENDENT_TYPE_ID: int = 47419
+
+    @classmethod
+    def _dependent_type_doc(cls) -> dict[str, Any]:
+        """A second type whose ref-section pulls the 'main' section of the type being updated."""
+        return make_type_doc(
+            cls.DEPENDENT_TYPE_ID, 'imported-type-dependent',
+            fields=[{'type': 'ref', 'name': 'main-ref-field', 'label': 'Ref',
+                     'ref_types': [UPDATE_TYPE_ID]}],
+            sections=[{'type': 'ref-section', 'name': 'main-ref', 'label': 'Main Ref',
+                       'reference': {'type_id': UPDATE_TYPE_ID, 'section_name': 'main',
+                                     'selected_fields': ['dg-name']},
+                       'fields': []}],
+        )
 
     @classmethod
     def _type_doc(cls, fields: list[dict[str, Any]], selectable: bool = True) -> dict[str, Any]:
@@ -1314,6 +1329,98 @@ class TestImportUpdateGuards:
 
         assert _errors(response) == []
         assert types.find_one({'public_id': UPDATE_TYPE_ID})['selectable_as_parent'] is False
+
+    def test_removing_a_referenced_section_is_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """
+        An import may not remove or rename a section another Type pulls fields from either
+
+        The rule is one blocker shared by both write paths, so the upload is refused with the same
+        wording the PUT route aborts with - otherwise the import would be a way around the guard.
+        """
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        types.insert_one(self._type_doc([self.NAME_FIELD]))
+        types.insert_one(self._dependent_type_doc())
+
+        try:
+            # A rename, which is a removal as far as a ref-section is concerned: it resolves its
+            # target by NAME. Renaming rather than deleting also keeps the field assigned to a
+            # section, so the import's own field-assignment rule does not fire first
+            renamed = self._type_doc([self.NAME_FIELD])
+            renamed['render_meta']['sections'][0]['name'] = 'renamed-main'
+
+            response = rest_api.post(
+                UPDATE_URL, data=_upload_form([renamed]), content_type='multipart/form-data',
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            (message,) = _errors(response)
+            assert 'Cannot remove section(s) that other Types reference' in message
+            # nothing was written: the type still declares the section under its original name
+            stored = types.find_one({'public_id': UPDATE_TYPE_ID})
+            assert [section['name'] for section in stored['render_meta']['sections']] == ['main']
+        finally:
+            types.delete_one({'public_id': self.DEPENDENT_TYPE_ID})
+
+    def test_removing_an_unreferenced_section_is_allowed(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """With no dependent type the section may be renamed, so ordinary imports are unaffected."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        types.insert_one(self._type_doc([self.NAME_FIELD]))
+
+        renamed = self._type_doc([self.NAME_FIELD])
+        renamed['render_meta']['sections'][0]['name'] = 'renamed-main'
+
+        response = rest_api.post(
+            UPDATE_URL, data=_upload_form([renamed]), content_type='multipart/form-data',
+        )
+
+        assert _errors(response) == []
+
+        stored = types.find_one({'public_id': UPDATE_TYPE_ID})
+        assert [section['name'] for section in stored['render_meta']['sections']] == ['renamed-main']
+
+    def test_turning_uses_ports_off_is_refused_while_ports_exist(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """
+        An import may not clear `uses_ports` while the Type's Objects still have Ports either
+
+        One blocker, both write paths - otherwise a type import would be a way around the guard the
+        PUT route enforces.
+        """
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        ports = database_manager.get_collection(CmdbPort.COLLECTION, database_name)
+
+        port_bearing = self._type_doc([self.NAME_FIELD])
+        port_bearing['uses_ports'] = True
+        types.insert_one(port_bearing)
+        objects.insert_one(make_object_doc(RECONCILED_OBJECT_ID, UPDATE_TYPE_ID,
+                                          [make_field('dg-name', 'switch-1')]))
+        ports.insert_one({
+            PortKey.PUBLIC_ID.value: 47421,
+            PortKey.OBJECT_ID.value: RECONCILED_OBJECT_ID,
+            PortKey.SIDE.value: PortSide.SINGLE.value,
+            PortKey.NAME.value: 'Gi0/1',
+        })
+
+        try:
+            cleared = self._type_doc([self.NAME_FIELD])
+            cleared['uses_ports'] = False
+
+            response = rest_api.post(
+                UPDATE_URL, data=_upload_form([cleared]), content_type='multipart/form-data',
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            (message,) = _errors(response)
+            assert "Cannot disable 'uses ports'" in message
+            assert types.find_one({'public_id': UPDATE_TYPE_ID})['uses_ports'] is True
+        finally:
+            ports.delete_many({PortKey.PUBLIC_ID.value: 47421})
 
     def test_a_non_dict_entry_is_reported_not_a_500(self, rest_api) -> None:
         """An entry that is not a Type object at all stays inside the partial report."""
@@ -1856,3 +1963,81 @@ class TestExportImportRoundTrip:
         stored_values = {field['name']: field['value'] for field in stored_object['fields']}
 
         assert stored_values == {'dg-name': 'host', 'tier': 'a'}
+
+
+class TestImportUsesPortsFlag:
+    """The 'uses_ports' flag on the type-import path (Port Connectivity, step 1)."""
+
+    def test_an_upload_omitting_the_flag_is_stored_as_false(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """
+        Every existing type export omits the flag, and none of them may import as port-bearing.
+
+        The import defaults it explicitly rather than relying on the Cerberus schema, because the
+        import path builds its documents itself instead of going through @validate.
+        """
+        payload = make_type_doc(0, NEW_TYPE_NAME)
+        payload.pop('public_id')
+
+        response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.OK
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .find_one({'name': NEW_TYPE_NAME})
+        assert stored is not None
+        assert stored['uses_ports'] is False
+
+    def test_a_lenient_spelling_is_parsed(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        An uploaded 'yes' becomes a real boolean, like the other import flags.
+
+        Needs the IPAM license: the value is normalised first and the licence rule reads the parsed
+        boolean, so without it this very entry is refused - which is the point of the rule ordering.
+        """
+        monkeypatch.setattr(
+            LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM,
+        )
+        payload = make_type_doc(0, NEW_TYPE_NAME)
+        payload.pop('public_id')
+        payload['uses_ports'] = 'yes'
+
+        response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.OK
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .find_one({'name': NEW_TYPE_NAME})
+        assert stored is not None
+        assert stored['uses_ports'] is True
+
+    def test_enabling_the_flag_is_refused_without_the_license(self, rest_api) -> None:
+        """
+        An unlicensed instance may not import a port-bearing type.
+
+        Reported per entry rather than aborting, so the rest of the upload still imports - the same
+        contract as the special_type licence rule.
+        """
+        payload = make_type_doc(0, NEW_TYPE_NAME)
+        payload.pop('public_id')
+        payload['uses_ports'] = True
+
+        response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.OK
+        assert _errors(response) != []
+        assert _imported_count(response) == 0
+
+    def test_an_unusable_value_is_reported_per_entry(self, rest_api) -> None:
+        """A value that is not a boolean fails that entry instead of aborting the whole upload"""
+        payload = make_type_doc(0, NEW_TYPE_NAME)
+        payload.pop('public_id')
+        payload['uses_ports'] = 'maybe'
+
+        response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.OK
+        assert _errors(response) != []
+        assert _imported_count(response) == 0

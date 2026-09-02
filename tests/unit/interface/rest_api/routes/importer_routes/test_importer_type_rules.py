@@ -34,6 +34,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants impo
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     special_type_license_error,
+    uses_ports_license_error,
     validate_create_special_type,
     validate_type_structure,
     normalize_boolean_flags,
@@ -602,7 +603,7 @@ class TestValidateCreateSpecialType:
 
 
 class TestNormalizeBooleanFlags:
-    """active / selectable_as_parent are optional, default True and accept the import spellings."""
+    """The optional boolean flags: each defaults to its own value and accepts the import spellings."""
 
     @pytest.mark.parametrize('flag', ['active', 'selectable_as_parent'])
     @pytest.mark.parametrize('value', [None, ''], ids=['none', 'empty'])
@@ -614,12 +615,40 @@ class TestNormalizeBooleanFlags:
         assert entry[flag] is True
 
     def test_missing_keys_are_added(self) -> None:
-        """An entry bringing neither flag ends up with both set to True."""
+        """An entry bringing no flag at all ends up with every one of them at its own default."""
         entry: dict[str, Any] = {'name': 'server'}
 
         assert normalize_boolean_flags(entry) is None
         assert entry['active'] is True
         assert entry['selectable_as_parent'] is True
+        assert entry['uses_ports'] is False
+
+    @pytest.mark.parametrize('value', [None, ''], ids=['none', 'empty'])
+    def test_uses_ports_defaults_to_false_not_true(self, value: Any) -> None:
+        """
+        uses_ports is the one flag whose default is False.
+
+        The other two mean "a type is usable and can parent a location unless it says otherwise";
+        opting a type into Port Connectivity is the opposite - a deliberate choice, and an
+        IPAM-licensed one. A shared default of True would have silently declared every imported type
+        port-bearing.
+        """
+        entry = {'name': 'server', 'uses_ports': value}
+
+        assert normalize_boolean_flags(entry) is None
+        assert entry['uses_ports'] is False
+
+    @pytest.mark.parametrize(
+        'value, expected',
+        [(True, True), ('true', True), ('YES', True), (1, True),
+         (False, False), ('no', False), (0, False)],
+    )
+    def test_uses_ports_accepts_the_lenient_spellings(self, value: Any, expected: bool) -> None:
+        """The new flag is parsed like its siblings, not treated as a raw truthiness test."""
+        entry = {'name': 'server', 'uses_ports': value}
+
+        assert normalize_boolean_flags(entry) is None
+        assert entry['uses_ports'] is expected
 
     @pytest.mark.parametrize(
         'value, expected',
@@ -654,6 +683,41 @@ class TestNormalizeBooleanFlags:
     def test_non_dict_entry_is_ignored(self, entry: Any) -> None:
         """A malformed entry is left to the build step rather than crashing here."""
         assert normalize_boolean_flags(entry) is None
+
+
+class TestUsesPortsLicenseError:
+    """uses_ports_license_error blocks importing a port-bearing type onto an unlicensed instance."""
+
+    def test_enabled_flag_is_refused_when_ipam_is_locked(self) -> None:
+        """The import reports the entry instead of aborting, so the rest of the upload survives."""
+        entry = {'name': 'switch', 'uses_ports': True}
+
+        assert uses_ports_license_error(entry, ipam_locked=True) == \
+            TypeImportError.USES_PORTS_NOT_LICENSED.format(name='switch')
+
+    def test_enabled_flag_is_allowed_when_ipam_is_licensed(self) -> None:
+        """With the license the flag imports like any other field."""
+        assert uses_ports_license_error({'name': 'switch', 'uses_ports': True}, ipam_locked=False) is None
+
+    @pytest.mark.parametrize('value', [False, None], ids=['false', 'absent'])
+    def test_a_type_that_does_not_use_ports_imports_unlicensed(self, value: Any) -> None:
+        """
+        Only turning the flag ON is gated, matching the route guard.
+
+        This is what lets a port-bearing type be exported from a licensed instance and imported into
+        an unlicensed one with the flag off, rather than the whole entry being rejected.
+        """
+        entry: dict[str, Any] = {'name': 'switch'}
+
+        if value is not None:
+            entry['uses_ports'] = value
+
+        assert uses_ports_license_error(entry, ipam_locked=True) is None
+
+    @pytest.mark.parametrize('entry', ['a string', 42, None], ids=['str', 'int', 'none'])
+    def test_non_dict_entry_is_ignored(self, entry: Any) -> None:
+        """A malformed entry is left to the structural rules."""
+        assert uses_ports_license_error(entry, ipam_locked=True) is None
 
     def test_create_rejects_an_unusable_flag_without_writing(self) -> None:
         """An unparsable flag fails the entry, like any other per-entry rule."""

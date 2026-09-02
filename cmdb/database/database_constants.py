@@ -31,6 +31,16 @@ BASELINE_UPDATER_VERSION = 20240603
 # Retry up to x times if duplicate key occurs while creating a document in the database
 MAX_DUPLICATE_KEY_RETRIES = 10
 
+# The document field the retry loop above is about. A duplicate-key error is only worth retrying when
+# it is THIS index that was violated - a fresh public_id cannot resolve any other unique constraint
+PUBLIC_ID_FIELD: str = "public_id"
+
+# Keys of a pymongo DuplicateKeyError's 'details' dict, used to tell which unique index was violated:
+# 'keyPattern' names the indexed fields, 'keyValue' the values that collided. Both are reported by
+# MongoDB 4.2 and newer; a synthesised error may carry neither
+MONGO_ERROR_KEY_PATTERN: str = "keyPattern"
+MONGO_ERROR_KEY_VALUE: str = "keyValue"
+
 # Name of the database handling caches
 DG_CACHE_DB = "dg_caches"
 

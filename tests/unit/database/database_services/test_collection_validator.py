@@ -368,11 +368,31 @@ def test_seed_default_risk_matrix_upserts(validator: CollectionValidator, dbm: M
 
 
 def test_seed_predefined_extendable_options_inserts_each(validator: CollectionValidator, dbm: MagicMock) -> None:
-    """Every predefined ISMS extendable option is inserted"""
-    with patch(f'{MODULE}.get_default_isms_extendable_options', return_value=[{'o': 1}]):
+    """Every predefined extendable option of every feature is inserted"""
+    with patch(f'{MODULE}.get_default_isms_extendable_options', return_value=[{'o': 1}]), \
+         patch(f'{MODULE}.get_default_port_extendable_options', return_value=[{'o': 2}, {'o': 3}]):
         validator._seed_predefined_extendable_options()
 
-    assert dbm.insert.call_count == 1
+    assert dbm.insert.call_count == 3
+
+
+def test_seed_predefined_extendable_options_covers_every_feature(
+    validator: CollectionValidator, dbm: MagicMock,
+) -> None:
+    """
+    Both feature sources reach the collection, not just the first.
+
+    The seeder grew a second source when Port Connectivity landed; a future third one being added to
+    the import but not to the list would otherwise be silently dropped on every fresh install.
+    """
+    validator._seed_predefined_extendable_options()
+
+    seeded = [call.args[2] for call in dbm.insert.call_args_list]
+    option_types = {str(option['option_type']) for option in seeded}
+
+    assert 'OptionType.IMPLEMENTATION_STATE' in option_types  # ISMS
+    assert 'OptionType.PORT_STATUS' in option_types           # Port Connectivity
+    assert 'OptionType.CABLE_TYPE' in option_types
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          init_framework_collections                                                #

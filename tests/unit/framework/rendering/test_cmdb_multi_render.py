@@ -731,6 +731,117 @@ class TestMergeReferenceSection:
         assert ref_field['references']['type_id'] == REF_TYPE_ID
 
 
+class TestReportsAnUnresolvableReferenceSection:
+    """
+    The three ways a reference section renders nothing, all of which used to be entirely silent
+
+    A CmdbType update now refuses the edits that cause them, but data written before that guard can
+    still be in a database, so the render says so at WARNING instead of quietly dropping the block.
+    """
+
+    def _section(self, refsec_type: CmdbType):
+        """Returns the TypeReferenceSection of the refsec type."""
+        return refsec_type.render_meta.sections[1]
+
+    def _refsec_obj(self) -> CmdbObject:
+        """A refsec object referencing the ref object."""
+        return _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [
+            {'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'Owner'},
+            {'type': FieldType.REFERENCE, 'name': REFSEC_REF_FIELD, 'value': REF_OBJ_ID},
+        ])
+
+    def test_reports_a_missing_referenced_type(self, managers, caplog) -> None:
+        """The referenced type is gone - the block disappears, and now says why"""
+        refsec_type = _refsec_type()
+        render = _render(managers, [], ref_render=True, types_cache={REFSEC_TYPE_ID: refsec_type})
+
+        with caplog.at_level('WARNING'):
+            assert render._merge_reference_section(
+                self._section(refsec_type), self._refsec_obj(), refsec_type, 3,
+            ) is None
+
+        assert 'does not exist' in caplog.text
+        assert REFSEC_NAME in caplog.text
+
+    def test_reports_a_missing_referenced_section(self, managers, caplog) -> None:
+        """The reported bug: the section was deleted from the referenced type"""
+        refsec_type = _refsec_type()
+        section = self._section(refsec_type)
+        section.reference.section_name = 'ghost'
+        render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: _ref_type()})
+
+        with caplog.at_level('WARNING'):
+            assert render._merge_reference_section(section, self._refsec_obj(), refsec_type, 3) is None
+
+        assert "has no section 'ghost'" in caplog.text
+
+    def test_reports_a_section_carrying_none_of_the_selected_fields(self, managers, caplog) -> None:
+        """The field-side case: the section survives but shows nothing"""
+        refsec_type = _refsec_type()
+        section = self._section(refsec_type)
+        section.reference.selected_fields = ['gone']
+        render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: _ref_type()})
+
+        with caplog.at_level('WARNING'):
+            ref_field = render._merge_reference_section(section, self._refsec_obj(), refsec_type, 3)
+
+        assert "carries none of the referenced field(s) ['gone']" in caplog.text
+        # behaviour unchanged: the field is still returned, with an empty reference list
+        assert ref_field['references']['fields'] == []
+
+    def test_says_nothing_when_the_section_resolves(self, managers, caplog) -> None:
+        """A working reference section must not log at all"""
+        refsec_type = _refsec_type()
+        render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: _ref_type()})
+
+        with caplog.at_level('WARNING'):
+            render._merge_reference_section(self._section(refsec_type), self._refsec_obj(), refsec_type, 3)
+
+        assert caplog.text == ''
+
+    def test_reports_one_broken_reference_once_per_render(self, managers, caplog) -> None:
+        """
+        A list render walks many objects through the same type definition
+
+        Without the per-render dedupe a single broken ref-section would emit one warning per object,
+        which for a large list is a log flood rather than a diagnosis.
+        """
+        refsec_type = _refsec_type()
+        section = self._section(refsec_type)
+        section.reference.section_name = 'ghost'
+        render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: _ref_type()})
+
+        with caplog.at_level('WARNING'):
+            for _ in range(5):
+                render._merge_reference_section(section, self._refsec_obj(), refsec_type, 3)
+
+        assert caplog.text.count('has no section') == 1
+
+    def test_a_reference_repointed_at_another_target_is_reported_again(self, managers, caplog) -> None:
+        """
+        The dedupe is per reference, not one line per render
+
+        The same section aimed at a different (also missing) section is a different problem, so
+        silencing it would hide half the diagnosis.
+        """
+        refsec_type = _refsec_type()
+        section = self._section(refsec_type)
+        render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: _ref_type()})
+
+        with caplog.at_level('WARNING'):
+            section.reference.section_name = 'ghost'
+            render._merge_reference_section(section, self._refsec_obj(), refsec_type, 3)
+            section.reference.section_name = 'other-ghost'
+            render._merge_reference_section(section, self._refsec_obj(), refsec_type, 3)
+
+        assert caplog.text.count('has no section') == 2
+
+
 class TestMergeReferenceSectionFields:
     """__merge_reference_section_fields recurses only for ref-section-typed fields."""
 

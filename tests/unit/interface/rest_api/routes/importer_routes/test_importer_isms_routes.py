@@ -37,6 +37,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.models.extendable_option_model import OptionType
 from cmdb.models.isms_model import RiskType
+from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerInsertError
 from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import (
     RESULT_CREATED,
     RESULT_EXISTING,
@@ -48,6 +49,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import 
     insert_new_items,
     parse_list_of_strings,
     read_csv_file,
+    insert_or_reuse_extendable_option,
     resolve_extendable_options,
     resolve_named_items,
     risk_row_is_valid,
@@ -243,6 +245,37 @@ class TestResolveExtendableOptions:
         manager.insert_item.assert_called_once_with(
             {'value': 'B', 'option_type': OptionType.THREAT_VULNERABILITY, 'predefined': False},
         )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        insert_or_reuse_extendable_option                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestInsertOrReuseExtendableOption:
+    """(option_type, value) is unique in the database, so the insert can lose a race and must not fail."""
+
+    def test_returns_the_new_public_id(self) -> None:
+        """The ordinary case: the value is new and gets created."""
+        manager = _manager(insert_ids=[31])
+
+        assert insert_or_reuse_extendable_option(manager, 'A', OptionType.RISK) == 31
+
+    def test_reuses_an_option_a_concurrent_writer_created(self) -> None:
+        """The unique index refused the insert because the value now exists - use the one that does."""
+        manager = _manager()
+        manager.insert_item.side_effect = ExtendableOptionsManagerInsertError('duplicate key')
+        manager.get_one_by.return_value = {'value': 'A', 'public_id': 44, 'option_type': OptionType.RISK}
+
+        assert insert_or_reuse_extendable_option(manager, 'A', OptionType.RISK) == 44
+        assert manager.get_one_by.call_args.args[0] == {'value': 'A', 'option_type': OptionType.RISK}
+
+    def test_reraises_when_the_value_still_does_not_exist(self) -> None:
+        """An insert that failed for any other reason is a real error and must not be swallowed."""
+        manager = _manager()
+        manager.insert_item.side_effect = ExtendableOptionsManagerInsertError('database down')
+        manager.get_one_by.return_value = None
+
+        with pytest.raises(ExtendableOptionsManagerInsertError):
+            insert_or_reuse_extendable_option(manager, 'A', OptionType.RISK)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

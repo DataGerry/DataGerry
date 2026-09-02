@@ -38,10 +38,12 @@ from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.rack_model import CmdbRackMount
+from cmdb.models.port_model import CmdbPort
 from cmdb.models.log_model import CmdbObjectRelationLog
 from cmdb.models.object_group_model import CmdbObjectGroup
 from cmdb.models.extendable_option_model import CmdbExtendableOption
 from cmdb.models.ci_explorer_model.ci_explorer_profile import CmdbCiExplorerProfile
+from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.models.isms_model import (
     IsmsRiskClass,
     IsmsLikelihood,
@@ -77,8 +79,14 @@ __COLLECTIONS__: list[Any] = [
     CmdbObjectRelation,
     CmdbObjectRelationLog,
     CmdbRackMount,
+    CmdbPort,
     CmdbObjectGroup,
     CmdbExtendableOption,
+    # Not a CmdbDAO, but it exposes the same COLLECTION + get_index_keys() contract, which is all
+    # CollectionValidator needs. Registered so its declared unique index on 'name' is actually
+    # built - the create route and docapi_template_routes' own docstring have always named that
+    # index as half of the name-uniqueness guarantee, and until 2026-09-01 it did not exist
+    DocapiTemplate,
     IsmsRisk,
     IsmsThreat,
     IsmsVulnerability,

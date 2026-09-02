@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+from cerberus import Validator
 
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
@@ -38,6 +39,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_constants import NestedSummaryKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.type_render_meta import TypeRenderMeta
 from cmdb.errors.models.cmdb_type import (
     CmdbTypeInitError,
     CmdbTypeInitFromDataError,
@@ -92,6 +94,7 @@ def test_defaults_are_applied() -> None:
     assert cmdb_type.version == CmdbType.DEFAULT_VERSION
     assert cmdb_type.active is True
     assert cmdb_type.selectable_as_parent is True
+    assert cmdb_type.uses_ports is False
     assert cmdb_type.global_template_ids == []
     assert cmdb_type.fields == []
 
@@ -121,6 +124,7 @@ def test_from_data_reads_every_key() -> None:
         TypeSchemaKey.DESCRIPTION.value: 'A server',
         TypeSchemaKey.ACTIVE.value: False,
         TypeSchemaKey.SELECTABLE_AS_PARENT.value: False,
+        TypeSchemaKey.USES_PORTS.value: True,
         TypeSchemaKey.SPECIAL_TYPE.value: 'SUBNET',
         TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: ['tpl'],
         TypeSchemaKey.CREATION_TIME.value: stamp,
@@ -133,6 +137,7 @@ def test_from_data_reads_every_key() -> None:
 
     assert (cmdb_type.label, cmdb_type.version, cmdb_type.description) == ('Server', '2.0.0', 'A server')
     assert (cmdb_type.active, cmdb_type.selectable_as_parent) == (False, False)
+    assert cmdb_type.uses_ports is True
     assert (cmdb_type.editor_id, cmdb_type.creation_time, cmdb_type.last_edit_time) == (3, stamp, stamp)
     assert cmdb_type.global_template_ids == ['tpl']
 
@@ -417,3 +422,83 @@ def test_get_nested_summary_fields_is_empty_without_a_match() -> None:
 def test_a_type_without_a_summary_reports_none() -> None:
     """has_summaries is what callers branch on before building a summary line"""
     assert _type().has_summaries() is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     uses_ports                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_uses_ports_defaults_to_false_when_the_key_is_absent() -> None:
+    """
+    A stored document written before Port Connectivity still loads
+
+    This default is why the flag needs no migration to be readable: every CmdbType in an existing
+    database lacks the key entirely, and each one has to read as "does not use ports" rather than
+    raising or coming back as None.
+    """
+    cmdb_type = _type()
+
+    assert cmdb_type.uses_ports is False
+
+
+@pytest.mark.parametrize('stored, expected', [(True, True), (False, False)])
+def test_uses_ports_is_read_from_the_document(stored: bool, expected: bool) -> None:
+    """A stored value wins over the default in both directions"""
+    assert _type(**{TypeSchemaKey.USES_PORTS.value: stored}).uses_ports is expected
+
+
+def test_uses_ports_defaults_to_false_in_the_constructor() -> None:
+    """
+    The constructor default matches from_data's.
+
+    A drift between the two would mean a type built directly (the assistant's profile constructor,
+    a test fixture) disagreed with one loaded from the database.
+    """
+    cmdb_type = CmdbType(public_id=PUBLIC_ID, name=TYPE_NAME, author_id=1,
+                         render_meta=TypeRenderMeta.from_data({}))
+
+    assert cmdb_type.uses_ports is False
+
+
+def test_to_json_emits_uses_ports() -> None:
+    """
+    The flag survives serialisation.
+
+    to_json is what the update route stores and what the type export writes, so a missing key here
+    would silently drop the flag on every save and on every export -> import round trip.
+    """
+    assert CmdbType.to_json(_type(**{TypeSchemaKey.USES_PORTS.value: True}))[
+        TypeSchemaKey.USES_PORTS.value] is True
+
+
+def test_uses_ports_survives_a_round_trip() -> None:
+    """from_data -> to_json -> from_data keeps the flag, in both states"""
+    for value in (True, False):
+        original = _type(**{TypeSchemaKey.USES_PORTS.value: value})
+
+        assert CmdbType.from_data(CmdbType.to_json(original)).uses_ports is value
+
+
+def test_the_schema_defaults_uses_ports_to_false() -> None:
+    """
+    The Cerberus schema is what backfills the key on every write.
+
+    `@types_blueprint.validate(CmdbType.SCHEMA)` hands the route `validator.document`, the NORMALISED
+    payload, so this default is what puts the key into a type document that omitted it. Together with
+    from_data's default it is the reason step 1 needs no updater.
+    """
+    entry = CmdbType.SCHEMA[TypeSchemaKey.USES_PORTS.value]
+
+    assert entry['type'] == 'boolean'
+    assert entry['default'] is False
+
+
+def test_the_schema_normalises_an_omitted_uses_ports() -> None:
+    """The schema default is actually applied by the validator, not merely declared"""
+    validator = Validator(CmdbType.SCHEMA, purge_unknown=True)
+    validator.validate({
+        TypeSchemaKey.NAME.value: TYPE_NAME,
+        TypeSchemaKey.AUTHOR_ID.value: 1,
+        TypeSchemaKey.RENDER_META.value: {},
+    })
+
+    assert validator.document[TypeSchemaKey.USES_PORTS.value] is False

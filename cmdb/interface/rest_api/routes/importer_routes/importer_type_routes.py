@@ -66,10 +66,12 @@ def add_type(request_user: CmdbUser) -> Response:
 
     A fresh public_id and creation timestamp are assigned to each imported type, so any public_id in
     the upload is dropped, and the requesting user becomes the author. Only the name, fields and
-    sections are really required: the optional `active`, `selectable_as_parent`, `label`, `version`,
-    `ci_explorer_label`, `ci_explorer_color` and `acl` are defaulted when the upload omits them.
+    sections are really required: the optional `active`, `selectable_as_parent`, `uses_ports`,
+    `label`, `version`, `ci_explorer_label`, `ci_explorer_color` and `acl` are defaulted when the
+    upload omits them (`uses_ports` to False, the other two flags to True).
     A type declaring a `special_type` must name a known one, requires the IPAM feature, and is refused
-    when that marker is already claimed; the type name must be present and unique, and the field /
+    when that marker is already claimed; an entry enabling `uses_ports` requires the IPAM feature
+    too; the type name must be present and unique, and the field /
     section structure must be sound. References to types that do not exist here are cleared and a
     missing icon is defaulted. An imported SpecialType is wired up (IPAM ref_types cross-wiring) just
     like a hand-created one. Entries that cannot be imported are collected instead of aborting the

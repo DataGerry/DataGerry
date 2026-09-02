@@ -47,10 +47,13 @@ from cmdb.utils import duplicate_names, parse_import_bool, is_non_blank_string
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     location_field_removal_blocker,
     selectable_as_parent_change_blocker,
+    referenced_section_removal_blocker,
+    referenced_section_field_removal_blocker,
+    uses_ports_change_blocker,
     special_type_is_unchanged,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
-    IMPORT_BOOLEAN_TYPE_FIELDS,
+    IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS,
     STRUCTURE_ERROR_SEPARATOR,
     LEGACY_EXTERNALS_KEY,
     TypeImportError,
@@ -96,6 +99,35 @@ def special_type_license_error(type_entry: Any, ipam_locked: bool) -> str | None
         return None
 
     return TypeImportError.SPECIAL_TYPE_NOT_LICENSED.format(special_type=special_type)
+
+
+def uses_ports_license_error(type_entry: Any, ipam_locked: bool) -> str | None:
+    """
+    Reports an uploaded entry that would declare a port-bearing type on an unlicensed instance
+
+    Mirrors `types_helper.enforce_uses_ports_license`, which guards the create and update routes, but
+    reports instead of aborting so one locked entry does not discard the rest of the upload. The
+    licence state is the same for the whole request, so the caller evaluates it once and passes it in
+
+    Gated on the UPLOADED value only, matching the route guard: an entry that sets `uses_ports` false
+    (or omits it) imports freely even unlicensed, so a port-bearing type can always be imported back
+    with the flag turned off. Must run **after** `normalize_boolean_flags`, which is what turns the
+    lenient spellings (`"yes"`, `1`) into the real boolean this rule reads
+
+    Args:
+        type_entry (Any): A single entry of the uploaded payload
+        ipam_locked (bool): Whether the IPAM feature is currently blocked for this request
+
+    Returns:
+        str | None: An error message if the entry may not be imported, None when it is allowed
+    """
+    if not ipam_locked or not isinstance(type_entry, dict):
+        return None
+
+    if not type_entry.get(TypeSchemaKey.USES_PORTS.value):
+        return None
+
+    return TypeImportError.USES_PORTS_NOT_LICENSED.format(name=type_entry.get(TypeSchemaKey.NAME.value))
 
 
 def validate_create_special_type(
@@ -820,10 +852,12 @@ def normalize_boolean_flags(type_entry: Any) -> str | None:
     """
     Defaults and parses the optional boolean flags of an uploaded type, in place
 
-    `active` and `selectable_as_parent` are optional: an entry that omits one (or leaves it empty)
-    gets True, the value every newly created type starts with. A value that IS provided is parsed
-    with the import's lenient boolean spellings (`parse_import_bool`, shared with the object import),
-    so `"true"` / `1` / `"yes"` all work, and anything unusable is reported instead of being stored
+    `active`, `selectable_as_parent` and `uses_ports` are optional: an entry that omits one (or
+    leaves it empty) gets that flag's own default from `IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS` - True
+    for the first two, which is the value every newly created type starts with, and False for
+    `uses_ports`, which has to be opted into deliberately. A value that IS provided is parsed with
+    the import's lenient boolean spellings (`parse_import_bool`, shared with the object import), so
+    `"true"` / `1` / `"yes"` all work, and anything unusable is reported instead of being stored
 
     Args:
         type_entry (Any): A single entry of the uploaded payload, modified in place
@@ -836,11 +870,11 @@ def normalize_boolean_flags(type_entry: Any) -> str | None:
 
     errors: list[str] = []
 
-    for flag in IMPORT_BOOLEAN_TYPE_FIELDS:
+    for flag, default in IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS.items():
         value = type_entry.get(flag)
 
         if value is None or value == '':
-            type_entry[flag] = True
+            type_entry[flag] = default
             continue
 
         parsed = parse_import_bool(value)
@@ -876,6 +910,8 @@ def validate_create_entry(type_entry: Any, types_manager: TypesManager, ipam_loc
         validate_create_special_type(type_entry, types_manager, ipam_locked)
         or validate_type_structure(type_entry)
         or normalize_boolean_flags(type_entry)
+        # After normalisation, so the lenient spellings are already real booleans
+        or uses_ports_license_error(type_entry, ipam_locked)
         or missing_type_name_error(type_entry)
         or type_name_conflict_error(type_entry, types_manager)
     )
@@ -902,6 +938,8 @@ def validate_update_entry(type_entry: Any, types_manager: TypesManager, ipam_loc
         special_type_license_error(type_entry, ipam_locked)
         or validate_type_structure(type_entry)
         or normalize_boolean_flags(type_entry)
+        # After normalisation, so the lenient spellings are already real booleans
+        or uses_ports_license_error(type_entry, ipam_locked)
         or missing_type_name_error(type_entry)
         # The type being replaced keeps its own name, so it is excluded from the uniqueness check
         or type_name_conflict_error(type_entry, types_manager, type_entry.get(TypeSchemaKey.PUBLIC_ID.value))
@@ -927,9 +965,13 @@ def stored_type_update_blocker(
        different one is refused rather than silently ignored)
     3. the location field may not be removed while CmdbObjects still hold a location value
     4. `selectable_as_parent` may not be turned off while CmdbObjects of the type are placed
+    5. a section may not be removed (or renamed) while another CmdbType pulls its fields through a
+       reference section
+    6. a referenced section may not be left with none of the fields such a dependent shows
+    7. `uses_ports` may not be turned off while Ports of the Type's Objects still exist
 
-    Rules 3 and 4 delegate to the very blockers the normal update route aborts with, so the import
-    and the route refuse the same edits with the same wording
+    Rules 3 to 7 delegate to the very blockers the normal update route aborts with, so the import and
+    the route refuse the same edits with the same wording
 
     Args:
         request_user (CmdbUser): The user performing the import
@@ -954,4 +996,7 @@ def stored_type_update_blocker(
     return (
         location_field_removal_blocker(request_user, old_type, new_type)
         or selectable_as_parent_change_blocker(request_user, old_type, new_type)
+        or referenced_section_removal_blocker(request_user, old_type, new_type)
+        or referenced_section_field_removal_blocker(request_user, old_type, new_type)
+        or uses_ports_change_blocker(request_user, old_type, new_type)
     )

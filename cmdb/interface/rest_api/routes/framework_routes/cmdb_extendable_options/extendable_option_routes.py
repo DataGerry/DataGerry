@@ -28,7 +28,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.extendable_option_model import CmdbExtendableOption
+from cmdb.models.extendable_option_model import CmdbExtendableOption, ExtendableOptionKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
@@ -44,7 +44,6 @@ from cmdb.interface.rest_api.responses import (
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_constants import (
     ExtendableOptionRight,
-    ExtendableOptionKey,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_helper import (
     is_extendable_option_used,

@@ -15,12 +15,43 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 This class represents a type reference section entry
+
+Also holds ``resolve_pulled_field_names``, the one implementation of what a ref-section actually shows.
+Two layers need that rule - the renderer, which builds the block, and the CmdbType update guard, which
+refuses an edit that would leave the block empty - and the rule has a non-obvious case (an EMPTY
+selection means "every field of the section", not "no fields"), so it lives here rather than being
+spelled out twice
 """
 from logging import Logger, getLogger
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def resolve_pulled_field_names(
+        selected_fields: list[str] | None,
+        section_field_names: list[str]) -> list[str]:
+    """
+    Returns the field names a ref-section shows, given its selection and the target section
+
+    An empty (or absent) selection means the section is not limited, so every field of the referenced
+    section is shown - which is why this is not simply an intersection. A selection is applied in the
+    REFERENCED section's order, not the selection's, and a selected name the section no longer carries
+    is dropped: that is exactly how a stale entry stops being displayed
+
+    Args:
+        selected_fields (list[str] | None): The ref-section's configured selection, empty for "all"
+        section_field_names (list[str]): Field names of the referenced section, in its own order
+
+    Returns:
+        list[str]: The field names that are pulled in, empty when nothing resolves
+    """
+    if selected_fields:
+        return [name for name in section_field_names if name in selected_fields]
+
+    return list(section_field_names)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                           TypeReferenceSectionEntry - CLASS                                          #
@@ -57,6 +88,19 @@ class TypeReferenceSectionEntry:
             section_name = data.get('section_name'),
             selected_fields = data.get('selected_fields')
         )
+
+
+    def resolve_pulled_field_names(self, section_field_names: list[str]) -> list[str]:
+        """
+        Returns the field names this reference pulls from the given referenced section
+
+        Args:
+            section_field_names (list[str]): Field names of the referenced section, in its own order
+
+        Returns:
+            list[str]: The field names that are pulled in, empty when nothing resolves
+        """
+        return resolve_pulled_field_names(self.selected_fields, section_field_names)
 
 
     @classmethod

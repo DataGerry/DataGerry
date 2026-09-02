@@ -30,11 +30,17 @@ import pytest
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.type_model import FieldKey, FieldType, SectionType, TypeSchemaKey
+from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeOverviewKey
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TypeOverviewKey,
+    ReferencedSectionUsageKey,
+    UsesPortsUsageKey,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     get_type_or_404,
     get_type_instance_or_404,
@@ -56,6 +62,22 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     apply_type_changes_to_locations,
     enforce_special_type_license,
     enforce_rack_selectable_as_parent,
+    enforce_uses_ports_license,
+    get_types_referencing_section,
+    get_removed_section_names,
+    get_own_referenced_section_names,
+    get_own_section_references,
+    get_section_reference_selections,
+    get_section_field_names,
+    referenced_section_field_removal_blocker,
+    describe_section_dependents,
+    referenced_section_removal_blocker,
+    guard_referenced_section_removal,
+    build_referenced_section_usage_payload,
+    get_port_usage_of_type,
+    build_uses_ports_usage_payload,
+    uses_ports_change_blocker,
+    guard_uses_ports_change,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
@@ -455,7 +477,8 @@ def test_verify_type_deletable_aborts_400_when_objects_exist() -> None:
     reports = MagicMock()
     reports.count_documents.return_value = 0
 
-    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports}):
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: _types_manager()}):
         with pytest.raises(HTTPException) as exc_info:
             verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})
 
@@ -469,7 +492,8 @@ def test_verify_type_deletable_aborts_400_when_reports_use_it() -> None:
     reports = MagicMock()
     reports.count_documents.return_value = 2
 
-    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports}):
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: _types_manager()}):
         with pytest.raises(HTTPException) as exc_info:
             verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})
 
@@ -483,8 +507,45 @@ def test_verify_type_deletable_passes_when_unused() -> None:
     reports = MagicMock()
     reports.count_documents.return_value = 0
 
-    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports}):
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: _types_manager()}):
         verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})  # must not raise
+
+
+def test_verify_type_deletable_aborts_400_when_a_ref_section_points_at_it() -> None:
+    """
+    A type another type pulls fields from cannot be deleted (400)
+
+    Deleting it leaves the dependent's ref-section pointing at a type_id that no longer resolves,
+    which is the type-level half of the referenced-section removal guard.
+    """
+    objects = MagicMock()
+    objects.count_documents.return_value = 0
+    reports = MagicMock()
+    reports.count_documents.return_value = 0
+
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: _types_manager([_dependent()])}):
+        with pytest.raises(HTTPException) as exc_info:
+            verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+    assert 'test' in exc_info.value.description
+
+
+def test_verify_type_deletable_ignores_a_self_reference() -> None:
+    """A type whose OWN ref-section points at itself is not blocked by it - it goes away with it"""
+    objects = MagicMock()
+    objects.count_documents.return_value = 0
+    reports = MagicMock()
+    reports.count_documents.return_value = 0
+    types = _types_manager()
+
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: reports,
+                                  ManagerType.TYPES: types}):
+        verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})  # must not raise
+
+    assert types.find.call_args.kwargs['criteria'][TypeSchemaKey.PUBLIC_ID.value] == {'$ne': 1}
 
 
 # ------------------------------------------------------ prepare_builder_parameters ---------------------------------- #
@@ -684,6 +745,47 @@ def test_enforce_special_type_license_fires_when_any_marker_is_ipam() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                           enforce_uses_ports_license                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('requested', [None, False, '', 0], ids=str)
+def test_enforce_uses_ports_license_noop_when_the_flag_is_not_requested(requested: Any) -> None:
+    """
+    A write that does not turn the flag on never consults the license guard
+
+    The absent-key case is the important one: every ordinary type write omits 'uses_ports', and none
+    of them may start requiring an IPAM license because of this feature.
+    """
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_uses_ports_license(MagicMock(), requested)
+
+    guard.assert_not_called()
+
+
+def test_enforce_uses_ports_license_delegates_when_the_flag_is_turned_on() -> None:
+    """Declaring a type as port-bearing delegates to the IPAM license guard with the request user"""
+    request_user = MagicMock()
+
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_uses_ports_license(request_user, True)
+
+    guard.assert_called_once_with(LicenseFeature.IPAM, request_user)
+
+
+def test_enforce_uses_ports_license_allows_turning_the_flag_off() -> None:
+    """
+    Turning 'uses_ports' off is never gated - cleanup is never blocked
+
+    The guard reads the REQUESTED value only, never the stored one, so a customer whose IPAM license
+    lapsed can still switch a port-bearing type back. Same policy as the rack hooks, where leaving a
+    rack stays possible unlicensed.
+    """
+    with patch(f'{PATH}.abort_if_feature_locked') as guard:
+        enforce_uses_ports_license(MagicMock(), False)
+
+    guard.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                        enforce_rack_selectable_as_parent                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 @pytest.mark.parametrize('special_type', [None, '', SpecialType.SUBNET], ids=str)
@@ -728,3 +830,893 @@ def test_enforce_rack_selectable_as_parent_aborts_400_on_an_explicit_false() -> 
         enforce_rack_selectable_as_parent(SpecialType.RACK, data)
 
     assert err.value.code == 400
+
+
+# ------------------------------------------ referenced-section removal guard ---------------------------------------- #
+
+USER_TYPE_ID: int = 900
+DEPENDENT_TYPE_ID: int = 901
+REFERENCED_SECTION: str = 'personal-data'
+OTHER_SECTION: str = 'other'
+
+
+def _dependent(public_id: int = DEPENDENT_TYPE_ID, name: str = 'test', label: str | None = 'test') -> dict[str, Any]:
+    """One dependent type as the projected lookup returns it."""
+    return {
+        TypeSchemaKey.PUBLIC_ID.value: public_id,
+        TypeSchemaKey.NAME.value: name,
+        TypeSchemaKey.LABEL.value: label,
+    }
+
+
+def _types_manager(found: list[dict[str, Any]] | None = None) -> MagicMock:
+    """A TypesManager stand-in whose find() returns the given dependents."""
+    manager = MagicMock()
+    manager.find.return_value = found or []
+
+    return manager
+
+
+def _section(name: str, section_type: str = SectionType.SECTION.value) -> SimpleNamespace:
+    """A plain section stand-in."""
+    return SimpleNamespace(name=name, type=section_type)
+
+
+def _type_with_sections(*sections: Any, public_id: int = USER_TYPE_ID,
+                        name: str = 'User', label: str = 'User') -> SimpleNamespace:
+    """A CmdbType stand-in exposing only get_sections() / get_public_id() / name / label."""
+    return SimpleNamespace(
+        get_sections=lambda: list(sections),
+        get_public_id=lambda: public_id,
+        name=name,
+        label=label,
+    )
+
+
+def _ref_section(name: str, type_id: int, section_name: str) -> Any:
+    """A real TypeReferenceSection, so the blocker's isinstance check is exercised."""
+    return types_helper.TypeReferenceSection.from_data({
+        SectionKey.TYPE.value: SectionType.REF_SECTION.value,
+        SectionKey.NAME.value: name,
+        SectionKey.LABEL.value: name,
+        SectionKey.REFERENCE.value: {
+            SectionReferenceKey.TYPE_ID.value: type_id,
+            SectionReferenceKey.SECTION_NAME.value: section_name,
+            SectionReferenceKey.SELECTED_FIELDS.value: [],
+        },
+        SectionKey.FIELDS.value: [],
+    })
+
+
+class TestGetTypesReferencingSection:
+    """The dependent lookup."""
+
+    def test_matches_the_section_list_with_elem_match(self) -> None:
+        """
+        Two dotted paths would be satisfied by DIFFERENT array elements
+
+        A type carrying any ref-section plus an unrelated section that names this type_id would then
+        match, and be refused for a dependency it does not have.
+        """
+        types = _types_manager()
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            get_types_referencing_section(MagicMock(), USER_TYPE_ID, REFERENCED_SECTION)
+
+        criteria = types.find.call_args.kwargs['criteria']
+        sections_key = f'{TypeSchemaKey.RENDER_META.value}.{TypeSchemaKey.SECTIONS.value}'
+        element_match = criteria[sections_key]['$elemMatch']
+
+        assert element_match[SectionKey.TYPE.value] == SectionType.REF_SECTION.value
+        assert element_match[
+            f'{SectionKey.REFERENCE.value}.{SectionReferenceKey.TYPE_ID.value}'
+        ] == USER_TYPE_ID
+        assert element_match[
+            f'{SectionKey.REFERENCE.value}.{SectionReferenceKey.SECTION_NAME.value}'
+        ] == REFERENCED_SECTION
+
+    def test_without_a_section_name_matches_any_reference_to_the_type(self) -> None:
+        """The type-deletion check asks 'is this type referenced at all'"""
+        types = _types_manager()
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            get_types_referencing_section(MagicMock(), USER_TYPE_ID)
+
+        sections_key = f'{TypeSchemaKey.RENDER_META.value}.{TypeSchemaKey.SECTIONS.value}'
+        element_match = types.find.call_args.kwargs['criteria'][sections_key]['$elemMatch']
+
+        assert f'{SectionKey.REFERENCE.value}.{SectionReferenceKey.SECTION_NAME.value}' not in element_match
+
+    def test_excludes_the_given_type(self) -> None:
+        """The type being written is excluded - its own sections come from the payload, not the DB"""
+        types = _types_manager()
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            get_types_referencing_section(MagicMock(), USER_TYPE_ID, exclude_type_id=USER_TYPE_ID)
+
+        assert types.find.call_args.kwargs['criteria'][TypeSchemaKey.PUBLIC_ID.value] == {'$ne': USER_TYPE_ID}
+
+    def test_no_exclusion_leaves_the_public_id_unfiltered(self) -> None:
+        """Without an exclusion the query carries no public_id condition at all"""
+        types = _types_manager()
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            get_types_referencing_section(MagicMock(), USER_TYPE_ID)
+
+        assert TypeSchemaKey.PUBLIC_ID.value not in types.find.call_args.kwargs['criteria']
+
+    def test_projects_the_identity_and_drops_the_object_id(self) -> None:
+        """
+        These dicts go into a REST response, where an ObjectId is not serialisable
+
+        dbm.find only excludes '_id' when NO projection is passed, so it has to be excluded here.
+        """
+        types = _types_manager()
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            get_types_referencing_section(MagicMock(), USER_TYPE_ID)
+
+        projection = types.find.call_args.kwargs['projection']
+
+        assert projection['_id'] == 0
+        assert set(projection) == {'_id', TypeSchemaKey.PUBLIC_ID.value,
+                                   TypeSchemaKey.NAME.value, TypeSchemaKey.LABEL.value}
+
+
+class TestGetRemovedSectionNames:
+    """Which sections an update drops."""
+
+    def test_reports_a_removed_section(self) -> None:
+        """The straightforward case"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION), _section(OTHER_SECTION))
+        new_type = _type_with_sections(_section(OTHER_SECTION))
+
+        assert get_removed_section_names(old_type, new_type) == {REFERENCED_SECTION}
+
+    def test_reports_nothing_when_the_sections_are_unchanged(self) -> None:
+        """An unrelated edit costs no lookup"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION))
+        new_type = _type_with_sections(_section(REFERENCED_SECTION))
+
+        assert get_removed_section_names(old_type, new_type) == set()
+
+    def test_a_rename_counts_as_a_removal(self) -> None:
+        """A ref-section resolves its target by NAME, so a rename breaks it exactly as a delete does"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION))
+        new_type = _type_with_sections(_section('renamed'))
+
+        assert get_removed_section_names(old_type, new_type) == {REFERENCED_SECTION}
+
+    def test_an_added_section_is_not_a_removal(self) -> None:
+        """Additions are never destructive"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION))
+        new_type = _type_with_sections(_section(REFERENCED_SECTION), _section(OTHER_SECTION))
+
+        assert get_removed_section_names(old_type, new_type) == set()
+
+
+class TestGetOwnReferencedSectionNames:
+    """The self-referencing case, which cannot be read from the database during an update."""
+
+    def test_finds_a_self_reference(self) -> None:
+        """A type may hold a ref-section aimed at its own sections"""
+        type_instance = _type_with_sections(
+            _section(REFERENCED_SECTION),
+            _ref_section('self-ref', USER_TYPE_ID, REFERENCED_SECTION),
+        )
+
+        assert get_own_referenced_section_names(type_instance, USER_TYPE_ID) == {REFERENCED_SECTION}
+
+    def test_ignores_a_reference_to_another_type(self) -> None:
+        """Only references aimed at the given type_id count"""
+        type_instance = _type_with_sections(_ref_section('other-ref', 12345, REFERENCED_SECTION))
+
+        assert get_own_referenced_section_names(type_instance, USER_TYPE_ID) == set()
+
+    def test_ignores_plain_sections(self) -> None:
+        """A plain section carries no reference at all"""
+        type_instance = _type_with_sections(_section(REFERENCED_SECTION))
+
+        assert get_own_referenced_section_names(type_instance, USER_TYPE_ID) == set()
+
+
+class TestDescribeSectionDependents:
+    """How a dependent is named in the refusal."""
+
+    def test_names_the_label_and_the_id(self) -> None:
+        """The message has to be actionable: which type, and where to find it"""
+        assert describe_section_dependents([_dependent()]) == f"'test' (ID:{DEPENDENT_TYPE_ID})"
+
+    def test_falls_back_to_the_name_without_a_label(self) -> None:
+        """A type with no label still has to be identifiable"""
+        assert describe_section_dependents([_dependent(label=None)]) == f"'test' (ID:{DEPENDENT_TYPE_ID})"
+
+    def test_joins_several_dependents(self) -> None:
+        """Every blocking type is listed, not just the first"""
+        described = describe_section_dependents([_dependent(), _dependent(902, 'second', 'Second')])
+
+        assert described == f"'test' (ID:{DEPENDENT_TYPE_ID}), 'Second' (ID:902)"
+
+
+class TestReferencedSectionRemovalBlocker:
+    """The rule itself."""
+
+    def test_allows_an_update_that_removes_no_section(self) -> None:
+        """No removal, no lookup"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION))
+        types = _types_manager([_dependent()])
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            assert referenced_section_removal_blocker(MagicMock(), old_type, old_type) is None
+
+        types.find.assert_not_called()
+
+    def test_allows_removing_a_section_nothing_references(self) -> None:
+        """Only referenced sections are protected"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION), _section(OTHER_SECTION))
+        new_type = _type_with_sections(_section(REFERENCED_SECTION))
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager()}):
+            assert referenced_section_removal_blocker(MagicMock(), old_type, new_type) is None
+
+    def test_refuses_removing_a_referenced_section(self) -> None:
+        """The bug this guard exists for: the dependent would be left pointing at nothing"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION))
+        new_type = _type_with_sections()
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([_dependent()])}):
+            blocker = referenced_section_removal_blocker(MagicMock(), old_type, new_type)
+
+        assert blocker is not None
+        assert REFERENCED_SECTION in blocker
+        assert f'ID:{DEPENDENT_TYPE_ID}' in blocker
+
+    def test_names_every_blocked_section(self) -> None:
+        """An update removing two referenced sections reports both, not the first"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION), _section(OTHER_SECTION))
+        new_type = _type_with_sections()
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([_dependent()])}):
+            blocker = referenced_section_removal_blocker(MagicMock(), old_type, new_type)
+
+        assert REFERENCED_SECTION in blocker
+        assert OTHER_SECTION in blocker
+
+    def test_refuses_a_self_reference_that_survives_the_update(self) -> None:
+        """
+        A type's own ref-section counts as a dependent
+
+        It cannot be read from the database here - the payload is replacing this type's sections - so
+        it is judged against the NEW type.
+        """
+        old_type = _type_with_sections(
+            _section(REFERENCED_SECTION),
+            _ref_section('self-ref', USER_TYPE_ID, REFERENCED_SECTION),
+        )
+        new_type = _type_with_sections(_ref_section('self-ref', USER_TYPE_ID, REFERENCED_SECTION))
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager()}):
+            blocker = referenced_section_removal_blocker(MagicMock(), old_type, new_type)
+
+        assert blocker is not None
+        assert f'ID:{USER_TYPE_ID}' in blocker
+
+    def test_allows_removing_a_section_and_its_own_reference_together(self) -> None:
+        """
+        The case a naive guard would break
+
+        One PUT that drops both the section and the ref-section pointing at it leaves nothing
+        dangling, so it has to be allowed - which is why the stored copy of this type is excluded
+        from the lookup and the self-reference is read from the new payload.
+        """
+        old_type = _type_with_sections(
+            _section(REFERENCED_SECTION),
+            _ref_section('self-ref', USER_TYPE_ID, REFERENCED_SECTION),
+        )
+        new_type = _type_with_sections()
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager()}):
+            assert referenced_section_removal_blocker(MagicMock(), old_type, new_type) is None
+
+    def test_the_lookup_excludes_the_type_being_written(self) -> None:
+        """Its stored sections are stale by definition during its own update"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION))
+        new_type = _type_with_sections()
+        types = _types_manager()
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            referenced_section_removal_blocker(MagicMock(), old_type, new_type)
+
+        assert types.find.call_args.kwargs['criteria'][TypeSchemaKey.PUBLIC_ID.value] == {'$ne': USER_TYPE_ID}
+
+
+class TestGuardReferencedSectionRemoval:
+    """The route-level wrapper."""
+
+    def test_aborts_400_when_the_removal_is_refused(self) -> None:
+        """400 is the codebase's business-rule rejection, not 409"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION))
+        new_type = _type_with_sections()
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([_dependent()])}):
+            with pytest.raises(HTTPException) as exc_info:
+                guard_referenced_section_removal(MagicMock(), old_type, new_type)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_passes_when_the_removal_is_allowed(self) -> None:
+        """An allowed update must not raise"""
+        old_type = _type_with_sections(_section(REFERENCED_SECTION))
+        new_type = _type_with_sections()
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager()}):
+            guard_referenced_section_removal(MagicMock(), old_type, new_type)  # must not raise
+
+
+class TestBuildReferencedSectionUsagePayload:
+    """The pre-check payload."""
+
+    def test_reports_the_referencing_types_and_the_blocked_sections(self) -> None:
+        """The frontend needs both halves: may I delete the type, and may I delete this section"""
+        target = _type_with_sections(_section(REFERENCED_SECTION), _section(OTHER_SECTION))
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([_dependent()])}):
+            payload = build_referenced_section_usage_payload(MagicMock(), target)
+
+        assert payload[ReferencedSectionUsageKey.IN_USE.value] is True
+        assert payload[ReferencedSectionUsageKey.COUNT.value] == 1
+        assert payload[ReferencedSectionUsageKey.REFERENCING_TYPE_IDS.value] == [DEPENDENT_TYPE_ID]
+        assert set(payload[ReferencedSectionUsageKey.SECTIONS.value]) == {REFERENCED_SECTION, OTHER_SECTION}
+
+    def test_reports_an_unreferenced_type_as_free(self) -> None:
+        """Nothing referenced means every section is free to remove"""
+        target = _type_with_sections(_section(REFERENCED_SECTION))
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager()}):
+            payload = build_referenced_section_usage_payload(MagicMock(), target)
+
+        assert payload[ReferencedSectionUsageKey.IN_USE.value] is False
+        assert payload[ReferencedSectionUsageKey.COUNT.value] == 0
+        assert not payload[ReferencedSectionUsageKey.SECTIONS.value]
+
+
+# -------------------------------------- referenced-section EMPTYING guard (C) --------------------------------------- #
+
+FIELD_A: str = 'field-a'
+FIELD_B: str = 'field-b'
+
+
+def _section_with_fields(name: str, field_names: list[str]) -> SimpleNamespace:
+    """A plain section stand-in carrying a field list."""
+    return SimpleNamespace(name=name, type=SectionType.SECTION.value, fields=list(field_names))
+
+
+def _ref_section_with_selection(name: str, type_id: int, section_name: str,
+                                selected_fields: list[str]) -> Any:
+    """A real TypeReferenceSection carrying a selection."""
+    return types_helper.TypeReferenceSection.from_data({
+        SectionKey.TYPE.value: SectionType.REF_SECTION.value,
+        SectionKey.NAME.value: name,
+        SectionKey.LABEL.value: name,
+        SectionKey.REFERENCE.value: {
+            SectionReferenceKey.TYPE_ID.value: type_id,
+            SectionReferenceKey.SECTION_NAME.value: section_name,
+            SectionReferenceKey.SELECTED_FIELDS.value: list(selected_fields),
+        },
+        SectionKey.FIELDS.value: [],
+    })
+
+
+def _dependent_doc(selected_fields: list[str], section_name: str = REFERENCED_SECTION,
+                   public_id: int = DEPENDENT_TYPE_ID) -> dict[str, Any]:
+    """A dependent type document as the sections-projected lookup returns it."""
+    return {
+        TypeSchemaKey.PUBLIC_ID.value: public_id,
+        TypeSchemaKey.NAME.value: 'test',
+        TypeSchemaKey.LABEL.value: 'test',
+        TypeSchemaKey.RENDER_META.value: {
+            TypeSchemaKey.SECTIONS.value: [
+                {SectionKey.TYPE.value: SectionType.SECTION.value, SectionKey.NAME.value: 'own',
+                 SectionKey.FIELDS.value: []},
+                {SectionKey.TYPE.value: SectionType.REF_SECTION.value,
+                 SectionKey.NAME.value: 'the-ref',
+                 SectionKey.REFERENCE.value: {
+                     SectionReferenceKey.TYPE_ID.value: USER_TYPE_ID,
+                     SectionReferenceKey.SECTION_NAME.value: section_name,
+                     SectionReferenceKey.SELECTED_FIELDS.value: list(selected_fields),
+                 }},
+            ],
+        },
+    }
+
+
+class TestGetSectionFieldNames:
+    """The per-section field lists an update is compared on."""
+
+    def test_maps_every_section_to_its_fields(self) -> None:
+        """Both halves of the comparison come from here"""
+        type_instance = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, [FIELD_A, FIELD_B]),
+            _section_with_fields(OTHER_SECTION, []),
+        )
+
+        assert get_section_field_names(type_instance) == {
+            REFERENCED_SECTION: [FIELD_A, FIELD_B],
+            OTHER_SECTION: [],
+        }
+
+    def test_a_section_without_a_field_list_reads_as_empty(self) -> None:
+        """A ref-section carries no fields of its own, and must not raise here"""
+        type_instance = _type_with_sections(_section(REFERENCED_SECTION))
+
+        assert get_section_field_names(type_instance) == {REFERENCED_SECTION: []}
+
+
+class TestGetSectionReferenceSelections:
+    """The lookup that also reads the dependents' selections."""
+
+    def test_projects_the_sections_as_well_as_the_identity(self) -> None:
+        """Deciding whether a dependent would show nothing needs its selection"""
+        types = _types_manager()
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            get_section_reference_selections(MagicMock(), USER_TYPE_ID, REFERENCED_SECTION)
+
+        projection = types.find.call_args.kwargs['projection']
+        sections_path = f'{TypeSchemaKey.RENDER_META.value}.{TypeSchemaKey.SECTIONS.value}'
+
+        assert projection[sections_path] == 1
+        assert projection['_id'] == 0
+
+    def test_returns_the_selection_of_the_matching_section_only(self) -> None:
+        """
+        The query matched the DOCUMENT, so which section matched is re-established in Python
+
+        A dependent's other sections - including a plain section that happens to carry a reference
+        dict - must not contribute a selection.
+        """
+        types = _types_manager([_dependent_doc([FIELD_A])])
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            selections = get_section_reference_selections(MagicMock(), USER_TYPE_ID, REFERENCED_SECTION)
+
+        assert len(selections) == 1
+        assert selections[0][SectionReferenceKey.SELECTED_FIELDS.value] == [FIELD_A]
+        assert selections[0][TypeSchemaKey.PUBLIC_ID.value] == DEPENDENT_TYPE_ID
+
+    def test_ignores_a_reference_to_another_section_of_the_same_type(self) -> None:
+        """Only the section being edited is relevant"""
+        types = _types_manager([_dependent_doc([FIELD_A], section_name=OTHER_SECTION)])
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            assert not get_section_reference_selections(MagicMock(), USER_TYPE_ID, REFERENCED_SECTION)
+
+    def test_an_absent_selection_reads_as_unlimited(self) -> None:
+        """A stored reference without the key means 'all fields', not 'no fields'"""
+        document = _dependent_doc([])
+        del document[TypeSchemaKey.RENDER_META.value][TypeSchemaKey.SECTIONS.value][1][
+            SectionKey.REFERENCE.value][SectionReferenceKey.SELECTED_FIELDS.value]
+        types = _types_manager([document])
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            selections = get_section_reference_selections(MagicMock(), USER_TYPE_ID, REFERENCED_SECTION)
+
+        assert selections[0][SectionReferenceKey.SELECTED_FIELDS.value] == []
+
+    def test_tolerates_a_document_without_render_meta(self) -> None:
+        """A malformed type must not take the guard down with it"""
+        types = _types_manager([{TypeSchemaKey.PUBLIC_ID.value: DEPENDENT_TYPE_ID}])
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            assert not get_section_reference_selections(MagicMock(), USER_TYPE_ID, REFERENCED_SECTION)
+
+
+class TestGetOwnSectionReferences:
+    """The Type's own reference sections, read from the payload."""
+
+    def test_returns_the_section_name_and_the_selection(self) -> None:
+        """The self-reference needs both halves for the emptying check"""
+        type_instance = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, [FIELD_A]),
+            _ref_section_with_selection('self-ref', USER_TYPE_ID, REFERENCED_SECTION, [FIELD_A]),
+        )
+
+        assert get_own_section_references(type_instance, USER_TYPE_ID) == [{
+            SectionReferenceKey.SECTION_NAME.value: REFERENCED_SECTION,
+            SectionReferenceKey.SELECTED_FIELDS.value: [FIELD_A],
+        }]
+
+    def test_the_name_only_wrapper_still_works(self) -> None:
+        """get_own_referenced_section_names is now derived from this, and keeps its contract"""
+        type_instance = _type_with_sections(
+            _ref_section_with_selection('self-ref', USER_TYPE_ID, REFERENCED_SECTION, []),
+        )
+
+        assert get_own_referenced_section_names(type_instance, USER_TYPE_ID) == {REFERENCED_SECTION}
+
+
+class TestReferencedSectionFieldRemovalBlocker:
+    """
+    Refuse only the edits that leave a dependent with nothing to show
+
+    The rows here are the measured render outcomes: every configuration that renders an EMPTY block
+    is refused, every configuration that still renders something is allowed.
+    """
+
+    @staticmethod
+    def _run(selected_fields: list[str], before: list[str], after: list[str],
+             dependents: list[dict[str, Any]] | None = None) -> str | None:
+        """Runs the blocker for one section whose fields change from 'before' to 'after'."""
+        old_type = _type_with_sections(_section_with_fields(REFERENCED_SECTION, before))
+        new_type = _type_with_sections(_section_with_fields(REFERENCED_SECTION, after))
+        found = dependents if dependents is not None else [_dependent_doc(selected_fields)]
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager(found)}):
+            return referenced_section_field_removal_blocker(MagicMock(), old_type, new_type)
+
+    def test_refuses_taking_the_only_selected_field(self) -> None:
+        """The field-side version of the reported bug: the block renders empty"""
+        blocker = self._run([FIELD_A], [FIELD_A], [])
+
+        assert blocker is not None
+        assert REFERENCED_SECTION in blocker
+        assert f'ID:{DEPENDENT_TYPE_ID}' in blocker
+
+    def test_allows_a_partial_reduction(self) -> None:
+        """
+        Losing the column of a deleted field is the direct consequence of deleting it
+
+        Refusing this would make every field removal on a referenced type a 400.
+        """
+        assert self._run([FIELD_A, FIELD_B], [FIELD_A, FIELD_B], [FIELD_B]) is None
+
+    def test_refuses_taking_the_last_of_several_selected_fields(self) -> None:
+        """Two selected fields removed at once still ends with nothing to show"""
+        assert self._run([FIELD_A, FIELD_B], [FIELD_A, FIELD_B], []) is not None
+
+    def test_allows_emptying_a_section_no_reference_uses(self) -> None:
+        """Only referenced sections are protected"""
+        assert self._run([], [FIELD_A], [], dependents=[]) is None
+
+    def test_refuses_emptying_a_section_an_unlimited_reference_uses(self) -> None:
+        """
+        The case a 'did we delete a selected field' check would miss entirely
+
+        An unlimited reference stores NO field name, so there is nothing stale to detect - but
+        emptying the section blanks it just the same.
+        """
+        assert self._run([], [FIELD_A], []) is not None
+
+    def test_allows_reducing_a_section_an_unlimited_reference_uses(self) -> None:
+        """One field fewer is one column fewer, not a blank block"""
+        assert self._run([], [FIELD_A, FIELD_B], [FIELD_B]) is None
+
+    def test_refuses_moving_the_only_selected_field_out_of_the_section(self) -> None:
+        """
+        The trigger is a field leaving the SECTION, not the type
+
+        A field moved to a sibling section still exists, and the dependent still shows nothing.
+        """
+        old_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, [FIELD_A]),
+            _section_with_fields(OTHER_SECTION, []),
+        )
+        new_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, []),
+            _section_with_fields(OTHER_SECTION, [FIELD_A]),
+        )
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([_dependent_doc([FIELD_A])])}):
+            assert referenced_section_field_removal_blocker(MagicMock(), old_type, new_type) is not None
+
+    def test_allows_an_update_that_changes_no_section_field_list(self) -> None:
+        """An unrelated edit costs no lookup at all"""
+        old_type = _type_with_sections(_section_with_fields(REFERENCED_SECTION, [FIELD_A]))
+        types = _types_manager([_dependent_doc([FIELD_A])])
+
+        with _patch_managers_by_type({ManagerType.TYPES: types}):
+            assert referenced_section_field_removal_blocker(MagicMock(), old_type, old_type) is None
+
+        types.find.assert_not_called()
+
+    def test_does_not_protect_a_section_that_already_showed_nothing(self) -> None:
+        """
+        An already-broken configuration must not block unrelated edits
+
+        The dependent selects a field the section never had, so it showed nothing before the update
+        too - there is nothing left to lose.
+        """
+        assert self._run(['never-there'], [FIELD_A], []) is None
+
+    def test_skips_a_removed_section(self) -> None:
+        """A removed section is the other blocker's business, not this one's"""
+        old_type = _type_with_sections(_section_with_fields(REFERENCED_SECTION, [FIELD_A]))
+        new_type = _type_with_sections()
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([_dependent_doc([FIELD_A])])}):
+            assert referenced_section_field_removal_blocker(MagicMock(), old_type, new_type) is None
+
+    def test_refuses_a_self_reference_that_would_show_nothing(self) -> None:
+        """A Type's own reference section counts, read from the payload"""
+        old_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, [FIELD_A]),
+            _ref_section_with_selection('self-ref', USER_TYPE_ID, REFERENCED_SECTION, [FIELD_A]),
+        )
+        new_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, []),
+            _ref_section_with_selection('self-ref', USER_TYPE_ID, REFERENCED_SECTION, [FIELD_A]),
+        )
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager()}):
+            blocker = referenced_section_field_removal_blocker(MagicMock(), old_type, new_type)
+
+        assert blocker is not None
+        assert f'ID:{USER_TYPE_ID}' in blocker
+
+    def test_an_own_reference_to_another_section_is_not_a_dependent(self) -> None:
+        """A self-reference aimed at a different section says nothing about the one being edited"""
+        old_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, [FIELD_A]),
+            _section_with_fields(OTHER_SECTION, [FIELD_B]),
+            _ref_section_with_selection('self-ref', USER_TYPE_ID, OTHER_SECTION, [FIELD_B]),
+        )
+        new_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, []),
+            _section_with_fields(OTHER_SECTION, [FIELD_B]),
+            _ref_section_with_selection('self-ref', USER_TYPE_ID, OTHER_SECTION, [FIELD_B]),
+        )
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager()}):
+            assert referenced_section_field_removal_blocker(MagicMock(), old_type, new_type) is None
+
+    def test_allows_emptying_a_section_whose_own_reference_goes_too(self) -> None:
+        """Dropping both sides in one update leaves nothing dangling"""
+        old_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, [FIELD_A]),
+            _ref_section_with_selection('self-ref', USER_TYPE_ID, REFERENCED_SECTION, [FIELD_A]),
+        )
+        new_type = _type_with_sections(_section_with_fields(REFERENCED_SECTION, []))
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager()}):
+            assert referenced_section_field_removal_blocker(MagicMock(), old_type, new_type) is None
+
+    def test_names_every_blocked_section(self) -> None:
+        """An update emptying two referenced sections reports both"""
+        old_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, [FIELD_A]),
+            _section_with_fields(OTHER_SECTION, [FIELD_B]),
+        )
+        new_type = _type_with_sections(
+            _section_with_fields(REFERENCED_SECTION, []),
+            _section_with_fields(OTHER_SECTION, []),
+        )
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([_dependent_doc([])])}):
+            blocker = referenced_section_field_removal_blocker(MagicMock(), old_type, new_type)
+
+        assert REFERENCED_SECTION in blocker
+        assert OTHER_SECTION in blocker
+
+
+class TestGuardChecksBothHalves:
+    """One guard, both halves of the rule."""
+
+    def test_aborts_on_the_field_side_too(self) -> None:
+        """An update that only empties a referenced section is refused by the same guard"""
+        old_type = _type_with_sections(_section_with_fields(REFERENCED_SECTION, [FIELD_A]))
+        new_type = _type_with_sections(_section_with_fields(REFERENCED_SECTION, []))
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([_dependent_doc([FIELD_A])])}):
+            with pytest.raises(HTTPException) as exc_info:
+                guard_referenced_section_removal(MagicMock(), old_type, new_type)
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+# ---------------------------------------------- uses_ports true -> false -------------------------------------------- #
+
+PORT_TYPE_ID: int = 950
+OWNER_ID: int = 960
+OTHER_OWNER_ID: int = 961
+
+
+def _uses_ports_type(uses_ports: bool, public_id: int = PORT_TYPE_ID) -> SimpleNamespace:
+    """A CmdbType stand-in exposing only what the uses_ports guard reads."""
+    return SimpleNamespace(uses_ports=uses_ports, get_public_id=lambda: public_id)
+
+
+def _objects_manager_with(object_ids: list[int]) -> MagicMock:
+    """An ObjectsManager whose projected find returns the given object public_ids."""
+    manager = MagicMock()
+    manager.find_objects.return_value = [{CmdbObjectKey.PUBLIC_ID.value: oid} for oid in object_ids]
+
+    return manager
+
+
+def _ports_manager_with(port_count: int, owners: list[int] | None = None) -> MagicMock:
+    """A PortsManager reporting the given port count and distinct owners."""
+    manager = MagicMock()
+    manager.count_documents.return_value = port_count
+    manager.get_distinct.return_value = owners if owners is not None else []
+
+    return manager
+
+
+def _port_managers(object_ids: list[int], port_count: int, owners: list[int] | None = None) -> dict:
+    """The manager mapping the uses_ports helpers resolve."""
+    return {
+        ManagerType.OBJECTS: _objects_manager_with(object_ids),
+        ManagerType.PORTS: _ports_manager_with(port_count, owners),
+    }
+
+
+class TestGetPortUsageOfType:
+    """Counting the ports of a Type's objects."""
+
+    def test_reports_both_counts(self) -> None:
+        """The refusal message names ports AND objects, so both are resolved in one pass"""
+        managers = _port_managers([OWNER_ID, OTHER_OWNER_ID], port_count=5, owners=[OWNER_ID])
+
+        with _patch_managers_by_type(managers):
+            usage = get_port_usage_of_type(MagicMock(), _uses_ports_type(True))
+
+        assert usage[UsesPortsUsageKey.PORT_COUNT.value] == 5
+        assert usage[UsesPortsUsageKey.OBJECT_COUNT.value] == 1
+
+    def test_queries_the_ports_of_the_types_objects_only(self) -> None:
+        """
+        A port stores its owner, not its type, so the filter is an $in over the type's object ids
+
+        A filter that forgot the $in would count every port in the installation.
+        """
+        managers = _port_managers([OWNER_ID, OTHER_OWNER_ID], port_count=0)
+
+        with _patch_managers_by_type(managers):
+            get_port_usage_of_type(MagicMock(), _uses_ports_type(True))
+
+        criteria = managers[ManagerType.PORTS].count_documents.call_args.args[0]
+        assert criteria == {'object_id': {'$in': [OWNER_ID, OTHER_OWNER_ID]}}
+
+    def test_reads_only_the_object_public_ids(self) -> None:
+        """This runs on a type-edit page load, so whole object documents are never loaded"""
+        managers = _port_managers([OWNER_ID], port_count=0)
+
+        with _patch_managers_by_type(managers):
+            get_port_usage_of_type(MagicMock(), _uses_ports_type(True))
+
+        kwargs = managers[ManagerType.OBJECTS].find_objects.call_args.kwargs
+        assert kwargs['projection'] == {CmdbObjectKey.PUBLIC_ID.value: 1}
+        assert kwargs['as_dict'] is True
+
+    def test_a_type_without_objects_costs_no_port_query(self) -> None:
+        """
+        Short-circuited: an $in over an empty list would match nothing anyway
+
+        Worth the branch because a type with no objects is the common case while a feature is being
+        set up.
+        """
+        managers = _port_managers([], port_count=7)
+
+        with _patch_managers_by_type(managers):
+            usage = get_port_usage_of_type(MagicMock(), _uses_ports_type(True))
+
+        assert usage[UsesPortsUsageKey.PORT_COUNT.value] == 0
+        managers[ManagerType.PORTS].count_documents.assert_not_called()
+
+
+class TestBuildUsesPortsUsagePayload:
+    """The pre-check payload."""
+
+    def test_reports_in_use_with_the_counts(self) -> None:
+        """in_use true means the flag may NOT be cleared"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 3, [OWNER_ID])):
+            payload = build_uses_ports_usage_payload(MagicMock(), _uses_ports_type(True))
+
+        assert payload == {
+            UsesPortsUsageKey.IN_USE.value: True,
+            UsesPortsUsageKey.PORT_COUNT.value: 3,
+            UsesPortsUsageKey.OBJECT_COUNT.value: 1,
+        }
+
+    def test_reports_a_free_type(self) -> None:
+        """in_use false is the frontend's green light to offer removing the section"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 0)):
+            payload = build_uses_ports_usage_payload(MagicMock(), _uses_ports_type(True))
+
+        assert payload[UsesPortsUsageKey.IN_USE.value] is False
+
+    def test_carries_no_id_list(self) -> None:
+        """
+        Counts only - the equivalent location payload is unbounded for a large Type (backlog #187)
+
+        The type builder needs to know WHETHER it may clear the flag, not which ports stand in the way.
+        """
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 3, [OWNER_ID])):
+            payload = build_uses_ports_usage_payload(MagicMock(), _uses_ports_type(True))
+
+        assert all(not isinstance(value, list) for value in payload.values())
+
+
+class TestUsesPortsChangeBlocker:
+    """Only the true -> false transition is guarded."""
+
+    def test_refuses_turning_the_flag_off_while_ports_exist(self) -> None:
+        """Clearing the flag hides the ports panel, so those ports become unreachable"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 4, [OWNER_ID])):
+            blocker = uses_ports_change_blocker(
+                MagicMock(), _uses_ports_type(True), _uses_ports_type(False),
+            )
+
+        assert blocker is not None
+        assert '4 Port(s)' in blocker
+        assert '1 Object(s)' in blocker
+
+    def test_allows_turning_the_flag_off_without_ports(self) -> None:
+        """Nothing to lose"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 0)):
+            assert uses_ports_change_blocker(
+                MagicMock(), _uses_ports_type(True), _uses_ports_type(False),
+            ) is None
+
+    def test_allows_turning_the_flag_on(self) -> None:
+        """
+        The other direction is governed by the license guard, not by this one
+
+        Costing a query here would also be pure waste on the common enable path.
+        """
+        managers = _port_managers([OWNER_ID], 4, [OWNER_ID])
+
+        with _patch_managers_by_type(managers):
+            assert uses_ports_change_blocker(
+                MagicMock(), _uses_ports_type(False), _uses_ports_type(True),
+            ) is None
+
+        managers[ManagerType.OBJECTS].find_objects.assert_not_called()
+
+    @pytest.mark.parametrize('old_flag, new_flag', [(True, True), (False, False)],
+                             ids=['stays-on', 'stays-off'])
+    def test_an_unchanged_flag_costs_no_query(self, old_flag: bool, new_flag: bool) -> None:
+        """Every type update runs this, so an unrelated edit must not pay for it"""
+        managers = _port_managers([OWNER_ID], 4, [OWNER_ID])
+
+        with _patch_managers_by_type(managers):
+            assert uses_ports_change_blocker(
+                MagicMock(), _uses_ports_type(old_flag), _uses_ports_type(new_flag),
+            ) is None
+
+        managers[ManagerType.OBJECTS].find_objects.assert_not_called()
+
+    @pytest.mark.parametrize('old_flag', [None, 0, ''], ids=['none', 'zero', 'empty'])
+    def test_a_falsy_stored_flag_is_not_a_transition(self, old_flag: Any) -> None:
+        """
+        A type written before the flag existed reads as absent, which is not "turning it off"
+
+        updater_20260901 backfills those, but a database that has not run it yet must not be blocked.
+        """
+        managers = _port_managers([OWNER_ID], 4, [OWNER_ID])
+
+        with _patch_managers_by_type(managers):
+            assert uses_ports_change_blocker(
+                MagicMock(),
+                SimpleNamespace(uses_ports=old_flag, get_public_id=lambda: PORT_TYPE_ID),
+                _uses_ports_type(False),
+            ) is None
+
+        managers[ManagerType.OBJECTS].find_objects.assert_not_called()
+
+
+class TestGuardUsesPortsChange:
+    """The route-level wrapper."""
+
+    def test_aborts_400_when_refused(self) -> None:
+        """400 is the codebase's business-rule rejection"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 2, [OWNER_ID])):
+            with pytest.raises(HTTPException) as exc_info:
+                guard_uses_ports_change(MagicMock(), _uses_ports_type(True), _uses_ports_type(False))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_passes_when_allowed(self) -> None:
+        """An allowed update must not raise"""
+        with _patch_managers_by_type(_port_managers([OWNER_ID], 0)):
+            guard_uses_ports_change(MagicMock(), _uses_ports_type(True), _uses_ports_type(False))

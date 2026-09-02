@@ -29,7 +29,7 @@ __all__: list[str] = [
     'LEGACY_EXTERNALS_KEY',
     'DEFAULT_TYPE_ICON',
     'DEFAULT_TYPE_ACL',
-    'IMPORT_BOOLEAN_TYPE_FIELDS',
+    'IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS',
     'TypeImporterFormField',
     'TypeImportError',
 ]
@@ -65,13 +65,16 @@ LEGACY_EXTERNALS_KEY: str = 'external'
 # generic symbol the rest of the codebase uses for "some CI"
 DEFAULT_TYPE_ICON: str = 'fas fa-cube'
 
-# The boolean type flags an upload may omit. Both default to True - a type is usable and selectable as
-# a location parent unless it says otherwise - and both accept the lenient import spellings
-# (true/yes/1) via parse_import_bool
-IMPORT_BOOLEAN_TYPE_FIELDS: tuple[str, ...] = (
-    TypeSchemaKey.ACTIVE.value,
-    TypeSchemaKey.SELECTABLE_AS_PARENT.value,
-)
+# The boolean type flags an upload may omit, each with the value it defaults to when absent or empty.
+# 'active' and 'selectable_as_parent' default to True - a type is usable and selectable as a location
+# parent unless it says otherwise - while 'uses_ports' defaults to False, because opting a type into
+# Port Connectivity has to be a deliberate choice (and is IPAM-licensed). All of them accept the
+# lenient import spellings (true/yes/1) via parse_import_bool
+IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS: dict[str, bool] = {
+    TypeSchemaKey.ACTIVE.value: True,
+    TypeSchemaKey.SELECTABLE_AS_PARENT.value: True,
+    TypeSchemaKey.USES_PORTS.value: False,
+}
 
 # The "no access control" ACL every newly created CmdbType starts with (same shape the assistant's
 # profile_type_constructor seeds and the one AccessControlList.from_data({}) produces): the ACL is
@@ -105,6 +108,8 @@ class TypeImportError(BaseStrEnum):
     INVALID_BOOLEAN_VALUE = "Invalid value for '{field}': {value}"
     SPECIAL_TYPE_NOT_LICENSED = 'The IPAM feature is not licensed, so the special Type "{special_type}" ' \
                                 'can not be imported!'
+    USES_PORTS_NOT_LICENSED = 'The IPAM feature is not licensed, so the Type "{name}" can not be ' \
+                              'imported with "uses_ports" enabled!'
     INVALID_SPECIAL_TYPE = '"{special_type}" is not a valid special Type. Allowed: {allowed}'
     SPECIAL_TYPE_EXISTS = 'A Type with the special Type "{special_type}" already exists - a special ' \
                           'Type can only exist once!'

@@ -100,6 +100,9 @@ from cmdb.framework.ipam.enforcement import (
     format_errors_for_abort,
 )
 from cmdb.framework.object_invariants import enforce_object_write_invariants
+from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
+    handle_object_deleted as handle_port_object_deleted,
+)
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     guard_rack_location_change,
     reconcile_object_rack_membership,
@@ -238,6 +241,9 @@ def delete_one_cascade(
         request_user, CmdbObject.to_json(deleted_object), objects_manager,
         ManagerProvider.get_manager(ManagerType.TYPES, request_user),
     )
+
+    # A port is stored outside its owner's document, so nothing else removes it
+    handle_port_object_deleted(request_user, CmdbObject.to_json(deleted_object))
 
     # Send deletion event to all active webhooks
     handle_notify_webhooks(request_user, deleted_object, WebhookEventType.DELETE)

@@ -56,13 +56,15 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsImportType, ControlMeasureType, RiskType
-from cmdb.models.extendable_option_model import OptionType
+from cmdb.models.extendable_option_model import OptionType, ExtendableOptionKey
 from cmdb.utils import parse_import_bool
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
+
+from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerInsertError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -567,20 +569,69 @@ def resolve_extendable_options(
         return {}
 
     existing_options: list[dict] = extendable_options_manager.find(
-        criteria={'value': {'$in': sorted(values)}, 'option_type': option_type},
+        criteria={
+            ExtendableOptionKey.VALUE: {'$in': sorted(values)},
+            ExtendableOptionKey.OPTION_TYPE: option_type,
+        },
     )
     resolved: dict[str, int] = {
-        option['value']: option['public_id'] for option in existing_options if option.get('value')
+        option[ExtendableOptionKey.VALUE]: option[ExtendableOptionKey.PUBLIC_ID]
+        for option in existing_options if option.get(ExtendableOptionKey.VALUE)
     }
 
     for value in sorted(values - set(resolved)):
-        resolved[value] = extendable_options_manager.insert_item({
-            'value': value,
-            'option_type': option_type,
-            'predefined': False,
-        })
+        resolved[value] = insert_or_reuse_extendable_option(extendable_options_manager, value, option_type)
 
     return resolved
+
+
+def insert_or_reuse_extendable_option(
+        extendable_options_manager: ExtendableOptionsManager,
+        value: str,
+        option_type: OptionType) -> int:
+    """
+    Creates the CmdbExtendableOption for a value, or reuses one a concurrent writer just created
+
+    The batch read in resolve_extendable_options cannot make this insert safe on its own:
+    (option_type, value) is unique in the database, so a second import - or a REST create - can store
+    the same value in the window between that read and this write. Failing the whole import over that
+    would be wrong, since the value the row asked for now exists: the option is looked up once more
+    and its public_id used, which is exactly the outcome the batch read would have produced had it run
+    a moment later
+
+    Args:
+        extendable_options_manager (ExtendableOptionsManager): Manager for CmdbExtendableOptions
+        value (str): The option value to create
+        option_type (OptionType): The OptionType the value belongs to
+
+    Raises:
+        ExtendableOptionsManagerInsertError: If the insert failed for any reason other than the value
+            having appeared in the meantime
+
+    Returns:
+        int: public_id of the created or concurrently created CmdbExtendableOption
+    """
+    try:
+        return extendable_options_manager.insert_item({
+            ExtendableOptionKey.VALUE: value,
+            ExtendableOptionKey.OPTION_TYPE: option_type,
+            ExtendableOptionKey.PREDEFINED: False,
+        })
+    except ExtendableOptionsManagerInsertError:
+        concurrent_option: dict | None = extendable_options_manager.get_one_by({
+            ExtendableOptionKey.VALUE: value,
+            ExtendableOptionKey.OPTION_TYPE: option_type,
+        })
+
+        if concurrent_option:
+            LOGGER.debug(
+                "[insert_or_reuse_extendable_option] %s '%s' was created concurrently, reusing ID:%s",
+                option_type, value, concurrent_option[ExtendableOptionKey.PUBLIC_ID],
+            )
+
+            return concurrent_option[ExtendableOptionKey.PUBLIC_ID]
+
+        raise
 
 
 def resolve_named_items(

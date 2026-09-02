@@ -30,7 +30,12 @@ class FieldKey(BaseStrEnum):
 
     SUMMARIES only appears on a `FieldType.REFERENCE` field: it overrides, per referenced CmdbType,
     which summary fields and which summary line the renderer shows for that reference. Its entries are
-    keyed by `NestedSummaryKey`
+    keyed by `NestedSummaryKey`.
+
+    OPTION_TYPE only appears on a `FieldType.SELECT` field of a VIRTUAL section template, where the
+    selectable values are CmdbExtendableOptions of that OptionType rather than the inline OPTIONS list
+    a stored type's select carries. It tells the frontend which list to load and to extend through
+    `POST /rest/extendable_options/`; no stored CmdbType field ever has it
     """
     TYPE = 'type'
     NAME = 'name'
@@ -42,3 +47,4 @@ class FieldKey(BaseStrEnum):
     OPTIONS = 'options'
     VALUE = 'value'
     SUMMARIES = 'summaries'
+    OPTION_TYPE = 'option_type'

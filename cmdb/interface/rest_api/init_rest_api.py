@@ -216,6 +216,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.relation_routes.object_relation_routes import object_relations_blueprint
     from cmdb.interface.rest_api.routes.rack_routes.rack_mount_routes import rack_mounts_blueprint
     from cmdb.interface.rest_api.routes.rack_routes.rack_assignable_routes import rack_assignable_blueprint
+    from cmdb.interface.rest_api.routes.port_routes import port_blueprint
     from cmdb.interface.rest_api.routes.log_routes.object_relation_logs_routes import object_relation_logs_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.persons_routes import person_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
@@ -375,6 +376,10 @@ def register_blueprints(app: BaseCmdbApp) -> None:
         ipam_tree_blueprint,
         rack_mounts_blueprint,
         rack_assignable_blueprint,
+        # The /ports surface belongs to Port Connectivity, which is gated behind IPAM by decision D6:
+        # a Type can not declare `uses_ports` without that licence either, so a licensed-out
+        # installation has no ports to read
+        port_blueprint,
     ):
         gate_blueprint(ipam_gated_blueprint, LicenseFeature.IPAM)
 
@@ -383,6 +388,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     # registered silently does nothing.
     app.register_blueprint(rack_mounts_blueprint, url_prefix='/racks')
     app.register_blueprint(rack_assignable_blueprint, url_prefix='/racks')
+    app.register_blueprint(port_blueprint, url_prefix='/ports')
 
     # IPAM routes
     app.register_blueprint(ipam_validation_blueprint, url_prefix='/ipam/validate')

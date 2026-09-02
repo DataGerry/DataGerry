@@ -56,6 +56,7 @@ from cmdb.models.right_model.framework_rights import (
     IpamRight,
     LocationRight,
     RackRight,
+    PortRight,
 )
 from cmdb.models.right_model.isms_rights import (
     IsmsRight,
@@ -231,6 +232,13 @@ FRAMEWORK_RIGHTS = (
             RackRight('add', description='Add racks'),
             RackRight('edit', Levels.PROTECTED, description='Edit racks'),
             RackRight('delete', Levels.DANGER, description='Delete racks'),
+        ),
+        PortRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ports'),
+        (
+            PortRight('view', description='View ports'),
+            PortRight('add', description='Add ports'),
+            PortRight('edit', Levels.PROTECTED, description='Edit ports'),
+            PortRight('delete', Levels.DANGER, description='Delete ports'),
         ),
 )
 
