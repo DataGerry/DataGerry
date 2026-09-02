@@ -20,6 +20,7 @@ import { Component, Input } from '@angular/core';
 import { CmdbMode } from '../../modes.enum';
 import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderUtils } from '../utils/builder-utils';
+import { BuilderIcon } from '../utils/builder-icons';
 import { BuilderSectionHost } from './builder-section-host';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -59,7 +60,7 @@ export class BuilderSectionComponent {
     }
 
     /** Mirrors the palette icon of the control the section was dragged from. */
-    public get sectionIcon(): [string, string] {
+    public get sectionIcon(): BuilderIcon {
         return BuilderUtils.matchedSectionType(this.section?.type);
     }
 

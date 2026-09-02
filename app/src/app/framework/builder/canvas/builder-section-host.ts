@@ -20,6 +20,7 @@ import { DndDropEvent } from 'ngx-drag-drop';
 import { CmdbType } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
 import { BuilderSection } from '../schema/builder-section.model';
+import { BuilderIcon } from '../utils/builder-icons';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -56,7 +57,7 @@ export interface BuilderSectionHost {
 
     getSectionMode(section: BuilderSection): CmdbMode;
     getFieldMode(field: any): CmdbMode;
-    getSectionCollapseIcon(section: BuilderSection): [string, string];
+    getSectionCollapseIcon(section: BuilderSection): BuilderIcon;
     getSectionHeaderClass(section: BuilderSection): Record<string, boolean>;
 
     /** ngx-drag-drop types the section's field zone accepts. */

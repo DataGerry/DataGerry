@@ -4,6 +4,7 @@ import { BuilderSection } from "../schema/builder-section.model";
 import { NgbModal } from "@ng-bootstrap/ng-bootstrap";
 import { DiagnosticModalComponent } from "../modals/diagnostic-modal/diagnostic-modal.component";
 import { PreviewModalComponent } from "../modals/preview-modal/preview-modal.component";
+import { BuilderIcon, MULTI_DATA_SECTION_ICON, REF_SECTION_ICON, SECTION_ICON } from "./builder-icons";
 
 export class BuilderUtils {
 
@@ -141,17 +142,20 @@ export class BuilderUtils {
 
     /**
      * Matches a section type to its icon.
+     *
+     * Returns the shared constant, never a fresh array - see builder-icons.ts.
+     *
      * @param value The section type.
      * @returns The icon prefix and name the palette entry uses.
      */
-    static matchedSectionType(value: string): [string, string] {
+    static matchedSectionType(value: string): BuilderIcon {
         switch (value) {
             case 'multi-data-section':
-                return ['fas', 'list-ol'];
+                return MULTI_DATA_SECTION_ICON;
             case 'ref-section':
-                return ['fas', 'layer-group'];
+                return REF_SECTION_ICON;
             default:
-                return ['fas', 'object-group'];
+                return SECTION_ICON;
         }
     }
 }
