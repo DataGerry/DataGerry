@@ -31,6 +31,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { SpecialTypeService } from '../../../services/special-type.service';
 import { SpecialType, SpecialTypeSchema } from '../../../models/special-type';
 import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
+import { withPortsFlagOnly } from '../utils/ports-type-payload.util';
 import { LocationFieldDeletionService } from '../../services/location-field-deletion.service';
 import { BUILDER_DELETION_GUARD, BuilderDeletionGuard } from 'src/app/framework/builder/services/builder-deletion-guard';
 import { CmdbTypeSchemaAdapter } from 'src/app/framework/builder/schema/cmdb-type-schema.adapter';
@@ -200,11 +201,11 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
 /* ---------------------------------------------------- FUCNTIONS --------------------------------------------------- */
 
+    /** Measured on the payload, so a type holding nothing but the stripped ports section is invalid. */
     public get status(): boolean{
-        const hasFields: boolean = this.typeInstance.fields.length > 0;
-        const hasSections: boolean = this.typeInstance.render_meta.sections.length > 0;
+        const payload = withPortsFlagOnly(this.typeInstance);
 
-        return hasFields && hasSections && this.builderValid;
+        return payload.fields.length > 0 && payload.render_meta.sections.length > 0 && this.builderValid;
     }
 
 

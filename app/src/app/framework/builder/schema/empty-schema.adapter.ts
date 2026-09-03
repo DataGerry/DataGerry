@@ -61,4 +61,12 @@ export class EmptySchemaAdapter implements BuilderSchemaAdapter {
     public setSelectableAsParent(): void {
         // Nothing to write to.
     }
+
+    public readUsesPorts(): boolean {
+        return false;
+    }
+
+    public setUsesPorts(): void {
+        // Nothing to write to.
+    }
 }

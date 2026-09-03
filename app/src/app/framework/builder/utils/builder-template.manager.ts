@@ -17,7 +17,10 @@
 */
 import { v4 as uuidv4 } from 'uuid';
 
-import { SectionTemplateListItem } from '../../section_templates/models/virtual-section-template.model';
+import {
+    isPortsTemplateName,
+    SectionTemplateListItem
+} from '../../section_templates/models/virtual-section-template.model';
 import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderContext } from './builder-context';
 import { BuilderInteractionPolicy } from './builder-interaction-policy';
@@ -81,6 +84,11 @@ export class BuilderTemplateManager {
 
             if (nameIndex >= 0) {
                 globalTemplateIds.splice(nameIndex, 1);
+            }
+
+            // The ports template is held by the flag, not by an id, so releasing it clears the flag.
+            if (isPortsTemplateName(sectionData?.name)) {
+                this.ctx.schema.setUsesPorts(false);
             }
 
             this.ctx.selectedGlobalSectionTemplates?.splice(globalTemplateIndex, 1);

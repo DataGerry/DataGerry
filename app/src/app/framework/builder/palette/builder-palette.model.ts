@@ -38,6 +38,9 @@ export interface BuilderPaletteItem {
     /** Leading identifier shown before the label, e.g. '#12' for a section template. */
     badge?: string;
 
+    /** Emphasises the label, marking the item as a section template rather than a control. */
+    strong?: boolean;
+
     /** ngx-drag-drop type this item drops into: 'sections', 'inputs' or 'location'. */
     dndType: string;
 
@@ -77,6 +80,7 @@ export function paletteItemsFromSectionTemplates(
     return templates.map(template => ({
         label: template?.label,
         badge: template?.public_id ? `#${template.public_id}` : undefined,
+        strong: true,
         dndType: 'sections',
         payload: () => template
     }));
