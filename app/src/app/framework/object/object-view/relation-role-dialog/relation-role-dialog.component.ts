@@ -27,7 +27,7 @@ import {
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
-import { finalize, Subject } from 'rxjs';
+import { finalize, Subject, takeUntil } from 'rxjs';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CmdbRelation } from 'src/app/framework/models/relation.model';
@@ -113,6 +113,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     this.initializeForms();
     this.setupVisibility();
     this.initializeSelectors();
+    this.watchAttributeValidity();
     this.cdr.detectChanges();
   }
 
@@ -145,6 +146,13 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
    * Handles confirmation action by emitting selected relation data.
    */
   confirm(): void {
+    if (this.relationForm.invalid) {
+      this.relationForm.markAllAsTouched();
+      this.toastService.error('Please fill in all required fields');
+      this.cdr.markForCheck();
+      return;
+    }
+
     const parentObjID = this.form.get('parent')?.value ?? this.currentObjectID;
     const childObjID = this.form.get('child')?.value ?? this.currentObjectID;
 
@@ -209,6 +217,9 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
    */
   public isConfirmDisabled(): boolean {
     if (this.mode === CmdbMode.View) {
+      return true;
+    }
+    if (this.relationForm.invalid) {
       return true;
     }
     if (this.chosenRole === 'parent') {
@@ -299,6 +310,16 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     }
 
     this.cdr.detectChanges();
+  }
+
+  /**
+   * Keeps the confirm button in sync with the attribute form, whose controls
+   * (and their required/regex validators) are added by the field renderers.
+   */
+  private watchAttributeValidity(): void {
+    this.relationForm.statusChanges
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => this.cdr.markForCheck());
   }
 
   /**
