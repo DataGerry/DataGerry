@@ -16,6 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    AfterViewInit,
     Component,
     ComponentRef,
     Input, OnDestroy,
@@ -41,7 +42,7 @@ import { ConfigEditBaseComponent } from './config.edit';
     styleUrls: ['./config-edit.component.scss'],
     standalone: false
 })
-export class ConfigEditComponent implements OnInit, OnDestroy {
+export class ConfigEditComponent implements OnInit, AfterViewInit, OnDestroy {
 
     public modes: typeof CmdbMode = CmdbMode;
 
@@ -58,6 +59,9 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
     @Input() public fieldSectionType: string;
     @Input() public hiddenStatus: boolean;
     @Input() public isDisabled: boolean = false;
+
+    /** Renders the editor read-only, for a field the builder does not allow editing. */
+    @Input() public isReadOnly: boolean = false;
 
     @ViewChild('configContainer', { read: ViewContainerRef, static: true }) container: ViewContainerRef;
 
@@ -93,10 +97,19 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
         this.componentRef.instance.fields = this.fields;
         this.componentRef.instance.fieldSectionType = this.fieldSectionType;
         this.componentRef.instance.hiddenStatus = this.hiddenStatus;
+        this.componentRef.instance.isReadOnly = this.isReadOnly;
 
         this.fieldChangesSubscription = this.componentRef.instance.fieldChanges$.subscribe(
             (data: any) => this.fieldValueChanged(data)
         );
+    }
+
+
+    /** The editor registers its controls in its own ngOnInit, so the lock can only be applied after. */
+    public ngAfterViewInit(): void {
+        if (this.isReadOnly) {
+            this.form.disable({ emitEvent: false });
+        }
     }
 
 

@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
 import { reservedIdentifierPrefixValidator } from '../../../../layout/validators/reserved-identifier-prefix-validator';
 
@@ -24,6 +24,11 @@ import { takeUntil } from 'rxjs/operators';
 
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { CopyService } from '../../../../core/services/copy.service';
+import { ExtendableOptionCatalogService } from 'src/app/core/services/extendable-option-catalog.service';
+import { ExtendableOptionManagerService } from 'src/app/core/services/extendable-option-manager.service';
+import { ManageableOptionType } from 'src/app/core/components/extendable_option_manager/manageable-option-types';
+import { FieldOption } from 'src/app/framework/models/cmdb-section-template';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
@@ -51,6 +56,13 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
     // Add able options for choice selection
     public options: Array<any> = [];
 
+    /** Resolved list of an `option_type` select; empty for a field that owns its options. */
+    public catalogOptions: Array<FieldOption> = [];
+
+    private readonly optionCatalog = inject(ExtendableOptionCatalogService);
+    private readonly optionManager = inject(ExtendableOptionManagerService);
+    private readonly toast = inject(ToastService);
+
     private initialValue: string;
     isValid$: boolean = false;
     private identifierInitialValue: string;
@@ -71,7 +83,9 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
     public ngOnInit(): void {
         this.options = this.data.options;
 
-        if (this.options === undefined || !Array.isArray(this.options)) {
+        if (this.isExtendableOption) {
+            this.loadCatalogOptions();
+        } else if (this.options === undefined || !Array.isArray(this.options)) {
             this.options = [];
             this.options.push({
                 name: `option-${(this.options.length + 1)}`,
@@ -282,7 +296,7 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
      */
     private toggleFormControls(disable: boolean) {
         // Disable or enable form controls based on the value of `disable`
-        if (disable) {
+        if (disable || this.isReadOnly) {
             this.labelControl.disable({ emitEvent: false });
             this.descriptionControl.disable({ emitEvent: false });
             this.valueControl.disable({ emitEvent: false });
@@ -299,6 +313,51 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
             this.requiredControl.enable({ emitEvent: false });
             this.optionsControl.enable({ emitEvent: false });
         }
+    }
+
+    /* ------------------------------------------------- EXTENDABLE OPTIONS ------------------------------------------------ */
+
+    /** An `option_type` select draws its options from the extendable options, not from the field. */
+    public get isExtendableOption(): boolean {
+        return !!this.data?.option_type;
+    }
+
+
+    /** The manage descriptor of this option type, or null while the type is not user-extendable. */
+    public get manageableOption(): ManageableOptionType | null {
+        return this.optionManager.descriptorOf(this.data?.option_type);
+    }
+
+
+    /** Managing the options is allowed on a read-only field: it edits the catalog, not the field. */
+    public openOptionManager(): void {
+        this.optionManager.open(this.data?.option_type)
+            .pipe(takeUntil(this.subscriber))
+            .subscribe(() => this.loadCatalogOptions());
+    }
+
+
+    /** What the default-value select lists: the resolved catalog, or the field's own options. */
+    public get selectOptions(): Array<FieldOption> {
+        return this.isExtendableOption ? this.catalogOptions : this.options;
+    }
+
+
+    /** Only a field's own options carry an identifier worth showing next to the label. */
+    public optionText(option: FieldOption): string {
+        return this.isExtendableOption ? option.label : `Label: ${option.label} Name: ${option.name}`;
+    }
+
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private loadCatalogOptions(): void {
+        this.optionCatalog.optionsFor(this.data?.option_type)
+            .pipe(takeUntil(this.subscriber))
+            .subscribe({
+                next: (options) => { this.catalogOptions = options; },
+                error: (error) => this.toast.error(error?.error?.message)
+            });
     }
 
     /**

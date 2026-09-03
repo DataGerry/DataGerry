@@ -17,6 +17,7 @@
 */
 
 import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
+import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
@@ -58,7 +59,7 @@ describe('ChoiceFieldEditComponent', () => {
 
     beforeEach(async () => {
         await TestBed.configureTestingModule({
-            imports: [ReactiveFormsModule, FormsModule],
+            imports: [ReactiveFormsModule, FormsModule, HttpClientTestingModule],
             declarations: [ChoiceFieldEditComponent],
             providers: [
                 { provide: FieldIdentifierValidationService, useClass: MockFieldIdentifierValidationService },

@@ -26,6 +26,11 @@ export class BuilderInteractionPolicy {
         return this.canEditSection(section) ? SECTION_EDIT_ICON : SECTION_READONLY_ICON;
     }
 
+    /** A locked field can still be opened, read-only, so it carries the same eye icon. */
+    public getFieldCollapseIcon(field: any): BuilderIcon {
+        return this.isLockedField(field) ? SECTION_READONLY_ICON : SECTION_EDIT_ICON;
+    }
+
     public isSchemaLockedSection(section: BuilderSection): boolean {
         const sectionName = section?.name ?? '';
         return this.context().schemaLockedSectionNames.includes(sectionName);

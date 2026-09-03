@@ -2,15 +2,16 @@
 
     @if (this.fieldSectionType === 'multi-data-section') {
 <div>
-        <div class="col-md-12">
+        <div class="mb-3 col-md-12">
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
                     <input
                         type="checkbox"
                         [formControl]="hideFieldControl"
                         name="hideFieldControl-choice"
+                        class="form-check-input"
                     />
-                    <label class="hide-info mb-1 mt-3">
+                    <label class="hide-info mb-1">
                         Hide this field as column in object view/edit mode
                     </label>
                 </span>
@@ -113,6 +114,7 @@
         />
         <small class="form-text text-muted">Small helper popup.</small>
     </div>
+    @if (!isExtendableOption) {
     <div class="col-md-12">
         <label class="mt-3 mb-1">Options:</label>
         <table class="table table-bordered" >
@@ -134,7 +136,7 @@
                             type="text"
                             class="form-control"
                             value="{{data.options[i].label}}"
-                            [disabled]="isDuplicate$"
+                            [disabled]="isDuplicate$ || isReadOnly"
                         >
                     </td>
                     <td>
@@ -144,16 +146,15 @@
                             type="text"
                             class="form-control"
                             value="{{data.options[i].name}}"
-                            [disabled]="isDuplicate$"
+                            [disabled]="isDuplicate$ || isReadOnly"
                         >
                     </td>
                     <td>
                         <button
                             type="button"
                             class="btn btn-outline-primary"
-                            [disabled]="options.length == 1"
+                            [disabled]="options.length == 1 || isDuplicate$ || isReadOnly"
                             (click)="delOption(data.options[i])"
-                            [disabled]="isDuplicate$"
                         >
                             <fa-icon [icon]="['far', 'trash-alt']"></fa-icon>
                         </button>
@@ -163,7 +164,7 @@
                 <tr>
                     <td colspan="4">
                         <button type="button" class="btn btn-outline-secondary" (click)="addOption()"
-                        [disabled]="isDuplicate$"
+                        [disabled]="isDuplicate$ || isReadOnly"
                         >
                             + Add option
                         </button>
@@ -172,18 +173,29 @@
             </tbody>
         </table>
     </div>
+    }
     <div class="col-md-12">
         <label class="mt-3 mb-1">Default value:</label>
-        <select 
-            [formControl]="valueControl"
-            class="form-select"
-            >
-            <option></option>
-            @for (opt of options; track opt; let i = $index) {
-<option [value]="opt.name">
-                Label: {{opt.label}} Name: {{opt.name}}
-            </option>
-}
-        </select>
+        <div class="d-flex align-items-start gap-2">
+            <div class="flex-grow-1">
+                <select
+                    [formControl]="valueControl"
+                    class="form-select"
+                    >
+                    <option></option>
+                    @for (opt of selectOptions; track opt) {
+                    <option [value]="opt.name">{{ optionText(opt) }}</option>
+                    }
+                </select>
+            </div>
+            @if (manageableOption) {
+            <app-button
+                [bootstrapClass]="'btn-outline-secondary btn-sm'"
+                [label]="manageableOption.manageLabel"
+                type="button"
+                (clicked)="openOptionManager()">
+            </app-button>
+            }
+        </div>
     </div>
 </div>

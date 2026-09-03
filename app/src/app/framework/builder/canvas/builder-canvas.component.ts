@@ -50,6 +50,7 @@ import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderSchemaAdapter } from '../schema/builder-schema.adapter';
 import { EmptySchemaAdapter } from '../schema/empty-schema.adapter';
 import { BuilderPaletteGroup } from '../palette/builder-palette.model';
+import { BuilderIcon } from '../utils/builder-icons';
 import { BuilderUtils } from '../utils/builder-utils';
 import { BuilderContext } from '../utils/builder-context';
 import { BuilderInteractionPolicy, BuilderInteractionPolicyContext } from '../utils/builder-interaction-policy';
@@ -394,6 +395,11 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
 
     public isLockedField(field: any): boolean {
         return this.policy.isLockedField(field);
+    }
+
+
+    public getFieldCollapseIcon(field: any): BuilderIcon {
+        return this.policy.getFieldCollapseIcon(field);
     }
 
     public isFieldHighlighted(field: any, section?: any): boolean {
