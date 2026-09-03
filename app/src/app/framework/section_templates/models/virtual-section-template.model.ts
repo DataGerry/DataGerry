@@ -38,7 +38,7 @@ export function isVirtualTemplateName(name: string): boolean {
     return name?.startsWith(VIRTUAL_TEMPLATE_NAME_PREFIX) ?? false;
 }
 
-/** Applied to a type as `uses_ports`, never as a stored section. */
+/** A type declares this template through `uses_ports`. */
 const PORTS_VIRTUAL_TEMPLATE_NAME = `${VIRTUAL_TEMPLATE_NAME_PREFIX}ports`;
 
 export function isPortsTemplateName(name: string): boolean {

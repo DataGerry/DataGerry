@@ -265,7 +265,7 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
 
         saveTypeInstance.render_meta.sections = sections;
 
-        // The ports section is a canvas-only marker; the type carries `uses_ports` instead.
+        // The ports section is not part of the stored type.
         const payload: CmdbType = withPortsFlagOnly(saveTypeInstance);
 
         if (this.mode === CmdbMode.Create) {

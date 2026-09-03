@@ -33,6 +33,7 @@ import { SpecialType, SpecialTypeSchema } from '../../../models/special-type';
 import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 import { withPortsFlagOnly } from '../utils/ports-type-payload.util';
 import { LocationFieldDeletionService } from '../../services/location-field-deletion.service';
+import { PortsUsageService } from '../../services/ports-usage.service';
 import { BUILDER_DELETION_GUARD, BuilderDeletionGuard } from 'src/app/framework/builder/services/builder-deletion-guard';
 import { CmdbTypeSchemaAdapter } from 'src/app/framework/builder/schema/cmdb-type-schema.adapter';
 import { BuilderSchemaAdapter } from 'src/app/framework/builder/schema/builder-schema.adapter';
@@ -58,8 +59,13 @@ import {
     // drifting out of shape with BuilderDeletionGuard.
     providers: [{
         provide: BUILDER_DELETION_GUARD,
-        useFactory: (guard: LocationFieldDeletionService): BuilderDeletionGuard => guard,
-        deps: [LocationFieldDeletionService]
+        useFactory: (location: LocationFieldDeletionService, ports: PortsUsageService): BuilderDeletionGuard => ({
+            isLocationField: field => location.isLocationField(field),
+            sectionContainsLocationField: (section, fields) => location.sectionContainsLocationField(section, fields),
+            canDelete: scope => location.canDelete(scope),
+            canRemoveSection: section => ports.canRemoveSection(section)
+        }),
+        deps: [LocationFieldDeletionService, PortsUsageService]
     }],
     standalone: false
 })
@@ -201,7 +207,7 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
 /* ---------------------------------------------------- FUCNTIONS --------------------------------------------------- */
 
-    /** Measured on the payload, so a type holding nothing but the stripped ports section is invalid. */
+    /** Measured on the payload, so the ports section alone does not make a type valid. */
     public get status(): boolean{
         const payload = withPortsFlagOnly(this.typeInstance);
 

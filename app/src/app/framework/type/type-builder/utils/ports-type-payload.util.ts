@@ -39,10 +39,10 @@ export function withPortsFlagOnly(typeInstance: CmdbType): CmdbType {
     );
 
     payload.fields = (typeInstance?.fields ?? []).filter(field => !portFieldNames.has(field?.name));
-    // Types saved before the flag existed carry the reserved name here, which the backend calls a bug.
+    // A virtual template name is never a stored template id.
     payload.global_template_ids = (typeInstance?.global_template_ids ?? [])
         .filter(templateName => !isPortsTemplateName(templateName));
-    // The meta step offers every model field, port fields included, so nothing may keep referencing them.
+    // The meta step offers port fields too, so nothing may keep referencing them.
     payload.render_meta = {
         ...typeInstance.render_meta,
         sections: sections.filter(section => section !== portsSection),

@@ -192,7 +192,7 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
             this.templateManager.setSelectedGlobalTemplates();
         }
 
-        // Idempotent, and outside the guard above: a copied type arrives after the palette has loaded.
+        // A copied type is bound after the palette has loaded.
         if (this.globalSectionTemplates?.length > 0) {
             this.mutation.restorePortsSection();
         }

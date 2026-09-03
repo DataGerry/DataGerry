@@ -240,10 +240,7 @@ export class BuilderMutationHelper {
         }
     }
 
-    /**
-     * `uses_ports` is what `global_template_ids` is for a stored template, so a type that uses ports
-     * has to re-apply the ports template itself: the flag arrives without a section to show for it.
-     */
+    /** A stored type carries the flag but no ports section, so the canvas rebuilds it from the palette. */
     public restorePortsSection(): void {
         if (!this.ctx.schema.readUsesPorts()) {
             return;
@@ -252,7 +249,7 @@ export class BuilderMutationHelper {
         const templateIndex = this.ctx.globalSectionTemplates
             ?.findIndex(template => isPortsTemplateName(template?.name)) ?? -1;
 
-        // Absent without the IPAM licence: leave the flag and the payload as they are.
+        // Absent without the IPAM licence; leave the flag as it is.
         if (templateIndex < 0) {
             return;
         }
@@ -260,7 +257,6 @@ export class BuilderMutationHelper {
         const [template] = this.ctx.globalSectionTemplates.splice(templateIndex, 1);
         this.ctx.selectedGlobalSectionTemplates?.push(template);
 
-        // Legacy types stored the section itself; the palette bookkeeping above is still needed.
         if (this.ctx.schema.readSections()?.some(section => isPortsTemplateName(section?.name))) {
             return;
         }
@@ -644,6 +640,10 @@ export class BuilderMutationHelper {
         }
 
         const guard = this.deps.deletionGuard;
+
+        if (guard?.canRemoveSection?.(item) === false) {
+            return;
+        }
 
         if (this.ctx.mode === CmdbMode.Edit
             && guard?.sectionContainsLocationField(item, this.ctx.schema.readFields())

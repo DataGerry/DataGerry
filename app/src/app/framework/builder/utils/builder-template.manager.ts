@@ -86,7 +86,7 @@ export class BuilderTemplateManager {
                 globalTemplateIds.splice(nameIndex, 1);
             }
 
-            // The ports template is held by the flag, not by an id, so releasing it clears the flag.
+            // The ports template is held by the flag, not by an id.
             if (isPortsTemplateName(sectionData?.name)) {
                 this.ctx.schema.setUsesPorts(false);
             }
