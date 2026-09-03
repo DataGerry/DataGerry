@@ -81,7 +81,6 @@ export class InternalConnectorHelperService {
     modalRef.componentInstance.message = 'DataGerry API Credentials are not saved. Do you want to save it now?';
     modalRef.componentInstance.confirmButtonText = 'Save Now';
     modalRef.componentInstance.cancelButtonText = 'Cancel';
-    modalRef.componentInstance.confirmButtonClass = 'btn-primary';
 
     modalRef.result.then(
       (result) => {

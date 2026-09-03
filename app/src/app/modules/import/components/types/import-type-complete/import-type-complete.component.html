@@ -25,11 +25,11 @@
 
     @if (!importResponse) {
     <div class="step-actions">
-        <app-button label="Previous Step" icon="fas fa-angle-double-left" bootstrapClass="btn-warning"
+        <app-button label="Previous Step" icon="fas fa-angle-double-left" variant="outline" tone="neutral"
             [disabled]="isImporting" awPreviousStep></app-button>
-        <app-button [label]="isImporting ? 'Import running' : 'Start import'"
-            [icon]="isImporting ? 'fas fa-spinner fa-spin' : 'fas fa-save'" bootstrapClass="btn-success"
-            [disabled]="isImporting || typeCount === 0" (clicked)="onStartImport()"></app-button>
+        <app-button label="Start import" icon="fas fa-save" variant="solid" tone="brand"
+            [loading]="isImporting" loadingText="Import running" [disabled]="typeCount === 0"
+            (clicked)="onStartImport()"></app-button>
     </div>
     }
 
@@ -75,7 +75,7 @@
         }
 
         <div class="complete-actions">
-            <app-button label="Go to types" icon="fas fa-arrow-right" bootstrapClass="btn-primary"
+            <app-button label="Go to types" icon="fas fa-arrow-right" variant="solid" tone="brand"
                 (clicked)="onTypeListRedirect()"></app-button>
         </div>
     </div>

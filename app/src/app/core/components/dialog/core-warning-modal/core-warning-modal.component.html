@@ -4,13 +4,13 @@
     </app-warning-alert>
 
     @if (cancelLabel) {
-    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" [label]="cancelLabel" type="button"
+    <app-button dgModalFooter variant="outline" tone="neutral" [label]="cancelLabel" type="button"
         (clicked)="cancel()">
     </app-button>
     }
 
     @if (confirmLabel) {
-    <app-button dgModalFooter [bootstrapClass]="'btn-danger'" [label]="confirmLabel" type="button"
+    <app-button dgModalFooter variant="solid" tone="danger" [label]="confirmLabel" type="button"
         (clicked)="navigate()">
     </app-button>
     }

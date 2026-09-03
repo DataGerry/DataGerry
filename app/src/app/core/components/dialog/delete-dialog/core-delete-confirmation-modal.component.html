@@ -9,11 +9,11 @@
     </app-warning-alert>
     }
 
-    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Close" type="button"
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Close" type="button"
         (clicked)="activeModal.dismiss()">
     </app-button>
 
-    <app-button dgModalFooter [bootstrapClass]="'btn-danger'" label="Delete" type="button" icon="fas fa-trash-can"
+    <app-button dgModalFooter variant="solid" tone="danger" label="Delete" type="button" icon="fas fa-trash-can"
         (clicked)="confirmDelete()">
     </app-button>
 </dg-modal>

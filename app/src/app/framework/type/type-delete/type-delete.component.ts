@@ -90,7 +90,8 @@ import { ReportService } from 'src/app/toolbox/reporting/services/report.service
 
         <app-button
             dgModalFooter
-            [bootstrapClass]="'btn-secondary'"
+            variant="outline"
+            tone="neutral"
             label="Cancel"
             type="button"
             (clicked)="modal.dismiss('cancel')">
@@ -98,7 +99,8 @@ import { ReportService } from 'src/app/toolbox/reporting/services/report.service
 
         <app-button
             dgModalFooter
-            [bootstrapClass]="'btn-danger'"
+            variant="solid"
+            tone="danger"
             label="Delete"
             type="button"
             icon="fas fa-trash-can"

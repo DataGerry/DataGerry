@@ -2,6 +2,8 @@ import { Component, inject, Input } from '@angular/core';
 import { FormControl } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 
+import { ButtonTone, ButtonVariant } from '../../base/button/app-button.types';
+
 @Component({
   selector: 'core-confirmation-modal',
   templateUrl: './core-confirmation-modal.component.html',
@@ -13,7 +15,8 @@ export class CoreConfirmationModalComponent {
   @Input() message: string;
   @Input() confirmButtonText: string = 'Confirm';
   @Input() cancelButtonText: string = 'Cancel';
-  @Input() confirmButtonClass: string = 'btn-primary';
+  @Input() confirmVariant: ButtonVariant = 'solid';
+  @Input() confirmTone: ButtonTone = 'brand';
   @Input() warningTitle: string = 'Warning:';
   @Input() warningMessage: string = '';
   @Input() warningIconClass: string = 'fas fa-exclamation-circle';

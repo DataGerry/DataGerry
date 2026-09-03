@@ -5,30 +5,40 @@
       <ng-template awWizardStepSymbol><i class="fas fa-file-code"></i></ng-template>
       <cmdb-object-bulk-change-editor [changeForm]="changeForm" (activeChange)="activeState = $event"
                                       [type]="type" [renderForm]="renderForm"></cmdb-object-bulk-change-editor>
-      <button class="btn btn-warning prev" type="button"
-              [routerLink]="['/framework/object/type', type.public_id]"
-              awPreviousStep>Back to {{type.label}}</button>
-      <button class="btn btn-success next" type="button"
-              (click)="saveObject()"
-              [disabled]="!hasChanges">Save</button>
-      <button class="btn btn-primary next me-2" type="button" awNextStep [disabled]="!hasChanges">Next Step</button>
+      <div class="dg-button-row dg-button-row--between">
+        <app-button awPreviousStep variant="outline" tone="neutral" [label]="'Back to ' + type.label"
+                    icon="fas fa-angle-double-left"
+                    [routerLink]="['/framework/object/type', type.public_id]"></app-button>
+        <span class="bulk-step-actions">
+          <app-button awNextStep variant="outline" tone="brand" label="Next Step"
+                      icon="fas fa-angle-double-right" iconPosition="end" [disabled]="!hasChanges"></app-button>
+          <app-button variant="solid" tone="brand" label="Save" [disabled]="!hasChanges"
+                      (clicked)="saveObject()"></app-button>
+        </span>
+      </div>
     </aw-wizard-step>
     <aw-wizard-step stepId="2" stepTitle="Preview" awOptionalStep>
       <ng-template awWizardStepSymbol><i class="fas fa-clipboard-check"></i></ng-template>
       <cmdb-object-bulk-change-preview [activeState]="activeState" [results]="renderResults" [changeForm]="changeForm"
                                        [type]="type">
       </cmdb-object-bulk-change-preview>
-      <button class="btn btn-primary prev" type="button" awPreviousStep>Go to previous step</button>
-      <button class="btn btn-success next" type="button"
-              (click)="saveObject()"
-              [disabled]="!hasChanges">Save</button>
+      <div class="dg-button-row dg-button-row--between">
+        <app-button awPreviousStep variant="outline" tone="neutral" label="Go to previous step"
+                    icon="fas fa-angle-double-left"></app-button>
+        <app-button variant="solid" tone="brand" label="Save" [disabled]="!hasChanges"
+                    (clicked)="saveObject()"></app-button>
+      </div>
     </aw-wizard-step>
     <aw-wizard-step stepId="3" stepTitle="Complete">
       <ng-template awWizardStepSymbol><i class="fas fa-save"></i></ng-template>
       <cmdb-object-bulk-change-complete [failedChanges]="apiResponse?.failed" [successfulChanges]="apiResponse?.results"
                                         [done]="!!apiResponse"></cmdb-object-bulk-change-complete>
-      <button class="btn btn-primary prev" type="button" awPreviousStep>Go to previous step</button>
-      <button class="btn btn-primary next" [routerLink]="['/framework/object/type', type.public_id]" type="button">Done</button>
+      <div class="dg-button-row dg-button-row--between">
+        <app-button awPreviousStep variant="outline" tone="neutral" label="Go to previous step"
+                    icon="fas fa-angle-double-left"></app-button>
+        <app-button variant="solid" tone="brand" label="Done"
+                    [routerLink]="['/framework/object/type', type.public_id]"></app-button>
+      </div>
     </aw-wizard-step>
   </aw-wizard>
 

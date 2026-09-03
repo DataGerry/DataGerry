@@ -303,4 +303,7 @@ app-button {
     gap: 8px;
 
     &--end { justify-content: flex-end; }
+
+    /* Wizard steps: Previous on the left, Next on the right. */
+    &--between { justify-content: space-between; }
 }

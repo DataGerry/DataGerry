@@ -140,7 +140,8 @@
         <i class="fas fa-hand-pointer" aria-hidden="true"></i>
         Drag onto a parent, or tick rows and use “Move here”
     </span>
-    <button dgModalFooter type="button" class="dg-btn dg-btn-light" (click)="activeModal.close()">Done</button>
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Done" type="button"
+        (clicked)="activeModal.close()"></app-button>
 </dg-modal>
 
 @if (dropHint) {
