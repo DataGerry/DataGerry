@@ -16,10 +16,10 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnDestroy, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 
 import { ReplaySubject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { filter, takeUntil } from 'rxjs/operators';
 
 import { RenderFieldComponent } from '../components.fields';
 import { ExtendableOptionCatalogService } from 'src/app/core/services/extendable-option-catalog.service';
@@ -31,7 +31,7 @@ import { ManageableOptionType } from 'src/app/core/components/extendable_option_
     styleUrls: ['./select.component.scss'],
     standalone: false
 })
-export class SelectComponent extends RenderFieldComponent implements OnDestroy {
+export class SelectComponent extends RenderFieldComponent implements OnInit, OnDestroy {
 
   private readonly optionManager = inject(ExtendableOptionManagerService);
   private readonly optionCatalog = inject(ExtendableOptionCatalogService);
@@ -39,6 +39,17 @@ export class SelectComponent extends RenderFieldComponent implements OnDestroy {
 
   public constructor() {
     super();
+  }
+
+
+  /** The option manager can be opened from anywhere, so the dropdown follows the catalog. */
+  public ngOnInit(): void {
+    this.optionCatalog.changes$
+      .pipe(
+        filter(changed => this.optionCatalog.affects(this.data?.option_type, changed)),
+        takeUntil(this.subscriber)
+      )
+      .subscribe(() => this.reloadOptions());
   }
 
 
@@ -54,14 +65,14 @@ export class SelectComponent extends RenderFieldComponent implements OnDestroy {
   }
 
 
-  /** Reads the refreshed list straight back into the dropdown. */
   public openOptionManager(): void {
     this.optionManager.open(this.data?.option_type)
       .pipe(takeUntil(this.subscriber))
-      .subscribe(() => this.reloadOptions());
+      .subscribe();
   }
 
 
+  /** Reads the refreshed list straight back into the dropdown. */
   private reloadOptions(): void {
     this.optionCatalog.optionsFor(this.data?.option_type)
       .pipe(takeUntil(this.subscriber))

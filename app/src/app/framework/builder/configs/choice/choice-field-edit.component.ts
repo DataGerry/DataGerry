@@ -20,13 +20,11 @@ import { UntypedFormControl, Validators } from '@angular/forms';
 import { reservedIdentifierPrefixValidator } from '../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { filter, takeUntil } from 'rxjs/operators';
 
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { CopyService } from '../../../../core/services/copy.service';
 import { ExtendableOptionCatalogService } from 'src/app/core/services/extendable-option-catalog.service';
-import { ExtendableOptionManagerService } from 'src/app/core/services/extendable-option-manager.service';
-import { ManageableOptionType } from 'src/app/core/components/extendable_option_manager/manageable-option-types';
 import { FieldOption } from 'src/app/framework/models/cmdb-section-template';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
@@ -60,7 +58,6 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
     public catalogOptions: Array<FieldOption> = [];
 
     private readonly optionCatalog = inject(ExtendableOptionCatalogService);
-    private readonly optionManager = inject(ExtendableOptionManagerService);
     private readonly toast = inject(ToastService);
 
     private initialValue: string;
@@ -85,6 +82,7 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
 
         if (this.isExtendableOption) {
             this.loadCatalogOptions();
+            this.watchCatalogChanges();
         } else if (this.options === undefined || !Array.isArray(this.options)) {
             this.options = [];
             this.options.push({
@@ -296,7 +294,7 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
      */
     private toggleFormControls(disable: boolean) {
         // Disable or enable form controls based on the value of `disable`
-        if (disable || this.isReadOnly) {
+        if (disable) {
             this.labelControl.disable({ emitEvent: false });
             this.descriptionControl.disable({ emitEvent: false });
             this.valueControl.disable({ emitEvent: false });
@@ -323,20 +321,6 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
     }
 
 
-    /** The manage descriptor of this option type, or null while the type is not user-extendable. */
-    public get manageableOption(): ManageableOptionType | null {
-        return this.optionManager.descriptorOf(this.data?.option_type);
-    }
-
-
-    /** Managing the options is allowed on a read-only field: it edits the catalog, not the field. */
-    public openOptionManager(): void {
-        this.optionManager.open(this.data?.option_type)
-            .pipe(takeUntil(this.subscriber))
-            .subscribe(() => this.loadCatalogOptions());
-    }
-
-
     /** What the default-value select lists: the resolved catalog, or the field's own options. */
     public get selectOptions(): Array<FieldOption> {
         return this.isExtendableOption ? this.catalogOptions : this.options;
@@ -350,6 +334,17 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
 
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** The option manager can be opened from anywhere, so the select follows the catalog. */
+    private watchCatalogChanges(): void {
+        this.optionCatalog.changes$
+            .pipe(
+                filter(changed => this.optionCatalog.affects(this.data?.option_type, changed)),
+                takeUntil(this.subscriber)
+            )
+            .subscribe(() => this.loadCatalogOptions());
+    }
+
 
     private loadCatalogOptions(): void {
         this.optionCatalog.optionsFor(this.data?.option_type)

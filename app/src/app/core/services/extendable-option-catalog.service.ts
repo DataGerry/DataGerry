@@ -17,7 +17,7 @@
 */
 import { Injectable, inject } from '@angular/core';
 
-import { Observable, forkJoin, of } from 'rxjs';
+import { Observable, Subject, forkJoin, of } from 'rxjs';
 import { map, shareReplay } from 'rxjs/operators';
 
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
@@ -35,6 +35,10 @@ import { Field, FieldOption } from 'src/app/framework/models/cmdb-section-templa
 export class ExtendableOptionCatalogService {
     private readonly extendableOptionService = inject(ExtendableOptionService);
     private readonly catalog = new Map<string, Observable<FieldOption[]>>();
+    private readonly invalidated = new Subject<string | null>();
+
+    /** Emits the dropped OptionType, or null when the whole catalog was dropped. */
+    public readonly changes$: Observable<string | null> = this.invalidated.asObservable();
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
@@ -76,10 +80,17 @@ export class ExtendableOptionCatalogService {
     public invalidate(optionType?: string): void {
         if (optionType) {
             this.catalog.delete(optionType);
-            return;
+        } else {
+            this.catalog.clear();
         }
 
-        this.catalog.clear();
+        this.invalidated.next(optionType ?? null);
+    }
+
+
+    /** True when `optionType` has to be read again after the reported change. */
+    public affects(optionType: string, changed: string | null): boolean {
+        return !!optionType && (changed === null || changed === optionType);
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */

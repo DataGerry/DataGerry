@@ -77,7 +77,6 @@
         <textarea
             [(ngModel)]="data.description"
             class="form-control"
-            [disabled]="isReadOnly"
             [ngModelOptions]="{standalone: true}"
             (ngModelChange)="onRefInputChange($event, 'description')"
         >
@@ -89,7 +88,6 @@
         <label class="form-label">Helper text:</label>
         <input
             [(ngModel)]="data.helperText"
-            [disabled]="isReadOnly"
             [ngModelOptions]="{standalone: true}"
             type="text"
             class="form-control"
@@ -148,7 +146,6 @@
                                 value="{{summary.prefix}}"
                                 [ngbTooltip]="previewContent"
                                 [(ngModel)]="summary.prefix"
-                                [disabled]="isReadOnly"
                                 [ngModelOptions]="{standalone: true}"
                             >
                         </div>
@@ -159,7 +156,6 @@
                             class="form-control"
                             value="{{summary.line}}"
                             [(ngModel)]="summary.line"
-                            [disabled]="isReadOnly"
                             [ngModelOptions]="{standalone: true}"
                         >
                     </td>
@@ -179,7 +175,7 @@
                         <button
                             type="button"
                             class="btn btn-outline-primary"
-                            [disabled]="summary.length == 1 || isReadOnly"
+                            [disabled]="summary.length == 1"
                             (click)="delSummary(summary)"
                         >
                             <fa-icon [icon]="['far', 'trash-alt']"></fa-icon>
@@ -189,7 +185,7 @@
                 }
                 <tr>
                     <td colspan="6">
-                        <button type="button" class="btn btn-outline-secondary" [disabled]="isReadOnly" (click)="addSummary()">
+                        <button type="button" class="btn btn-outline-secondary" (click)="addSummary()">
                             + Add option
                         </button>
                     </td>
@@ -206,7 +202,6 @@
         <select 
             [(ngModel)]="data.value"
             [ngModelOptions]="{standalone: true}"
-            [disabled]="isReadOnly"
             class="form-control"
             (ngModelChange)="onRefInputChange($event, 'value')"
         >

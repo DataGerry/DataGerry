@@ -136,7 +136,7 @@
                             type="text"
                             class="form-control"
                             value="{{data.options[i].label}}"
-                            [disabled]="isDuplicate$ || isReadOnly"
+                            [disabled]="isDuplicate$"
                         >
                     </td>
                     <td>
@@ -146,14 +146,14 @@
                             type="text"
                             class="form-control"
                             value="{{data.options[i].name}}"
-                            [disabled]="isDuplicate$ || isReadOnly"
+                            [disabled]="isDuplicate$"
                         >
                     </td>
                     <td>
                         <button
                             type="button"
                             class="btn btn-outline-primary"
-                            [disabled]="options.length == 1 || isDuplicate$ || isReadOnly"
+                            [disabled]="options.length == 1 || isDuplicate$"
                             (click)="delOption(data.options[i])"
                         >
                             <fa-icon [icon]="['far', 'trash-alt']"></fa-icon>
@@ -164,7 +164,7 @@
                 <tr>
                     <td colspan="4">
                         <button type="button" class="btn btn-outline-secondary" (click)="addOption()"
-                        [disabled]="isDuplicate$ || isReadOnly"
+                        [disabled]="isDuplicate$"
                         >
                             + Add option
                         </button>
@@ -176,26 +176,14 @@
     }
     <div class="col-md-12">
         <label class="mt-3 mb-1">Default value:</label>
-        <div class="d-flex align-items-start gap-2">
-            <div class="flex-grow-1">
-                <select
-                    [formControl]="valueControl"
-                    class="form-select"
-                    >
-                    <option></option>
-                    @for (opt of selectOptions; track opt) {
-                    <option [value]="opt.name">{{ optionText(opt) }}</option>
-                    }
-                </select>
-            </div>
-            @if (manageableOption) {
-            <app-button
-                [bootstrapClass]="'btn-outline-secondary btn-sm'"
-                [label]="manageableOption.manageLabel"
-                type="button"
-                (clicked)="openOptionManager()">
-            </app-button>
+        <select
+            [formControl]="valueControl"
+            class="form-select"
+            >
+            <option></option>
+            @for (opt of selectOptions; track opt) {
+            <option [value]="opt.name">{{ optionText(opt) }}</option>
             }
-        </div>
+        </select>
     </div>
 </div>

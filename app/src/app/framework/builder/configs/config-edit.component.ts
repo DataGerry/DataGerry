@@ -21,6 +21,7 @@ import {
     ComponentRef,
     Input, OnDestroy,
     OnInit,
+    inject,
     Output,
     ViewChild,
     EventEmitter,
@@ -29,8 +30,11 @@ import {
 import { UntypedFormGroup } from '@angular/forms';
 
 import { ReplaySubject, Subscription } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 
 import { configComponents } from './configs.list';
+import { ExtendableOptionManagerService } from 'src/app/core/services/extendable-option-manager.service';
+import { ManageableOptionType } from 'src/app/core/components/extendable_option_manager/manageable-option-types';
 import { CmdbType } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
 import { ConfigEditBaseComponent } from './config.edit';
@@ -62,6 +66,8 @@ export class ConfigEditComponent implements OnInit, AfterViewInit, OnDestroy {
 
     /** Renders the editor read-only, for a field the builder does not allow editing. */
     @Input() public isReadOnly: boolean = false;
+
+    private readonly optionManager = inject(ExtendableOptionManagerService);
 
     @ViewChild('configContainer', { read: ViewContainerRef, static: true }) container: ViewContainerRef;
 
@@ -105,11 +111,27 @@ export class ConfigEditComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
 
-    /** The editor registers its controls in its own ngOnInit, so the lock can only be applied after. */
+    /** The editor registers its controls in its own ngOnInit, so the model lock follows the DOM one. */
     public ngAfterViewInit(): void {
         if (this.isReadOnly) {
             this.form.disable({ emitEvent: false });
         }
+    }
+
+
+    /**
+     * The manage action lives outside the fieldset on purpose: it edits the option catalog, not the
+     * field, and a disabled fieldset would otherwise disable it along with everything else.
+     */
+    public get manageableOption(): ManageableOptionType | null {
+        return this.optionManager.descriptorOf(this.data?.option_type);
+    }
+
+
+    public openOptionManager(): void {
+        this.optionManager.open(this.data?.option_type)
+            .pipe(takeUntil(this.subscriber))
+            .subscribe();
     }
 
 
