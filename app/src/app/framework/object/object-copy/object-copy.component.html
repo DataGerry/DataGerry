@@ -4,19 +4,22 @@
             <h1>Copy of {{typeInstance?.label}} #{{renderResult?.object_information.object_id}}</h1>
         </div>
         <div class="col-sm-2 text-end">
-            <div class="btn-group p-1" role="group">
-                <button
-                    type="button"
-                    class="cancel-button btn btn-warning"
+            <div class="dg-button-row dg-button-row--end p-1">
+                <app-button
+                    label="Cancel"
+                    variant="outline"
+                    tone="neutral"
                     routerLink="/framework/object/view/{{renderResult?.object_information.object_id}}"
-                >Cancel</button>
+                ></app-button>
 
-                <button
+                <app-button
+                    label="Save"
+                    variant="solid"
+                    tone="brand"
                     type="submit"
-                    class="btn btn-success me-2"
-                    (click)="copyObject()"
                     [disabled]="!renderForm.valid"
-                >Save</button>
+                    (clicked)="copyObject()"
+                ></app-button>
             </div>
         </div>
     </div>
@@ -64,18 +67,21 @@
                         you made before quitting?
                     </p>
 
-                    <div class="btn-group" role="group">
-                        <button
-                            type="button"
-                            class="cancel-button btn btn-outline-danger"
+                    <div class="dg-button-row">
+                        <app-button
+                            label="Cancel"
+                            variant="outline"
+                            tone="neutral"
                             routerLink="/framework/object/view/{{renderResult?.object_information.object_id}}"
-                        >Cancel</button>
-                    
-                        <button
+                        ></app-button>
+
+                        <app-button
+                            label="Save"
+                            variant="solid"
+                            tone="brand"
                             type="submit"
-                            class="btn btn-outline-success me-2"
                             [disabled]="!renderForm.valid"
-                        >Save</button>
+                        ></app-button>
                     </div>
                 </div>
             </div>

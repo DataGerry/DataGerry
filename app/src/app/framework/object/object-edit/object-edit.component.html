@@ -6,19 +6,22 @@
             </h1>
         </div>
         <div class="col-sm-2 text-end">
-            <div class="btn-group p-1" role="group">
-                <button
-                    type="button"
-                    class="cancel-button btn btn-warning"
-                    (click)="backClicked()"
-                >Cancel</button>
-                <button
-                    id ="myBtn"
+            <div class="dg-button-row dg-button-row--end p-1">
+                <app-button
+                    label="Cancel"
+                    variant="outline"
+                    tone="neutral"
+                    (clicked)="backClicked()"
+                ></app-button>
+
+                <app-button
+                    label="Save"
+                    variant="solid"
+                    tone="brand"
                     type="submit"
-                    class="btn btn-success me-2"
-                    (click)="editObject()"
                     [disabled]="!renderForm.dirty"
-                >Save</button>
+                    (clicked)="editObject()"
+                ></app-button>
             </div>
         </div>
     </div>
@@ -92,17 +95,21 @@
                     <p class="pt-3 mx-4">
                         Do you want to save the changes of <strong>{{renderResult?.type_information?.type_label}} #{{renderResult?.object_information?.object_id}}</strong> you made before quitting?
                     </p>
-                    <div class="btn-group p-3 d-inline-flex flex-nowrap" role="group">
-                        <button
-                            type="button"
-                            class="cancel-button btn btn-warning"
+                    <div class="dg-button-row flex-nowrap p-3">
+                        <app-button
+                            label="Cancel"
+                            variant="outline"
+                            tone="neutral"
                             routerLink="/framework/object/view/{{renderResult?.object_information?.object_id}}"
-                        >
-                            Cancel
-                        </button>
-                        <button type="submit" class="btn btn-success me-2" [disabled]="!renderForm.dirty">
-                            Save
-                        </button>
+                        ></app-button>
+
+                        <app-button
+                            label="Save"
+                            variant="solid"
+                            tone="brand"
+                            type="submit"
+                            [disabled]="!renderForm.dirty"
+                        ></app-button>
                     </div>
                 </div>
             </div>
