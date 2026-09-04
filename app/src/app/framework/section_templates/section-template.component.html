@@ -21,7 +21,7 @@
 
                 @for (sectionTemplate of sectionTemplates; track sectionTemplate) {
                 <tr>
-                    <td class="centered-text small-cell">{{sectionTemplate.public_id}}</td>
+                    <td class="centered-text small-cell">{{sectionTemplate.public_id ?? '–'}}</td>
                     <td class="centered-text">{{sectionTemplate.label}}</td>
                     <td class="centered-text medium-cell">{{getTemplateTypeLabel(sectionTemplate)}}</td>
                     <td class="centered-text big-cell">

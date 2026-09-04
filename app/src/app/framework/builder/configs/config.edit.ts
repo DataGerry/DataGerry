@@ -44,6 +44,9 @@ export abstract class ConfigEditBaseComponent {
 
     @Input() public fieldSectionType: string;
     @Input() public hiddenStatus: boolean;
+
+    /** A locked field is shown for inspection only; its whole form is disabled. */
+    @Input() public isReadOnly: boolean = false;
     @Input() public mode: CmdbMode = CmdbMode.Create;
     @Input() public form: UntypedFormGroup;
     @Input() public data: any;

@@ -43,13 +43,14 @@ import { FieldIdentifierValidationService } from '../services/field-identifier-v
 import { BUILDER_DELETION_GUARD, BuilderDeletionGuard } from '../services/builder-deletion-guard';
 
 import { CmdbType } from '../../models/cmdb-type';
-import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
+import { SectionTemplateListItem } from '../../section_templates/models/virtual-section-template.model';
 import { CmdbMode } from '../../modes.enum';
 
 import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderSchemaAdapter } from '../schema/builder-schema.adapter';
 import { EmptySchemaAdapter } from '../schema/empty-schema.adapter';
 import { BuilderPaletteGroup } from '../palette/builder-palette.model';
+import { BuilderIcon } from '../utils/builder-icons';
 import { BuilderUtils } from '../utils/builder-utils';
 import { BuilderContext } from '../utils/builder-context';
 import { BuilderInteractionPolicy, BuilderInteractionPolicyContext } from '../utils/builder-interaction-policy';
@@ -98,7 +99,7 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
     public sectionReference: Array<BuilderSection> | null = null;
     public initialFieldNames: Set<string> | null = null;
 
-    public selectedGlobalSectionTemplates: Array<CmdbSectionTemplate> = [];
+    public selectedGlobalSectionTemplates: Array<SectionTemplateListItem> = [];
     private selectedGlobalTemplatesInitialized = false;
 
     public showColorPickerForSection: string | null = null;  // Keep track of which section's color picker is open
@@ -124,7 +125,7 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
     /** The draggable controls this builder offers, in display order. */
     @Input() public paletteGroups: Array<BuilderPaletteGroup> = [];
 
-    @Input() public globalSectionTemplates: Array<CmdbSectionTemplate> = [];
+    @Input() public globalSectionTemplates: Array<SectionTemplateListItem> = [];
     @Input() public lockedSectionNames: Array<string> = [];
     @Input() public lockedFieldNames: Array<string> = [];
 
@@ -190,6 +191,11 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
         if (this.globalSectionTemplates?.length > 0 && !this.selectedGlobalTemplatesInitialized) {
             this.selectedGlobalTemplatesInitialized = true;
             this.templateManager.setSelectedGlobalTemplates();
+        }
+
+        // A copied type is bound after the palette has loaded.
+        if (this.globalSectionTemplates?.length > 0) {
+            this.mutation.restorePortsSection();
         }
     }
 
@@ -389,6 +395,11 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
 
     public isLockedField(field: any): boolean {
         return this.policy.isLockedField(field);
+    }
+
+
+    public getFieldCollapseIcon(field: any): BuilderIcon {
+        return this.policy.getFieldCollapseIcon(field);
     }
 
     public isFieldHighlighted(field: any, section?: any): boolean {

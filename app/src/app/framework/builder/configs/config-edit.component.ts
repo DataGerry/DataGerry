@@ -16,10 +16,12 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    AfterViewInit,
     Component,
     ComponentRef,
     Input, OnDestroy,
     OnInit,
+    inject,
     Output,
     ViewChild,
     EventEmitter,
@@ -28,8 +30,11 @@ import {
 import { UntypedFormGroup } from '@angular/forms';
 
 import { ReplaySubject, Subscription } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 
 import { configComponents } from './configs.list';
+import { ExtendableOptionManagerService } from 'src/app/core/services/extendable-option-manager.service';
+import { ManageableOptionType } from 'src/app/core/components/extendable_option_manager/manageable-option-types';
 import { CmdbType } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
 import { ConfigEditBaseComponent } from './config.edit';
@@ -41,7 +46,7 @@ import { ConfigEditBaseComponent } from './config.edit';
     styleUrls: ['./config-edit.component.scss'],
     standalone: false
 })
-export class ConfigEditComponent implements OnInit, OnDestroy {
+export class ConfigEditComponent implements OnInit, AfterViewInit, OnDestroy {
 
     public modes: typeof CmdbMode = CmdbMode;
 
@@ -58,6 +63,11 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
     @Input() public fieldSectionType: string;
     @Input() public hiddenStatus: boolean;
     @Input() public isDisabled: boolean = false;
+
+    /** Renders the editor read-only, for a field the builder does not allow editing. */
+    @Input() public isReadOnly: boolean = false;
+
+    private readonly optionManager = inject(ExtendableOptionManagerService);
 
     @ViewChild('configContainer', { read: ViewContainerRef, static: true }) container: ViewContainerRef;
 
@@ -93,10 +103,35 @@ export class ConfigEditComponent implements OnInit, OnDestroy {
         this.componentRef.instance.fields = this.fields;
         this.componentRef.instance.fieldSectionType = this.fieldSectionType;
         this.componentRef.instance.hiddenStatus = this.hiddenStatus;
+        this.componentRef.instance.isReadOnly = this.isReadOnly;
 
         this.fieldChangesSubscription = this.componentRef.instance.fieldChanges$.subscribe(
             (data: any) => this.fieldValueChanged(data)
         );
+    }
+
+
+    /** The editor registers its controls in its own ngOnInit, so the model lock follows the DOM one. */
+    public ngAfterViewInit(): void {
+        if (this.isReadOnly) {
+            this.form.disable({ emitEvent: false });
+        }
+    }
+
+
+    /**
+     * The manage action lives outside the fieldset on purpose: it edits the option catalog, not the
+     * field, and a disabled fieldset would otherwise disable it along with everything else.
+     */
+    public get manageableOption(): ManageableOptionType | null {
+        return this.optionManager.descriptorOf(this.data?.option_type);
+    }
+
+
+    public openOptionManager(): void {
+        this.optionManager.open(this.data?.option_type)
+            .pipe(takeUntil(this.subscriber))
+            .subscribe();
     }
 
 

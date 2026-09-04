@@ -17,20 +17,23 @@
 */
 import { Component, DoCheck, Input, KeyValueDiffer, KeyValueDiffers, OnDestroy, OnInit } from '@angular/core';
 
-import { ReplaySubject, Subscription } from 'rxjs';
-import { take, takeUntil } from 'rxjs/operators';
+import { forkJoin, ReplaySubject, Subscription } from 'rxjs';
+import { finalize, take, takeUntil } from 'rxjs/operators';
 
 import { SectionTemplateService } from 'src/app/framework/section_templates/services/section-template.service';
 
 import { TypeBuilderStepComponent } from '../type-builder-step.component';
 import { CmdbType } from '../../../models/cmdb-type';
 import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
-import { APIGetMultiResponse } from 'src/app/services/models/api-response';
+import { SectionTemplateListItem } from 'src/app/framework/section_templates/models/virtual-section-template.model';
+import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { SpecialTypeService } from '../../../services/special-type.service';
 import { SpecialType, SpecialTypeSchema } from '../../../models/special-type';
 import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
+import { withPortsFlagOnly } from '../utils/ports-type-payload.util';
 import { LocationFieldDeletionService } from '../../services/location-field-deletion.service';
+import { PortsUsageService } from '../../services/ports-usage.service';
 import { BUILDER_DELETION_GUARD, BuilderDeletionGuard } from 'src/app/framework/builder/services/builder-deletion-guard';
 import { CmdbTypeSchemaAdapter } from 'src/app/framework/builder/schema/cmdb-type-schema.adapter';
 import { BuilderSchemaAdapter } from 'src/app/framework/builder/schema/builder-schema.adapter';
@@ -56,8 +59,13 @@ import {
     // drifting out of shape with BuilderDeletionGuard.
     providers: [{
         provide: BUILDER_DELETION_GUARD,
-        useFactory: (guard: LocationFieldDeletionService): BuilderDeletionGuard => guard,
-        deps: [LocationFieldDeletionService]
+        useFactory: (location: LocationFieldDeletionService, ports: PortsUsageService): BuilderDeletionGuard => ({
+            isLocationField: field => location.isLocationField(field),
+            sectionContainsLocationField: (section, fields) => location.sectionContainsLocationField(section, fields),
+            canDelete: scope => location.canDelete(scope),
+            canRemoveSection: section => ports.canRemoveSection(section)
+        }),
+        deps: [LocationFieldDeletionService, PortsUsageService]
     }],
     standalone: false
 })
@@ -68,7 +76,7 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
   private typeInstanceDiffer: KeyValueDiffer<string, any>;
 
   public sectionTemplates: Array<CmdbSectionTemplate> = [];
-  public globalSectionTemplates: Array<CmdbSectionTemplate> = [];
+  public globalSectionTemplates: Array<SectionTemplateListItem> = [];
   public lockedSectionNames: Array<string> = [];
   public lockedFieldNames: Array<string> = [];
   private activeSpecialTypeForLocks: SpecialType | null = null;
@@ -155,8 +163,8 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
   /** Identifies the palette's template contents: which templates, in which order. */
   private buildPaletteKey(): string {
-    const names = (templates: Array<CmdbSectionTemplate>) =>
-      (templates ?? []).map(template => template?.public_id).join(',');
+    const names = (templates: Array<SectionTemplateListItem>) =>
+      (templates ?? []).map(template => template?.public_id ?? template?.name).join(',');
 
     return `${names(this.globalSectionTemplates)}|${names(this.sectionTemplates)}`;
   }
@@ -165,7 +173,8 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
     public constructor(private differs: KeyValueDiffers,
                        private sectionTemplateService: SectionTemplateService,
                        private toastService: ToastService,
-                       private specialTypeService: SpecialTypeService) {
+                       private specialTypeService: SpecialTypeService,
+                       private loaderService: LoaderService) {
         super();
     }
 
@@ -198,11 +207,22 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
 /* ---------------------------------------------------- FUCNTIONS --------------------------------------------------- */
 
+    /**
+     * Measured on the payload, so the ports section is not counted as a regular section. A type that
+     * only uses ports is still complete, otherwise at least one section with one field is required.
+     */
     public get status(): boolean{
-        const hasFields: boolean = this.typeInstance.fields.length > 0;
-        const hasSections: boolean = this.typeInstance.render_meta.sections.length > 0;
+        const payload = withPortsFlagOnly(this.typeInstance);
 
-        return hasFields && hasSections && this.builderValid;
+        if (!this.builderValid) {
+            return false;
+        }
+
+        if (payload.uses_ports === true) {
+            return true;
+        }
+
+        return payload.fields.length > 0 && payload.render_meta.sections.length > 0;
     }
 
 
@@ -213,12 +233,27 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
     }
 
 
+  /**
+   * Loads the stored and the virtual templates together, so the palette is filled once instead of
+   * shifting under the user while a second response arrives.
+   */
   private getAllSectionTemplates() {
-    this.sectionTemplateService.getSectionTemplates().pipe(takeUntil(this.unsubscribe))
+    this.loaderService.show();
+
+    forkJoin({
+      stored: this.sectionTemplateService.getSectionTemplates(),
+      virtual: this.sectionTemplateService.getVirtualSectionTemplates()
+    }).pipe(takeUntil(this.unsubscribe), finalize(() => this.loaderService.hide()))
       .subscribe({
-        next: (apiResponse: APIGetMultiResponse<CmdbSectionTemplate>) => {
-          this.sectionTemplates = apiResponse.results.filter((template) => template.is_global == false);
-          this.globalSectionTemplates = apiResponse.results.filter((template) => template.is_global == true);
+        next: ({ stored, virtual }) => {
+          const storedTemplates = (stored?.results ?? []) as Array<CmdbSectionTemplate>;
+
+          this.sectionTemplates = storedTemplates.filter((template) => template.is_global == false);
+          // Virtual templates lead the group, matching the section template overview.
+          this.globalSectionTemplates = [
+            ...(virtual ?? []),
+            ...storedTemplates.filter((template) => template.is_global == true)
+          ];
         },
         error: (error) => this.toastService.error(error?.error?.message)
       });

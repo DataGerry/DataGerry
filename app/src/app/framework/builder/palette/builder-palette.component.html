@@ -39,7 +39,10 @@
                                                 <i class="{{ item.icon }}"></i>
                                             }
                                             @if (item.badge) {
-                                                {{ item.badge }} - <b>{{ item.label }}</b>
+                                                <span class="item-badge">{{ item.badge }} -</span>
+                                            }
+                                            @if (item.strong) {
+                                                <b>{{ item.label }}</b>
                                             } @else {
                                                 {{ item.label }}
                                             }

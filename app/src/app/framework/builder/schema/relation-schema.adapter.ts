@@ -81,4 +81,14 @@ export class RelationSchemaAdapter implements BuilderSchemaAdapter {
     public setSelectableAsParent(): void {
         // A relation has no location control, so there is no parent-selectability flag to set.
     }
+
+
+    public readUsesPorts(): boolean {
+        return false;
+    }
+
+
+    public setUsesPorts(): void {
+        // A relation has no ports.
+    }
 }

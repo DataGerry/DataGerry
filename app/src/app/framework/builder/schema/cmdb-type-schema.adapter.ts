@@ -83,4 +83,14 @@ export class CmdbTypeSchemaAdapter implements BuilderSchemaAdapter {
     public setSelectableAsParent(value: boolean): void {
         this.typeInstance.selectable_as_parent = value;
     }
+
+
+    public readUsesPorts(): boolean {
+        return this.typeInstance?.uses_ports === true;
+    }
+
+
+    public setUsesPorts(value: boolean): void {
+        this.typeInstance.uses_ports = value;
+    }
 }

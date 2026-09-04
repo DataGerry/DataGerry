@@ -16,7 +16,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 import { ControlsCommon } from '../controls/controls.common';
-import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
+import { SectionTemplateListItem } from '../../section_templates/models/virtual-section-template.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -37,6 +37,9 @@ export interface BuilderPaletteItem {
 
     /** Leading identifier shown before the label, e.g. '#12' for a section template. */
     badge?: string;
+
+    /** Emphasises the label, marking the item as a section template rather than a control. */
+    strong?: boolean;
 
     /** ngx-drag-drop type this item drops into: 'sections', 'inputs' or 'location'. */
     dndType: string;
@@ -67,13 +70,17 @@ export function paletteItemsFromControls(controls: ReadonlyArray<ControlsCommon>
     }));
 }
 
-/** Maps section templates onto palette items; they drop as sections and carry no icon. */
+/**
+ * Maps section templates onto palette items; they drop as sections and carry no icon.
+ * A virtual template has no public_id, so it is listed by its label alone.
+ */
 export function paletteItemsFromSectionTemplates(
-    templates: ReadonlyArray<CmdbSectionTemplate>
+    templates: ReadonlyArray<SectionTemplateListItem>
 ): Array<BuilderPaletteItem> {
     return templates.map(template => ({
         label: template?.label,
-        badge: `#${template?.public_id}`,
+        badge: template?.public_id ? `#${template.public_id}` : undefined,
+        strong: true,
         dndType: 'sections',
         payload: () => template
     }));

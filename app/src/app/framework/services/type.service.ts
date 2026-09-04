@@ -28,6 +28,7 @@ import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 import { CmdbType } from '../models/cmdb-type';
 import { LocationFieldUsageResponse } from '../models/location-field-usage';
+import { UsesPortsUsageResponse } from '../models/uses-ports-usage';
 import {
   APIDeleteSingleResponse,
   APIGetMultiResponse,
@@ -218,6 +219,22 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
 
         return this.api.callGet<LocationFieldUsageResponse>(`${this.servicePrefix}/location_field_usage/${publicID}`, options).pipe(
             map((apiResponse: HttpResponse<LocationFieldUsageResponse>) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Reports whether ports of a type still exist.
+     *
+     * @param publicID PublicID of the type
+     * @returns Observable resolving to { in_use, port_count, object_count }
+     */
+    public getUsesPortsUsage(publicID: number): Observable<UsesPortsUsageResponse> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<UsesPortsUsageResponse>(`${this.servicePrefix}/uses_ports_usage/${publicID}`, options).pipe(
+            map((apiResponse: HttpResponse<UsesPortsUsageResponse>) => apiResponse.body)
         );
     }
 

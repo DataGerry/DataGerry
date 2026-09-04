@@ -1,9 +1,9 @@
-import { CmdbSectionTemplate } from 'src/app/framework/models/cmdb-section-template';
+import { SectionTemplateListItem } from 'src/app/framework/section_templates/models/virtual-section-template.model';
 import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderIcon, SECTION_EDIT_ICON, SECTION_READONLY_ICON } from './builder-icons';
 
 export interface BuilderInteractionPolicyContext {
-    selectedGlobalSectionTemplates: Array<CmdbSectionTemplate>;
+    selectedGlobalSectionTemplates: Array<SectionTemplateListItem>;
     globalTemplateIds: Array<string>;
     globalFieldNames: Array<string>;
     schemaLockedSectionNames: Array<string>;
@@ -24,6 +24,11 @@ export class BuilderInteractionPolicy {
 
     public getSectionCollapseIcon(section: BuilderSection): BuilderIcon {
         return this.canEditSection(section) ? SECTION_EDIT_ICON : SECTION_READONLY_ICON;
+    }
+
+    /** A locked field can still be opened, read-only, so it carries the same eye icon. */
+    public getFieldCollapseIcon(field: any): BuilderIcon {
+        return this.isLockedField(field) ? SECTION_READONLY_ICON : SECTION_EDIT_ICON;
     }
 
     public isSchemaLockedSection(section: BuilderSection): boolean {

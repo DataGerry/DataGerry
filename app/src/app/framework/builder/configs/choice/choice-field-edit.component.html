@@ -2,15 +2,16 @@
 
     @if (this.fieldSectionType === 'multi-data-section') {
 <div>
-        <div class="col-md-12">
+        <div class="mb-3 col-md-12">
             <div class="input-group-prepend">
                 <span class="input-group-text pe-1">
                     <input
                         type="checkbox"
                         [formControl]="hideFieldControl"
                         name="hideFieldControl-choice"
+                        class="form-check-input"
                     />
-                    <label class="hide-info mb-1 mt-3">
+                    <label class="hide-info mb-1">
                         Hide this field as column in object view/edit mode
                     </label>
                 </span>
@@ -113,6 +114,7 @@
         />
         <small class="form-text text-muted">Small helper popup.</small>
     </div>
+    @if (!isExtendableOption) {
     <div class="col-md-12">
         <label class="mt-3 mb-1">Options:</label>
         <table class="table table-bordered" >
@@ -151,9 +153,8 @@
                         <button
                             type="button"
                             class="btn btn-outline-primary"
-                            [disabled]="options.length == 1"
+                            [disabled]="options.length == 1 || isDuplicate$"
                             (click)="delOption(data.options[i])"
-                            [disabled]="isDuplicate$"
                         >
                             <fa-icon [icon]="['far', 'trash-alt']"></fa-icon>
                         </button>
@@ -172,18 +173,17 @@
             </tbody>
         </table>
     </div>
+    }
     <div class="col-md-12">
         <label class="mt-3 mb-1">Default value:</label>
-        <select 
+        <select
             [formControl]="valueControl"
             class="form-select"
             >
             <option></option>
-            @for (opt of options; track opt; let i = $index) {
-<option [value]="opt.name">
-                Label: {{opt.label}} Name: {{opt.name}}
-            </option>
-}
+            @for (opt of selectOptions; track opt) {
+            <option [value]="opt.name">{{ optionText(opt) }}</option>
+            }
         </select>
     </div>
 </div>

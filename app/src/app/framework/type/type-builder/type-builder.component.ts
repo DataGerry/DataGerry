@@ -36,6 +36,7 @@ import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { BuilderWizardBlockingState } from 'src/app/framework/builder/wizard/builder-wizard-blocking.state';
+import { withPortsFlagOnly } from './utils/ports-type-payload.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -264,12 +265,15 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
 
         saveTypeInstance.render_meta.sections = sections;
 
+        // The ports section is not part of the stored type.
+        const payload: CmdbType = withPortsFlagOnly(saveTypeInstance);
+
         if (this.mode === CmdbMode.Create) {
             this.loaderService.show();
             let newTypeID = null;
-            saveTypeInstance.editor_id = undefined;
+            payload.editor_id = undefined;
 
-            this.typeService?.postType(saveTypeInstance)?.pipe(finalize(() => this.loaderService.hide())).subscribe({
+            this.typeService?.postType(payload)?.pipe(finalize(() => this.loaderService.hide())).subscribe({
                 next: (typeIDResp: CmdbType) => {
                     newTypeID = +typeIDResp?.public_id;
                     this.router.navigate(['/framework/type/'], { queryParams: { typeAddSuccess: newTypeID } });
@@ -282,8 +286,8 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
             });
         } else if (this.mode === CmdbMode.Edit) {
             this.loaderService.show();
-            saveTypeInstance.editor_id = this.userService?.getCurrentUser()?.public_id;
-            this.typeService.putType(saveTypeInstance).pipe(finalize(() =>  this.loaderService.hide())).subscribe({
+            payload.editor_id = this.userService?.getCurrentUser()?.public_id;
+            this.typeService.putType(payload).pipe(finalize(() =>  this.loaderService.hide())).subscribe({
                 next: (updateResp: CmdbType) => {
                     this.toast.success(`Type was successfully edited: TypeID: ${updateResp?.public_id}`);
                     this.sidebarService.loadCategoryTree();

@@ -189,18 +189,23 @@ $tb-dur: 200ms;
       transition: transform $tb-dur $tb-ease;
     }
 
-    span {
+    > span {
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
       min-width: 0;
     }
 
-    span i {
+    > span i {
       width: 1rem;
       color: $tb-ink-3;
       text-align: center;
       transition: color $tb-dur $tb-ease;
+    }
+
+    .item-badge {
+      flex: 0 0 auto;
+      white-space: nowrap;
     }
 
     b {

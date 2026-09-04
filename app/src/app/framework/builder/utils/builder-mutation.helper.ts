@@ -19,6 +19,10 @@ import { ElementRef, Renderer2 } from '@angular/core';
 import { DndDropEvent, DropEffect } from 'ngx-drag-drop';
 
 import { CmdbMode } from '../../modes.enum';
+import {
+    isPortsTemplateName,
+    isVirtualTemplateName
+} from 'src/app/framework/section_templates/models/virtual-section-template.model';
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { SectionIdentifierService } from 'src/app/framework/builder/services/SectionIdentifierService.service';
 import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
@@ -172,7 +176,7 @@ export class BuilderMutationHelper {
                 }
 
                 this.ctx.globalSectionTemplates?.splice(index, 1);
-                this.ctx.schema.readGlobalTemplateIds()?.push(sectionData?.name);
+                this.applyGlobalTemplateReference(sectionData);
             }
 
             sectionData = this.templateManager.extractSectionData(event?.data);
@@ -221,6 +225,46 @@ export class BuilderMutationHelper {
 
         this.deps.validationService.setSectionValid(sectionData?.name, sectionData?.fields?.length > 0);
         this.highlight.updateSectionFieldStatus()
+        this.highlight.updateHighlightState();
+    }
+
+    /** A virtual template is never stored, so its name must not reach `global_template_ids`. */
+    private applyGlobalTemplateReference(sectionData: BuilderSection): void {
+        if (!isVirtualTemplateName(sectionData?.name)) {
+            this.ctx.schema.readGlobalTemplateIds()?.push(sectionData?.name);
+            return;
+        }
+
+        if (isPortsTemplateName(sectionData?.name)) {
+            this.ctx.schema.setUsesPorts(true);
+        }
+    }
+
+    /** A stored type carries the flag but no ports section, so the canvas rebuilds it from the palette. */
+    public restorePortsSection(): void {
+        if (!this.ctx.schema.readUsesPorts()) {
+            return;
+        }
+
+        const templateIndex = this.ctx.globalSectionTemplates
+            ?.findIndex(template => isPortsTemplateName(template?.name)) ?? -1;
+
+        // Absent without the IPAM licence; leave the flag as it is.
+        if (templateIndex < 0) {
+            return;
+        }
+
+        const [template] = this.ctx.globalSectionTemplates.splice(templateIndex, 1);
+        this.ctx.selectedGlobalSectionTemplates?.push(template);
+
+        if (this.ctx.schema.readSections()?.some(section => isPortsTemplateName(section?.name))) {
+            return;
+        }
+
+        this.ctx.sections.push(this.templateManager.extractSectionData(template) as BuilderSection);
+        this.commitSections();
+        this.syncSectionIdentifiers();
+        this.templateManager.setSectionTemplateFields(template);
         this.highlight.updateHighlightState();
     }
 
@@ -596,6 +640,10 @@ export class BuilderMutationHelper {
         }
 
         const guard = this.deps.deletionGuard;
+
+        if (guard?.canRemoveSection?.(item) === false) {
+            return;
+        }
 
         if (this.ctx.mode === CmdbMode.Edit
             && guard?.sectionContainsLocationField(item, this.ctx.schema.readFields())

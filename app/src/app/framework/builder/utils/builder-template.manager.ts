@@ -17,7 +17,10 @@
 */
 import { v4 as uuidv4 } from 'uuid';
 
-import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
+import {
+    isPortsTemplateName,
+    SectionTemplateListItem
+} from '../../section_templates/models/virtual-section-template.model';
 import { BuilderSection } from '../schema/builder-section.model';
 import { BuilderContext } from './builder-context';
 import { BuilderInteractionPolicy } from './builder-interaction-policy';
@@ -69,7 +72,9 @@ export class BuilderTemplateManager {
                 isGlobalTemplate = true;
                 globalTemplateIndex = parseInt(index);
                 this.ctx.globalSectionTemplates?.push(aSection);
-                this.ctx.globalSectionTemplates?.sort((a, b) => a?.public_id - b?.public_id);
+                // A virtual template has no public_id; sorting it as 0 keeps the comparator
+                // consistent and leaves it leading the palette.
+                this.ctx.globalSectionTemplates?.sort((a, b) => (a?.public_id ?? 0) - (b?.public_id ?? 0));
             }
         }
 
@@ -81,6 +86,11 @@ export class BuilderTemplateManager {
                 globalTemplateIds.splice(nameIndex, 1);
             }
 
+            // The ports template is held by the flag, not by an id.
+            if (isPortsTemplateName(sectionData?.name)) {
+                this.ctx.schema.setUsesPorts(false);
+            }
+
             this.ctx.selectedGlobalSectionTemplates?.splice(globalTemplateIndex, 1);
         }
     }
@@ -88,7 +98,7 @@ export class BuilderTemplateManager {
     /**
      * Extracts the section properties from the section template.
      */
-    public extractSectionData(data: CmdbSectionTemplate) {
+    public extractSectionData(data: SectionTemplateListItem) {
         let sectionName: string = data?.name;
 
         if (!data?.is_global && !this.isUniqueID(sectionName)) {
@@ -107,7 +117,7 @@ export class BuilderTemplateManager {
     /**
      * Sets the fields from the section template to the edited model.
      */
-    public setSectionTemplateFields(sectionTemplate: CmdbSectionTemplate): void {
+    public setSectionTemplateFields(sectionTemplate: SectionTemplateListItem): void {
         let sectionTemplateFields = sectionTemplate?.fields;
 
         for (let fieldIndex in sectionTemplateFields) {

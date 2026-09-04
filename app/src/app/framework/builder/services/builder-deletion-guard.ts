@@ -40,6 +40,9 @@ export interface BuilderDeletionGuard {
 
     /** Returns false to block the removal; showing the explanatory modal is the guard's job. */
     canDelete(scope: BuilderDeletionScope): boolean;
+
+    /** Vetoes one specific section; ports still in use, for example. */
+    canRemoveSection?(section: BuilderSection): boolean;
 }
 
 export const BUILDER_DELETION_GUARD = new InjectionToken<BuilderDeletionGuard>('BuilderDeletionGuard');

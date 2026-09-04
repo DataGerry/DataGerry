@@ -130,6 +130,7 @@
                             [loading]="typeLoading"
                             (change)="changeSummaryOption($event, summary)"
                             [(ngModel)]="summary.type_id"
+                            [readonly]="isReadOnly"
                             [ngModelOptions]="{standalone: true}"
                         ></ng-select>
                     </td>
@@ -166,6 +167,7 @@
                             bindValue="name"
                             placeholder="Select fields"
                             [(ngModel)]="summary.fields"
+                            [readonly]="isReadOnly"
                             [ngModelOptions]="{standalone: true}"
                         ></ng-select>
                     </td>

@@ -91,7 +91,7 @@
                                     <span>
                                         <fa-icon [icon]="['fas', host.matchedType(field.type)]"></fa-icon> {{ field?.label }}
                                     </span>
-                                    <span *ngIf="!host.isLockedField(field)">
+                                    <span>
                                         <button
                                             class="btn btn-link me-1"
                                             type="button"
@@ -99,49 +99,51 @@
                                             [attr.data-bs-target]="'#' + fieldCollapseId(field, y)"
                                             [class.disabled]="host.isLocked() || host.disableFields"
                                         >
-                                            <fa-icon [icon]="['far', 'edit']"></fa-icon>
+                                            <fa-icon [icon]="host.getFieldCollapseIcon(field)"></fa-icon>
                                         </button>
-                                        <button
-                                            class="btn btn-link me-1"
-                                            type="button"
-                                            dndHandle
-                                            (dragstart)="host.onFieldDragBlocked($event, section)"
-                                            [class.disabled]="fieldDragDisabled(field)"
-                                        >
-                                            <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
-                                        </button>
-                                        <button
-                                            *ngIf="host.externalField(field) as externalLink; else removeFieldContainer"
-                                            class="btn btn-link"
-                                            type="button"
-                                            [disabled]="externalLink?.links?.length"
-                                            [ngbTooltip]="tipContent"
-                                            [disableTooltip]="!externalLink?.links?.length"
-                                            (click)="host.onFieldRemove(field, section)"
-                                            [class.disabled]="host.disableFields || !host.canRemoveField(field)"
-                                        >
-                                            <fa-icon [icon]="['far', 'window-close']"></fa-icon>
-                                            <ng-template #tipContent>
-                                                <b>Used by external links</b>
-                                                <span *ngFor="let linked of externalLink.links">
-                                                    <br><strong>Label</strong>: {{ linked.label }}
-                                                </span>
-                                                <p>
-                                                    <strong>Show</strong>: {{ externalLink?.links?.length }}
-                                                    <strong>Total</strong>: {{ externalLink?.total }}
-                                                </p>
-                                            </ng-template>
-                                        </button>
-                                        <ng-template #removeFieldContainer>
+                                        <ng-container *ngIf="!host.isLockedField(field)">
                                             <button
+                                                class="btn btn-link me-1"
+                                                type="button"
+                                                dndHandle
+                                                (dragstart)="host.onFieldDragBlocked($event, section)"
+                                                [class.disabled]="fieldDragDisabled(field)"
+                                            >
+                                                <fa-icon [icon]="['fas', 'arrows-alt']"></fa-icon>
+                                            </button>
+                                            <button
+                                                *ngIf="host.externalField(field) as externalLink; else removeFieldContainer"
                                                 class="btn btn-link"
                                                 type="button"
-                                                [class.disabled]="host.disableFields || !host.canRemoveField(field)"
+                                                [disabled]="externalLink?.links?.length"
+                                                [ngbTooltip]="tipContent"
+                                                [disableTooltip]="!externalLink?.links?.length"
                                                 (click)="host.onFieldRemove(field, section)"
+                                                [class.disabled]="host.disableFields || !host.canRemoveField(field)"
                                             >
                                                 <fa-icon [icon]="['far', 'window-close']"></fa-icon>
+                                                <ng-template #tipContent>
+                                                    <b>Used by external links</b>
+                                                    <span *ngFor="let linked of externalLink.links">
+                                                        <br><strong>Label</strong>: {{ linked.label }}
+                                                    </span>
+                                                    <p>
+                                                        <strong>Show</strong>: {{ externalLink?.links?.length }}
+                                                        <strong>Total</strong>: {{ externalLink?.total }}
+                                                    </p>
+                                                </ng-template>
                                             </button>
-                                        </ng-template>
+                                            <ng-template #removeFieldContainer>
+                                                <button
+                                                    class="btn btn-link"
+                                                    type="button"
+                                                    [class.disabled]="host.disableFields || !host.canRemoveField(field)"
+                                                    (click)="host.onFieldRemove(field, section)"
+                                                >
+                                                    <fa-icon [icon]="['far', 'window-close']"></fa-icon>
+                                                </button>
+                                            </ng-template>
+                                        </ng-container>
                                     </span>
                                 </div>
                                 <div class="card-body collapse" [id]="fieldCollapseId(field, y)">
@@ -154,6 +156,7 @@
                                         [hiddenStatus]="host.getFieldHiddenState(section, field)"
                                         (valuesChanged)="host.onValuesChanged($event, index, y)"
                                         [isDisabled]="host.isFieldEditDisabled(index, y)"
+                                        [isReadOnly]="host.isLockedField(field)"
                                     />
                                 </div>
                             </div>

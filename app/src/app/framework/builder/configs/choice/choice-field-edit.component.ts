@@ -15,15 +15,18 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { UntypedFormControl, Validators } from '@angular/forms';
 import { reservedIdentifierPrefixValidator } from '../../../../layout/validators/reserved-identifier-prefix-validator';
 
 import { ReplaySubject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { filter, takeUntil } from 'rxjs/operators';
 
 import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { CopyService } from '../../../../core/services/copy.service';
+import { ExtendableOptionCatalogService } from 'src/app/core/services/extendable-option-catalog.service';
+import { FieldOption } from 'src/app/framework/models/cmdb-section-template';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 
 import { ConfigEditBaseComponent } from '../config.edit';
 import { FieldIdentifierValidationService } from 'src/app/framework/builder/services/field-identifier-validation.service';
@@ -51,6 +54,12 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
     // Add able options for choice selection
     public options: Array<any> = [];
 
+    /** Resolved list of an `option_type` select; empty for a field that owns its options. */
+    public catalogOptions: Array<FieldOption> = [];
+
+    private readonly optionCatalog = inject(ExtendableOptionCatalogService);
+    private readonly toast = inject(ToastService);
+
     private initialValue: string;
     isValid$: boolean = false;
     private identifierInitialValue: string;
@@ -71,7 +80,10 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
     public ngOnInit(): void {
         this.options = this.data.options;
 
-        if (this.options === undefined || !Array.isArray(this.options)) {
+        if (this.isExtendableOption) {
+            this.loadCatalogOptions();
+            this.watchCatalogChanges();
+        } else if (this.options === undefined || !Array.isArray(this.options)) {
             this.options = [];
             this.options.push({
                 name: `option-${(this.options.length + 1)}`,
@@ -299,6 +311,48 @@ export class ChoiceFieldEditComponent extends ConfigEditBaseComponent implements
             this.requiredControl.enable({ emitEvent: false });
             this.optionsControl.enable({ emitEvent: false });
         }
+    }
+
+    /* ------------------------------------------------- EXTENDABLE OPTIONS ------------------------------------------------ */
+
+    /** An `option_type` select draws its options from the extendable options, not from the field. */
+    public get isExtendableOption(): boolean {
+        return !!this.data?.option_type;
+    }
+
+
+    /** What the default-value select lists: the resolved catalog, or the field's own options. */
+    public get selectOptions(): Array<FieldOption> {
+        return this.isExtendableOption ? this.catalogOptions : this.options;
+    }
+
+
+    /** Only a field's own options carry an identifier worth showing next to the label. */
+    public optionText(option: FieldOption): string {
+        return this.isExtendableOption ? option.label : `Label: ${option.label} Name: ${option.name}`;
+    }
+
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** The option manager can be opened from anywhere, so the select follows the catalog. */
+    private watchCatalogChanges(): void {
+        this.optionCatalog.changes$
+            .pipe(
+                filter(changed => this.optionCatalog.affects(this.data?.option_type, changed)),
+                takeUntil(this.subscriber)
+            )
+            .subscribe(() => this.loadCatalogOptions());
+    }
+
+
+    private loadCatalogOptions(): void {
+        this.optionCatalog.optionsFor(this.data?.option_type)
+            .pipe(takeUntil(this.subscriber))
+            .subscribe({
+                next: (options) => { this.catalogOptions = options; },
+                error: (error) => this.toast.error(error?.error?.message)
+            });
     }
 
     /**

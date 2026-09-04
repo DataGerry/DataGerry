@@ -47,4 +47,8 @@ export interface BuilderSchemaAdapter {
 
     /** Applies the Location control's "selectable as parent" flag; a no-op where it has no meaning. */
     setSelectableAsParent(value: boolean): void;
+
+    /** Whether the model declares port support; false and a no-op where it has no meaning. */
+    readUsesPorts(): boolean;
+    setUsesPorts(value: boolean): void;
 }

@@ -1,4 +1,17 @@
 <form [formGroup]="form" class="needs-validation" novalidate autocomplete="off" [class.disabled]="isDisabled">
-  <template #configContainer></template>
-</form>
+  @if (manageableOption) {
+    <div class="d-flex justify-content-end mb-2">
+      <app-button
+        [bootstrapClass]="'btn-outline-secondary btn-sm'"
+        [label]="manageableOption.manageLabel"
+        type="button"
+        (clicked)="openOptionManager()">
+      </app-button>
+    </div>
+  }
 
+  <!-- A disabled fieldset disables every control it contains, whatever binds them. -->
+  <fieldset [disabled]="isReadOnly">
+    <template #configContainer></template>
+  </fieldset>
+</form>
