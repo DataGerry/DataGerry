@@ -38,6 +38,7 @@ from cmdb.models.isms_model.isms_risk_assessment import IsmsRiskAssessment
 from cmdb.models.isms_model.isms_control_measure_assignment import IsmsControlMeasureAssignment
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
 from cmdb.models.port_model import CmdbPort
+from cmdb.models.port_connection_model import CmdbPortConnection
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options.extendable_options_helper import (
     is_extendable_option_used,
     option_value_exists,
@@ -150,15 +151,18 @@ def test_a_port_option_is_checked_against_the_ports_collection() -> None:
     assert used is True
 
 
-def test_the_cable_type_has_no_reference_yet() -> None:
-    """Nothing references a CABLE_TYPE option until framework.portConnections exists.
+def test_a_cable_type_in_use_by_a_connection_is_not_deletable() -> None:
+    """A cable type a connection still holds must not be removable out from under it."""
+    used, _ = _run(OptionType.CABLE_TYPE, {CmdbPortConnection.COLLECTION: 1})
 
-    The step introducing connections has to register that reference - this test is what will fail
-    once a connection can hold a cable type."""
-    used, manager = _run(OptionType.CABLE_TYPE, {})
+    assert used is True
+
+
+def test_an_unused_cable_type_is_deletable() -> None:
+    """The other half: a cable type nothing holds may be removed."""
+    used, _ = _run(OptionType.CABLE_TYPE, {})
 
     assert used is False
-    manager.dbm.count.assert_not_called()
 
 
 def test_the_option_id_and_the_managers_database_are_used() -> None:

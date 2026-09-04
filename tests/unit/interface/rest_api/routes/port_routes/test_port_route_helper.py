@@ -34,8 +34,13 @@ from cmdb.models.port_model import PortKey, PortSide
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRequestKey
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
+from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import (
+    get_interface_row_or_abort,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     build_port_candidate,
+    with_connected_flag,
     enforce_port_name_available,
     enforce_select_values,
     enforce_type_uses_ports,
@@ -469,3 +474,135 @@ class TestBuildPortCandidate:
 
         assert candidate[PortKey.PORT_NUMBER.value] is None
         assert candidate[PortKey.DESCRIPTION.value] is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             the derived connected flag                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+CONNECTED_PORT_ID: int = 6100
+PEER_PORT_ID: int = 6101
+
+
+def _connections_manager(connections: list[dict[str, Any]] | None = None) -> MagicMock:
+    """A PortConnectionsManager stand-in answering with the given connections."""
+    manager = MagicMock(name='port_connections_manager')
+    manager.get_connections_of_ports.return_value = connections or []
+
+    return manager
+
+
+class TestWithConnectedFlag:
+    """The read side of `connected` - derived per response, never stored."""
+
+    def test_the_whole_page_is_resolved_in_one_query(self) -> None:
+        """
+        One batched $in, not one query per port
+
+        A 48-port switch would otherwise cost 48 reads to answer a question a single indexed predicate
+        answers - and the plain multikey index on `endpoints` exists for exactly this.
+        """
+        manager = _connections_manager()
+
+        with_connected_flag(manager, [_port(), _port(**{PortKey.PUBLIC_ID.value: OTHER_PORT_ID})])
+
+        manager.get_connections_of_ports.assert_called_once_with([PORT_ID, OTHER_PORT_ID])
+
+    def test_a_connected_port_is_flagged(self) -> None:
+        """The flag the ports panel renders as 'Connected'"""
+        manager = _connections_manager([{'endpoints': [PORT_ID, PEER_PORT_ID]}])
+
+        ports = with_connected_flag(manager, [_port()])
+
+        assert ports[0][PORT_CONNECTED_KEY] is True
+
+    def test_a_free_port_is_flagged_false(self) -> None:
+        """'Free' is a normal state and gets an explicit false, never a missing key"""
+        ports = with_connected_flag(_connections_manager(), [_port()])
+
+        assert ports[0][PORT_CONNECTED_KEY] is False
+
+    def test_an_empty_page_asks_for_nothing(self) -> None:
+        """
+        An object with no ports is the common case on every object view that does not use them
+
+        The helper hands an empty id list down; `get_connections_of_ports` short-circuits it without
+        touching the database (asserted in test_port_connections_manager), so the guard lives in one
+        place rather than being restated here.
+        """
+        manager = _connections_manager()
+
+        assert with_connected_flag(manager, []) == []
+        manager.get_connections_of_ports.assert_called_once_with([])
+
+    def test_a_port_without_a_usable_id_is_left_out_of_the_query(self) -> None:
+        """A drifted row must not put a null into the $in"""
+        manager = _connections_manager()
+
+        with_connected_flag(manager, [_port(**{PortKey.PUBLIC_ID.value: None}), _port()])
+
+        assert manager.get_connections_of_ports.call_args.args[0] == [PORT_ID]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       the interface-link write guards                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+INTERFACE_OBJECT_ID: int = 6300
+ROW_ID: int = 4
+
+
+class TestGetInterfaceRowOrAbort:
+    """Resolving the row a create names, before the link is written."""
+
+    @pytest.mark.parametrize('object_id', [None, 'not-an-id', 1.5], ids=str)
+    def test_a_non_integer_object_id_is_a_404_without_a_read(self, ctx, object_id: Any) -> None:
+        """
+        A body can carry anything, so the id is checked before it reaches the manager
+
+        Reading with a non-integer would either raise or silently match nothing, and the caller would
+        be told the row is missing rather than that their id is not an id.
+        """
+        objects_manager = MagicMock(name='objects_manager')
+
+        with pytest.raises(HTTPException) as raised:
+            get_interface_row_or_abort(objects_manager, object_id, 'dg-ipam-interface', ROW_ID)
+
+        assert raised.value.code == HTTP_NOT_FOUND
+        objects_manager.get_object.assert_not_called()
+
+    def test_a_missing_object_is_a_404(self, ctx) -> None:
+        """Nothing to link to"""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = None
+
+        with pytest.raises(HTTPException) as raised:
+            get_interface_row_or_abort(objects_manager, INTERFACE_OBJECT_ID, 'dg-ipam-interface', ROW_ID)
+
+        assert raised.value.code == HTTP_NOT_FOUND
+
+    def test_a_missing_row_is_a_400(self, ctx) -> None:
+        """
+        Creating an already-dangling link is refused - unlike one that goes dangling later
+
+        400 rather than 404 because the OBJECT is there; it is the request that names a row it does
+        not hold.
+        """
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = {'public_id': INTERFACE_OBJECT_ID}
+
+        with pytest.raises(HTTPException) as raised:
+            get_interface_row_or_abort(objects_manager, INTERFACE_OBJECT_ID, 'dg-ipam-interface', ROW_ID)
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+
+    def test_an_existing_row_is_returned(self, ctx) -> None:
+        """The ordinary case"""
+        row = {'multi_data_id': ROW_ID, 'data': []}
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = {
+            'public_id': INTERFACE_OBJECT_ID,
+            'multi_data_sections': [{'section_id': 'dg-ipam-interface', 'values': [row]}],
+        }
+
+        assert get_interface_row_or_abort(
+            objects_manager, INTERFACE_OBJECT_ID, 'dg-ipam-interface', ROW_ID,
+        ) is row

@@ -15,6 +15,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Provides the available SpecialType schemas with required CmdbType information
+
+Every builder is a pure function of its arguments. The CABLE branch is the only one that needs a
+value from the database - the CABLE_TYPE option values its select is seeded from - and it takes them
+as an argument rather than reading them, so this layer keeps needing no manager and no mock
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -25,6 +29,7 @@ from cmdb.models.special_type_model.schemas.supernet_schema import get_supernet_
 from cmdb.models.special_type_model.schemas.subnet_schema import get_subnet_schema
 from cmdb.models.special_type_model.schemas.vlan_schema import get_vlan_schema
 from cmdb.models.special_type_model.schemas.rack_schema import get_rack_schema
+from cmdb.models.special_type_model.schemas.cable_schema import get_cable_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -36,7 +41,10 @@ class SchemaProvider:
     """
     Provides required information of SpecialTypes for CmdbTypes
     """
-    def get_schema(self, special_type: SpecialType) -> dict[str, Any]:
+    def get_schema(
+            self,
+            special_type: SpecialType,
+            cable_type_values: list[str] | None = None) -> dict[str, Any]:
         """
         Returns the static section/field blueprint for the given SpecialType
 
@@ -45,6 +53,10 @@ class SchemaProvider:
 
         Args:
             special_type (SpecialType): The SpecialType to build the schema for
+            cable_type_values (list[str] | None): Read by the CABLE branch alone - the CABLE_TYPE
+                option values its cable-type select is seeded from. Passed in rather than read here
+                so this layer stays a pure, database-free function; None and an empty list both
+                yield an empty select
 
         Raises:
             ValueError: If 'special_type' is not a valid SpecialType
@@ -66,5 +78,8 @@ class SchemaProvider:
 
         if special_type == SpecialType.RACK:
             return get_rack_schema()
+
+        if special_type == SpecialType.CABLE:
+            return get_cable_schema(cable_type_values or [])
 
         raise ValueError(f"Unkown SpecialType: {special_type} provided to Schema!")

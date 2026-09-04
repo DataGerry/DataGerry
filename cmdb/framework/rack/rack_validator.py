@@ -17,13 +17,15 @@
 The field rules of a Rack CmdbObject
 
 Stateless (no database access): a Rack is judged by its own two governed fields. The rules exist
-because a field's `required` marker is honoured by the frontend form only - an API client can post
-whatever it likes - and because no field type expresses "positive whole number".
+because a Rack may not depend on the type's own `required` markers - those live on a CmdbType a user
+can edit, and clearing one may not turn a Rack into a nameless, heightless object - and because no
+field type expresses "positive whole number".
 
 They are split in two sets so each caller runs only what its own pipeline does not already do:
 
   - validate_rack_required_values: the field is there and carries a value. Run by the object REST
-    routes, which have no generic required-field check
+    routes as the flag-independent safety net under their generic required-field check
+    (cmdb.framework.object_required_fields), which only enforces what the type declares
   - validate_rack_field_values: the value that IS there is usable. Run by both the REST routes and
     the bulk importer (whose generic pipeline covers presence but accepts 0, -1 and 3.5 as numbers)
 

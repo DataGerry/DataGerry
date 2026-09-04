@@ -56,6 +56,17 @@ class PortRequestKey(BaseStrEnum):
     DESCRIPTION = 'description'
 
 
+# Response-only key carrying the derived "is this Port connected" flag.
+#
+# Deliberately NOT a member of PortKey: that enum names the keys of a STORED port document, and there
+# is no such field - the flag is computed from the port's connections on every read. Naming it here
+# keeps that invariant legible; a member of PortKey would invite a write path to persist it, which is
+# the exact second truth the derivation exists to avoid.
+#
+# The frontend renders it as "Free" / "Connected" rather than false / true; that is presentation and
+# not this layer's business
+PORT_CONNECTED_KEY: str = 'connected'
+
 # Refusal (HTTP 404) when the addressed port does not exist
 PORT_NOT_FOUND_MESSAGE: str = 'The Port with ID:{public_id} was not found!'
 

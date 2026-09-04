@@ -33,6 +33,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     render_or_native,
     is_special_type_changed,
     validate_and_fill_object_fields,
+    validate_required_object_fields,
     guard_object_write_license,
     guard_object_delete_license,
     to_normalized_cmdb_object,
@@ -66,12 +67,14 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model import CmdbType, SectionType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.manager.reports_manager import ReportsManagerUpdateError
+from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HTTP_INTERNAL_SERVER_ERROR: int = 500
@@ -222,6 +225,104 @@ class TestValidateAndFillObjectFields:
             validate_and_fill_object_fields(manager, object_data)
 
         assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_required_object_fields                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestValidateRequiredObjectFields:
+    """validate_required_object_fields refuses a write that leaves a required field of the type empty."""
+
+    REQUIRED_FIELD: str = 'req-name'
+    OPTIONAL_FIELD: str = 'opt-note'
+    ROW_FIELD: str = 'req-row'
+    MDS_SECTION: str = 'rows'
+
+    @classmethod
+    def _type(cls, required: bool = True) -> CmdbType:
+        """A CmdbType with one (optionally required) plain field and one required MDS row field"""
+        fields: list[dict[str, Any]] = [
+            {'type': FieldType.TEXT.value, 'name': cls.REQUIRED_FIELD, 'label': 'Name', 'required': required},
+            {'type': FieldType.TEXT.value, 'name': cls.OPTIONAL_FIELD, 'label': 'Note'},
+            {'type': FieldType.TEXT.value, 'name': cls.ROW_FIELD, 'label': 'Row', 'required': required},
+        ]
+        sections: list[dict[str, Any]] = [
+            {
+                'type': SectionType.SECTION.value,
+                'name': 'information',
+                'label': 'Information',
+                'fields': [cls.REQUIRED_FIELD, cls.OPTIONAL_FIELD],
+            },
+            {
+                'type': SectionType.MDS_SECTION.value,
+                'name': cls.MDS_SECTION,
+                'label': 'Rows',
+                'fields': [cls.ROW_FIELD],
+            },
+        ]
+
+        return CmdbType.from_data(make_type_doc(5, 'required-demo', fields=fields, sections=sections))
+
+    def test_a_complete_object_passes(self) -> None:
+        """Every required field carrying a value is accepted."""
+        object_data = {
+            'fields': [{'name': self.REQUIRED_FIELD, 'value': 'x'}],
+            'multi_data_sections': [{
+                'section_id': self.MDS_SECTION,
+                'values': [{'multi_data_id': 1, 'data': [{'name': self.ROW_FIELD, 'value': 'y'}]}],
+            }],
+        }
+
+        validate_required_object_fields(object_data, self._type())
+
+    def test_a_type_without_required_fields_is_never_rejected(self) -> None:
+        """Nothing being required short-circuits the check, whatever the payload carries."""
+        validate_required_object_fields({'fields': [{'name': self.REQUIRED_FIELD, 'value': ''}]},
+                                        self._type(required=False))
+
+    @pytest.mark.parametrize('fields', [
+        [],
+        [{'name': 'req-name', 'value': ''}],
+        [{'name': 'req-name', 'value': None}],
+    ])
+    def test_an_empty_or_absent_required_field_aborts_400(self, fields: list[dict[str, Any]]) -> None:
+        """A required field the payload leaves empty - or does not carry at all - is a 400."""
+        with pytest.raises(HTTPException) as exc_info:
+            validate_required_object_fields({'fields': fields}, self._type())
+
+        assert exc_info.value.code == 400
+        assert self.REQUIRED_FIELD in exc_info.value.description
+
+    def test_an_empty_required_row_field_aborts_400(self) -> None:
+        """A multi-data row leaving its required field empty is a 400 naming the section."""
+        object_data = {
+            'fields': [{'name': self.REQUIRED_FIELD, 'value': 'x'}],
+            'multi_data_sections': [{
+                'section_id': self.MDS_SECTION,
+                'values': [{'multi_data_id': 1, 'data': [{'name': self.ROW_FIELD, 'value': ''}]}],
+            }],
+        }
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_required_object_fields(object_data, self._type())
+
+        assert exc_info.value.code == 400
+        assert self.MDS_SECTION in exc_info.value.description
+
+    def test_both_scopes_are_reported_in_one_message(self) -> None:
+        """A payload failing on both scopes is rejected once, with both messages joined."""
+        object_data = {
+            'fields': [],
+            'multi_data_sections': [{
+                'section_id': self.MDS_SECTION,
+                'values': [{'multi_data_id': 1, 'data': []}],
+            }],
+        }
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_required_object_fields(object_data, self._type())
+
+        assert exc_info.value.description.count('Missing value for required field(s)') == 2
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

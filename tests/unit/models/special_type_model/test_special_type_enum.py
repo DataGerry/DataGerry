@@ -36,6 +36,7 @@ def test_get_special_types_maps_every_member_to_its_display_label() -> None:
         SpecialType.SUBNET: 'IPAM - Subnet class',
         SpecialType.VLAN: 'IPAM - VLAN class',
         SpecialType.RACK: 'Rack View - Rack class',
+        SpecialType.CABLE: 'Port Connectivity - Cable class',
     }
 
 
@@ -51,7 +52,9 @@ def test_get_unused_types_omits_claimed_special_types() -> None:
     """A SpecialType value present in 'existing' drops out of the offer"""
     unused = SpecialType.get_unused_types([SpecialType.SUBNET.value])
 
-    assert set(unused) == {SpecialType.SUPERNET, SpecialType.VLAN, SpecialType.RACK}
+    assert set(unused) == {
+        SpecialType.SUPERNET, SpecialType.VLAN, SpecialType.RACK, SpecialType.CABLE,
+    }
 
 
 def test_get_unused_types_returns_everything_when_nothing_exists() -> None:
@@ -94,15 +97,16 @@ def test_is_ipam_type_accepts_members_and_their_raw_values(value: object) -> Non
     assert SpecialType.is_ipam_type(value) is True
 
 
-def test_is_ipam_type_rejects_rack() -> None:
+@pytest.mark.parametrize('member', [SpecialType.RACK, SpecialType.CABLE], ids=str)
+def test_is_ipam_type_rejects_the_non_ipam_members(member: SpecialType) -> None:
     """
-    RACK is a SpecialType that IPAM does not own
+    RACK and CABLE are SpecialTypes that IPAM does not own
 
-    This is what keeps creating a Rack from demanding an IPAM license - the type/object license
+    This is what keeps the IPAM overviews, the wiring and the importer from picking them up - those
     guards used to treat the mere presence of a 'special_type' marker as proof of IPAM.
     """
-    assert SpecialType.is_ipam_type(SpecialType.RACK) is False
-    assert SpecialType.is_ipam_type('RACK') is False
+    assert SpecialType.is_ipam_type(member) is False
+    assert SpecialType.is_ipam_type(member.value) is False
 
 
 @pytest.mark.parametrize('value', [None, '', 'NOT-A-SPECIAL-TYPE', 0], ids=str)
@@ -115,26 +119,44 @@ def test_is_ipam_type_tolerates_non_special_type_values(value: object) -> None:
 #                                              license-gated members                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_get_license_gated_types_is_the_ipam_members_plus_rack() -> None:
-    """Every gated member today; RACK is in the set behind IPAM as an interim decision"""
-    assert SpecialType.get_license_gated_types() == SpecialType.get_ipam_types() | frozenset({SpecialType.RACK})
-
-
-def test_the_gated_set_does_not_leak_into_the_ipam_set() -> None:
-    """The invariant that must never regress: gating RACK must not make it an IPAM type
-
-    Folding RACK into get_ipam_types would silently change what the IPAM overviews, the special-type
-    wiring and the type importer treat as IPAM - the conflation that had to be unpicked from four
-    places when RACK was introduced.
+def test_get_license_gated_types_is_the_ipam_members_plus_rack_and_cable() -> None:
     """
-    assert SpecialType.RACK in SpecialType.get_license_gated_types()
-    assert SpecialType.RACK not in SpecialType.get_ipam_types()
-    assert SpecialType.is_ipam_type(SpecialType.RACK) is False
+    Every gated member today
+
+    RACK is in the set behind IPAM as an interim decision; CABLE by the Port Connectivity design,
+    which gates the whole feature behind IPAM.
+    """
+    assert SpecialType.get_license_gated_types() == SpecialType.get_ipam_types() | frozenset(
+        {SpecialType.RACK, SpecialType.CABLE}
+    )
+
+
+def test_every_member_is_either_an_ipam_type_or_gated_on_its_own() -> None:
+    """
+    Adding a SpecialType without deciding its license gating fails loudly here
+
+    An ungated member would be creatable on an unlicensed instance, which is the one thing a
+    SpecialType must never be by accident.
+    """
+    assert set(SpecialType) == SpecialType.get_license_gated_types()
+
+
+@pytest.mark.parametrize('member', [SpecialType.RACK, SpecialType.CABLE], ids=str)
+def test_the_gated_set_does_not_leak_into_the_ipam_set(member: SpecialType) -> None:
+    """The invariant that must never regress: gating a member must not make it an IPAM type
+
+    Folding RACK or CABLE into get_ipam_types would silently change what the IPAM overviews, the
+    special-type wiring and the type importer treat as IPAM - the conflation that had to be unpicked
+    from four places when RACK was introduced.
+    """
+    assert member in SpecialType.get_license_gated_types()
+    assert member not in SpecialType.get_ipam_types()
+    assert SpecialType.is_ipam_type(member) is False
 
 
 @pytest.mark.parametrize('value', [
-    SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN, SpecialType.RACK,
-    'SUPERNET', 'SUBNET', 'VLAN', 'RACK',
+    SpecialType.SUPERNET, SpecialType.SUBNET, SpecialType.VLAN, SpecialType.RACK, SpecialType.CABLE,
+    'SUPERNET', 'SUBNET', 'VLAN', 'RACK', 'CABLE',
 ])
 def test_is_license_gated_accepts_every_gated_member_and_its_raw_value(value: object) -> None:
     """Members and their stored string values both resolve"""

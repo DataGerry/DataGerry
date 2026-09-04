@@ -27,6 +27,7 @@ from typing import Any
 from flask import abort
 
 from cmdb.manager import ExtendableOptionsManager, ObjectsManager, TypesManager
+from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
 
 from cmdb.models.extendable_option_model import ExtendableOptionKey
@@ -37,7 +38,10 @@ from cmdb.models.user_model import CmdbUser
 
 from cmdb.security.acl.permission import AccessControlPermission
 
+from cmdb.framework.port.connected import project_connected
+
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_CONNECTED_KEY,
     PORT_FIELD_IMMUTABLE_MESSAGE,
     PORT_NAME_REQUIRED_MESSAGE,
     PORT_NAME_TAKEN_MESSAGE,
@@ -309,3 +313,33 @@ def build_port_candidate(object_id: int, side: str, name: str, payload: dict[str
         PortKey.SPEED.value: payload.get(PortRequestKey.SPEED.value),
         PortKey.DESCRIPTION.value: payload.get(PortRequestKey.DESCRIPTION.value),
     }
+
+
+def with_connected_flag(
+        port_connections_manager: PortConnectionsManager,
+        ports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Adds the derived connected flag to the ports of a read response
+
+    **One batched read for the whole response**, not one per port: a switch with 48 ports would
+    otherwise cost 48 queries to answer a question a single indexed `$in` answers. The query is served
+    by the plain multikey index on `endpoints`, which exists for exactly this.
+
+    An empty page costs no query at all - an object with no ports is the common case on every object
+    view that does not use them
+
+    Args:
+        port_connections_manager (PortConnectionsManager): db interface for CmdbPortConnections
+        ports (list[dict[str, Any]]): The port documents about to be returned
+
+    Returns:
+        list[dict[str, Any]]: The same port documents, each carrying the flag
+    """
+    port_ids: list[int] = [
+        port[PortKey.PUBLIC_ID.value] for port in ports
+        if isinstance(port.get(PortKey.PUBLIC_ID.value), int)
+    ]
+
+    connections: list[dict[str, Any]] = port_connections_manager.get_connections_of_ports(port_ids)
+
+    return project_connected(ports, connections, PORT_CONNECTED_KEY)

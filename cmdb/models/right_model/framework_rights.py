@@ -163,6 +163,22 @@ class PortRight(FrameworkRight):
         super().__init__(name, level, description=description)
 
 
+class ConnectionRight(FrameworkRight):
+    """
+    Base class for port-connection rights (the Port Connectivity feature)
+
+    Separate from PortRight on purpose: a connection spans TWO objects, so granting somebody the right
+    to document an object's ports is not the same as granting them the right to cable it to another
+    object's - the second changes something about a device the grantee may not administer
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.connection'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
 class ExtendableOptionRight(FrameworkRight):
     """
     Base class for CmdbExtendableOption rights

@@ -65,7 +65,7 @@ def get_rack_schema() -> dict[str, Any]:
                 FieldKey.LABEL: 'Racknumber',
             },
             {
-                # The U count of the Rack. 'required' is honoured by the frontend form only, so the
+                # The U count of the Rack. 'required' only buys a value being there, so the
                 # positive-integer check lives in the Rack enforcement on the object write path
                 FieldKey.TYPE: FieldType.NUMBER,
                 FieldKey.NAME: RackField.HEIGHT,

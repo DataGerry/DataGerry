@@ -41,6 +41,7 @@ from cmdb.models.extendable_option_model import (
     LEGACY_OPTION_TYPE_INDEX_NAME,
 )
 from cmdb.models.extendable_option_model import OptionType
+from cmdb.models.port_connection_model import CmdbPortConnection
 from cmdb.models.isms_model.isms_risk import IsmsRisk
 from cmdb.database.updater.versions.updater_20260902 import (
     GROUP_IDENTITY_KEY,
@@ -229,14 +230,29 @@ class TestDeduplicateOptions:
         assert deduplicate_options(dbm, DB_NAME) == 3
 
     def test_an_option_type_nothing_references_is_only_deleted(self) -> None:
-        """A CABLE_TYPE duplicate has no references to move, so no collection is rewritten"""
+        """A group whose option_type nothing can reference has nothing to move, only to delete
+
+        Every real OptionType is referenced from somewhere now, so this is reached by a stored value
+        that is no OptionType at all - a duplicate of one still has to be removed.
+        """
+        dbm = MagicMock()
+        dbm.aggregate.return_value = iter([
+            _group('SOMETHING_ELSE', 'Cat6', [_member(10), _member(11)]),
+        ])
+
+        assert deduplicate_options(dbm, DB_NAME) == 1
+        dbm.update_many.assert_not_called()
+        dbm.delete_many_raw.assert_called_once()
+
+    def test_a_cable_type_duplicate_repoints_the_connections_holding_it(self) -> None:
+        """A CABLE_TYPE duplicate moves the connections that hold it before it is deleted"""
         dbm = MagicMock()
         dbm.aggregate.return_value = iter([
             _group(OptionType.CABLE_TYPE.value, 'Cat6', [_member(10), _member(11)]),
         ])
 
         assert deduplicate_options(dbm, DB_NAME) == 1
-        dbm.update_many.assert_not_called()
+        assert dbm.update_many.call_args.args[0] == CmdbPortConnection.COLLECTION
         dbm.delete_many_raw.assert_called_once()
 
     def test_documents_missing_their_identity_fields_are_deduplicated_too(self) -> None:

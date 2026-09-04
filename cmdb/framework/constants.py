@@ -39,6 +39,8 @@ from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.rack_model import CmdbRackMount
 from cmdb.models.port_model import CmdbPort
+from cmdb.models.port_connection_model import CmdbPortConnection
+from cmdb.models.port_interface_link_model import CmdbPortInterfaceLink
 from cmdb.models.log_model import CmdbObjectRelationLog
 from cmdb.models.object_group_model import CmdbObjectGroup
 from cmdb.models.extendable_option_model import CmdbExtendableOption
@@ -80,6 +82,8 @@ __COLLECTIONS__: list[Any] = [
     CmdbObjectRelationLog,
     CmdbRackMount,
     CmdbPort,
+    CmdbPortConnection,
+    CmdbPortInterfaceLink,
     CmdbObjectGroup,
     CmdbExtendableOption,
     # Not a CmdbDAO, but it exposes the same COLLECTION + get_index_keys() contract, which is all

@@ -38,6 +38,7 @@ from cmdb.models.isms_model.isms_risk_assessment import IsmsRiskAssessment
 from cmdb.models.isms_model.isms_control_measure_assignment import IsmsControlMeasureAssignment
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
 from cmdb.models.port_model import CmdbPort, PortKey, PORT_SELECT_FIELD_OPTION_TYPES
+from cmdb.models.port_connection_model import CmdbPortConnection, PortConnectionKey
 from cmdb.framework.extendable_options.extendable_option_references import (
     EXTENDABLE_OPTION_REFERENCES,
     EXISTENCE_CHECK_LIMIT,
@@ -54,11 +55,13 @@ OPTION_ID: int = 41
 KEEPER_ID: int = 12
 
 
-def _dbm(counts_by_collection: dict[str, int] | None = None, modified: int = 0) -> MagicMock:
+def _dbm(counts_by_collection: dict[str, int] | None = None, modified: int = 0,
+         count: int = 0) -> MagicMock:
     """Builds a MongoDatabaseManager mock whose count and update results are configurable."""
     counts = counts_by_collection or {}
     dbm = MagicMock(name='dbm')
-    dbm.count.side_effect = lambda collection, _db, _criteria, limit=None: counts.get(collection, 0)
+    # `count` is the flat answer for every collection, `counts_by_collection` the per-collection one
+    dbm.count.side_effect = lambda collection, _db, _criteria, limit=None: counts.get(collection, count)
     dbm.update_many.return_value = MagicMock(modified_count=modified)
     dbm.update_many_pull.return_value = MagicMock(modified_count=modified)
 
@@ -125,12 +128,25 @@ class TestTheReferenceMap:
                 ExtendableOptionReference(CmdbPort.COLLECTION, field.value),
             )
 
-    def test_the_cable_type_is_not_referenced_yet(self) -> None:
-        """CABLE_TYPE lives on a connection, and framework.portConnections does not exist yet.
+    def test_the_cable_type_is_referenced_from_a_connection(self) -> None:
+        """CABLE_TYPE lives on a connection's cable info, so an option in use can not be deleted.
 
-        The step that adds it has to register the reference here - this is the test that says so out
-        loud."""
-        assert get_option_references(OptionType.CABLE_TYPE) == ()
+        Only the CONNECTION is listed. The Cable CI's own cable-type field is an ordinary CmdbType
+        select carrying a SNAPSHOT of the values as inline options, so it holds no option public_id
+        and deleting an option can not dangle a reference there."""
+        assert get_option_references(OptionType.CABLE_TYPE) == (
+            ExtendableOptionReference(
+                CmdbPortConnection.COLLECTION, PortConnectionKey.CABLE_TYPE.value,
+            ),
+        )
+
+    def test_every_option_type_is_now_accounted_for(self) -> None:
+        """Every OptionType that exists has a reference entry.
+
+        The four Port Connectivity lists were the last ones without, so from here on an OptionType
+        added without deciding where it is referenced from fails loudly rather than leaving its
+        options silently deletable while documents still hold them."""
+        assert {option_type for option_type in OptionType if not get_option_references(option_type)} == set()
 
     def test_an_unknown_option_type_has_no_references(self) -> None:
         """A value that is not an OptionType at all resolves to an empty tuple, not a KeyError."""
@@ -184,11 +200,21 @@ class TestIsOptionReferenced:
         assert dbm.count.call_count == 3
 
     def test_nothing_is_queried_for_an_unreferenced_option_type(self) -> None:
-        """A CABLE_TYPE option costs no queries at all until connections exist."""
+        """An OptionType nothing can reference costs no queries at all.
+
+        Every real OptionType is referenced from somewhere now, so the case is reached only by a
+        value that is no OptionType - which must still answer False rather than raise."""
         dbm = _dbm()
 
-        assert is_option_referenced(dbm, DB_NAME, OptionType.CABLE_TYPE, OPTION_ID) is False
+        assert is_option_referenced(dbm, DB_NAME, 'SOMETHING_ELSE', OPTION_ID) is False
         dbm.count.assert_not_called()
+
+    def test_a_cable_type_option_is_looked_up_on_the_connections(self) -> None:
+        """A cable type in use by a connection must not be deletable."""
+        dbm = _dbm(count=1)
+
+        assert is_option_referenced(dbm, DB_NAME, OptionType.CABLE_TYPE, OPTION_ID) is True
+        assert dbm.count.call_args.args[0] == CmdbPortConnection.COLLECTION
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -267,11 +293,25 @@ class TestRepointOptionReferences:
         assert modified == 3
 
     def test_nothing_is_written_for_an_unreferenced_option_type(self) -> None:
-        """A CABLE_TYPE duplicate has no references to move yet."""
+        """A value nothing can reference has nothing to move."""
         dbm = _dbm()
 
-        assert repoint_option_references(dbm, DB_NAME, OptionType.CABLE_TYPE, OPTION_ID, KEEPER_ID) == 0
+        assert repoint_option_references(dbm, DB_NAME, 'SOMETHING_ELSE', OPTION_ID, KEEPER_ID) == 0
         dbm.update_many.assert_not_called()
+
+    def test_a_cable_type_duplicate_is_repointed_on_the_connections(self) -> None:
+        """A discarded cable type moves the connections holding it onto the keeper."""
+        dbm = _dbm(modified=2)
+
+        modified: int = repoint_option_references(dbm, DB_NAME, OptionType.CABLE_TYPE, OPTION_ID, KEEPER_ID)
+
+        dbm.update_many.assert_called_once_with(
+            CmdbPortConnection.COLLECTION,
+            DB_NAME,
+            {PortConnectionKey.CABLE_TYPE.value: OPTION_ID},
+            {PortConnectionKey.CABLE_TYPE.value: KEEPER_ID},
+        )
+        assert modified == 2
 
     def test_a_port_option_is_repointed_on_the_ports_collection(self) -> None:
         """A PORT_TYPE duplicate moves the ports that hold it, which is why step 3 registered it."""

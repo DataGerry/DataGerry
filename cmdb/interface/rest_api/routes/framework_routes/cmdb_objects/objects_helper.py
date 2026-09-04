@@ -100,6 +100,13 @@ from cmdb.framework.ipam.enforcement import (
     format_errors_for_abort,
 )
 from cmdb.framework.object_invariants import enforce_object_write_invariants
+from cmdb.framework.object_required_fields import (
+    build_missing_required_errors,
+    collect_missing_required_values,
+    collect_required_field_names,
+    mds_section_field_names,
+    split_required_field_names,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
     handle_object_deleted as handle_port_object_deleted,
 )
@@ -114,6 +121,7 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_f
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     ObjectViewMode,
     ObjectPatchKey,
+    REQUIRED_FIELD_ERROR_SEPARATOR,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     extract_object_location_parent, validate_object_location_change, sync_object_location,
@@ -813,6 +821,42 @@ def validate_and_fill_object_fields(objects_manager: ObjectsManager, object_data
             validate_field_list(value.get(CmdbObjectMdsRowKey.DATA.value, []))
 
 
+def validate_required_object_fields(object_data: dict[str, Any], object_type: CmdbType) -> None:
+    """
+    Rejects an object write that leaves a field its CmdbType marks 'required' without a value
+
+    The same rule the object form applies in the frontend and the object importer applies to an
+    uploaded row (see cmdb.framework.object_required_fields), enforced here for every write that
+    reaches the REST routes: a required field must be carried by the payload with a value that is
+    neither None nor the empty string. DataGerry always sends the complete object, so a required
+    field the payload does not carry at all is missing too.
+
+    A required field of a multi-data section is checked in every row the object carries for that
+    section; a section without rows requires nothing
+
+    Args:
+        object_data (dict[str, Any]): The about-to-be-saved CmdbObject document
+        object_type (CmdbType): The CmdbType of the object
+
+    Raises:
+        HTTPException: 400 when a required field of the type holds no value
+    """
+    required_top_level, required_by_section = split_required_field_names(
+        collect_required_field_names(object_type.get_fields()),
+        mds_section_field_names(object_type),
+    )
+
+    if not required_top_level and not required_by_section:
+        return
+
+    errors: list[str] = build_missing_required_errors(
+        *collect_missing_required_values(object_data, required_top_level, required_by_section)
+    )
+
+    if errors:
+        abort(400, REQUIRED_FIELD_ERROR_SEPARATOR.join(errors))
+
+
 def to_normalized_cmdb_object(object_data: dict[str, Any]) -> CmdbObject:
     """
     Builds a CmdbObject from a payload dict, normalizing BSON types via a JSON round-trip
@@ -977,6 +1021,9 @@ def apply_object_insert(
 
     # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
     new_object_data, object_type = build_new_object_data(objects_manager, payload)
+
+    # A field the type marks required may not be saved without a value
+    validate_required_object_fields(new_object_data, object_type)
 
     # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_object_data)
@@ -1225,6 +1272,9 @@ def apply_object_update(  # pylint: disable=too-many-locals
 
     # Validate fields have a type (and backfill it) - the full payload is the source of truth
     validate_and_fill_object_fields(objects_manager, new_data)
+
+    # A field the type marks required may not be saved without a value
+    validate_required_object_fields(new_data, current_type_instance)
 
     # Location placement is validated BEFORE the write; the CmdbLocation mirror runs best-effort after
     has_location_field, location_parent = extract_object_location_parent(

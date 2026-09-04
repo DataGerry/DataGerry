@@ -26,6 +26,8 @@ from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.object_relations_manager import ObjectRelationsManager
 from cmdb.manager.rack_mounts_manager import RackMountsManager
 from cmdb.manager.ports_manager import PortsManager
+from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.object_relation_logs_manager import ObjectRelationLogsManager
 from cmdb.manager.relations_manager import RelationsManager
 from cmdb.manager.report_categories_manager import ReportCategoriesManager
@@ -92,6 +94,8 @@ __all__: list[str] = [
     'ObjectRelationsManager',
     'RackMountsManager',
     'PortsManager',
+    'PortConnectionsManager',
+    'PortInterfaceLinksManager',
     'ObjectRelationLogsManager',
     'RelationsManager',
     'ReportCategoriesManager',

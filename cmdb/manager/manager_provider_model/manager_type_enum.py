@@ -44,6 +44,8 @@ class ManagerType(Enum):
     OBJECT_RELATIONS = 'ObjectRelationsManager'
     RACK_MOUNTS = 'RackMountsManager'
     PORTS = 'PortsManager'
+    PORT_CONNECTIONS = 'PortConnectionsManager'
+    PORT_INTERFACE_LINKS = 'PortInterfaceLinksManager'
     OBJECT_RELATION_LOGS = 'ObjectRelationLogsManager'
     EXTENDABLE_OPTIONS = 'ExtendableOptionsManager'
     OBJECT_GROUP = 'ObjectGroupsManager'

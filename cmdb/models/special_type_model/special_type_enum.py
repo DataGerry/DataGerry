@@ -39,6 +39,7 @@ class SpecialType(BaseStrEnum):
     SUBNET = 'SUBNET'
     VLAN = 'VLAN'
     RACK = 'RACK'
+    CABLE = 'CABLE'
 
 
     @classmethod
@@ -57,7 +58,8 @@ class SpecialType(BaseStrEnum):
             cls.SUPERNET: "IPAM - Supernet class",
             cls.SUBNET: "IPAM - Subnet class",
             cls.VLAN: "IPAM - VLAN class",
-            cls.RACK: "Rack View - Rack class"
+            cls.RACK: "Rack View - Rack class",
+            cls.CABLE: "Port Connectivity - Cable class"
         }
 
 
@@ -81,22 +83,24 @@ class SpecialType(BaseStrEnum):
         """
         Returns the SpecialTypes whose management requires a licensed feature
 
-        Every member here is currently gated behind ``LicenseFeature.IPAM`` - including RACK, which is
-        an INTERIM decision: RACK is not an IPAM type (see get_ipam_types, which stays accurate) and
-        the Rack View is expected to get a LicenseFeature of its own. One flat set is therefore
-        enough while there is exactly one gating feature; the moment a second one exists this has to
-        become a per-member mapping from SpecialType to LicenseFeature, and every caller listed in
-        the class docstring has to pass the mapped feature instead of a hard-coded IPAM
+        Every member here is currently gated behind ``LicenseFeature.IPAM`` - including RACK and
+        CABLE. For RACK that is an INTERIM decision: it is not an IPAM type (see get_ipam_types,
+        which stays accurate) and the Rack View is expected to get a LicenseFeature of its own. For
+        CABLE it is the deliberate one - decision D6 of the Port Connectivity design gates the whole
+        feature behind IPAM. One flat set is therefore enough while there is exactly one gating
+        feature; the moment a second one exists this has to become a per-member mapping from
+        SpecialType to LicenseFeature, and every caller listed in the class docstring has to pass the
+        mapped feature instead of a hard-coded IPAM
 
-        Kept separate from get_ipam_types deliberately. Folding RACK into that set would make
-        ``is_ipam_type(RACK)`` true and silently change what the IPAM overviews, the wiring and the
-        importer treat as an IPAM type - the exact conflation that had to be unpicked from four
-        places when RACK was introduced
+        Kept separate from get_ipam_types deliberately. Folding RACK or CABLE into that set would
+        make ``is_ipam_type`` true for them and silently change what the IPAM overviews, the wiring
+        and the importer treat as an IPAM type - the exact conflation that had to be unpicked from
+        four places when RACK was introduced
 
         Returns:
             frozenset[SpecialType]: The SpecialType members whose writes require a license
         """
-        return cls.get_ipam_types() | frozenset({cls.RACK})
+        return cls.get_ipam_types() | frozenset({cls.RACK, cls.CABLE})
 
 
     @classmethod

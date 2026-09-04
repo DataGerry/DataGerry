@@ -37,6 +37,10 @@ __all__: list[str] = [
 # the biggest groups only, so the route stops collecting once it has this many
 MAX_DASHBOARD_GROUPS: int = 5
 
+# Joins the per-scope messages of a rejected write when several required fields are left without a
+# value (one message for the top-level fields, one per multi-data section)
+REQUIRED_FIELD_ERROR_SEPARATOR: str = ' | '
+
 
 class ObjectViewMode(BaseStrEnum):
     """
