@@ -102,6 +102,21 @@ describe('TypeFieldsStepComponent (type creation - content step)', () => {
             expect(component.status).toBeFalse();
         });
 
+        it('is valid when the ports section is the only content', () => {
+            component.typeInstance = buildType({
+                uses_ports: true,
+                fields: [],
+                render_meta: {
+                    icon: 'fa fa-cube',
+                    sections: [{ type: 'section', name: 'dg-virtual-tpl-ports', label: 'Ports', fields: [] }],
+                    externals: [],
+                    summary: { fields: [] }
+                }
+            });
+            component.builderValid = true;
+            expect(component.status).toBeTrue();
+        });
+
         it('is invalid when the embedded builder reports an invalid state', () => {
             component.typeInstance = buildType({
                 fields: [{ name: 'f1' }],

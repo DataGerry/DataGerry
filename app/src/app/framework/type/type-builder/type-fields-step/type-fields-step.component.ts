@@ -207,11 +207,22 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
 /* ---------------------------------------------------- FUCNTIONS --------------------------------------------------- */
 
-    /** Measured on the payload, so the ports section alone does not make a type valid. */
+    /**
+     * Measured on the payload, so the ports section is not counted as a regular section. A type that
+     * only uses ports is still complete, otherwise at least one section with one field is required.
+     */
     public get status(): boolean{
         const payload = withPortsFlagOnly(this.typeInstance);
 
-        return payload.fields.length > 0 && payload.render_meta.sections.length > 0 && this.builderValid;
+        if (!this.builderValid) {
+            return false;
+        }
+
+        if (payload.uses_ports === true) {
+            return true;
+        }
+
+        return payload.fields.length > 0 && payload.render_meta.sections.length > 0;
     }
 
 
