@@ -347,6 +347,12 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
     }
 
 
+    /** Drops `option_type` so the preview renders plain selects without the option manager buttons. */
+    private withoutOptionManagers(fields: readonly Field[]): Field[] {
+        return fields.map(({ option_type, ...field }) => field);
+    }
+
+
     /** Previews a copy, so resolved options never reach the model the table holds. */
     private openTemplatePreview(sectionTemplate: SectionTemplateListItem, fields: Field[]): void {
         this.modalRef = this.modalService.open(PreviewModalComponent, {
@@ -356,6 +362,6 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
             backdropClass: 'dg-modal-window-backdrop'
         });
 
-        this.modalRef.componentInstance.sections = [{ ...sectionTemplate, fields }];
+        this.modalRef.componentInstance.sections = [{ ...sectionTemplate, fields: this.withoutOptionManagers(fields) }];
     }
 }
