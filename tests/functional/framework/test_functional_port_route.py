@@ -35,6 +35,8 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
+from cmdb.models.port_connection_model import CmdbPortConnection, ConnectionType, PortConnectionKey
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
 from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -827,3 +829,149 @@ class TestUsesPortsGuard:
                                 json=_type_payload(PORT_TYPE_ID, uses_ports=False))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          the derived connected flag                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+PEER_PORT_ID: int = 9870
+CONNECTION_ID: int = 9871
+
+
+@pytest.fixture(name='connections')
+def fixture_connections(database_manager: MongoDatabaseManager, database_name: str, seeded):
+    """
+    Gives the raw connection collection, cleared around each test
+
+    Depends on 'seeded' for ordering alone: the types, objects and ports have to exist before a
+    connection can name one of their ports.
+    """
+    # pylint: disable=unused-argument
+    collection = database_manager.get_collection(CmdbPortConnection.COLLECTION, database_name)
+
+    def _purge() -> None:
+        collection.delete_many({PortConnectionKey.PUBLIC_ID.value: CONNECTION_ID})
+
+    _purge()
+
+    yield collection
+
+    _purge()
+
+
+def _connect(collection, port_id: int, peer_id: int,
+             connection_type: str = ConnectionType.CABLE.value) -> None:
+    """Stores a connection between two ports, endpoints sorted the way the model writes them."""
+    collection.insert_one({
+        PortConnectionKey.PUBLIC_ID.value: CONNECTION_ID,
+        PortConnectionKey.ENDPOINTS.value: sorted([port_id, peer_id]),
+        PortConnectionKey.CONNECTION_TYPE.value: connection_type,
+    })
+
+
+class TestConnectedFlag:
+    """
+    `connected` is derived on every read and never stored
+
+    A stored flag would be a second truth about something the connections collection already answers,
+    so what these assert is that the reads compute it and that no write path can persist it.
+    """
+    # Several cases take the 'connections' fixture purely for its side effect - it clears the
+    # connection collection around the test - and never touch the handle it yields
+    # pylint: disable=unused-argument
+
+    def test_a_free_port_reports_false(self, rest_api, connections) -> None:
+        """'Free' is a normal state and gets an explicit false, never a missing key"""
+        new_id = _create(rest_api).get_json()['result_id']
+
+        port = rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result']
+
+        assert port[PORT_CONNECTED_KEY] is False
+
+    def test_a_connected_port_reports_true(self, rest_api, connections) -> None:
+        """The single read resolves the flag from the connections collection"""
+        new_id = _create(rest_api).get_json()['result_id']
+        _connect(connections, new_id, PEER_PORT_ID)
+
+        port = rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result']
+
+        assert port[PORT_CONNECTED_KEY] is True
+
+    def test_the_flag_is_resolved_from_either_side_of_the_pair(self, rest_api, connections) -> None:
+        """
+        The endpoints are stored sorted, so a port is sometimes the first id and sometimes the second
+
+        Connecting to a peer with a LOWER id puts the port second in the stored array - a projection
+        reading one position only would report it free.
+        """
+        new_id = _create(rest_api).get_json()['result_id']
+        _connect(connections, new_id, 1)
+
+        port = rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result']
+
+        assert sorted([new_id, 1])[1] == new_id
+        assert port[PORT_CONNECTED_KEY] is True
+
+    def test_the_list_route_flags_every_port(self, rest_api, connections) -> None:
+        """The ports panel gets the flag for the whole page in one batched read"""
+        connected_id = _create(rest_api).get_json()['result_id']
+        _create(rest_api, name='Gi0/2')
+        _connect(connections, connected_id, PEER_PORT_ID)
+
+        ports = rest_api.get(f'{ROUTE_URL}/object/{OWNER_OBJECT_ID}').get_json()
+
+        assert {port[PortKey.PUBLIC_ID.value]: port[PORT_CONNECTED_KEY] for port in ports} == {
+            connected_id: True,
+            next(p[PortKey.PUBLIC_ID.value] for p in ports if p[PortKey.NAME.value] == 'Gi0/2'): False,
+        }
+
+    def test_an_internal_connection_counts_as_connected(self, rest_api, connections) -> None:
+        """A panel face paired with its counterpart is not free"""
+        new_id = _create(rest_api, side=PortSide.FRONT.value).get_json()['result_id']
+        _connect(connections, new_id, PEER_PORT_ID, ConnectionType.INTERNAL.value)
+
+        port = rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result']
+
+        assert port[PORT_CONNECTED_KEY] is True
+
+    def test_a_create_that_sets_connected_is_ignored(self, rest_api, connections, seeded) -> None:
+        """
+        The server owns the flag, the way it owns author_id
+
+        The payload key is never read - build_port_candidate takes only the fields a request owns - so
+        it can not reach the document. Asserted against the STORED row, because the response would
+        carry a computed false either way.
+        """
+        response = rest_api.post(f'{ROUTE_URL}/', json=_port_payload(**{PORT_CONNECTED_KEY: True}))
+        new_id = response.get_json()['result_id']
+
+        stored = seeded.find_one({PortKey.PUBLIC_ID.value: new_id})
+
+        assert PORT_CONNECTED_KEY not in stored
+        assert rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result'][PORT_CONNECTED_KEY] is False
+
+    def test_an_update_that_sets_connected_is_ignored(self, rest_api, connections, seeded) -> None:
+        """The same on the write path a client is most likely to round-trip a GET into"""
+        new_id = _create(rest_api).get_json()['result_id']
+
+        rest_api.put(f'{ROUTE_URL}/{new_id}', json=_port_payload(**{PORT_CONNECTED_KEY: True}))
+
+        stored = seeded.find_one({PortKey.PUBLIC_ID.value: new_id})
+
+        assert PORT_CONNECTED_KEY not in stored
+
+    def test_a_stored_flag_is_never_trusted(self, rest_api, connections, seeded) -> None:
+        """
+        A row that somehow carries the key is overwritten by the derivation, not believed
+
+        This is what makes the value impossible to get wrong: even a document written by something
+        other than these routes reads back as whatever the connections actually say.
+        """
+        new_id = _create(rest_api).get_json()['result_id']
+        seeded.update_one(
+            {PortKey.PUBLIC_ID.value: new_id}, {'$set': {PORT_CONNECTED_KEY: True}},
+        )
+
+        port = rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result']
+
+        assert port[PORT_CONNECTED_KEY] is False

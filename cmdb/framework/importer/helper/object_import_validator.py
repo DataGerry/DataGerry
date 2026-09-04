@@ -42,10 +42,16 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
 )
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
-from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils import duplicate_names, parse_import_bool
+from cmdb.framework.object_required_fields import (
+    build_missing_required_errors,
+    collect_missing_required_values,
+    collect_required_field_names,
+    mds_section_field_names,
+    split_required_field_names,
+)
 from cmdb.framework.rack import normalize_rack_object, validate_rack_field_values
 from cmdb.framework.importer.importer_constants import DEFAULT_OBJECT_VERSION
 from cmdb.framework.importer.helper.improve_object import ImproveObject
@@ -348,25 +354,6 @@ def build_field_type_map(type_fields: list[dict]) -> dict[str, str]:
     }
 
 
-def _mds_section_fields(type_instance) -> dict[str, list]:
-    """
-    Returns each multi-data-section's ordered field names, keyed by section id
-
-    Args:
-        type_instance: The target ``CmdbType``
-
-    Returns:
-        dict[str, list]: ``{section_id: [field name, …]}`` for every multi-data-section
-    """
-    sections: dict[str, list] = {}
-
-    for section in type_instance.get_sections():
-        if getattr(section, 'type', None) == SectionType.MDS_SECTION.value:
-            sections[section.name] = list(section.get_fields())
-
-    return sections
-
-
 def _field_options(type_fields: list[dict]) -> dict[str, set]:
     """
     Returns the allowed option names of each select / radio field, keyed by field name
@@ -420,26 +407,17 @@ def build_import_type_context(
     type_fields = type_instance.get_fields()
     field_defaults = {field.get(FieldKey.NAME.value): field.get(FieldKey.VALUE.value) for field in type_fields or []}
 
-    required_field_names = {
-        field.get(FieldKey.NAME.value)
-        for field in type_fields or []
-        if field.get(FieldKey.REQUIRED.value) and field.get(FieldKey.TYPE.value) not in _CLEARABLE_FIELD_TYPES
-    }
+    required_field_names = collect_required_field_names(type_fields, _CLEARABLE_FIELD_TYPES)
 
-    section_fields = _mds_section_fields(type_instance)
+    section_fields = mds_section_field_names(type_instance)
     mds_field_names = set().union(*(set(names) for names in section_fields.values())) if section_fields else set()
 
-    required_mds_by_section = {
-        section_id: required_field_names.intersection(names)
-        for section_id, names in section_fields.items()
-        if required_field_names.intersection(names)
-    }
-    mds_required = set().union(*required_mds_by_section.values()) if required_mds_by_section else set()
+    required_top_level, required_mds_by_section = split_required_field_names(required_field_names, section_fields)
 
     return ImportTypeContext(
         clearable_reference_fields=reference_field_names(type_fields),
         field_type_map=build_field_type_map(type_fields),
-        required_top_level=required_field_names - mds_required,
+        required_top_level=required_top_level,
         required_mds_by_section=required_mds_by_section,
         top_level_field_defaults={
             name: default for name, default in field_defaults.items() if name not in mds_field_names
@@ -520,22 +498,6 @@ def _backfill_from_type(working_object: dict, type_context: ImportTypeContext) -
                     row_data.append({CmdbObjectFieldKey.NAME.value: name, CmdbObjectFieldKey.VALUE.value: default})
 
 
-def _is_value_missing(value: Any) -> bool:
-    """
-    Reports whether a field value counts as "no value" for the required-field check
-
-    Only None and the empty string are treated as missing; 0, False and other falsy-but-present values
-    are considered valid values.
-
-    Args:
-        value (Any): The field value to test
-
-    Returns:
-        bool: True when the value is None or an empty string
-    """
-    return value is None or value == ''
-
-
 def _validate_required_fields(working_object: dict, type_context: ImportTypeContext, errors: list[str]) -> None:
     """
     Rejects the object when a required field is left without a value (top-level or in an MDS row)
@@ -550,39 +512,13 @@ def _validate_required_fields(working_object: dict, type_context: ImportTypeCont
         type_context (ImportTypeContext): The target type's required-field sets
         errors (list[str]): The error accumulator to append to on a missing required value
     """
-    top_level_values = {
-        field.get(CmdbObjectFieldKey.NAME.value): field.get(CmdbObjectFieldKey.VALUE.value)
-        for field in working_object.get(CmdbObjectKey.FIELDS.value) or []
-    }
-    missing_top_level = [
-        name for name in type_context.required_top_level
-        if name not in top_level_values or _is_value_missing(top_level_values[name])
-    ]
-    if missing_top_level:
-        errors.append(f"Missing value for required field(s): {sorted(missing_top_level)}")
+    missing_top_level, missing_by_section = collect_missing_required_values(
+        working_object,
+        type_context.required_top_level,
+        type_context.required_mds_by_section,
+    )
 
-    for section in working_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []:
-        required_here = type_context.required_mds_by_section.get(section.get(CmdbObjectMdsKey.SECTION_ID.value))
-        if not required_here:
-            continue
-
-        missing_in_section: set = set()
-        for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
-            row_values = {
-                entry.get(CmdbObjectFieldKey.NAME.value): entry.get(CmdbObjectFieldKey.VALUE.value)
-                for entry in row.get(CmdbObjectMdsRowKey.DATA.value, [])
-            }
-            missing_in_section.update(
-                name for name in required_here
-                if name not in row_values or _is_value_missing(row_values[name])
-            )
-
-        if missing_in_section:
-            section_id = section.get(CmdbObjectMdsKey.SECTION_ID.value)
-            errors.append(
-                f"Missing value for required field(s) {sorted(missing_in_section)} "
-                f"in multi-data section '{section_id}'"
-            )
+    errors.extend(build_missing_required_errors(missing_top_level, missing_by_section))
 
 
 def _stamp_and_validate_field_types(working_object: dict, field_type_map: dict, errors: list[str]) -> None:

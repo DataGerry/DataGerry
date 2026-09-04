@@ -47,6 +47,8 @@ from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ExtendableOptionsManager, ObjectsManager, TypesManager
+from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -63,6 +65,8 @@ from cmdb.errors.manager.ports_manager import (
     PortsManagerInsertError,
     PortsManagerUpdateError,
 )
+
+from cmdb.framework.port.cascade import delete_connections_of_port, delete_interface_links_of_port
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -82,6 +86,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
 )
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     build_port_candidate,
+    with_connected_flag,
     enforce_port_name_available,
     enforce_select_values,
     enforce_type_uses_ports,
@@ -193,7 +198,10 @@ def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     HTTP `GET`/`HEAD` route to retrieve a single CmdbPort
 
     The owner object is resolved even though it is not returned: reading a port means reading part of
-    that object, so the object's ACL decides whether the caller may
+    that object, so the object's ACL decides whether the caller may.
+
+    The response carries the derived `connected` flag, which is computed here and never stored - see
+    cmdb.framework.port.connected
 
     Args:
         public_id (int): public_id of the CmdbPort
@@ -204,17 +212,21 @@ def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
                        exist; 500 on an unexpected error
 
     Returns:
-        GetSingleResponse: The requested CmdbPort
+        GetSingleResponse: The requested CmdbPort, carrying its derived `connected` flag
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
 
         port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
 
         get_accessible_owner_or_abort(
             objects_manager, port.get(PortKey.OBJECT_ID.value), request_user, AccessControlPermission.READ,
         )
+
+        with_connected_flag(port_connections_manager, [port])
 
         return GetSingleResponse(port, body=request.method == 'HEAD').make_response()
     except HTTPException as http_err:
@@ -240,7 +252,10 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
 
     The route the ports panel of an object view loads. Ordered by port number and then by name, so a
     port without a number still has a stable place. An object with no ports answers with an empty
-    list, not a 404 - "this object has no ports yet" is a normal state
+    list, not a 404 - "this object has no ports yet" is a normal state.
+
+    Every port carries its derived `connected` flag, resolved for the WHOLE page in one batched query
+    rather than one per port - a 48-port switch costs two reads in total
 
     Args:
         object_id (int): public_id of the owner CmdbObject
@@ -251,17 +266,21 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
                        500 on an unexpected error
 
     Returns:
-        DefaultResponse: The object's CmdbPorts as a list
+        DefaultResponse: The object's CmdbPorts as a list, each carrying its `connected` flag
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
 
         get_accessible_owner_or_abort(
             objects_manager, object_id, request_user, AccessControlPermission.READ,
         )
 
-        return DefaultResponse(ports_manager.get_ports_of_object(object_id)).make_response()
+        ports: list[dict[str, Any]] = ports_manager.get_ports_of_object(object_id)
+
+        return DefaultResponse(with_connected_flag(port_connections_manager, ports)).make_response()
     except HTTPException as http_err:
         raise http_err
     except AccessDeniedError as err:
@@ -358,9 +377,11 @@ def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbPort
 
-    Deleting a port never touches the owner CmdbObject. Once connections exist, the step that adds
-    them has to remove the ones this port was an endpoint of - a port may not leave a connection
-    pointing at nothing
+    Deleting a port never touches the owner CmdbObject, but it does take the port's CONNECTIONS and
+    its INTERFACE LINKS with it - neither may be left pointing at nothing. Both go first, because each
+    is found through the port and a deleted port can no longer be looked up. The peers at the other
+    ends simply become free, nothing about them is rewritten since `connected` is computed on read, and
+    no CmdbObject's interface rows are touched - a link's interface half is a soft reference
 
     Args:
         public_id (int): public_id of the CmdbPort to delete
@@ -376,6 +397,10 @@ def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
+        port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
+            ManagerType.PORT_INTERFACE_LINKS, request_user)
 
         port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
 
@@ -383,6 +408,12 @@ def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
             objects_manager, port.get(PortKey.OBJECT_ID.value), request_user,
             AccessControlPermission.UPDATE,
         )
+
+        # Deliberately NOT guarded by the connection rights: this is cleanup that follows from an
+        # operation the caller was already allowed to perform, and refusing it would leave the
+        # dangling rows the cascade exists to prevent
+        delete_connections_of_port(port_connections_manager, public_id)
+        delete_interface_links_of_port(port_interface_links_manager, public_id)
 
         ports_manager.delete_item(public_id)
 

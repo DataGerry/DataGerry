@@ -19,5 +19,6 @@ SpecialTypes: the CmdbType flavours that carry framework-level behaviour
 A CmdbType marks itself as a SpecialType through its schema's 'special_type' key and is then created
 from a predefined blueprint under the 'schemas' subpackage. The members are grouped by the feature
 that owns them - SUPERNET / SUBNET / VLAN belong to IPAM (their field names live in ipam_constants),
-RACK to the Rack View feature (rack_constants) - and each may exist at most once per installation
+RACK to the Rack View feature (rack_constants) and CABLE to Port Connectivity (cable_constants) - and
+each may exist at most once per installation
 """

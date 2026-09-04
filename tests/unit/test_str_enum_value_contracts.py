@@ -59,6 +59,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.port_model.port_constants import PortSide
+from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     RenderMetaKey,
     CategoryBodyKey,
@@ -213,6 +214,13 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'SINGLE': 'single',
         'FRONT': 'front',
         'REAR': 'rear',
+    }),
+    # A CmdbPortConnection's stored 'connection_type'. The two partial unique indexes that hold the
+    # feature's whole cardinality guarantee are FILTERED on these exact strings, so a renamed member
+    # would leave every existing connection outside both indexes - guaranteeing nothing, silently
+    (ConnectionType, {
+        'CABLE': 'CABLE',
+        'INTERNAL': 'INTERNAL',
     }),
     # DataGerry assistant key enums whose values are written into persisted CmdbType / CmdbCategory
     # documents (the assistant uses them as dict keys when building those documents)

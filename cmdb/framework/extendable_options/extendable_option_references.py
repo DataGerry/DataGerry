@@ -41,6 +41,8 @@ from cmdb.models.extendable_option_model.option_type_enum import OptionType
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
 from cmdb.models.port_model.cmdb_port import CmdbPort
 from cmdb.models.port_model.port_constants import PORT_SELECT_FIELD_OPTION_TYPES
+from cmdb.models.port_connection_model.cmdb_port_connection import CmdbPortConnection
+from cmdb.models.port_connection_model.port_connection_constants import PortConnectionKey
 from cmdb.models.isms_model.isms_threat import IsmsThreat
 from cmdb.models.isms_model.isms_vulnerability import IsmsVulnerability
 from cmdb.models.isms_model.isms_risk import IsmsRisk
@@ -82,11 +84,7 @@ class ExtendableOptionReference(NamedTuple):
     is_array: bool = False
 
 
-# Every reference to a CmdbExtendableOption in the database, keyed by the OptionType being pointed at.
-#
-# CABLE_TYPE is still deliberately absent: it is referenced from a connection's cable info, and
-# framework.portConnections does not exist yet. The step that adds it has to add its entry here, or a
-# cable type stays deletable while connections still carry it
+# Every reference to a CmdbExtendableOption in the database, keyed by the OptionType being pointed at
 EXTENDABLE_OPTION_REFERENCES: dict[OptionType, tuple[ExtendableOptionReference, ...]] = {
     OptionType.THREAT_VULNERABILITY: (
         ExtendableOptionReference(IsmsThreat.COLLECTION, ExtendableOptionUsageField.SOURCE.value),
@@ -127,6 +125,12 @@ EXTENDABLE_OPTION_REFERENCES: dict[OptionType, tuple[ExtendableOptionReference, 
         option_type: (ExtendableOptionReference(CmdbPort.COLLECTION, field.value),)
         for field, option_type in PORT_SELECT_FIELD_OPTION_TYPES.items()
     },
+    # A connection's cable type. Only the CONNECTION is listed: the Cable CI's own cable-type field is
+    # an ordinary CmdbType select carrying a snapshot of the values as inline options, so it holds no
+    # option public_id and deleting an option can not dangle a reference there
+    OptionType.CABLE_TYPE: (
+        ExtendableOptionReference(CmdbPortConnection.COLLECTION, PortConnectionKey.CABLE_TYPE.value),
+    ),
 }
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -185,10 +185,12 @@ def export_object_import_template(type_id: int, request_user: CmdbUser) -> Respo
         if not type_instance:
             abort(404, f"The Type with ID:{type_id} was not found!")
 
-        # A type without fields would yield nothing but the two identity columns, which is not a usable
-        # template - and it points at a broken type rather than at a bad request for the template
+        # A type may legitimately declare no field at all - a `uses_ports` Type whose whole content is
+        # its ports is the known case - and then the template would hold nothing but the two identity
+        # columns, which is not a document anyone can fill in. Refused rather than answered with it
         if not type_has_template_fields(type_instance):
-            abort(400, f"The Type with ID: {type_id} has no fields, so no import template can be created!")
+            abort(400, f"The Type with ID: {type_id} declares no fields, so there is nothing an import "
+                       f"template could ask for!")
 
         header: list[str] = build_object_template_header(type_instance)
         # Written through the CSV format itself, so a template and an export share one CSV writer
