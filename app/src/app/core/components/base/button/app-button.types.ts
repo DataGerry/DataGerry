@@ -40,13 +40,3 @@ export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 export type ButtonIconPosition = 'start' | 'end';
 
 export type ButtonType = 'button' | 'submit' | 'reset';
-
-/**
- * The variant/tone/size a `bootstrapClass` string resolves to.
- */
-export interface ResolvedButtonStyle {
-    variant: ButtonVariant;
-    tone: ButtonTone;
-    size?: ButtonSize;
-    block?: boolean;
-}

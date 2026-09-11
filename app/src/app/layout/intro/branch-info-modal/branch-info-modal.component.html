@@ -70,10 +70,11 @@
   </div>
 
   <div class="assistant__footer">
-    <button type="button" class="btn btn-light" (click)="activeModal.dismiss(false)">Cancel</button>
-    <button type="button" class="btn btn-primary" [disabled]="!branchForm.valid"
-      (click)="activeModal.close(branchForm.value)">
-      Continue <i class="fas fa-arrow-right" aria-hidden="true"></i>
-    </button>
+    <app-button variant="outline" tone="neutral" label="Cancel" (clicked)="activeModal.dismiss(false)">
+    </app-button>
+
+    <app-button variant="solid" tone="brand" label="Continue" icon="fas fa-arrow-right"
+      iconPosition="end" [disabled]="!branchForm.valid" (clicked)="activeModal.close(branchForm.value)">
+    </app-button>
   </div>
 </div>

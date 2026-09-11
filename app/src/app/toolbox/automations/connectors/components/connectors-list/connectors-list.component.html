@@ -21,10 +21,10 @@
 <!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
   <span *permissionLink="'base.openCelium.connector.edit'">
-    <i class="far fa-edit icon-margin btn-edit spacing-right" (click)="edit(item)" title="Edit Connector"></i>
+    <i class="far fa-edit icon-margin icon-edit spacing-right" (click)="edit(item)" title="Edit Connector"></i>
   </span>
 
   <span *permissionLink="'base.openCelium.connector.delete'">
-    <i class="far fa-trash-alt btn-delete" (click)="delete(item)" title="Delete Connector"></i>
+    <i class="far fa-trash-alt icon-delete" (click)="delete(item)" title="Delete Connector"></i>
   </span>
 </ng-template>

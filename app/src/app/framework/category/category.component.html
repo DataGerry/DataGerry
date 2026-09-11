@@ -25,7 +25,7 @@
                   <app-button
                     label="Add category"
                     icon="fas fa-plus"
-                    [bootstrapClass]="'btn-sm btn-success'"
+                    variant="solid" tone="brand" size="sm"
                     title="Create a new category"
                     (clicked)="onAddCategory()"
                   ></app-button>
@@ -35,7 +35,7 @@
                     <app-button
                       label="Organize"
                       icon="fas fa-arrows-alt"
-                      [bootstrapClass]="'btn-sm btn-outline-primary'"
+                      variant="outline" tone="brand" size="sm"
                       title="Rearrange the structure by drag and drop"
                       (clicked)="startOrganize()"
                     ></app-button>
@@ -69,7 +69,7 @@
                     class="cat-search__clear"
                     label=""
                     icon="fas fa-times"
-                    [bootstrapClass]="''"
+                    variant="outline" tone="neutral"
                     ariaLabel="Clear the category filter"
                     (clicked)="clearSearch()"
                   ></app-button>
@@ -81,7 +81,7 @@
                   class="cat-panel__toolbar-action"
                   [label]="isEverythingExpanded ? 'Collapse all' : 'Expand all'"
                   [icon]="isEverythingExpanded ? 'fas fa-angle-double-up' : 'fas fa-angle-double-down'"
-                  [bootstrapClass]="'btn-sm btn-light'"
+                  variant="ghost" tone="neutral" size="sm"
                   (clicked)="toggleAllNodes()"
                 ></app-button>
               }
@@ -99,7 +99,7 @@
                   <app-button
                     label="Add your first category"
                     icon="fas fa-plus"
-                    [bootstrapClass]="'btn-sm btn-success'"
+                    variant="solid" tone="brand" size="sm"
                     (clicked)="onAddCategory()"
                   ></app-button>
                 </ng-container>
@@ -135,13 +135,13 @@
               </span>
               <app-button
                 label="Cancel"
-                [bootstrapClass]="'btn-sm btn-light'"
+                variant="ghost" tone="neutral" size="sm"
                 (clicked)="cancelOrganize()"
               ></app-button>
               <app-button
                 label="Save structure"
                 icon="fas fa-check"
-                [bootstrapClass]="'btn-sm btn-success'"
+                variant="solid" tone="brand" size="sm"
                 [disabled]="!hasPendingChanges"
                 (clicked)="onSave()"
               ></app-button>

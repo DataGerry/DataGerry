@@ -2,7 +2,7 @@
   @if (manageableOption) {
     <div class="d-flex justify-content-end mb-2">
       <app-button
-        [bootstrapClass]="'btn-outline-secondary btn-sm'"
+        variant="outline" tone="neutral" size="sm"
         [label]="manageableOption.manageLabel"
         type="button"
         (clicked)="openOptionManager()">

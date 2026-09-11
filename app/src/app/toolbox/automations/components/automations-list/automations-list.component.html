@@ -128,15 +128,15 @@
 <!-- Actions Template -->
 <ng-template #actionsTemplate let-item="item">
   <div class="action-buttons">
-    <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-play icon-margin btn-run"
+    <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-play icon-margin icon-run"
       [title]="isSchedulerRunning(item.schedulerId) ? 'Execution in progress' : 'Execute Scheduler'"
       [class.is-disabled]="isSchedulerRunning(item.schedulerId)" (click)="executeScheduler(item.schedulerId)">
     </i>
     <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-clock icon-margin btn-cron"
       (click)="setCron(item)" title="Set Cron Job"></i>
-    <i *permissionLink="'base.openCelium.connection.edit'" class="far fa-edit icon-margin btn-edit"
+    <i *permissionLink="'base.openCelium.connection.edit'" class="far fa-edit icon-margin icon-edit"
       style="margin-left: 5px;" (click)="editAutomation(item)" title="Edit Automation"></i>
-    <i *permissionLink="'base.openCelium.connection.delete'" class="far fa-trash-alt btn-delete"
+    <i *permissionLink="'base.openCelium.connection.delete'" class="far fa-trash-alt icon-delete"
       style="margin-left: 5px;" (click)="delete(item)" title="Delete Automation"></i>
   </div>
 </ng-template>

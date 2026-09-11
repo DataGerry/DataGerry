@@ -17,7 +17,6 @@
 */
 import { ChangeDetectionStrategy, Component, computed, effect, input, isDevMode, output } from '@angular/core';
 
-import { resolveBootstrapClass } from './app-button-class.adapter';
 import {
     ButtonIconPosition,
     ButtonSize,
@@ -41,7 +40,7 @@ import {
     standalone: false,
     changeDetection: ChangeDetectionStrategy.OnPush,
     host: {
-        '[attr.data-block]': 'isBlock() ? "true" : null'
+        '[attr.data-block]': 'block() ? "true" : null'
     }
 })
 export class ButtonComponent implements OnInit {
@@ -53,13 +52,13 @@ export class ButtonComponent {
     readonly label = input<string>('');
 
     /** Emphasis. Defaults to the quietest sensible choice. */
-    readonly variant = input<ButtonVariant | undefined>(undefined);
+    readonly variant = input<ButtonVariant>('outline');
 
     /** Meaning. Also drives the focus-ring hue. */
-    readonly tone = input<ButtonTone | undefined>(undefined);
+    readonly tone = input<ButtonTone>('neutral');
 
     /** Size step: sets height, padding, type size, radius and icon size together. */
-    readonly size = input<ButtonSize | undefined>(undefined);
+    readonly size = input<ButtonSize>('md');
 
     /** Font Awesome class(es) rendered beside the label, e.g. 'fas fa-plus'. */
     readonly icon = input<string>('');
@@ -73,7 +72,7 @@ export class ButtonComponent {
     readonly loadingText = input<string>('');
 
     /** Full width of its container. */
-    readonly block = input<boolean | undefined>(undefined);
+    readonly block = input<boolean>(false);
 
     /** Fully rounded ends. */
     readonly pill = input<boolean>(false);
@@ -100,30 +99,8 @@ export class ButtonComponent {
     /** Popup kind this button opens, e.g. 'menu' or 'dialog'. */
     readonly ariaHasPopup = input<string>('');
 
-    /**
-     * @deprecated Pass `variant`, `tone` and `size` instead. Bootstrap strings are translated
-     * by `resolveBootstrapClass`; unrecognised tokens are discarded.
-     */
-    readonly bootstrapClass = input<string>('');
-
     /** Emitted on activation, unless the button is disabled or loading. */
     readonly clicked = output<void>();
-
-    private readonly styleFromClass = computed(() => resolveBootstrapClass(this.bootstrapClass()));
-
-    readonly resolvedVariant = computed<ButtonVariant>(
-        () => this.variant() ?? this.styleFromClass()?.variant ?? 'outline'
-    );
-
-    readonly resolvedTone = computed<ButtonTone>(
-        () => this.tone() ?? this.styleFromClass()?.tone ?? 'neutral'
-    );
-
-    readonly resolvedSize = computed<ButtonSize>(
-        () => this.size() ?? this.styleFromClass()?.size ?? 'md'
-    );
-
-    readonly isBlock = computed(() => this.block() ?? this.styleFromClass()?.block ?? false);
 
     readonly isIconOnly = computed(() => !this.label() && !!this.icon());
 
@@ -138,9 +115,9 @@ export class ButtonComponent {
     readonly buttonClass = computed(() => {
         const classes = [
             'dg-button',
-            `dg-button--${ this.resolvedVariant() }`,
-            `dg-button--${ this.resolvedTone() }`,
-            `dg-button--${ this.resolvedSize() }`
+            `dg-button--${ this.variant() }`,
+            `dg-button--${ this.tone() }`,
+            `dg-button--${ this.size() }`
         ];
 
         if (this.isIconOnly()) {

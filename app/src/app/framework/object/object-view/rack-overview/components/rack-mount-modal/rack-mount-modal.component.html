@@ -140,10 +140,10 @@
 
   </form>
 
-  <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" (clicked)="activeModal.dismiss()">
+  <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" (clicked)="activeModal.dismiss()">
   </app-button>
 
-  <app-button dgModalFooter bootstrapClass="btn-primary" [label]="submitLabel()"
+  <app-button dgModalFooter variant="solid" tone="brand" [label]="submitLabel()"
     [disabled]="form.invalid || !canEdit" (clicked)="onSubmit()">
   </app-button>
 </dg-modal>

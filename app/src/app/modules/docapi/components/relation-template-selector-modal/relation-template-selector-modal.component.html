@@ -180,10 +180,10 @@
     }
   </div>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
+  <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="cancel()">
   </app-button>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-success'" label="Insert Template" type="button"
+  <app-button dgModalFooter variant="solid" tone="brand" label="Insert Template" type="button"
     [disabled]="!previewTemplate" (clicked)="insert()">
   </app-button>
 </dg-modal>

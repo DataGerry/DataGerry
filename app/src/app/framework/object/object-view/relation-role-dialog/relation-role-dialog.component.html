@@ -102,11 +102,11 @@
   </div>
 
   <div class="dg-modal-actions" dgModalFooter>
-    <app-button bootstrapClass="btn-secondary" label="Cancel" type="button" (clicked)="back()">
+    <app-button variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="back()">
     </app-button>
 
     @if (mode !== CmdbMode.View) {
-    <app-button bootstrapClass="btn-primary text-white" [label]="mode === CmdbMode.Edit ? 'Update' : 'Confirm'"
+    <app-button variant="solid" tone="brand" [label]="mode === CmdbMode.Edit ? 'Update' : 'Confirm'"
       type="button" [disabled]="isConfirmDisabled()" (clicked)="confirm()">
     </app-button>
     }

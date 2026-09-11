@@ -95,14 +95,14 @@
     <div class="mt-4 d-flex justify-content-between">
       <!-- Cancel Button -->
       @if (!isViewMode) {
-      <app-button label="Cancel" type="button" [bootstrapClass]="'btn-secondary me-2'"
+      <app-button label="Cancel" type="button" variant="outline" tone="neutral"
         (clicked)="onCancel()"></app-button>
       }
 
       <!-- Submit Button -->
       <div *permissionLink="['base.isms.risk.add', 'base.isms.risk.edit']">
         @if (!isViewMode) {
-        <app-button [label]="isEditMode ? 'Save Changes' : 'Create Risk'" type="submit" [bootstrapClass]="'btn-success'"
+        <app-button [label]="isEditMode ? 'Save Changes' : 'Create Risk'" type="submit" variant="solid" tone="brand"
           [disabled]="riskForm.invalid"></app-button>
         }
       </div>

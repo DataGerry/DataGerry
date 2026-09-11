@@ -32,7 +32,7 @@
 
     <div dgModalFooter class="dg-modal-actions">
         <app-button
-            [bootstrapClass]="'btn-secondary'"
+            variant="outline" tone="neutral"
             label="Close"
             type="button"
             (clicked)="activeModal.close(false)">
@@ -40,7 +40,7 @@
 
         @if (saveValues) {
         <app-button
-            [bootstrapClass]="'btn-success'"
+            variant="solid" tone="brand"
             label="Add"
             type="button"
             icon="fas fa-plus"
@@ -51,7 +51,7 @@
 
         @if (editValues) {
         <app-button
-            [bootstrapClass]="'btn-success'"
+            variant="solid" tone="brand"
             label="OK"
             type="button"
             [disabled]="!renderForm.valid || !externalValid || externalPending"

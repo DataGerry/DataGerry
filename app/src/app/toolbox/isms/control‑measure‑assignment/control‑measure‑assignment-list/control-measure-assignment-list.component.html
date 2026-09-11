@@ -20,9 +20,9 @@
     <i class="far fa-eye spacing-right icon-view" (click)="onView(item)" title="View"></i>
   </span>
   <span *permissionLink="['base.isms.controlMeasureAssignment.edit']">
-    <i class="far fa-edit btn-edit spacing-right icon-edit" (click)="onEdit(item)" title="Edit"></i>
+    <i class="far fa-edit icon-edit spacing-right" (click)="onEdit(item)" title="Edit"></i>
   </span>
   <span *permissionLink="['base.isms.controlMeasureAssignment.delete']">
-    <i class="far fa-trash-alt btn-delete icon-delete" (click)="onDelete(item)" title="Delete"></i>
+    <i class="far fa-trash-alt icon-delete" (click)="onDelete(item)" title="Delete"></i>
   </span>
 </ng-template>

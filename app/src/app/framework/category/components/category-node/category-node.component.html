@@ -7,7 +7,7 @@
     <app-button
       class="cat-node__toggle"
       label=""
-      [bootstrapClass]="''"
+      variant="outline" tone="neutral"
       [icon]="collapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-down'"
       [ariaExpanded]="!collapsed"
       [ariaLabel]="toggleLabel"
@@ -28,7 +28,7 @@
       <app-button
         label=""
         icon="fas fa-outdent"
-        [bootstrapClass]="''"
+        variant="outline" tone="neutral"
         [disabled]="!canOutdent"
         [title]="outdentHint"
         [ariaLabel]="outdentHint"
@@ -37,7 +37,7 @@
       <app-button
         label=""
         icon="fas fa-indent"
-        [bootstrapClass]="''"
+        variant="outline" tone="neutral"
         [disabled]="!canIndent"
         [title]="indentHint"
         [ariaLabel]="indentHint"
@@ -50,7 +50,7 @@
         <app-button
           label=""
           icon="fas fa-pen"
-          [bootstrapClass]="'btn-sm btn-outline-primary'"
+          variant="outline" tone="brand" size="sm"
           [ariaLabel]="'Edit ' + node.category.label"
           title="Edit category"
           (clicked)="onEdit()"
@@ -60,7 +60,7 @@
         <app-button
           label=""
           icon="fas fa-trash"
-          [bootstrapClass]="'btn-sm btn-outline-danger'"
+          variant="outline" tone="danger" size="sm"
           [ariaLabel]="'Delete ' + node.category.label"
           title="Delete category"
           (clicked)="onDelete(node.category)"

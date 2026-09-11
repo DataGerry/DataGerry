@@ -24,15 +24,15 @@
   }
 
   <div dgModalFooter class="dg-modal-actions">
-    <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="modal.dismiss()">
+    <app-button variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="modal.dismiss()">
     </app-button>
 
     @if (mode === 'delete') {
-    <app-button [bootstrapClass]="'btn-danger'" label="Delete" type="button" icon="fas fa-trash-can"
+    <app-button variant="solid" tone="danger" label="Delete" type="button" icon="fas fa-trash-can"
       (clicked)="onSubmit()">
     </app-button>
     } @else {
-    <app-button [bootstrapClass]="'btn-primary'" [label]="mode === 'add' ? 'Add' : 'Update'" type="button"
+    <app-button variant="solid" tone="brand" [label]="mode === 'add' ? 'Add' : 'Update'" type="button"
       [disabled]="!addCategoryForm.valid" (clicked)="onSubmit()">
     </app-button>
     }

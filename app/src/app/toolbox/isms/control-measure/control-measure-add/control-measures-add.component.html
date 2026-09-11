@@ -41,7 +41,7 @@
 
           <!-- Source Manage Button -->
           @if (!isViewMode) {
-          <app-button [bootstrapClass]="'btn-outline-secondary'" size="sm" label="Manage Sources"
+          <app-button variant="outline" tone="neutral" size="sm" label="Manage Sources"
             (clicked)="openSourceManager()" type="button">
           </app-button>
           }
@@ -86,7 +86,7 @@
 
           <!-- Implementation State Manage Button -->
           @if (!isViewMode) {
-          <app-button [bootstrapClass]="'btn-outline-secondary'" size="sm" label="Manage Implementation States"
+          <app-button variant="outline" tone="neutral" size="sm" label="Manage Implementation States"
             (clicked)="openImplementationStateManager()" type="button">
           </app-button>
           }
@@ -105,13 +105,13 @@
       <!-- Cancel Button -->
 
       @if (!isViewMode) {
-      <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()">
+      <app-button variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="onCancel()">
       </app-button>
       }
       <div *permissionLink="['base.isms.controlMeasure.add', 'base.isms.controlMeasure.edit']">
         <!-- Submit Button -->
         @if (!isViewMode) {
-        <app-button [bootstrapClass]="'btn-success'" [disabled]="controlMeasureForm.invalid"
+        <app-button variant="solid" tone="brand" [disabled]="controlMeasureForm.invalid"
           [label]="isEditMode ? 'Save Changes' : 'Create Control'" type="submit">
         </app-button>
         }

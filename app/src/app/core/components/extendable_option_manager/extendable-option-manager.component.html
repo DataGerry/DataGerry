@@ -7,7 +7,7 @@
         <input ngbAutofocus type="text" class="form-control" name="newItemValue" [(ngModel)]="newItemValue"
             [attr.aria-label]="'New ' + itemLabel + ' name'" placeholder="New {{ itemLabel.toLowerCase() }} name..." />
 
-        <app-button bootstrapClass="btn-success" label="Add" icon="fas fa-plus" type="button"
+        <app-button variant="solid" tone="brand" label="Add" icon="fas fa-plus" type="button"
             (clicked)="onAddNewItem()">
         </app-button>
     </div>
@@ -38,21 +38,21 @@
                         } @else {
                         <div class="eom-row-actions">
                             @if (editingItemId === opt.public_id) {
-                            <app-button bootstrapClass="btn-link btn-sm text-success p-0" label="" icon="fas fa-check"
+                            <app-button variant="link" tone="success" size="sm" label="" icon="fas fa-check"
                                 type="button" [ariaLabel]="'Save ' + itemLabel" title="Save"
                                 (clicked)="saveEditItem(opt)">
                             </app-button>
 
-                            <app-button bootstrapClass="btn-link btn-sm text-secondary p-0" label="" icon="fas fa-ban"
+                            <app-button variant="link" tone="neutral" size="sm" label="" icon="fas fa-ban"
                                 type="button" ariaLabel="Cancel editing" title="Cancel" (clicked)="cancelEditItem()">
                             </app-button>
                             } @else {
-                            <app-button bootstrapClass="btn-link btn-sm text-primary p-0" label="" icon="far fa-edit"
+                            <app-button variant="link" tone="brand" size="sm" label="" icon="far fa-edit"
                                 type="button" [ariaLabel]="'Edit ' + itemLabel" title="Edit"
                                 (clicked)="onEditItem(opt)">
                             </app-button>
 
-                            <app-button bootstrapClass="btn-link btn-sm text-danger p-0" label=""
+                            <app-button variant="link" tone="danger" size="sm" label=""
                                 icon="far fa-trash-alt" type="button" [ariaLabel]="'Delete ' + itemLabel" title="Delete"
                                 (clicked)="onDeleteItem(opt)">
                             </app-button>
@@ -72,6 +72,6 @@
         </table>
     </div>
 
-    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Done" type="button" (clicked)="closeModal()">
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Done" type="button" (clicked)="closeModal()">
     </app-button>
 </dg-modal>

@@ -110,13 +110,13 @@
     <div class="mt-4 d-flex justify-content-between">
       <!-- Cancel Button -->
       @if (!isViewMode) {
-      <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()">
+      <app-button variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="onCancel()">
       </app-button>
       }
       <div *permissionLink="['base.isms.controlMeasureAssignment.edit, base.isms.controlMeasureAssignment.add']">
         <!-- Submit Button -->
         @if (!isViewMode) {
-        <app-button [bootstrapClass]="'btn-success'" [disabled]="form.invalid"
+        <app-button variant="solid" tone="brand" [disabled]="form.invalid"
           [label]="isEditMode ? 'Save Changes' : 'Assign Control'" (clicked)="onSave()">
         </app-button>
         }

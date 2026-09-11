@@ -208,7 +208,7 @@
     <app-button
         dgModalFooter
         class="ai-footer__start"
-        [bootstrapClass]="'btn-secondary'"
+        variant="outline" tone="neutral"
         label="Cancel"
         type="button"
         (clicked)="cancel()">
@@ -217,7 +217,7 @@
     <div dgModalFooter class="dg-modal-actions">
         @if (currentStep() > 1) {
             <app-button
-                [bootstrapClass]="'btn-outline-secondary'"
+                variant="outline" tone="neutral"
                 label="Back"
                 type="button"
                 (clicked)="previousStep()">
@@ -226,7 +226,7 @@
 
         @if (currentStep() === 1) {
             <app-button
-                [bootstrapClass]="'btn-primary'"
+                variant="solid" tone="brand"
                 label="Continue"
                 type="button"
                 [disabled]="!canContinueFromDescribe"
@@ -236,7 +236,7 @@
 
         @if (currentStep() === 2) {
             <app-button
-                [bootstrapClass]="'btn-success'"
+                variant="solid" tone="brand"
                 label="Insert"
                 type="button"
                 [disabled]="!hasGeneratedContent()"

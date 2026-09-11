@@ -15,10 +15,10 @@
     }
   </div>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
+  <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button"
     (clicked)="activeModal.dismiss('cancel')">
   </app-button>
 
-  <app-button dgModalFooter [bootstrapClass]="'btn-danger'" label="Unassign" type="button" (clicked)="confirm()">
+  <app-button dgModalFooter variant="solid" tone="danger" label="Unassign" type="button" (clicked)="confirm()">
   </app-button>
 </dg-modal>

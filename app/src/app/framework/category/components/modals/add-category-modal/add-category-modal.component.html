@@ -42,11 +42,11 @@
         </div>
     </form>
 
-    <app-button dgModalFooter bootstrapClass="btn-secondary" label="Cancel" type="button"
+    <app-button dgModalFooter variant="outline" tone="neutral" label="Cancel" type="button"
         (clicked)="activeModal.close(null)">
     </app-button>
 
-    <app-button dgModalFooter bootstrapClass="btn-success" label="Save" type="button" icon="fas fa-check"
+    <app-button dgModalFooter variant="solid" tone="brand" label="Save" type="button" icon="fas fa-check"
         [disabled]="!catAddForm.valid" (clicked)="activeModal.close(catAddForm)">
     </app-button>
 </dg-modal>

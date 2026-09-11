@@ -25,11 +25,11 @@
 
 <ng-template #actionsTemplate let-item="item">
   @if (!item.predefined) {
-  <i class="far fa-edit icon-margin btn-edit" *permissionLink="'base.framework.report.edit'" title="Edit Category"
+  <i class="far fa-edit icon-margin icon-edit" *permissionLink="'base.framework.report.edit'" title="Edit Category"
     (click)="openEditCategoryModal(item)"></i>
   }
   @if (!item.predefined) {
-  <i class="far fa-trash-alt btn-delete" *permissionLink="'base.framework.report.delete'" title="Delete Category"
+  <i class="far fa-trash-alt icon-delete" *permissionLink="'base.framework.report.delete'" title="Delete Category"
     (click)="openDeleteCategoryModal(item)"></i>
   }
 </ng-template>

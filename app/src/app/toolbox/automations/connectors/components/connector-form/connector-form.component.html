@@ -232,18 +232,18 @@
 
         <!-- Action Buttons -->
         <div class="d-flex justify-content-end gap-2 mt-4">
-          <app-button [bootstrapClass]="'btn-outline-secondary'" label="Cancel" (clicked)="cancel()">
+          <app-button variant="outline" tone="neutral" label="Cancel" (clicked)="cancel()">
           </app-button>
 
           <!-- Show Test Connection button until successful test, then show Create/Update -->
           @if (!isValidCredentials) {
-          <app-button [bootstrapClass]="'btn-primary'" label="Test Connection"
+          <app-button variant="solid" tone="brand" label="Test Connection"
             [disabled]="testing || form.invalid || !credentialsReady" (clicked)="test()">
           </app-button>
           }
 
           @if (isValidCredentials) {
-          <app-button [bootstrapClass]="'btn-success'" [label]="saveButtonLabel"
+          <app-button variant="solid" tone="brand" [label]="saveButtonLabel"
             [disabled]="form.invalid || !credentialsReady" (clicked)="save()">
           </app-button>
           }

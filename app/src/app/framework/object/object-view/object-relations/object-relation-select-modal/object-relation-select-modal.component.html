@@ -50,11 +50,11 @@
   }
 
   <div class="dg-modal-actions" dgModalFooter>
-    <app-button bootstrapClass="btn-secondary" label="Cancel" type="button" (clicked)="onCancel()">
+    <app-button variant="outline" tone="neutral" label="Cancel" type="button" (clicked)="onCancel()">
     </app-button>
 
     @if (!loading() && relations().length) {
-      <app-button bootstrapClass="btn-primary text-white" label="Confirm" type="button" [disabled]="!chosen()"
+      <app-button variant="solid" tone="brand" label="Confirm" type="button" [disabled]="!chosen()"
         (clicked)="onConfirm()">
       </app-button>
     }

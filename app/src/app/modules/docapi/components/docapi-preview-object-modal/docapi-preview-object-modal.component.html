@@ -23,7 +23,7 @@
 
     <app-button
         dgModalFooter
-        [bootstrapClass]="'btn-secondary'"
+        variant="outline" tone="neutral"
         label="Cancel"
         type="button"
         (clicked)="cancel()">
@@ -31,7 +31,7 @@
 
     <app-button
         dgModalFooter
-        [bootstrapClass]="'btn-success'"
+        variant="solid" tone="brand"
         label="Preview"
         type="button"
         [disabled]="!selectedObject"
