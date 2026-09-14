@@ -57,6 +57,7 @@
     [canConnect]="canConnect"
     [canEditConnection]="canEditConnection"
     [canDisconnect]="canDisconnect"
+    [canViewInterfaces]="canViewInterfaces"
     [loading]="(isLoading$ | async) === true"
     (pageChange)="onPageChange($event)"
     (pageSizeChange)="onPageSizeChange($event)"
@@ -65,7 +66,8 @@
     (deletePort)="onDeletePort($event)"
     (connectPort)="onConnectPort($event)"
     (editConnection)="onEditConnection($event)"
-    (disconnectPort)="onDisconnectPort($event)">
+    (disconnectPort)="onDisconnectPort($event)"
+    (manageInterfaces)="onManageInterfaces($event)">
   </cmdb-ports-table>
 </fieldset>
 

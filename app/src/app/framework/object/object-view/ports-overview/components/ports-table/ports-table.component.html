@@ -101,7 +101,18 @@
             <span>Disconnect</span>
           </button>
         }
-        @if (hasConnectionActions(item) && (canEdit || canDelete)) {
+        @if (canViewInterfaces) {
+          @if (hasConnectionActions(item)) {
+            <div class="ports-row-menu__divider" role="separator"></div>
+          }
+
+          <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onManageInterfaces(item)">
+            <i class="fas fa-network-wired ports-row-menu__icon" aria-hidden="true"></i>
+            <span>Manage interfaces</span>
+          </button>
+        }
+
+        @if ((hasConnectionActions(item) || canViewInterfaces) && (canEdit || canDelete)) {
           <div class="ports-row-menu__divider" role="separator"></div>
         }
         @if (canEdit) {

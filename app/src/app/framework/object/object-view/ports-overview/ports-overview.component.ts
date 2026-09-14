@@ -48,6 +48,7 @@ import {
     PORT_DELETE_RIGHT,
     PORT_EDIT_RIGHT,
     PORT_OPTION_TYPES,
+    PORT_VIEW_RIGHT,
     PortRow
 } from './models/ports-overview.types';
 import { PortConnectionService } from './services/port-connection.service';
@@ -231,6 +232,21 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     }
 
 
+    /** Lists the interfaces the port carries, and links or unlinks them. */
+    public onManageInterfaces(row: PortRow): void {
+        const port = this.portsById.get(row.publicId);
+
+        if (!port) {
+            return;
+        }
+
+        this.reloadWhenStored(this.portDialogs.openInterfaceLinks(port, this.objectLabel, {
+            canEdit: this.canEdit,
+            canDelete: this.canDelete
+        }));
+    }
+
+
     public onDisconnectPort(row: PortRow): void {
         const cable = this.connectionsByPort.get(row.publicId)?.cable ?? null;
 
@@ -276,6 +292,12 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
     public get canDisconnect(): boolean {
         return this.manageable && this.hasRight(CONNECTION_DELETE_RIGHT);
+    }
+
+
+    /** Reading a port's interfaces is guarded by the port's own view right. */
+    public get canViewInterfaces(): boolean {
+        return this.hasRight(PORT_VIEW_RIGHT);
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
