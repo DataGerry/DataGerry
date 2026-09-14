@@ -47,7 +47,7 @@ from cmdb.models.isms_model.isms_risk_matrix_constants import (
     MatrixType,
     RiskMatrixCellKey,
     RiskMatrixReportKey,
-    RISK_MATRIX_GRID_KEY,
+    RiskMatrixKey,
     RISK_MATRIX_PUBLIC_ID,
 )
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
@@ -135,7 +135,7 @@ def _cell(impact_id: int = IMPACT_ID, likelihood_id: int = LIKELIHOOD_ID, **over
 
 def _matrix(cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """An IsmsRiskMatrix document carrying the given grid (one cell by default)."""
-    return {RISK_MATRIX_GRID_KEY: cells if cells is not None else [_cell()]}
+    return {RiskMatrixKey.RISK_MATRIX.value: cells if cells is not None else [_cell()]}
 
 
 def _assessment(
@@ -355,7 +355,7 @@ class TestTheCurrentStateRule:
 class TestTheUnconfiguredMatrix:
     """An ISMS whose config wizard has not produced the grid yet says so."""
 
-    @pytest.mark.parametrize('matrix', [None, {}, {RISK_MATRIX_GRID_KEY: []}],
+    @pytest.mark.parametrize('matrix', [None, {}, {RiskMatrixKey.RISK_MATRIX.value: []}],
                              ids=['missing', 'empty-document', 'empty-grid'])
     def test_it_is_reported_as_not_configured(self, matrix: dict[str, Any] | None) -> None:
         """

@@ -51,6 +51,7 @@ from typing import Any
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model.isms_risk_matrix_constants import (
     RISK_MATRIX_PUBLIC_ID,
+    RiskMatrixKey,
     UNASSIGNED_RISK_CLASS_ID,
     RiskMatrixCellKey,
 )
@@ -59,7 +60,7 @@ from cmdb.manager import LikelihoodManager, ImpactManager, RiskMatrixManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.database.predefined_data.isms_data import get_default_risk_matrix
-from cmdb.database.predefined_data.predefined_data_constants import RiskMatrixKey
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The scales are read in ascending weight order, because the grid is built from its bottom-left corner

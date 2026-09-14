@@ -22,7 +22,8 @@ helpers and, for every wrapper, the ``except -> raise <typed error>`` mapping. E
 plain Exception, i.e. a deterministic failure, so the @retry_operation decorator reports it on the
 first attempt instead of repeating it - its policy and budget are tested in test_retry.py.
 """
-from unittest.mock import MagicMock
+import logging
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pymongo.errors import (
@@ -86,7 +87,7 @@ def _stub_collection(mgr: MongoDatabaseManager) -> MagicMock:
 
 
 class TestTargetDatabaseAndContext:
-    """target_database and the context-manager entry."""
+    """target_database and the context-manager protocol."""
 
     def test_target_database_uses_given(self, mgr: MongoDatabaseManager) -> None:
         """An explicit db_name is returned as-is."""
@@ -96,9 +97,73 @@ class TestTargetDatabaseAndContext:
         """An empty db_name falls back to the manager default."""
         assert mgr.target_database('') == DB
 
-    def test_enter_returns_self(self, mgr: MongoDatabaseManager) -> None:
-        """__enter__ returns the manager (the class defines no __exit__, so call it directly)."""
-        assert mgr.__enter__() is mgr  # pylint: disable=unnecessary-dunder-call
+    def test_the_block_binds_the_manager(self, mgr: MongoDatabaseManager) -> None:
+        """
+        A `with` statement works at all, which it did not until __exit__ existed
+
+        Python looks up BOTH halves when the statement runs, so the class's `__enter__` alone made
+        every `with` fail at entry with a TypeError - the support its docstring advertised.
+        """
+        with mgr as entered:
+            assert entered is mgr
+
+    def test_the_block_releases_the_connection(self, mgr: MongoDatabaseManager) -> None:
+        """Leaving the block closes the connector, which is what the protocol promises"""
+        with mgr:
+            mgr.connector.disconnect.assert_not_called()
+
+        mgr.connector.disconnect.assert_called_once()
+
+    def test_an_exception_inside_the_block_is_not_suppressed(self, mgr: MongoDatabaseManager) -> None:
+        """__exit__ returns False: a failure inside the block still reaches the caller"""
+        with pytest.raises(RuntimeError):
+            with mgr:
+                raise RuntimeError('boom')
+
+        mgr.connector.disconnect.assert_called_once()
+
+
+class TestTheKeepAlivePing:
+    """
+    One ping of the keep-alive, which is the only part of that thread with behaviour
+
+    The loop around it never returns and carries no logic, so it is deliberately left uncovered; what
+    matters is that a failed ping is reported without raising, because nothing catches an exception on
+    a daemon thread - it would end the keep-alive silently and leave the connection unpinged forever.
+    """
+
+    def test_a_ping_goes_to_the_current_client(self, mgr: MongoDatabaseManager) -> None:
+        """The ordinary case"""
+        mgr._keepalive_once()  # pylint: disable=protected-access
+
+        mgr.connector.client.admin.command.assert_called_once_with('ping')
+
+    def test_a_live_thread_is_never_replaced(self, mgr: MongoDatabaseManager) -> None:
+        """
+        The no-op `reset_connection` depends on
+
+        A reset builds a new connector and calls this again; the running thread makes it a no-op, and
+        that surviving thread is what picks the new client up on its next ping. Starting a second
+        thread instead would leave two pinging forever, since neither can be stopped.
+        """
+        alive = MagicMock(name='keepalive_thread')
+        alive.is_alive.return_value = True
+        mgr._keepalive_thread = alive  # pylint: disable=protected-access
+
+        with patch.object(mdm.threading, 'Thread') as thread:
+            mgr._start_keepalive()  # pylint: disable=protected-access
+
+        thread.assert_not_called()
+        assert mgr._keepalive_thread is alive  # pylint: disable=protected-access
+
+    def test_a_failing_ping_is_logged_and_swallowed(self, mgr: MongoDatabaseManager, caplog) -> None:
+        """An unreachable database must not kill the thread that would notice it coming back"""
+        mgr.connector.client.admin.command.side_effect = RuntimeError('mongo down')
+
+        with caplog.at_level(logging.WARNING, logger=mdm.__name__):
+            mgr._keepalive_once()  # pylint: disable=protected-access  (must not raise)
+
+        assert 'Ping failed' in caplog.text
 
 
 class TestDatabaseOperations:

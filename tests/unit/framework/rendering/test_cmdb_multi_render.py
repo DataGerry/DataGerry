@@ -331,6 +331,37 @@ class TestExternals:
         assert len(externals) == 1
         assert externals[0]['href'] == f'http://x/{MAIN_NAME_VALUE}'
 
+    def test_a_second_object_does_not_inherit_the_first_objects_url(self, managers) -> None:
+        """
+        The regression: ONE cached CmdbType, two objects, two different links
+
+        The type cache hands the same CmdbType - and therefore the same TypeExternalLink - to every
+        object of that type in a batch. Filling the href IN PLACE left the first object's values in the
+        template, after which `link_requires_fields()` answered False and every following object was
+        served the first one's URL. The sibling tests above cannot see this: each builds a fresh
+        `_main_type()`, so the shared instance never exists.
+        """
+        shared_type = _main_type()
+        first = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID,
+                     [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'object-A'}])
+        second = _obj(MAIN_OBJ_ID + 1, MAIN_TYPE_ID,
+                      [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'object-B'}])
+        render = _render(managers, [first, second], types_cache={MAIN_TYPE_ID: shared_type})
+
+        results = render.result()
+
+        assert [result.externals[0]['href'] for result in results] == ['http://x/object-A',
+                                                                       'http://x/object-B']
+
+    def test_the_cached_template_is_left_unfilled(self, managers) -> None:
+        """The type in the cache must still carry its placeholders after a render"""
+        shared_type = _main_type()
+        render = _render(managers, [_main_obj()], types_cache={MAIN_TYPE_ID: shared_type})
+
+        render.result()
+
+        assert shared_type.get_external(EXT_NAME).href == 'http://x/{}'
+
     def test_external_missing_value_skipped(self, managers) -> None:
         """An external link whose required field has no value is skipped."""
         obj = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': ''}])
@@ -961,6 +992,44 @@ class TestMergeReferenceSectionFields:
 
         assert any(f.get('name') == NAME_FIELD for f in merged)
 
+    def test_a_merged_field_that_is_itself_a_ref_section_recurses(self, managers, monkeypatch) -> None:
+        """
+        A ref-section nested inside a ref-section is recursed into, not appended as a raw field
+
+        The test above covers the ordinary leg of that loop - a merged field that is a plain field
+        gets appended. This is the other leg: the merged content is a ref-section of its own, which
+        has to be resolved the same way the outer one was. The collaborator is stubbed rather than
+        built from a third type level, because what is under test is the branch's decision, not the
+        merge that produced its input.
+        """
+        refsec_obj = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [
+            {'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'Owner'},
+            {'type': FieldType.REFERENCE, 'name': REFSEC_REF_FIELD, 'value': REF_OBJ_ID},
+        ])
+        render = _render(managers, [], ref_render=True,
+                         objects_cache={REFSEC_OBJ_ID: refsec_obj, REF_OBJ_ID: _ref_obj()},
+                         types_cache={REFSEC_TYPE_ID: _refsec_type(), REF_TYPE_ID: _ref_type()})
+
+        seen: list[dict] = []
+        original = render._CmdbMultiRender__merge_reference_section_fields
+
+        def _merge_content(_field, _instance):
+            """Answers a ref-section, so the loop below takes its recursing leg."""
+            return {'type': FieldType.REF_SECTION, 'name': NAME_FIELD, 'value': REF_OBJ_ID}
+
+        def _spy(field, acc, level):
+            seen.append(field)
+            return original(field, acc, level)
+
+        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section', _merge_content)
+        monkeypatch.setattr(render, '_CmdbMultiRender__merge_reference_section_fields', _spy)
+
+        field = {'type': FieldType.REF_SECTION, 'name': REFSEC_REF_FIELD, 'value': REFSEC_OBJ_ID}
+        original(field, [], 3)
+
+        assert any(entry.get('type') == FieldType.REF_SECTION and entry.get('name') == NAME_FIELD
+                   for entry in seen)
+
 
 class TestExternalsEdgeCases:
     """__set_externals skips unresolved links and swallows fill errors."""
@@ -985,7 +1054,7 @@ class TestExternalsEdgeCases:
         link.link_requires_fields.return_value = True
         link.has_fields.return_value = True
         link.fields = [NAME_FIELD]
-        link.fill_href.side_effect = RuntimeError('bad href')
+        link.filled_href.side_effect = RuntimeError('bad href')
         type_instance = Mock()
         type_instance.has_externals.return_value = True
         type_instance.get_externals.return_value = [link]
@@ -1327,3 +1396,4 @@ class TestUnknownSectionType:
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
         assert render._CmdbMultiRender__merge_fields_value(_main_obj(), main_type, 1) == []
+

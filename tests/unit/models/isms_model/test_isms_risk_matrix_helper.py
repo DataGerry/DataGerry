@@ -55,7 +55,7 @@ from cmdb.models.isms_model.isms_helper.isms_risk_matrix_helper import (
 )
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.database.predefined_data.predefined_data_constants import RiskMatrixKey
+from cmdb.models.isms_model.isms_risk_matrix_constants import RiskMatrixKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 EXISTING_MATRIX_ID: int = 1

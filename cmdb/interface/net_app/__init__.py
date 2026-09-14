@@ -28,40 +28,41 @@ from flask_cors import CORS
 
 import cmdb
 from cmdb.interface.cmdb_app import BaseCmdbApp
-from cmdb.interface.config import app_config
+from cmdb.interface.config import app_config, config_name_for_mode
 
 from cmdb.interface.net_app.app_routes import app_pages, serve_spa_fallback
 # -------------------------------------------------------------------------------------------------------------------- #
+
 
 def create_app() -> BaseCmdbApp:
     """
     Builds and wires the Flask app for the Angular SPA mount
 
-    Picks the Flask config object from `app_config` based on `cmdb.__MODE__`: `'DEBUG'` selects
-    `DevelopmentConfig`, anything else falls through to `ProductionConfig`. The `testing` entry
-    in `app_config` is never selected from here. Enables `flask_cors.CORS` wide-open on the
+    Picks the Flask config object from `app_config` with `config_name_for_mode(cmdb.__MODE__)`,
+    the same selector `create_rest_api` uses, so all three variants - development, testing,
+    production - are reachable from both factories. Enables `flask_cors.CORS` wide-open on the
     whole app so the Angular dev server can call the backend cross-origin; in a production
     deployment the same WSGI app serves UI and API on one origin and CORS is functionally a
     no-op. Registers the `app_pages` blueprint at `/` — that blueprint owns the SPA bundle
     under `datagerry-app/` and the two top-level static routes (`/favicon.ico`,
     `/browserconfig.xml`) backed by the package's `_static/` directory. Finally wires
-    `serve_spa_fallback` (defined in `app_routes`) as the app-level 404 handler, so any
-    unmatched URL — inside or outside the blueprint — returns `index.html` and lets the
-    Angular router resolve deep-linked client-side routes after a hard reload
+    `serve_spa_fallback` (defined in `app_routes`) as the app-level 404 handler.
+
+    That handler catches any URL **this app** fails to match; it is not reached for `/rest/...`,
+    which `DispatcherMiddleware` hands to a separate Flask app with its own error handling. An
+    unmatched client route returns `index.html` so the Angular router can resolve it after a hard
+    reload, while a path naming a file keeps its 404 - see `app_routes.serve_spa_fallback`
 
     Returns:
         BaseCmdbApp: Fully configured Flask app instance, ready to be mounted under
             `DispatcherMiddleware`
     """
-    app = BaseCmdbApp(__name__)
+    # static_folder=None: this package has no `static/` directory, and Flask's default would
+    # register a /static/<path:filename> rule that only ever 404s into the SPA fallback
+    app = BaseCmdbApp(__name__, static_folder=None)
     CORS(app)
 
-    if cmdb.__MODE__ == 'DEBUG':
-        config = app_config['development']
-        app.config.from_object(config)
-    else:
-        config = app_config['production']
-        app.config.from_object(config)
+    app.config.from_object(app_config[config_name_for_mode(cmdb.__MODE__)])
 
     app.register_blueprint(app_pages, url_prefix='/')
     app.register_error_handler(404, serve_spa_fallback)

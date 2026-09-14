@@ -20,6 +20,9 @@ Covers the list envelope, upload (multipart) + the no-file -> 400 guard (the fix
 get_file_in_request + HTTPException re-raise), get-single, delete, and the manager-error -> 400 / 500
 mappings.
 
+Since 2026-09-14 also the upload route's metadata contract: an undeclared key is refused with a 400
+naming it, and an accepted upload stores the complete metadata sub-document.
+
 Since 2026-08-25 also the answers for a file that is NOT there - every route says 404 rather than a 200
 with an empty body or a 500 - the replace-on-upload ordering, and the update route's required
 ``attachment`` parameter.
@@ -33,7 +36,7 @@ from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import MediaFilesManager
-from cmdb.framework.media_library.media_file import MediaFile
+from cmdb.framework.media_library import MediaFile, MediaFileMetadataKey
 from cmdb.errors.manager.media_files_manager import (
     MediaFileManagerGetError,
     MediaFileManagerInsertError,
@@ -108,6 +111,56 @@ class TestUpload:
         )
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_upload_stores_the_complete_metadata(self, rest_api, database_manager, database_name) -> None:
+        """A stored file carries every declared metadata key, so nothing reads an absent one."""
+        public_id = _upload(rest_api, 'dg-func-meta.txt')
+
+        files = database_manager.get_collection(FILES_COLLECTION, database_name)
+        stored = files.find_one({'public_id': public_id})
+
+        assert set(stored['metadata']) == {key.value for key in MediaFileMetadataKey}
+        assert stored['metadata']['author_id'] == AUTHOR_ID
+        assert stored['metadata']['folder'] is False
+
+    def test_upload_accepts_a_permission(self, rest_api, database_manager, database_name) -> None:
+        """'permission' is a declared key; it used to fail the whole upload as an unexpected argument."""
+        form = {
+            'file': (BytesIO(b'content'), 'dg-func-permission.txt'),
+            'metadata': json.dumps({'author_id': AUTHOR_ID, 'permission': 'read'}),
+        }
+
+        response = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        files = database_manager.get_collection(FILES_COLLECTION, database_name)
+        stored = files.find_one({'public_id': response.get_json()['result_id']})
+        assert stored['metadata']['permission'] == 'read'
+
+    def test_upload_with_an_undeclared_metadata_key_returns_400(self, rest_api) -> None:
+        """An undeclared key is a request problem: refused up front, naming the key."""
+        form = {
+            'file': (BytesIO(b'content'), 'dg-func-unknown-key.txt'),
+            'metadata': json.dumps({'author_id': AUTHOR_ID, 'permissions': 'read'}),
+        }
+
+        response = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'permissions' in response.get_data(as_text=True)
+
+    def test_upload_with_an_undeclared_metadata_key_stores_nothing(
+            self, rest_api, database_manager, database_name) -> None:
+        """The refusal happens before GridFS is touched - no file and no chunks are left behind."""
+        form = {
+            'file': (BytesIO(b'content'), 'dg-func-unknown-key-2.txt'),
+            'metadata': json.dumps({'author_id': AUTHOR_ID, 'bogus': 1}),
+        }
+
+        rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
+
+        files = database_manager.get_collection(FILES_COLLECTION, database_name)
+        assert files.find_one({'filename': 'dg-func-unknown-key-2.txt'}) is None
 
     def test_reupload_same_file_overwrites(self, rest_api) -> None:
         """Uploading the same filename+metadata again overwrites the existing file (still succeeds)."""

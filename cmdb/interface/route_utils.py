@@ -206,7 +206,6 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
     - Injects them as the FIRST positional argument of the decorated function
     - Forwards any remaining positional/keyword arguments (e.g. a `request_user` injected by an
       inner decorator) unchanged
-    - Aborts with a 400 Bad Request if the parameters cannot be parsed
 
     Used only by the DataGerry assistant route. It lived on the former `RootBlueprint` as a
     classmethod; it is a plain request decorator like the others here, so it belongs with them rather
@@ -215,21 +214,16 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
     Args:
         **optional: Placeholder for optional keyword arguments (currently unused)
 
-    Raises:
-        HTTPException: 400 if the request arguments could not be accessed or parsed
-
     Returns:
         Callable: A decorator that injects parsed request parameters into the decorated function
     """
     def _parse(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         def _decorate(*args: Any, **kwargs: Any) -> Any:
-            try:
-                location_args = request.args.to_dict()
-            except Exception as err:
-                LOGGER.error("[parse_assistant_parameters] Exception: %s. Type: %s",
-                             err, type(err), exc_info=True)
-                abort(400, "Failed to parse the request arguments!")
+            # `to_dict` cannot raise: Werkzeug has already parsed the query string by the time a view
+            # runs, and it tolerates duplicate keys and embedded null bytes. The try/except that used
+            # to wrap this - and its documented 400 - could therefore never fire
+            location_args = request.args.to_dict()
 
             return func(location_args, *args, **kwargs)
 

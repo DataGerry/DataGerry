@@ -25,7 +25,6 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.models.port_connection_model.cmdb_port_connection import CmdbPortConnection
 from cmdb.models.port_connection_model.port_connection_constants import PortConnectionKey
 
-from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerUpdateError
 from cmdb.errors.manager.port_connections_manager import (
     PORT_CONNECTIONS_MANAGER_ERRORS,
     PortConnectionsManagerDeleteError,
@@ -88,7 +87,7 @@ class PortConnectionsManager(GenericManager):
         """
         try:
             return self.find(criteria={PortConnectionKey.ENDPOINTS.value: port_id})
-        except (BaseManagerGetError, Exception) as err:
+        except Exception as err:
             raise PortConnectionsManagerGetError(str(err)) from err
 
 
@@ -116,7 +115,7 @@ class PortConnectionsManager(GenericManager):
                 PortConnectionKey.ENDPOINTS.value: port_id,
                 PortConnectionKey.CONNECTION_TYPE.value: connection_type,
             })
-        except (BaseManagerGetError, Exception) as err:
+        except Exception as err:
             raise PortConnectionsManagerGetError(str(err)) from err
 
 
@@ -138,7 +137,7 @@ class PortConnectionsManager(GenericManager):
         """
         try:
             return self.get_one_by({PortConnectionKey.CABLE_CI_ID.value: cable_ci_id})
-        except (BaseManagerGetError, Exception) as err:
+        except Exception as err:
             raise PortConnectionsManagerGetError(str(err)) from err
 
 
@@ -148,7 +147,10 @@ class PortConnectionsManager(GenericManager):
 
         The batched form of `get_connection_by_cable_ci`: the object-delete guard asks it once for a
         whole selection rather than once per candidate, so a bulk delete of 200 objects still costs
-        one query. Served by the partial index on 'cable_ci_id'
+        one query. Served by the partial index on 'cable_ci_id', which is also why it reads through
+        `find` like every other read here rather than through `get_many`: `get_many` always sorts by
+        public_id, and a sort the caller did not ask for is a reason for the planner to leave the index
+        this method is named after
 
         Args:
             cable_ci_ids (list[int]): public_ids of the CABLE SpecialType CmdbObjects to check
@@ -163,8 +165,8 @@ class PortConnectionsManager(GenericManager):
             return []
 
         try:
-            return self.get_many(**{PortConnectionKey.CABLE_CI_ID.value: {'$in': cable_ci_ids}})
-        except (BaseManagerGetError, Exception) as err:
+            return self.find(criteria={PortConnectionKey.CABLE_CI_ID.value: {'$in': cable_ci_ids}})
+        except Exception as err:
             raise PortConnectionsManagerGetError(str(err)) from err
 
 
@@ -192,7 +194,7 @@ class PortConnectionsManager(GenericManager):
                 )
                 if isinstance(cable_ci_id, int)
             ]
-        except (BaseManagerGetError, Exception) as err:
+        except Exception as err:
             raise PortConnectionsManagerGetError(str(err)) from err
 
 
@@ -218,7 +220,7 @@ class PortConnectionsManager(GenericManager):
 
         try:
             return self.find(criteria={PortConnectionKey.ENDPOINTS.value: {'$in': port_ids}})
-        except (BaseManagerGetError, Exception) as err:
+        except Exception as err:
             raise PortConnectionsManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -250,7 +252,7 @@ class PortConnectionsManager(GenericManager):
 
         try:
             self.update({PortConnectionKey.PUBLIC_ID.value: public_id}, update)
-        except (BaseManagerUpdateError, Exception) as err:
+        except Exception as err:
             raise PortConnectionsManagerUpdateError(str(err)) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -279,5 +281,5 @@ class PortConnectionsManager(GenericManager):
             return self.delete_many(
                 {PortConnectionKey.ENDPOINTS.value: {'$in': port_ids}},
             ).deleted_count
-        except (BaseManagerDeleteError, Exception) as err:
+        except Exception as err:
             raise PortConnectionsManagerDeleteError(str(err)) from err

@@ -29,8 +29,11 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import HTTPException
 
+from werkzeug.exceptions import NotFound
+
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_object_routes import (
     export_object_import_template,
+    export_objects,
 )
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,6 +46,7 @@ HTTP_SERVER_ERROR: int = 500
 
 TYPE_ID: int = 5
 TEMPLATE_URL: str = '/template/5'
+TENANT_DATABASE: str = 'tenant-db'
 
 BUILT_HEADER: list[str] = ['Public ID [public_id]', 'Active [active]', 'Name [dg-name]']
 
@@ -150,3 +154,59 @@ def test_unexpected_error_maps_to_500(flask_app: Flask) -> None:
     manager = _types_manager(get_type_instance=MagicMock(side_effect=RuntimeError('boom')))
 
     _expect_status(flask_app, manager, HTTP_SERVER_ERROR)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    export_objects                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _drive_export(flask_app: Flask, *, cloud_mode: bool = False, writer_side_effect: Any = None):
+    """Drives the unwrapped export_objects handler with its collaborators patched."""
+    request_user = MagicMock()
+    request_user.database = TENANT_DATABASE
+    writer = MagicMock()
+
+    if writer_side_effect is not None:
+        writer.from_database.side_effect = writer_side_effect
+
+    flask_app.cloud_mode = cloud_mode
+    flask_app.database_manager = MagicMock()
+
+    with patch(f'{ROUTE_PATH}.resolve_export_format', return_value='CsvExportFormat'), \
+         patch(f'{ROUTE_PATH}.ExporterConfig'), \
+         patch(f'{ROUTE_PATH}.load_class', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.BaseExportWriter', return_value=writer), \
+         flask_app.test_request_context('/'):
+        response = _unwrap(export_objects)(params=MagicMock(optional={}), request_user=request_user)
+
+    return response, writer
+
+
+def test_export_passes_no_database_on_premise(flask_app: Flask) -> None:
+    """On-premise there is one database, so the writer is told to use the process default."""
+    _, writer = _drive_export(flask_app, cloud_mode=False)
+
+    assert writer.from_database.call_args.args[-1] is None
+
+
+def test_export_passes_the_users_database_in_cloud_mode(flask_app: Flask) -> None:
+    """
+    In cloud mode the export has to read the requesting user's tenant
+
+    Passing None here would export from the process default database - another tenant's objects.
+    """
+    _, writer = _drive_export(flask_app, cloud_mode=True)
+
+    assert writer.from_database.call_args.args[-1] == TENANT_DATABASE
+
+
+def test_export_passes_an_http_exception_through(flask_app: Flask) -> None:
+    """
+    The HTTPException arm hands an abort through with its own status
+
+    The writer reads objects through the ACL, so an abort raised below this route has to keep its
+    own status instead of being reported as a 500 by the generic handler.
+    """
+    with pytest.raises(HTTPException) as exc_info:
+        _drive_export(flask_app, writer_side_effect=NotFound('forced'))
+
+    assert exc_info.value.code == HTTP_NOT_FOUND

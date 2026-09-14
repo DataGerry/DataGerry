@@ -22,6 +22,10 @@ ObjectsManagerIterationError -> 400 / unexpected -> 500 mappings) and the search
 search REPORTED as 400/500 instead of the empty 204 it used to answer, plus the paging contract:
 `limit=0` means every match, a negative limit or skip is refused).
 
+TestGetCarriesTheSamePayloadAsPost and TestRequestParametersAreStrict were added 2026-09-14 with the
+fixes they describe: a GET search carrying an actual parameter list used to answer 500, and a
+non-numeric `?limit=` / an unrecognised `?resolve=` used to be accepted with the default substituted.
+
 TestMatchedFields drives the whole chain against a seeded type + object: a text search must come
 back with the matching field reported under `matches`, in the shape the Angular search result
 renders (`<cmdb-render-element>` needs a full field entry).
@@ -30,6 +34,7 @@ import json
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 
@@ -50,6 +55,9 @@ from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 
 QUICK_COUNT_URL: str = '/search/quick/count/'
 SEARCH_URL: str = '/search/'
+
+#: The payload both methods carry - a JSON array of search parameters
+TEXT_PARAM: list[dict[str, str]] = [{'searchText': 'searchable', 'searchForm': SearchFormType.TEXT.value}]
 
 TYPE_ID: int = 47601
 TYPE_LABEL: str = 'Search Obj Type'
@@ -128,6 +136,11 @@ def _raiser(exc: Exception):
     def _fail(*_args, **_kwargs):
         raise exc
     return _fail
+
+
+def _query_arg(params: list[dict[str, str]]) -> str:
+    """URL-encodes a search parameter list for the ?query= form of the route."""
+    return quote(json.dumps(params))
 
 
 class TestQuickSearchCounter:
@@ -240,6 +253,80 @@ class TestSearchFramework:
         monkeypatch.setattr(ManagerProvider, 'get_manager', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{SEARCH_URL}?query={{}}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestGetCarriesTheSamePayloadAsPost:
+    """
+    A GET search carries the SAME parameter array as a POST, in ?query=
+
+    Until 2026-09-14 it did not: the GET branch handed the raw JSON to the pipeline builder without
+    building SearchParam objects, so the builder read `.search_form` off plain strings and the route
+    answered 500. It went unnoticed because every GET test in this file sent `?query={}` - the one
+    payload that happens to work, because an empty parameter list needs no parameters.
+    """
+
+    def test_a_real_parameter_list_is_accepted(self, rest_api) -> None:
+        """The exact payload POST accepts used to be a 500 on GET."""
+        response = rest_api.get(f'{SEARCH_URL}?query={_query_arg(TEXT_PARAM)}')
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_get_and_post_answer_the_same_body(self, rest_api) -> None:
+        """Same parameters, same search - the method is only how the payload travels."""
+        from_get = rest_api.get(f'{SEARCH_URL}?query={_query_arg(TEXT_PARAM)}').get_json()
+        from_post = rest_api.post(
+            SEARCH_URL, data=json.dumps(TEXT_PARAM), content_type='application/json',
+        ).get_json()
+
+        assert from_get[SearchResultKey.TOTAL_RESULTS.value] == from_post[SearchResultKey.TOTAL_RESULTS.value]
+
+    def test_an_unusable_parameter_is_refused_on_get_too(self, rest_api) -> None:
+        """The validation POST has always had now runs for GET: a bad form is a 400, not a 500."""
+        bad = [{'searchText': 'x', 'searchForm': 'not-a-form'}]
+
+        assert rest_api.get(f'{SEARCH_URL}?query={_query_arg(bad)}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_an_empty_object_query_still_works(self, rest_api) -> None:
+        """The historical `?query={}` spelling has to keep answering an unfiltered search."""
+        assert rest_api.get(f'{SEARCH_URL}?query={{}}').status_code == HTTPStatus.OK
+
+    def test_no_query_at_all_searches_everything(self, rest_api) -> None:
+        """Omitting the parameter is the same as sending an empty list."""
+        assert rest_api.get(SEARCH_URL).status_code == HTTPStatus.OK
+
+
+class TestRequestParametersAreStrict:
+    """
+    A malformed parameter is refused, never silently replaced by its default
+
+    `request.args.get(name, default, int)` catches the ValueError itself and answers the default, so
+    `?limit=abc` used to be served as an ordinary search with a substituted page size - while
+    `?limit=-1` two lines below was a 400. The route parses the numbers itself now.
+    """
+
+    @pytest.mark.parametrize('query', ['limit=abc', 'skip=abc', 'limit=1.5'], ids=str)
+    def test_a_non_numeric_pager_is_refused(self, rest_api, query: str) -> None:
+        """Answering 200 with a different page size than the client asked for is a wrong answer."""
+        assert rest_api.get(f'{SEARCH_URL}?{query}').status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('query', ['limit=', 'skip='], ids=str)
+    def test_an_empty_pager_value_falls_back_to_the_default(self, rest_api, query: str) -> None:
+        """Sending the key with no value is 'not sent', which is not the same as sending garbage."""
+        assert rest_api.get(f'{SEARCH_URL}?{query}').status_code == HTTPStatus.OK
+
+    @pytest.mark.parametrize('raw', ['true', 'True', 'false', 'False'], ids=str)
+    def test_the_documented_resolve_values_are_accepted(self, rest_api, raw: str) -> None:
+        """Both spellings of both values, as str_to_bool defines them."""
+        assert rest_api.get(f'{SEARCH_URL}?resolve={raw}').status_code == HTTPStatus.OK
+
+    @pytest.mark.parametrize('raw', ['yes', '1', 'maybe'], ids=str)
+    def test_an_unrecognised_resolve_is_refused(self, rest_api, raw: str) -> None:
+        """`?resolve=1` silently meant False before; a client asking for resolution got ids back."""
+        assert rest_api.get(f'{SEARCH_URL}?resolve={raw}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_an_unrouted_method_is_refused_by_the_router(self, rest_api) -> None:
+        """Only GET and POST are registered, which is why the view needs no method branch of its own."""
+        assert rest_api.put(SEARCH_URL).status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
 class TestMatchedFields:

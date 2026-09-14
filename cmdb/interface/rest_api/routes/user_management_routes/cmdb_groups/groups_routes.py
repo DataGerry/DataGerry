@@ -328,8 +328,9 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
 
     Status codes:
         200 OK: Deleted; body is the serialized deleted group
-        400 BAD_REQUEST: Protected group, ``MOVE`` requested without a target ``group_id``, target
-            lookup failed, or the admin user is a member on ``DELETE``
+        400 BAD_REQUEST: Protected group, ``action`` is not a ``GroupDeleteMode`` member (refused by
+            the parameter parsing, before any side effect), ``MOVE`` requested without a target
+            ``group_id``, target lookup failed, or the admin user is a member on ``DELETE``
         404 NOT_FOUND: Source group not found, or ``MOVE`` target group not found
         500: Unexpected error
 

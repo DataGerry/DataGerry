@@ -330,8 +330,9 @@ class CmdbMultiRender:
                 if field_values is None:
                     continue
 
-                ext.fill_href(field_values)
-                externals.append(TypeExternalLink.to_json(ext))
+                # The link belongs to the CACHED CmdbType, shared by every object of this type in the
+                # batch, so the filled href is taken as a value and the template is left untouched
+                externals.append({**TypeExternalLink.to_json(ext), 'href': ext.filled_href(field_values)})
 
             except Exception as err:
                 LOGGER.debug(

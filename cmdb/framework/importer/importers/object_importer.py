@@ -50,7 +50,7 @@ from cmdb.framework.importer.messages.import_failed_message import ImportFailedM
 from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.object_parser_response import ObjectParserResponse
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     handle_sync_config_item_count,
 )
 

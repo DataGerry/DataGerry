@@ -42,31 +42,35 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     to_normalized_cmdb_object,
     build_new_object_data,
     compute_object_version,
-    emit_object_update_events,
     apply_object_update,
     sync_select_field_options,
     collect_unknown_select_values,
     guard_predefined_select_options,
-    handle_delete_object_location,
-    build_type_object_counts,
-    handle_sync_config_item_count,
-    validate_object_patch_payload,
-    merge_patch_fields,
-    create_patch_multi_data_rows,
-    edit_patch_multi_data_rows,
-    delete_patch_multi_data_rows,
-    build_patched_object_data,
     guard_object_delete,
     guard_objects_delete,
-    emit_object_state_change_events,
     realign_objects_to_type,
     clean_type_reports,
     delete_one_cascade,
-    RELATION_DELETE_LOG_PROJECTION,
     guard_config_item_limit,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_helper import (
+    build_patched_object_data,
+    create_patch_multi_data_rows,
+    delete_patch_multi_data_rows,
+    edit_patch_multi_data_rows,
+    merge_patch_fields,
+    validate_object_patch_payload,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    RELATION_DELETE_LOG_PROJECTION,
+    build_type_object_counts,
+    emit_object_state_change_events,
+    emit_object_update_events,
     handle_create_object_log,
     handle_delete_invalid_object_relations,
+    handle_delete_object_location,
     handle_notify_webhooks,
+    handle_sync_config_item_count,
     render_single_object,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
@@ -521,45 +525,6 @@ class TestComputeObjectVersion:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             emit_object_update_events                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestEmitObjectUpdateEvents:
-    """emit_object_update_events fires the webhook and writes the edit log, each best-effort."""
-
-    def test_emits_webhook_and_log(self) -> None:
-        """Both the update webhook and the edit log are produced on the happy path."""
-        logs_manager = MagicMock()
-        before = _make_object([{'name': 'a', 'value': 1}])
-        after = _make_object([{'name': 'a', 'value': 2}])
-        updated = _make_object([{'name': 'a', 'value': 2}])
-
-        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook:
-            emit_object_update_events(MagicMock(), logs_manager, before, after, updated, {'new': []}, "note")
-
-        webhook.assert_called_once()
-        logs_manager.insert_log.assert_called_once()
-
-    def test_webhook_failure_does_not_block_log(self) -> None:
-        """A webhook error is swallowed and the edit log is still written."""
-        logs_manager = MagicMock()
-        obj = _make_object([{'name': 'a', 'value': 1}])
-
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError("boom")):
-            emit_object_update_events(MagicMock(), logs_manager, obj, obj, obj, {'new': []}, "")
-
-        logs_manager.insert_log.assert_called_once()
-
-    def test_log_failure_is_swallowed(self) -> None:
-        """A logging error never propagates out of the helper."""
-        logs_manager = MagicMock()
-        logs_manager.insert_log.side_effect = RuntimeError("boom")
-        obj = _make_object([{'name': 'a', 'value': 1}])
-
-        with patch(f'{HELPER_PATH}.send_webhook_event'):
-            emit_object_update_events(MagicMock(), logs_manager, obj, obj, obj, {'new': []}, "")  # must not raise
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              sync_select_field_options                                               #
-# -------------------------------------------------------------------------------------------------------------------- #
 class TestSyncSelectFieldOptions:
     """sync_select_field_options appends new free-text select values back onto the CmdbType."""
 
@@ -769,51 +734,6 @@ class TestGuardPredefinedSelectOptions:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             handle_delete_object_location                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestHandleDeleteObjectLocation:
-    """handle_delete_object_location deletes the object's location, promoting its direct children."""
-
-    def test_deletes_location_via_reparenting_helper(self) -> None:
-        """The object's location is handed to the re-parenting delete helper."""
-        location = {'public_id': 50, 'parent': 1}
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = location
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
-             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
-            handle_delete_object_location(MagicMock(), 5)
-
-        reparent.assert_called_once()
-        assert reparent.call_args.args[0] == location
-
-    def test_no_location_is_noop(self) -> None:
-        """When the object has no location nothing is deleted."""
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = None
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
-             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
-            handle_delete_object_location(MagicMock(), 5)
-
-        reparent.assert_not_called()
-
-    def test_passed_in_managers_skip_the_provider_lookup(self) -> None:
-        """When both managers are supplied (e.g. a bulk loop) no ManagerProvider lookup happens."""
-        location = {'public_id': 50, 'parent': 1}
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = location
-        objects_manager = MagicMock()
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager') as get_manager, \
-             patch(f'{HELPER_PATH}.delete_location_with_reparenting') as reparent:
-            handle_delete_object_location(MagicMock(), 5, locations_manager, objects_manager)
-
-        get_manager.assert_not_called()
-        reparent.assert_called_once_with(location, locations_manager, objects_manager)
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                apply_object_update                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
 class TestApplyObjectUpdate:
     """apply_object_update guards the per-object update before touching the write path."""
 
@@ -857,423 +777,6 @@ class TestApplyObjectUpdate:
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             build_type_object_counts                                                #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestBuildTypeObjectCounts:
-    """build_type_object_counts joins the per-type object counts with each CmdbType's label."""
-
-    def test_maps_counts_to_type_labels(self) -> None:
-        """Each counted type_id is resolved to its label and paired with the object count."""
-        objects_manager = MagicMock()
-        objects_manager.count_objects_grouped_by_type_with_total.return_value = ({1: 30, 2: 12}, 42)
-        types_manager = MagicMock()
-        types_manager.get_types_lookup.return_value = {
-            1: SimpleNamespace(label='Server'),
-            2: SimpleNamespace(label='Client'),
-        }
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
-            type_counts, total = build_type_object_counts(MagicMock())
-
-        assert type_counts == [{'name': 'Server', 'count': 30}, {'name': 'Client', 'count': 12}]
-        assert total == 42
-
-    def test_no_objects_returns_empty_without_type_lookup(self) -> None:
-        """With no objects the helper returns [] and never queries the type lookup."""
-        objects_manager = MagicMock()
-        objects_manager.count_objects_grouped_by_type_with_total.return_value = ({}, 0)
-        types_manager = MagicMock()
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
-            type_counts, total = build_type_object_counts(MagicMock())
-
-        assert not type_counts
-        assert total == 0
-        types_manager.get_types_lookup.assert_not_called()
-
-    def test_skips_type_missing_from_lookup(self) -> None:
-        """A counted type_id whose CmdbType no longer exists is skipped, not emitted with no label."""
-        objects_manager = MagicMock()
-        objects_manager.count_objects_grouped_by_type_with_total.return_value = ({1: 30, 99: 5}, 35)
-        types_manager = MagicMock()
-        types_manager.get_types_lookup.return_value = {1: SimpleNamespace(label='Server')}
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
-            type_counts, total = build_type_object_counts(MagicMock())
-
-        # the skipped type still counts toward the total the portal is told about
-        assert type_counts == [{'name': 'Server', 'count': 30}]
-        assert total == 35
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          handle_sync_config_item_count                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestHandleSyncConfigItemCount:
-    """handle_sync_config_item_count forwards the count plus the per-type breakdown to the portal."""
-
-    def test_passes_count_and_type_breakdown_to_manager(self) -> None:
-        """The built type-count list is passed straight into DgServicePortalManager.sync_config_items."""
-        request_user = MagicMock()
-        manager_instance = MagicMock()
-        type_counts = [{'name': 'Server', 'count': 30}]
-
-        with patch(f'{HELPER_PATH}.build_type_object_counts', return_value=(type_counts, 30)), \
-             patch(f'{HELPER_PATH}.DgServicePortalManager', return_value=manager_instance):
-            handle_sync_config_item_count(request_user, 42)
-
-        # an explicitly supplied count wins over the aggregation's total
-        manager_instance.sync_config_items.assert_called_once_with(request_user, 42, type_counts)
-
-    def test_derives_the_total_from_the_breakdown_when_no_count_is_given(self) -> None:
-        """Omitting the count takes the total from the same aggregation - no extra full-collection count."""
-        request_user = MagicMock()
-        manager_instance = MagicMock()
-        type_counts = [{'name': 'Server', 'count': 30}]
-
-        with patch(f'{HELPER_PATH}.build_type_object_counts', return_value=(type_counts, 31)), \
-             patch(f'{HELPER_PATH}.DgServicePortalManager', return_value=manager_instance):
-            handle_sync_config_item_count(request_user)
-
-        manager_instance.sync_config_items.assert_called_once_with(request_user, 31, type_counts)
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          validate_object_patch_payload                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestValidateObjectPatchPayload:
-    """validate_object_patch_payload guards the PATCH body: allowed keys, non-empty, right shape."""
-
-    def test_non_dict_aborts_400(self) -> None:
-        """A body that is not a JSON object (e.g. None from invalid JSON) is rejected with 400."""
-        with pytest.raises(HTTPException) as exc_info:
-            validate_object_patch_payload(None)
-
-        assert exc_info.value.code == 400
-
-    def test_disallowed_key_aborts_400_naming_it(self) -> None:
-        """An immutable / server-managed key in the body is rejected with 400 that names the key."""
-        with pytest.raises(HTTPException) as exc_info:
-            validate_object_patch_payload({'type_id': 5, 'fields': [{'name': 'a', 'value': 1}]})
-
-        assert exc_info.value.code == 400
-        assert 'type_id' in exc_info.value.description
-
-    def test_empty_patch_aborts_400(self) -> None:
-        """A body with neither fields nor multi_data_sections changes nothing and is rejected."""
-        with pytest.raises(HTTPException) as exc_info:
-            validate_object_patch_payload({'comment': 'nothing to change'})
-
-        assert exc_info.value.code == 400
-
-    def test_invalid_shape_aborts_400(self) -> None:
-        """A field entry missing its required 'name' fails schema validation with 400."""
-        with pytest.raises(HTTPException) as exc_info:
-            validate_object_patch_payload({'fields': [{'value': 1}]})
-
-        assert exc_info.value.code == 400
-
-    def test_valid_payload_returns_document(self) -> None:
-        """A well-formed patch is returned as the normalized document."""
-        result = validate_object_patch_payload({'fields': [{'name': 'a', 'value': 1}]})
-
-        assert result == {'fields': [{'name': 'a', 'value': 1}]}
-
-    def test_delete_only_payload_is_accepted(self) -> None:
-        """A patch that only deletes MDS rows is a real change and passes validation."""
-        payload = {'deleted_mds_rows': [{'section_id': 's1', 'multi_data_id': 3}]}
-
-        assert validate_object_patch_payload(payload) == payload
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                merge_patch_fields                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestMergePatchFields:
-    """merge_patch_fields overlays patched values by name, appends unknowns, keeps the rest."""
-
-    def test_overwrites_existing_value_and_keeps_type(self) -> None:
-        """A patched field's value replaces the stored one while its stored type is preserved."""
-        stored = [{'name': 'a', 'value': 1, 'type': 'text'}, {'name': 'b', 'value': 2, 'type': 'text'}]
-
-        result = merge_patch_fields(stored, [{'name': 'a', 'value': 99}])
-
-        assert result[0] == {'name': 'a', 'value': 99, 'type': 'text'}
-        assert result[1] == {'name': 'b', 'value': 2, 'type': 'text'}
-
-    def test_appends_unknown_field(self) -> None:
-        """A patched name absent from the stored list is appended as a new entry."""
-        result = merge_patch_fields([{'name': 'a', 'value': 1, 'type': 'text'}], [{'name': 'c', 'value': 5}])
-
-        assert result[-1] == {'name': 'c', 'value': 5}
-
-    def test_does_not_mutate_input(self) -> None:
-        """The stored field list is not modified in place."""
-        stored = [{'name': 'a', 'value': 1, 'type': 'text'}]
-
-        merge_patch_fields(stored, [{'name': 'a', 'value': 99}])
-
-        assert stored[0]['value'] == 1
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                         create_patch_multi_data_rows                                                #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestCreatePatchMultiDataRows:
-    """create_patch_multi_data_rows appends rows and assigns multi_data_id server-side."""
-
-    @staticmethod
-    def _stored() -> list[dict[str, Any]]:
-        """One section 's1' (highest_id 2) with a single row multi_data_id 1."""
-        return [{
-            'section_id': 's1',
-            'highest_id': 2,
-            'values': [{'multi_data_id': 1, 'data': [{'name': 'a', 'value': 1, 'type': 'text'}]}],
-        }]
-
-    def test_assigns_next_id_and_bumps_counter(self) -> None:
-        """A created row gets highest_id+1 as its multi_data_id and the counter advances."""
-        created = [{'section_id': 's1', 'data': [{'name': 'a', 'value': 7}]}]
-
-        result = create_patch_multi_data_rows(self._stored(), created, {'s1'})
-
-        assert result[0]['highest_id'] == 3
-        new_row = next(row for row in result[0]['values'] if row['multi_data_id'] == 3)
-        assert new_row['data'] == [{'name': 'a', 'value': 7}]
-
-    def test_multiple_creates_get_consecutive_ids(self) -> None:
-        """Several creates in one section receive consecutive ids and the counter ends at the last."""
-        created = [
-            {'section_id': 's1', 'data': [{'name': 'a', 'value': 7}]},
-            {'section_id': 's1', 'data': [{'name': 'a', 'value': 8}]},
-        ]
-
-        result = create_patch_multi_data_rows(self._stored(), created, {'s1'})
-
-        assert result[0]['highest_id'] == 4
-        assert {row['multi_data_id'] for row in result[0]['values']} == {1, 3, 4}
-
-    def test_first_row_add_seeds_container_for_declared_section(self) -> None:
-        """A section the type declares but the object lacks gets a fresh container + row 1."""
-        created = [{'section_id': 's2', 'data': [{'name': 'a', 'value': 7}]}]
-
-        result = create_patch_multi_data_rows(self._stored(), created, {'s1', 's2'})
-
-        new_section = next(section for section in result if section['section_id'] == 's2')
-        assert new_section['highest_id'] == 1
-        assert new_section['values'][0]['multi_data_id'] == 1
-        assert new_section['values'][0]['data'] == [{'name': 'a', 'value': 7}]
-
-    def test_undeclared_section_aborts_400(self) -> None:
-        """Creating a row in a section the type does not declare is refused with 400."""
-        with pytest.raises(HTTPException) as exc_info:
-            create_patch_multi_data_rows(self._stored(), [{'section_id': 'sX', 'data': []}], {'s1'})
-
-        assert exc_info.value.code == 400
-
-    def test_does_not_mutate_input(self) -> None:
-        """The stored sections are not modified in place."""
-        stored = self._stored()
-
-        create_patch_multi_data_rows(stored, [{'section_id': 's1', 'data': [{'name': 'a', 'value': 7}]}], {'s1'})
-
-        assert stored[0]['highest_id'] == 2
-        assert {row['multi_data_id'] for row in stored[0]['values']} == {1}
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          edit_patch_multi_data_rows                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestEditPatchMultiDataRows:
-    """edit_patch_multi_data_rows merges field values into existing rows by (section_id, multi_data_id)."""
-
-    @staticmethod
-    def _stored() -> list[dict[str, Any]]:
-        """One section 's1' with a single row multi_data_id 1."""
-        return [{
-            'section_id': 's1',
-            'highest_id': 2,
-            'values': [{'multi_data_id': 1, 'data': [{'name': 'a', 'value': 1, 'type': 'text'}]}],
-        }]
-
-    def test_merges_row_data_by_name(self) -> None:
-        """A matched row has its field values merged; the stored type is preserved."""
-        edited = [{'section_id': 's1', 'multi_data_id': 1, 'data': [{'name': 'a', 'value': 9}]}]
-
-        result = edit_patch_multi_data_rows(self._stored(), edited)
-
-        assert result[0]['values'][0]['data'][0] == {'name': 'a', 'value': 9, 'type': 'text'}
-
-    def test_unknown_section_aborts_400(self) -> None:
-        """Editing a row in a section the object does not have is refused with 400."""
-        with pytest.raises(HTTPException) as exc_info:
-            edit_patch_multi_data_rows(self._stored(), [{'section_id': 'sX', 'multi_data_id': 1, 'data': []}])
-
-        assert exc_info.value.code == 400
-
-    def test_unknown_row_aborts_400(self) -> None:
-        """Editing a multi_data_id not present in the section is refused with 400 (use create)."""
-        with pytest.raises(HTTPException) as exc_info:
-            edit_patch_multi_data_rows(self._stored(), [{'section_id': 's1', 'multi_data_id': 99, 'data': []}])
-
-        assert exc_info.value.code == 400
-
-    def test_does_not_mutate_input(self) -> None:
-        """The stored sections are not modified in place."""
-        stored = self._stored()
-
-        edited = [{'section_id': 's1', 'multi_data_id': 1, 'data': [{'name': 'a', 'value': 9}]}]
-        edit_patch_multi_data_rows(stored, edited)
-
-        assert stored[0]['values'][0]['data'][0]['value'] == 1
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                        delete_patch_multi_data_rows                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestDeletePatchMultiDataRows:
-    """delete_patch_multi_data_rows removes rows by (section_id, multi_data_id), keeping empty sections."""
-
-    @staticmethod
-    def _stored() -> list[dict[str, Any]]:
-        """One section 's1' (highest_id 2) with two rows: multi_data_id 1 and 2."""
-        return [{
-            'section_id': 's1',
-            'highest_id': 2,
-            'values': [
-                {'multi_data_id': 1, 'data': [{'name': 'a', 'value': 1, 'type': 'text'}]},
-                {'multi_data_id': 2, 'data': [{'name': 'a', 'value': 2, 'type': 'text'}]},
-            ],
-        }]
-
-    def test_removes_named_row_only(self) -> None:
-        """The named row is removed; the other row and section are kept."""
-        result = delete_patch_multi_data_rows(self._stored(), [{'section_id': 's1', 'multi_data_id': 2}])
-
-        assert {row['multi_data_id'] for row in result[0]['values']} == {1}
-
-    def test_deleting_last_row_keeps_empty_section(self) -> None:
-        """Deleting every row leaves the section present with an empty values list and its highest_id."""
-        result = delete_patch_multi_data_rows(
-            self._stored(),
-            [{'section_id': 's1', 'multi_data_id': 1}, {'section_id': 's1', 'multi_data_id': 2}],
-        )
-
-        assert result[0]['values'] == []
-        assert result[0]['highest_id'] == 2
-
-    def test_unknown_section_aborts_400(self) -> None:
-        """Deleting from a section the object does not have is refused with 400."""
-        with pytest.raises(HTTPException) as exc_info:
-            delete_patch_multi_data_rows(self._stored(), [{'section_id': 'sX', 'multi_data_id': 1}])
-
-        assert exc_info.value.code == 400
-
-    def test_unknown_row_aborts_400(self) -> None:
-        """Deleting a multi_data_id not present in the section is refused with 400."""
-        with pytest.raises(HTTPException) as exc_info:
-            delete_patch_multi_data_rows(self._stored(), [{'section_id': 's1', 'multi_data_id': 99}])
-
-        assert exc_info.value.code == 400
-
-    def test_does_not_mutate_input(self) -> None:
-        """The stored sections are not modified in place."""
-        stored = self._stored()
-
-        delete_patch_multi_data_rows(stored, [{'section_id': 's1', 'multi_data_id': 2}])
-
-        assert {row['multi_data_id'] for row in stored[0]['values']} == {1, 2}
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                            build_patched_object_data                                                #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestBuildPatchedObjectData:
-    """build_patched_object_data overlays a validated patch onto the stored object's JSON."""
-
-    def test_merges_fields_and_comment_preserving_identity(self) -> None:
-        """Patched field values land on the full object dict; immutable identity is carried through."""
-        current = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}], public_id=7)
-
-        result = build_patched_object_data(current, {'fields': [{'name': 'a', 'value': 42}], 'comment': 'note'}, set())
-
-        assert result['public_id'] == 7
-        assert result['type_id'] == 1
-        assert result['comment'] == 'note'
-        field_a = next(field for field in result['fields'] if field['name'] == 'a')
-        assert field_a['value'] == 42
-
-    def test_applies_mds_row_deletion(self) -> None:
-        """A deleted_mds_rows entry removes the named row from the merged object."""
-        current = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}], public_id=7)
-        current.multi_data_sections = [{
-            'section_id': 's1',
-            'highest_id': 2,
-            'values': [
-                {'multi_data_id': 1, 'data': [{'name': 'a', 'value': 1, 'type': 'text'}]},
-                {'multi_data_id': 2, 'data': [{'name': 'a', 'value': 2, 'type': 'text'}]},
-            ],
-        }]
-
-        result = build_patched_object_data(
-            current, {'deleted_mds_rows': [{'section_id': 's1', 'multi_data_id': 2}]}, set()
-        )
-
-        section = result['multi_data_sections'][0]
-        assert {row['multi_data_id'] for row in section['values']} == {1}
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                    PATCH new-field type backfill (boundary)                                         #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestPatchNewFieldTypeBackfill:
-    """A PATCH-added field the stored object lacks is a name+value pair after merge; the shared update
-    pipeline then backfills its type from the type schema (or rejects an undeclared field), so no field
-    with a missing type is ever persisted. This locks why the merge_patch_fields 2-tuple is safe.
-    """
-
-    @staticmethod
-    def _manager(type_schema: dict[str, Any]) -> MagicMock:
-        """A MagicMock ObjectsManager whose get_object_type returns the given type schema."""
-        manager = MagicMock()
-        manager.get_object_type.return_value = type_schema
-        return manager
-
-    def test_merge_appends_new_field_without_a_type(self) -> None:
-        """build_patched_object_data appends a stored-missing field as a name+value pair (no type yet)."""
-        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
-
-        result = build_patched_object_data(current, {'fields': [{'name': 'fresh', 'value': 5}]}, set())
-
-        fresh = next(field for field in result['fields'] if field['name'] == 'fresh')
-        assert 'type' not in fresh
-
-    def test_pipeline_backfills_the_new_field_type(self) -> None:
-        """The merged object run through validate_and_fill_object_fields becomes a full name+value+type triple."""
-        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
-        merged = build_patched_object_data(current, {'fields': [{'name': 'fresh', 'value': 5}]}, set())
-        manager = self._manager({'fields': [
-            {'name': 'stored', 'type': 'text'}, {'name': 'fresh', 'type': 'number'},
-        ]})
-
-        validate_and_fill_object_fields(manager, merged)
-
-        fresh = next(field for field in merged['fields'] if field['name'] == 'fresh')
-        assert fresh == {'name': 'fresh', 'value': 5, 'type': 'number'}
-
-    def test_pipeline_rejects_new_field_not_declared_by_the_type(self) -> None:
-        """A PATCH-added field the type does not declare is rejected 400 (never persisted as a 2-tuple)."""
-        current = _make_object([{'name': 'stored', 'value': 1, 'type': 'text'}], public_id=7)
-        merged = build_patched_object_data(current, {'fields': [{'name': 'ghost', 'value': 5}]}, set())
-        manager = self._manager({'fields': [{'name': 'stored', 'type': 'text'}]})
-
-        with pytest.raises(HTTPException) as exc_info:
-            validate_and_fill_object_fields(manager, merged)
-
-        assert exc_info.value.code == 400
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              guard_object_delete                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGuardObjectDelete:
     """guard_object_delete is the one-target form of the shared delete guard."""
@@ -1378,41 +881,6 @@ class TestGuardObjectsDelete:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        emit_object_state_change_events                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestEmitObjectStateChangeEvents:
-    """emit_object_state_change_events emits the UPDATE webhook and writes the ACTIVE_CHANGE log."""
-
-    def _objects(self) -> tuple[CmdbObject, CmdbObject]:
-        """Builds a before/after CmdbObject pair for the state-change events."""
-        before = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}], public_id=5)
-        after = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}], public_id=5)
-        return before, after
-
-    def test_emits_webhook_and_writes_log(self) -> None:
-        """The webhook fires and an ACTIVE_CHANGE log is inserted with the old/new change dict."""
-        before, after = self._objects()
-        logs_manager = MagicMock()
-
-        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook:
-            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, True)
-
-        webhook.assert_called_once()
-        logs_manager.insert_log.assert_called_once()
-        assert logs_manager.insert_log.call_args.kwargs['changes'] == {'old': False, 'new': True}
-
-    def test_webhook_failure_does_not_block_log(self) -> None:
-        """A webhook exception is swallowed; the log is still written."""
-        before, after = self._objects()
-        logs_manager = MagicMock()
-
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')):
-            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, False)
-
-        logs_manager.insert_log.assert_called_once()
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                            realign_objects_to_type                                                  #
-# -------------------------------------------------------------------------------------------------------------------- #
 class TestRealignObjectsToType:
     """realign_objects_to_type drops stale fields, adds missing ones, returns removed names."""
 
@@ -1510,207 +978,6 @@ class TestCleanTypeReports:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              render_single_object                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestRenderSingleObject:
-    """render_single_object collapses CmdbMultiRender's union down to RenderResult | None."""
-
-    def test_returns_the_rendered_result(self) -> None:
-        """A real RenderResult is handed straight back."""
-        rendered = MagicMock(spec=RenderResult)
-
-        with patch(f'{HELPER_PATH}.CmdbMultiRender') as multi_render:
-            multi_render.return_value.result.return_value = rendered
-
-            assert render_single_object(MagicMock(), MagicMock()) is rendered
-
-    @pytest.mark.parametrize('produced', [None, [], ['not-a-render-result']])
-    def test_anything_that_is_not_a_render_result_becomes_none(self, produced: Any) -> None:
-        """None (type gone) and the list shape both collapse to None instead of leaking out."""
-        with patch(f'{HELPER_PATH}.CmdbMultiRender') as multi_render:
-            multi_render.return_value.result.return_value = produced
-
-            assert render_single_object(MagicMock(), MagicMock()) is None
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              handle_notify_webhooks                                                  #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestHandleNotifyWebhooks:
-    """handle_notify_webhooks emits the event and never lets a webhook failure escape."""
-
-    @pytest.mark.parametrize('event_type, expected_kwarg', [
-        (WebhookEventType.CREATE, 'object_after'),
-        (WebhookEventType.DELETE, 'object_before'),
-    ])
-    def test_sends_the_event_under_the_right_keyword(self, event_type: Any, expected_kwarg: str) -> None:
-        """A create reports the object as 'after', a delete as 'before'."""
-        target = MagicMock()
-
-        with patch(f'{HELPER_PATH}.send_webhook_event') as send, \
-             patch(f'{HELPER_PATH}.CmdbObject.to_json', return_value={'public_id': 5}):
-            handle_notify_webhooks(MagicMock(), target, event_type)
-
-        assert expected_kwarg in send.call_args.kwargs
-
-    def test_a_failing_webhook_is_swallowed(self) -> None:
-        """A webhook problem must never roll back or fail the surrounding object operation."""
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('webhook down')), \
-             patch(f'{HELPER_PATH}.CmdbObject.to_json', return_value={}):
-            handle_notify_webhooks(MagicMock(), MagicMock(), WebhookEventType.CREATE)
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                             handle_create_object_log                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestHandleCreateObjectLog:
-    """handle_create_object_log writes the audit entry, best-effort (discussion-backlog #160)."""
-
-    def test_writes_the_log_entry(self) -> None:
-        """The rendered object's id and version land on the persisted log document."""
-        logs_manager = MagicMock()
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
-
-        with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
-             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'), \
-             patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=logs_manager):
-            handle_create_object_log(MagicMock(), MagicMock(), LogAction.CREATE)
-
-        assert logs_manager.insert_log.call_args.kwargs['object_id'] == 5
-        assert logs_manager.insert_log.call_args.kwargs['comment'] == 'Object created'
-
-    def test_a_delete_is_labelled_as_one(self) -> None:
-        """The DELETE action gets its own comment."""
-        logs_manager = MagicMock()
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
-
-        with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
-             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'), \
-             patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=logs_manager):
-            handle_create_object_log(MagicMock(), MagicMock(), LogAction.DELETE)
-
-        assert logs_manager.insert_log.call_args.kwargs['comment'] == 'Object was deleted'
-
-    def test_an_unrenderable_object_writes_no_log(self) -> None:
-        """A render that yields nothing is reported and skipped, not dereferenced into an AttributeError."""
-        logs_manager = MagicMock()
-
-        with patch(f'{HELPER_PATH}.render_single_object', return_value=None), \
-             patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=logs_manager):
-            handle_create_object_log(MagicMock(), MagicMock(), LogAction.CREATE)
-
-        logs_manager.insert_log.assert_not_called()
-
-    def test_a_failing_log_write_is_swallowed(self) -> None:
-        """A logging problem must never fail the surrounding object operation."""
-        logs_manager = MagicMock()
-        logs_manager.insert_log.side_effect = RuntimeError('logs collection down')
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
-
-        with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
-             patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=logs_manager):
-            handle_create_object_log(MagicMock(), MagicMock(), LogAction.CREATE)
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                       handle_delete_invalid_object_relations                                         #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestHandleDeleteInvalidObjectRelations:
-    """The relation half of the object-delete cascade: bulk delete plus one log per relation."""
-
-    @staticmethod
-    def _managers(relations: list[dict[str, Any]]) -> tuple[MagicMock, MagicMock]:
-        """Builds the relation + relation-log managers with the given relations found."""
-        relations_manager = MagicMock()
-        relations_manager.find.return_value = relations
-        relations_manager.get_related_relations_query.return_value = {'$or': []}
-        logs_manager = MagicMock()
-
-        return relations_manager, logs_manager
-
-    def test_no_relations_writes_nothing(self) -> None:
-        """An object with no relations short-circuits before the delete and the log work."""
-        relations_manager, logs_manager = self._managers([])
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
-
-        relations_manager.delete_many_raw.assert_not_called()
-        logs_manager.insert_many.assert_not_called()
-
-    def test_reads_back_only_the_keys_the_log_needs(self) -> None:
-        """The relations are read with a projection - the full documents are never loaded."""
-        relations_manager, logs_manager = self._managers([{'public_id': 1}])
-        logs_manager.format_object_relation_log_data.side_effect = [{'a': 1}]
-        logs_manager.reserve_public_ids.return_value = [10]
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
-
-        assert relations_manager.find.call_args.kwargs['projection'] == RELATION_DELETE_LOG_PROJECTION
-
-    def test_deletes_and_logs_every_affected_relation(self) -> None:
-        """One bulk delete, one reserved id per log, then a single insert_many."""
-        relations = [{'public_id': 1}, {'public_id': 2}]
-        relations_manager, logs_manager = self._managers(relations)
-        logs_manager.format_object_relation_log_data.side_effect = [{'a': 1}, {'b': 2}]
-        logs_manager.reserve_public_ids.return_value = [10, 11]
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
-
-        relations_manager.delete_many_raw.assert_called_once_with({'$or': []})
-        logs_manager.reserve_public_ids.assert_called_once_with(2)
-        logs_manager.insert_many.assert_called_once_with(
-            [{'a': 1, 'public_id': 10}, {'b': 2, 'public_id': 11}], skip_public=True,
-        )
-
-    def test_a_failing_log_prep_skips_only_that_relation(self) -> None:
-        """One unformattable relation must not cost the others their log entry."""
-        relations_manager, logs_manager = self._managers([{'public_id': 1}, {'public_id': 2}])
-        logs_manager.format_object_relation_log_data.side_effect = [RuntimeError('bad relation'), {'b': 2}]
-        logs_manager.reserve_public_ids.return_value = [11]
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
-
-        logs_manager.insert_many.assert_called_once_with([{'b': 2, 'public_id': 11}], skip_public=True)
-
-    def test_every_log_prep_failing_writes_no_logs(self) -> None:
-        """The relations are still deleted, but there is nothing to insert."""
-        relations_manager, logs_manager = self._managers([{'public_id': 1}])
-        logs_manager.format_object_relation_log_data.side_effect = RuntimeError('bad relation')
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
-
-        relations_manager.delete_many_raw.assert_called_once()
-        logs_manager.reserve_public_ids.assert_not_called()
-        logs_manager.insert_many.assert_not_called()
-
-    def test_a_short_id_reservation_fails_loudly(self) -> None:
-        """
-        insert_many(skip_public=True) needs a public_id on EVERY document
-
-        Without strict pairing the surplus logs would be inserted with the key missing, which the
-        unique index answers with a duplicate-key error on the second null - so the mismatch has to
-        surface here instead.
-        """
-        relations_manager, logs_manager = self._managers([{'public_id': 1}, {'public_id': 2}])
-        logs_manager.format_object_relation_log_data.side_effect = [{'a': 1}, {'b': 2}]
-        logs_manager.reserve_public_ids.return_value = [10]
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            with pytest.raises(ValueError):
-                handle_delete_invalid_object_relations(MagicMock(), 5)
-
-        logs_manager.insert_many.assert_not_called()
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              guard_config_item_limit                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
 class TestGuardConfigItemLimit:
     """guard_config_item_limit only applies in cloud mode, where subscriptions have a budget."""
 
@@ -1761,8 +1028,7 @@ class TestHelperErrorArms:
         deleted = _make_object([])
 
         with flask_app.test_request_context('/'):
-            with patch(f'{HELPER_PATH}.handle_delete_object_location'), \
-                 patch(f'{HELPER_PATH}.handle_delete_from_object_groups'), \
+            with patch(f'{HELPER_PATH}.handle_delete_from_object_groups'), \
                  patch(f'{HELPER_PATH}.handle_delete_invalid_object_relations'), \
                  patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
                  patch(f'{HELPER_PATH}.handle_create_object_log'), \
@@ -1772,29 +1038,6 @@ class TestHelperErrorArms:
 
         # no count is forwarded - the sync derives the total from its own aggregation
         sync.assert_called_once_with(sync.call_args.args[0])
-
-    def test_a_failing_location_delete_becomes_500(self) -> None:
-        """An unexpected locations failure is mapped onto a 500 instead of escaping raw."""
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.side_effect = RuntimeError('locations down')
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager):
-            with pytest.raises(HTTPException) as exc_info:
-                handle_delete_object_location(MagicMock(), 5)
-
-        assert exc_info.value.code == 500
-
-    def test_an_http_error_from_the_location_delete_propagates(self) -> None:
-        """A 400 raised while re-parenting reaches the client instead of being masked as a 500."""
-        locations_manager = MagicMock()
-        locations_manager.get_location_for_object.return_value = {'public_id': 50}
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=locations_manager), \
-             patch(f'{HELPER_PATH}.delete_location_with_reparenting', side_effect=BadRequest('nope')):
-            with pytest.raises(HTTPException) as exc_info:
-                handle_delete_object_location(MagicMock(), 5)
-
-        assert exc_info.value.code == 400
 
     def test_a_field_without_a_name_aborts_400(self) -> None:
         """A field entry carrying no 'name' cannot be matched against the type schema."""
@@ -1811,20 +1054,6 @@ class TestHelperErrorArms:
         merged = merge_patch_fields([], [{'name': 'b', 'value': 2, 'type': 'number'}])
 
         assert merged == [{'name': 'b', 'value': 2, 'type': 'number'}]
-
-    def test_a_failing_state_change_log_is_swallowed(self) -> None:
-        """A logging problem must not fail an activate / deactivate that already happened."""
-        logs_manager = MagicMock()
-        logs_manager.insert_log.side_effect = RuntimeError('logs collection down')
-        before = MagicMock()
-        before.get_public_id.return_value = 5
-
-        with patch(f'{HELPER_PATH}.send_webhook_event'), \
-             patch(f'{HELPER_PATH}.CmdbObject.to_json', return_value={}), \
-             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
-            emit_object_state_change_events(MagicMock(), logs_manager, before, MagicMock(), {}, True)
-
-        logs_manager.insert_log.assert_called_once()
 
 
     def test_an_object_that_vanishes_during_the_update_aborts_404(self) -> None:

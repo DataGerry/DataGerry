@@ -59,11 +59,26 @@ class MediaFileMetadataKey(BaseStrEnum):
     """
     Keys inside a MediaFile's metadata sub-document
 
+    These are ALL the keys a stored metadata carries - `build_media_file_metadata` writes exactly this
+    set and the upload route refuses a request that carries anything else, so the enum doubles as the
+    allowlist of what a client may send
+
     PARENT is the folder the file sits in - the media library is a tree, and the pair
     (filename, metadata.parent) is what has to stay unique
+
+    Attributes:
+        AUTHOR_ID: public_id of the CmdbUser who uploaded the file; server-owned
+        MIME_TYPE: Content type of the upload; server-owned
+        PARENT: public_id of the folder the file sits in, None at the library root
+        REFERENCE: public_id of what the file is attached to, if anything
+        REFERENCE_TYPE: What kind of thing REFERENCE points at, e.g. 'object'
+        FOLDER: Whether the entry IS a folder rather than a file
+        PERMISSION: Reserved for per-file permissions; nothing evaluates it yet
     """
     AUTHOR_ID = 'author_id'
     MIME_TYPE = 'mime_type'
     PARENT = 'parent'
     REFERENCE = 'reference'
     REFERENCE_TYPE = 'reference_type'
+    FOLDER = 'folder'
+    PERMISSION = 'permission'

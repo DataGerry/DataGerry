@@ -128,3 +128,35 @@ class SearchGroupKey(BaseStrEnum):
     SETTINGS = SearchParamKey.SETTINGS.value
     TOTAL = 'total'
     TYPES = 'types'
+
+
+class SearchQueryKey(BaseStrEnum):
+    """
+    The query-string parameters the search routes read
+
+    Distinct from `SearchResultKey` even where the spelling matches: LIMIT and SKIP name what the
+    *request* asks for, `SearchResultKey.LIMIT` / `SKIP` what the *response* reports back. The two
+    happen to agree today and are still separate members, because a route reading a response key
+    would be a bug that spells correctly.
+
+    QUERY carries the search parameters themselves - a JSON array of `SearchParamKey` objects, the
+    same payload a POST sends as its body. SEARCH_VALUE is the quick counter's single regex term
+    """
+    LIMIT = 'limit'
+    SKIP = 'skip'
+    QUERY = 'query'
+    RESOLVE = 'resolve'
+    SEARCH_VALUE = 'searchValue'
+
+
+class QuickSearchCountKey(BaseStrEnum):
+    """
+    Keys of the quick-search counter body (`GET /rest/search/quick/count/`)
+
+    A **frontend-visible contract**: the Angular `NumberSearchResults` model declares exactly these
+    three fields. `QuickSearchPipelineBuilder` projects them and the route repeats them as its
+    empty-result fallback, so they are named here rather than spelled in both places
+    """
+    ACTIVE = 'active'
+    INACTIVE = 'inactive'
+    TOTAL = 'total'

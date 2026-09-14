@@ -246,8 +246,15 @@ class ObjectRelationsManager(GenericManager):
         Retrieves one page of a relation tab's instances plus the group's total
 
         A tab is identified by (relation_id, role): role=parent selects instances where the object is
-        the parent, role=child where it is the child. The total is the raw count of the group (so it
-        matches the tab badge and drives pagination); only the requested page is materialised
+        the parent, role=child where it is the child. **An unknown role is refused** rather than read as
+        one of the two - the sides are a two-way choice, so a typo would otherwise answer with the
+        other tab's instances and look like a valid, merely surprising result.
+
+        The total is the raw count of the group - it drives the tab badge and the pagination - and is a
+        SEPARATE read from the page, so a write landing between the two makes them disagree by one.
+        That is deliberate: the alternative is one `$facet` aggregation whose count is exact for the
+        same instant, at the price of running the match twice per request for a number the UI shows as
+        an approximation anyway
 
         Args:
             object_id (int): public_id of the CmdbObject whose relations are listed
@@ -259,11 +266,18 @@ class ObjectRelationsManager(GenericManager):
             order (int): Sort direction, 1 ascending / -1 descending. Defaults to 1
 
         Raises:
-            ObjectRelationsManagerIterationError: When the query fails
+            ObjectRelationsManagerIterationError: When the role is not a valid ObjectRelationRole, or
+                                                  when the query fails
 
         Returns:
             tuple[list[dict[str, Any]], int]: (the page's object-relation documents, total in group)
         """
+        if not ObjectRelationRole.is_valid(role):
+            raise ObjectRelationsManagerIterationError(
+                f"'{role}' is not a valid relation role - expected one of "
+                f"{[member.value for member in ObjectRelationRole]}!"
+            )
+
         side_field = (ObjectRelationKey.RELATION_PARENT_ID.value if role == ObjectRelationRole.PARENT
                       else ObjectRelationKey.RELATION_CHILD_ID.value)
         criteria = {ObjectRelationKey.RELATION_ID.value: relation_id, side_field: object_id}
@@ -356,6 +370,11 @@ class ObjectRelationsManager(GenericManager):
             is_parent_ids (bool): A flag indicating whether the invalid IDs belong to parent type relations
                                   (True) or child type relations (False)
         """
+        # Nothing to invalidate: a '$in' over an empty list matches nothing, so the round trip would
+        # only ever report zero deletions
+        if not invalid_ids:
+            return
+
         type_field = (ObjectRelationKey.RELATION_PARENT_TYPE_ID.value if is_parent_ids
                       else ObjectRelationKey.RELATION_CHILD_TYPE_ID.value)
 

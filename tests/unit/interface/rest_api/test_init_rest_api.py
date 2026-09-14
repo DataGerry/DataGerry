@@ -34,6 +34,7 @@ from typing import Any, Iterator
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+from werkzeug.exceptions import NotFound
 from werkzeug.exceptions import MethodNotAllowed
 
 import cmdb
@@ -176,6 +177,42 @@ def test_register_converters_adds_the_regex_converter() -> None:
     register_converters(app)
 
     assert app.url_map.converters['regex'] is RegexConverter
+
+
+def test_a_registered_regex_rule_matches_through_the_converter() -> None:
+    """
+    The converter is only ever constructed by Werkzeug building a rule that uses it
+
+    No route declares a `<regex(...)>` parameter today, which is why this whole path had no coverage -
+    and why nobody noticed the converter could not be constructed at all: `__init__` accepted
+    `url_map` alone while Werkzeug passes the rule's arguments after it, so the first route to use one
+    would have raised TypeError while the URL map was built.
+    """
+    app = BaseCmdbApp(__name__, database_manager=MagicMock())
+    register_converters(app)
+    app.add_url_rule('/probe/<regex("[0-9]{4}"):code>', 'probe', lambda code: code)
+
+    adapter = app.url_map.bind('localhost')
+
+    assert adapter.match('/probe/2026')[1] == {'code': '2026'}
+
+    with pytest.raises(NotFound):
+        adapter.match('/probe/not-four-digits')
+
+
+def test_a_regex_rule_without_a_pattern_matches_one_segment() -> None:
+    """`<regex:name>` falls back to the default converter's rule instead of failing to build."""
+    app = BaseCmdbApp(__name__, database_manager=MagicMock())
+    register_converters(app)
+    app.add_url_rule('/plain/<regex:anything>', 'plain', lambda anything: anything)
+
+    adapter = app.url_map.bind('localhost')
+
+    assert adapter.match('/plain/whatever')[1] == {'anything': 'whatever'}
+
+    with pytest.raises(NotFound):
+        adapter.match('/plain/two/segments')
+
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

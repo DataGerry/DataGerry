@@ -18,7 +18,7 @@ This module provides the predefined IsmsProtectionGoals
 """
 from typing import Any
 
-from cmdb.database.predefined_data.predefined_data_constants import ProtectionGoalKey
+from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_default_protection_goals() -> list[dict[str, Any]]:

@@ -27,6 +27,7 @@ from http import HTTPStatus
 from urllib.parse import urlencode
 
 import pytest
+from flask import abort
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.isms_manager.control_measure_manager import ControlMeasureManager
@@ -617,6 +618,21 @@ class TestReportErrorMapping:
         monkeypatch.setattr(RiskMatrixReportBuilder, 'build_risk_matrix_report', _boom)
 
         assert rest_api.get(f'{ROUTE_URL}/risk_matrix').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_risk_matrix_report_http_exception_keeps_its_status(self, rest_api, monkeypatch) -> None:
+        """
+        The HTTPException arm hands an abort through untouched
+
+        The arm is unreachable in a normal request - nothing inside the try aborts. It exists so an
+        abort added later keeps its own status instead of being swallowed by the generic handler below
+        and reported as a 500, which is what this pins.
+        """
+        def _abort(*_args, **_kwargs):
+            abort(HTTPStatus.NOT_FOUND, 'forced')
+
+        monkeypatch.setattr(RiskMatrixReportBuilder, 'build_risk_matrix_report', _abort)
+
+        assert rest_api.get(f'{ROUTE_URL}/risk_matrix').status_code == HTTPStatus.NOT_FOUND
 
     def test_soa_report_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """The SOA reads its control measures with get_many, so that read is its failure point."""

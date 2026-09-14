@@ -50,9 +50,11 @@ class MediaFileRequestKey(BaseStrEnum):
     Keys the MediaFile routes read out of a request
 
     FILE and METADATA are the two parts of the upload form; ATTACHMENT is the update route's query
-    parameter, carrying REFERENCE - "this write only re-points a reference, so leave the filename alone"
+    parameter, carrying REFERENCE - "this write only re-points a reference, so leave the filename alone".
+    METADATA and SEARCH_TERM are also the two optional query parameters the list route filters by
     """
     FILE = 'file'
     METADATA = 'metadata'
     ATTACHMENT = 'attachment'
     REFERENCE = 'reference'
+    SEARCH_TERM = 'searchTerm'

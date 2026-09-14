@@ -14,14 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Enumeration of all avaiable Managers
+Enumeration of all available Managers which can be requested from the `ManagerProvider`
+
+Every member's *value* is the exact class name of the manager it names. That is not cosmetic:
+`ManagerProvider` keeps an explicit member -> class map, and the registry-integrity test
+(`tests/unit/manager/manager_provider_model/test_manager_provider.py`) asserts
+`member.value == manager_class.__name__` for all of them, so a typo in either place fails the
+suite instead of surfacing as a runtime error from a route
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ManagerType(Enum):
+class ManagerType(BaseStrEnum):
     """
     Enum of the different Managers which are used by the API routes
+
+    Membership here is one half of registering a manager; see the `ManagerProvider` module
+    docstring for the full three-step registration
     """
     CATEGORIES = 'CategoriesManager'
     OBJECTS = 'ObjectsManager'

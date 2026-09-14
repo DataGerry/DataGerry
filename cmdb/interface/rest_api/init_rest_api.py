@@ -38,7 +38,7 @@ from cmdb.database.database_services import (
 
 import cmdb
 from cmdb.interface.cmdb_app import BaseCmdbApp
-from cmdb.interface.config import app_config
+from cmdb.interface.config import app_config, config_name_for_mode
 from cmdb.interface.custom_converters import RegexConverter
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import enforce_rest_api_license
 from cmdb.interface.rest_api.responses.error_handlers import (
@@ -57,6 +57,10 @@ from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: Where DispatcherMiddleware mounts this app (see `cmdb.interface.gunicorn`). Flask reads
+#: APPLICATION_ROOT for SERVER_NAME-based URL building and as the session-cookie path default
+REST_APPLICATION_ROOT: str = '/rest/'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -91,7 +95,7 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     Raises:
         SystemExit: When the startup routine fails outside TESTING mode
     """
-    app = BaseCmdbApp(__name__, database_manager=database_manager)
+    app = BaseCmdbApp(__name__, database_manager=database_manager, static_folder=None)
     app.url_map.strict_slashes = True
 
     # Import App Extensions
@@ -101,15 +105,12 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     # only; a no-op in cloud/local mode. The UI (login + Bearer JWT) is unaffected.
     app.before_request(enforce_rest_api_license)
 
-    if cmdb.__MODE__ == 'DEBUG':
-        config = app_config['development']
-        app.config.from_object(config)
-    elif cmdb.__MODE__ == 'TESTING':
-        config = app_config['testing']
-        app.config.from_object(config)
-    else:
-        config = app_config['production']
-        app.config.from_object(config)
+    app.config.from_object(app_config[config_name_for_mode(cmdb.__MODE__)])
+
+    # The mount point belongs to whoever knows it. DispatcherMiddleware mounts this app at /rest,
+    # so it is set here rather than on the shared Config class - where it also reached the SPA host,
+    # which is mounted at /
+    app.config['APPLICATION_ROOT'] = REST_APPLICATION_ROOT
 
     with app.app_context():
         register_converters(app)
@@ -336,7 +337,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     # scope). On-premise they are part of the licensed ISMS surface, so their HTTP routes are gated
     # behind the ISMS feature too. They keep their own top-level url_prefixes (not moved under
     # /isms/) so the frontend contract is unchanged. The internal object-delete cascade
-    # (objects_helper.handle_delete_from_object_groups) calls ObjectGroupsManager directly rather
+    # (objects_side_effects_helper.handle_delete_from_object_groups) calls ObjectGroupsManager directly
     # than these routes, so it is unaffected by the gate. Gated before registration so the
     # before_request guard binds (Flask runs a blueprint's deferred setup at registration time).
     for isms_shared_blueprint in (

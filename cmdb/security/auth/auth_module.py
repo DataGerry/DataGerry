@@ -40,6 +40,12 @@ from cmdb.manager import (
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
+from cmdb.models.security_models.auth_settings_constants import (
+    AUTH_SETTINGS_ID,
+    DEFAULT_TOKEN_LIFETIME,
+    AuthSettingsKey,
+    ProviderEntryKey,
+)
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
 from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
@@ -54,12 +60,12 @@ from cmdb.errors.manager import BaseManagerGetError, BaseManagerInsertError
 
 LOGGER: Logger = getLogger(__name__)
 
-# Keys of one entry of the 'providers' list inside the 'auth' settings section
-PROVIDER_CLASS_NAME_KEY: str = 'class_name'
-PROVIDER_CONFIG_KEY: str = 'config'
-
-# Key of the provider list itself
-PROVIDERS_KEY: str = 'providers'
+# Keys of the 'auth' settings section and of one entry of its 'providers' list. Aliases of the
+# model-layer enums rather than second copies: the model owns the stored shape, this module only
+# normalises it
+PROVIDER_CLASS_NAME_KEY: str = ProviderEntryKey.CLASS_NAME.value
+PROVIDER_CONFIG_KEY: str = ProviderEntryKey.CONFIG.value
+PROVIDERS_KEY: str = AuthSettingsKey.PROVIDERS.value
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  AuthModule - CLASS                                                  #
@@ -81,10 +87,10 @@ class AuthModule:
     __installed_providers: list[type[BaseAuthenticationProvider]] = list(__pre_installed_providers)
 
     __DEFAULT_SETTINGS__ = {
-        '_id': 'auth',
-        'enable_external': True,
-        'token_lifetime': 1400,
-        'providers': [
+        AuthSettingsKey.ID.value: AUTH_SETTINGS_ID,
+        AuthSettingsKey.ENABLE_EXTERNAL.value: True,
+        AuthSettingsKey.TOKEN_LIFETIME.value: DEFAULT_TOKEN_LIFETIME,
+        AuthSettingsKey.PROVIDERS.value: [
             {
                 'class_name': provider.get_name(),
                 'config': provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES
@@ -150,7 +156,7 @@ class AuthModule:
 
                 provider_config_list[provider_index][PROVIDER_CONFIG_KEY] = default_config_values
 
-        return CmdbAuthSettings(**auth_settings_values)
+        return CmdbAuthSettings.from_data(auth_settings_values)
 
 
     @classmethod
@@ -300,15 +306,17 @@ class AuthModule:
             dict: The stored config values, or the provider's DEFAULT_CONFIG_VALUES when the settings
                 section carries no entry for it
         """
-        try:
-            return self.settings.get_provider_settings(provider.get_name())
-        except StopIteration:
+        stored_config: dict | None = self.settings.get_provider_settings(provider.get_name())
+
+        if stored_config is None:
             LOGGER.warning(
                 '[AuthModule] No settings entry for provider %s - using its default configuration',
                 provider.get_name(),
             )
 
             return provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES
+
+        return stored_config
 
 
     def build_provider_config(self, provider: type[BaseAuthenticationProvider]) -> BaseAuthProviderConfig:

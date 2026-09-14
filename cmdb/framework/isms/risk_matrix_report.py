@@ -56,7 +56,7 @@ from cmdb.models.isms_model.isms_risk_matrix_constants import (
     MatrixType,
     RiskMatrixCellKey,
     RiskMatrixReportKey,
-    RISK_MATRIX_GRID_KEY,
+    RiskMatrixKey,
     RISK_MATRIX_PUBLIC_ID,
 )
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
@@ -148,7 +148,7 @@ class RiskMatrixReportBuilder:
 
             raise RiskMatrixReportError(err) from err
 
-        grid: list[dict[str, Any]] = (risk_matrix or {}).get(RISK_MATRIX_GRID_KEY) or []
+        grid: list[dict[str, Any]] = (risk_matrix or {}).get(RiskMatrixKey.RISK_MATRIX.value) or []
 
         if not grid:
             # The config wizard has not produced the matrix yet. Reporting it is what keeps this apart
