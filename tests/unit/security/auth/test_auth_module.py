@@ -36,6 +36,7 @@ import pytest
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.security_models import DEFAULT_TOKEN_LIFETIME
 from cmdb.security.auth.auth_module import (
     PROVIDER_CLASS_NAME_KEY,
     PROVIDER_CONFIG_KEY,
@@ -155,7 +156,7 @@ def _settings(providers: list[dict[str, Any]] | None = None, enable_external: bo
     return {
         '_id': 'auth',
         'enable_external': enable_external,
-        'token_lifetime': 1400,
+        'token_lifetime': DEFAULT_TOKEN_LIFETIME,
         PROVIDERS_KEY: providers if providers is not None else [
             {PROVIDER_CLASS_NAME_KEY: LOCAL_PROVIDER_NAME, PROVIDER_CONFIG_KEY: {'active': True}},
         ],

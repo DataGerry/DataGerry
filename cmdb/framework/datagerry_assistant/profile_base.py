@@ -150,14 +150,3 @@ class ProfileBase:
         handle_special_types(self.types_manager, special_type, self.section_templates_manager, new_type_id)
 
         return new_type_id
-
-
-    def get_created_type_ids(self) -> dict[str, int | None]:
-        """
-        Returns the slot map of all created type ids, reused by later profile creations
-
-        Returns:
-            dict[str, int | None]: Each TypeSlotKey mapped to its created public_id, or None when
-                                   the slot's type was not created
-        """
-        return self.created_type_ids

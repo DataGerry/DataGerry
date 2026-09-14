@@ -30,8 +30,7 @@ import pytest
 from cmdb.manager import ExtendableOptionsManager
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager.manager_provider_model import ManagerType
-from cmdb.manager.manager_provider_model.manager_provider import ManagerProvider
+from cmdb.manager.manager_provider_model import MANAGER_CLASSES, ManagerType
 from cmdb.models.extendable_option_model import (
     CmdbExtendableOption,
     ExtendableOptionKey,
@@ -85,10 +84,8 @@ class TestTheBinding:
         assert manager.exceptions is EXTENDABLE_OPTIONS_MANAGER_ERRORS
 
     def test_the_provider_resolves_the_manager_type(self) -> None:
-        """A ManagerType missing from the provider map raises BaseManagerInitError at request time"""
-        # pylint: disable=protected-access
-        assert ManagerProvider._ManagerProvider__get_manager_class(
-            ManagerType.EXTENDABLE_OPTIONS) is ExtendableOptionsManager
+        """Without this entry the route's get_manager call would raise BaseManagerInitError"""
+        assert MANAGER_CLASSES[ManagerType.EXTENDABLE_OPTIONS] is ExtendableOptionsManager
 
 
 class TestGetOptionValues:

@@ -41,28 +41,36 @@ class GroupDeletionParameters(APIParameters):
     def __init__(
         self,
         query_string: str,
-        action: GroupDeleteMode | None = None,
+        action: GroupDeleteMode | str | None = None,
         group_id: int | str | None = None,
         **kwargs: Any
     ) -> None:
         """
         Initialises GroupDeletionParameters
 
-        Flask's query parser delivers every value as a string, so ``group_id`` is coerced to int
-        when present. A non-numeric value raises ``ValueError`` from ``int()``; the
-        ``parse_parameters`` decorator catches that and aborts with HTTP 400
+        Flask's query parser delivers every value as a string, so both parameters are coerced here.
+        ``group_id`` goes through ``int()`` and ``action`` through the ``GroupDeleteMode`` enum; an
+        unparseable value raises ``ValueError``, which the ``parse_parameters`` decorator catches and
+        turns into HTTP 400
+
+        Coercing ``action`` is what keeps the annotation honest, and it matters downstream:
+        ``UsersManager.handle_users_on_group_delete`` dispatches on the enum, so an unvalidated
+        string that matches neither member would redistribute nobody while the group is deleted
+        anyway, leaving every member pointing at a group that no longer exists
 
         Args:
             query_string (str): The raw HTTP query string. Useful when parsed parameters are insufficient
-            action (GroupDeleteMode, optional): The action to perform when deleting a group
+            action (GroupDeleteMode | str | None, optional): The action to perform when deleting a
+                group. Accepts ``str`` from query parsing and coerces to ``GroupDeleteMode``
             group_id (int | str | None, optional): The public_id of another group to which users
                 must be moved. Accepts ``str`` from query parsing and coerces to ``int``
             **kwargs (Any): Additional optional parameters
 
         Raises:
-            ValueError: When ``group_id`` is provided but cannot be parsed as an integer
+            ValueError: When ``group_id`` cannot be parsed as an integer, or ``action`` is not one
+                of the ``GroupDeleteMode`` members
         """
-        self.action: GroupDeleteMode | None = action
+        self.action: GroupDeleteMode | None = GroupDeleteMode(action) if action is not None else None
         self.group_id: int | None = int(group_id) if group_id is not None else None
         super().__init__(query_string=query_string, **kwargs)
 

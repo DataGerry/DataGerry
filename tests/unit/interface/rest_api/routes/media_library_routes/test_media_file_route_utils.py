@@ -24,15 +24,22 @@ document). The shared request-parsing helpers (get_file_in_request / get_element
 moved to routes_helper and are tested there.
 
 Also the steps the upload / update routes were decomposed into: resolving a stored file (404 for a
-missing one), reading the required ``attachment`` parameter, and building the metadata / merged document
-each write persists.
+missing one), reading the required ``attachment`` parameter, reading the upload form (which refuses
+metadata carrying an undeclared key), and building the metadata / merged document each write persists.
 """
+import json
+from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
+
+from unittest.mock import MagicMock
 
 import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
+
+from cmdb.framework.media_library import MediaFileMetadataKey
+from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
 
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
     build_updated_file_data,
@@ -42,7 +49,10 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     create_attachment_name,
     get_reference_attachment_or_abort,
     get_stored_file_or_abort,
+    get_upload_from_request,
+    metadata_field,
     recursive_delete_filter,
+    validate_upload_metadata,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -165,6 +175,19 @@ class TestCreateAttachmentName:
         """A colliding name gets a copy_(1)_ prefix once a free slot is found."""
         # exists once (original), then free
         assert create_attachment_name('file.txt', 0, {}, _ExistsStub([True, False])) == 'copy_(1)_file.txt'
+
+    def test_a_failed_existence_check_becomes_a_get_error(self) -> None:
+        """
+        The uniqueness check is a database read, and a failure there must not look like "unique"
+
+        Letting it escape untyped would reach the upload route's generic handler as a 500; as this
+        manager's get error the route reports it the way it reports every other read failure.
+        """
+        manager = MagicMock()
+        manager.file_exists.side_effect = RuntimeError('read failed')
+
+        with pytest.raises(MediaFileManagerGetError):
+            create_attachment_name('file.txt', 0, {}, manager)
 
 
 class _DeleteStub:
@@ -343,3 +366,100 @@ class TestBuildUpdatedFileData:
                 build_updated_file_data(stored, payload, AUTHOR_ID)
 
         assert exc_info.value.code == 400
+
+
+class TestMetadataField:
+    """metadata_field builds the dotted path of a key inside the metadata sub-document."""
+
+    def test_a_declared_key_becomes_its_path(self) -> None:
+        """An enum member is resolved to its value."""
+        assert metadata_field(MediaFileMetadataKey.PARENT) == 'metadata.parent'
+
+    def test_a_raw_key_is_prefixed_as_is(self) -> None:
+        """A key coming from a request filter is not required to be declared."""
+        assert metadata_field('whatever') == 'metadata.whatever'
+
+
+class TestValidateUploadMetadata:
+    """The upload metadata is client-supplied, so only the declared keys may appear in it."""
+
+    def test_declared_keys_pass(self) -> None:
+        """Everything MediaFileMetadataKey names is accepted, including the server-owned keys."""
+        metadata = {key.value: None for key in MediaFileMetadataKey}
+
+        with app.test_request_context():
+            validate_upload_metadata(metadata)
+
+    def test_no_metadata_at_all_passes(self) -> None:
+        """An empty object carries no undeclared key - the builder fills the defaults in."""
+        with app.test_request_context():
+            validate_upload_metadata({})
+
+    def test_an_undeclared_key_aborts_400(self) -> None:
+        """It used to reach the manager and fail the write with a database-flavoured message."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata({'public_id': 5})
+
+        assert exc_info.value.code == 400
+
+    def test_the_offending_key_is_named(self) -> None:
+        """The client has to be told WHICH key it may not send."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata({MediaFileMetadataKey.PARENT.value: 1, 'bogus': 2})
+
+        assert 'bogus' in exc_info.value.description
+
+    def test_every_offending_key_is_named(self) -> None:
+        """Two undeclared keys are reported together, so the client does not fix them one per request."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata({'alpha': 1, 'beta': 2})
+
+        assert 'alpha' in exc_info.value.description
+        assert 'beta' in exc_info.value.description
+
+    def test_metadata_that_is_not_an_object_aborts_400(self) -> None:
+        """A JSON list or scalar is a client error, not a TypeError on the way to a 500."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata(['not', 'an', 'object'])
+
+        assert exc_info.value.code == 400
+
+
+class TestGetUploadFromRequest:
+    """The upload form is read as file + filter + metadata, and its metadata is validated."""
+
+    @staticmethod
+    def _form(metadata: dict[str, Any]) -> dict[str, Any]:
+        """Builds the multipart form an upload arrives as."""
+        return {
+            'file': (BytesIO(b'payload'), 'upload.txt'),
+            'metadata': json.dumps(metadata),
+        }
+
+    def test_reads_the_file_filter_and_metadata(self) -> None:
+        """The filter identifies an already stored file of that name in that folder."""
+        form = self._form({MediaFileMetadataKey.PARENT.value: 3})
+
+        with app.test_request_context('/', method='POST', data=form,
+                                      content_type='multipart/form-data'):
+            upload, existing_filter, metadata = get_upload_from_request(request)
+
+        assert upload.filename == 'upload.txt'
+        assert existing_filter == {'metadata.parent': 3, 'filename': 'upload.txt'}
+        assert metadata == {MediaFileMetadataKey.PARENT.value: 3}
+
+    def test_an_undeclared_metadata_key_aborts_400(self) -> None:
+        """The refusal happens before anything is streamed into GridFS."""
+        form = self._form({MediaFileMetadataKey.PARENT.value: 3, 'permissions': 'rw'})
+
+        with app.test_request_context('/', method='POST', data=form,
+                                      content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc_info:
+                get_upload_from_request(request)
+
+        assert exc_info.value.code == 400
+        assert 'permissions' in exc_info.value.description

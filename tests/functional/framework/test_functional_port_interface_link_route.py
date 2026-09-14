@@ -31,6 +31,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from flask import abort
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.object_model import CmdbObject
@@ -46,6 +47,7 @@ from cmdb.models.port_interface_link_model import (
 from cmdb.models.special_type_model.ipam_constants import InterfaceField, IpamSection
 from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.manager import ObjectsManager
+from cmdb.interface.rest_api.routes.port_routes import port_interface_link_routes
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.errors.security import AccessDeniedError
@@ -1024,4 +1026,23 @@ class TestAssignableInterfaces:
         monkeypatch.setattr(PortInterfaceLinksManager, 'get_links_of_port', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(ASSIGNABLE_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestTheDanglingReportErrorArms:
+    """The repair report has nothing to refuse, so its HTTPException arm needs a forced abort."""
+
+    def test_an_http_exception_keeps_its_own_status(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        The HTTPException arm hands an abort through untouched
+
+        The arm is unreachable in a normal request - nothing inside the try aborts. It exists so an
+        abort added later keeps its own status instead of being swallowed by the generic handler below
+        and reported as a 500, which is what this pins.
+        """
+        def _abort(*_args: Any, **_kwargs: Any):
+            abort(HTTPStatus.NOT_FOUND, 'forced')
+
+        monkeypatch.setattr(port_interface_link_routes, 'collect_dangling_links', _abort)
+
+        assert rest_api.get(f'{LINKS_URL}/dangling').status_code == HTTPStatus.NOT_FOUND
 

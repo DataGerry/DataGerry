@@ -125,3 +125,30 @@ class TestCascadeDeleteRiskAssessments:
 
         assert result == (0, 0)
         mgr.delete_many_from_other_collection.assert_not_called()
+
+
+class TestDeleteWithFollowUpFailure:
+    """A failure anywhere in the cascade is reported as this manager's delete error."""
+
+    def test_a_failed_cascade_becomes_a_delete_error(self) -> None:
+        """
+        The Risk must not be reported as deleted when its RiskAssessments were not
+
+        The cascade runs first on purpose, so a failure there has to stop the whole delete rather
+        than leaving assessments pointing at a Risk that is about to disappear.
+        """
+        mgr = _mock_manager()
+        mgr._cascade_delete_risk_assessments.side_effect = RuntimeError('cascade failed')
+
+        with pytest.raises(RiskManagerDeleteError):
+            RiskManager.delete_with_follow_up(mgr, RISK_ID_A)
+
+        mgr.delete_item.assert_not_called()
+
+    def test_a_failed_risk_delete_becomes_a_delete_error(self) -> None:
+        """The second half of the same operation, after the cascade has already succeeded."""
+        mgr = _mock_manager()
+        mgr.delete_item.side_effect = RuntimeError('delete failed')
+
+        with pytest.raises(RiskManagerDeleteError):
+            RiskManager.delete_with_follow_up(mgr, RISK_ID_A)

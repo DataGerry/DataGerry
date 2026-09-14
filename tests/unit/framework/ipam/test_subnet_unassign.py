@@ -799,3 +799,24 @@ def test_unassign_ips_from_subnet_aborts_for_unknown_mode_before_writing() -> No
 
     assert exc_info.value.code == 400
     objects_manager.update_object.assert_not_called()
+
+
+def test_delete_subnet_rows_in_owner_keeps_sections_that_are_not_interfaces() -> None:
+    """
+    An owner's other MDS sections survive the unassign untouched
+
+    The function rebuilds the section list, so a section it does not recognise has to be copied
+    across rather than dropped - otherwise unassigning an IP would silently delete unrelated data
+    from the owning object.
+    """
+    owner = _make_owner(OWNER_OBJECT_ID, [_make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip='10.0.0.1')])
+    other_section = {
+        CmdbObjectMdsKey.SECTION_ID: 'dg-some-other-section',
+        CmdbObjectMdsKey.VALUES: [{'data': [{'name': 'x', 'value': 1}]}],
+    }
+    owner[CmdbObjectKey.MULTI_DATA_SECTIONS] = [other_section, *owner[CmdbObjectKey.MULTI_DATA_SECTIONS]]
+
+    new_doc, removed = delete_subnet_rows_in_owner(owner, SUBNET_OBJECT_ID, {'10.0.0.1'})
+
+    assert removed == {'10.0.0.1'}
+    assert new_doc[CmdbObjectKey.MULTI_DATA_SECTIONS][0] == other_section

@@ -28,8 +28,7 @@ import pytest
 
 from cmdb.manager import PortInterfaceLinksManager
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.manager.manager_provider_model import ManagerType
-from cmdb.manager.manager_provider_model.manager_provider import ManagerProvider
+from cmdb.manager.manager_provider_model import MANAGER_CLASSES, ManagerType
 from cmdb.models.port_interface_link_model import CmdbPortInterfaceLink, PortInterfaceLinkKey
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.port_interface_links_manager import (
@@ -86,10 +85,8 @@ class TestTheRegistration:
         assert ManagerType.PORT_INTERFACE_LINKS.value == 'PortInterfaceLinksManager'
 
     def test_the_provider_resolves_the_manager_type(self) -> None:
-        """A ManagerType missing from the provider map raises BaseManagerInitError at request time"""
-        # pylint: disable=protected-access
-        assert ManagerProvider._ManagerProvider__get_manager_class(
-            ManagerType.PORT_INTERFACE_LINKS) is PortInterfaceLinksManager
+        """Without this entry the route's get_manager call would raise BaseManagerInitError"""
+        assert MANAGER_CLASSES[ManagerType.PORT_INTERFACE_LINKS] is PortInterfaceLinksManager
 
 
 class TestGetLinksOfPort:

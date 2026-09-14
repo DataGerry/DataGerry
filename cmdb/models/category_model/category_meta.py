@@ -40,16 +40,6 @@ class CategoryMeta:
         self.order: int | None = order
 
 
-    def has_icon(self) -> bool:
-        """
-        Checks whether an icon is set for the CmdbCategory
-
-        Returns:
-            bool: True if an icon is set, otherwise False
-        """
-        return bool(self.icon)
-
-
     def get_icon(self) -> str:
         """
         Retrieves the icon associated with the CmdbCategory

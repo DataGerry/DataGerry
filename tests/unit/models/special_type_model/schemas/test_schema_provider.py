@@ -48,6 +48,22 @@ def test_get_schema_raises_value_error_for_invalid_special_type() -> None:
         SchemaProvider().get_schema('NOT_A_SPECIAL_TYPE')  # type: ignore[arg-type]
 
 
+def test_a_valid_special_type_with_no_branch_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The fall-through guard: a member that passes is_valid but matches no branch
+
+    Distinct from the test above, which never reaches it - `is_valid` rejects a bad string at the top
+    of the method. This one is the "somebody added a SpecialType and forgot its schema" case, and it
+    is why the guard raises by name instead of returning None for the caller to trip over later.
+    """
+    monkeypatch.setattr(SpecialType, 'is_valid', classmethod(lambda _cls, _value: True))
+
+    with pytest.raises(ValueError) as excinfo:
+        SchemaProvider().get_schema('dg-brand-new-special-type')  # type: ignore[arg-type]
+
+    assert 'dg-brand-new-special-type' in str(excinfo.value)
+
+
 def test_get_schema_passes_the_cable_type_values_to_the_cable_blueprint() -> None:
     """The one member whose blueprint depends on a value the caller reads from the database"""
     schema = SchemaProvider().get_schema(SpecialType.CABLE, ['Cat6a', 'OM4'])

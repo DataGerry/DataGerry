@@ -26,6 +26,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from http import HTTPStatus
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
@@ -153,6 +154,23 @@ def test_build_subnet_sector_ips_ipv4_lists_assignable_window_free_and_assigned(
     statuses = {r[IpamOverviewKey.IP]: r[IpamOverviewKey.STATUS] for r in ips[IpamOverviewKey.ROWS]}
     assert statuses['10.0.0.5'] == IpamRowStatus.ASSIGNED
     assert statuses['10.0.0.4'] == IpamRowStatus.FREE
+
+
+def test_build_subnet_sector_ips_aborts_when_the_subnet_has_no_parsable_range() -> None:
+    """
+    A SUBNET whose network range is missing or unparsable has no grid to page through
+
+    The distribution view is built from the same object, so this is the state a user reaches by
+    clicking a sector of a subnet whose range was cleared or saved malformed - a 400 naming the
+    subnet, not a 500 from `None` reaching the bounds arithmetic below.
+    """
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, 'not-a-network')
+
+    with patch(f'{PATH}.load_subnet_object', return_value=subnet_doc):
+        with pytest.raises(HTTPException) as excinfo:
+            build_subnet_sector_ips(MagicMock(), MagicMock(), SUBNET_OBJECT_ID, '10.0.0.4')
+
+    assert excinfo.value.code == HTTPStatus.BAD_REQUEST
 
 
 def test_build_subnet_sector_ips_ipv4_first_sector_excludes_network_address() -> None:

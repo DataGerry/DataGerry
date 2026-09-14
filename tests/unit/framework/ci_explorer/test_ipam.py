@@ -92,6 +92,18 @@ def _make_interface_carrier(subnet_refs: list[int]) -> dict[str, Any]:
     }
 
 
+def _make_interface_carrier_with_other_sections(subnet_refs: list[int]) -> dict[str, Any]:
+    """The same carrier, with an unrelated MDS section on either side of the interface one."""
+    document = _make_interface_carrier(subnet_refs)
+    document['multi_data_sections'] = [
+        {'section_id': 'dg-some-other-section', 'values': [{'data': [{'name': 'x', 'value': 999}]}]},
+        *document['multi_data_sections'],
+        {'section_id': 'dg-another-section', 'values': [{'data': [{'name': 'y', 'value': 998}]}]},
+    ]
+
+    return document
+
+
 def _patch_special_type_resolver():
     """Returns a patch that stubs resolve_special_type_id so each SpecialType maps to a known id."""
     mapping = {
@@ -253,6 +265,33 @@ def test_self_reference_in_dg_supernet_ref_is_skipped() -> None:
         )
 
     assert result == []
+
+
+def test_non_interface_mds_sections_are_skipped() -> None:
+    """
+    Only dg-ipam-interface rows carry subnet references
+
+    An object commonly carries several MDS sections, and walking a foreign one's rows would either
+    find nothing or - worse - match a field that happens to share the interface field's name.
+    """
+    objects_manager = MagicMock()
+    objects_manager.find.return_value = [_build_object(PARENT_SUBNET, TYPE_SUBNET)]
+
+    with _patch_special_type_resolver(), \
+         patch(f'{MODULE}.find_subnets_referencing_supernet', return_value=[]), \
+         patch(f'{MODULE}.find_vlans_referencing_subnet', return_value=[]), \
+         patch(f'{MODULE}.find_interfaces_referencing_subnet', return_value=[]):
+        result = collect_ipam_neighbours(
+            target_id=TARGET_SERVER,
+            target_object=_make_interface_carrier_with_other_sections([PARENT_SUBNET]),
+            include_parents=True, include_children=True,
+            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            objects_manager=objects_manager, types_manager=MagicMock(),
+        )
+
+    assert len(result) == 1
+    assert result[0].neighbour_object['public_id'] == PARENT_SUBNET
+    assert result[0].edge_category == IpamEdgeCategory.SUBNET_INTERFACE
 
 
 def test_interface_row_pointing_at_self_is_skipped() -> None:

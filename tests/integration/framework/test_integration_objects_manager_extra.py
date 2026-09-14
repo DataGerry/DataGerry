@@ -28,6 +28,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.manager.objects_reference_helper import merge_mds_references
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
@@ -424,12 +425,12 @@ class TestDeleteObjectTypeReuse:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                    __merge_mds_references sort robustness (B2)                                       #
+#                                     merge_mds_references sort robustness (B2)                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestMergeMdsReferencesSortRobustness:
     """The reference-merge sort tolerates a None sort value instead of raising a TypeError."""
 
-    def test_sort_with_none_values_does_not_raise(self, objects_manager: ObjectsManager) -> None:
+    def test_sort_with_none_values_does_not_raise(self) -> None:
         """Objects whose sort attribute is None sort to one end rather than crashing the merge."""
         obj_with_value: CmdbObject = CmdbObject.from_data(_object_doc(1))
         obj_with_none: CmdbObject = CmdbObject.from_data(_object_doc(2))
@@ -438,10 +439,8 @@ class TestMergeMdsReferencesSortRobustness:
 
         obj_result = SimpleNamespace(results=[obj_with_none, obj_with_value], total=2)
 
-        # __merge_mds_references is name-mangled; no MDS results, sort by the mixed None/int attribute
-        merged = objects_manager._ObjectsManager__merge_mds_references(  # pylint: disable=protected-access
-            [], obj_result, 0, 0, 'author_id', 1,
-        )
+        # No MDS results; sort by the mixed None/int attribute
+        merged = merge_mds_references([], obj_result, 0, 0, 'author_id', 1)
 
         assert merged.total == 2
         assert {obj.public_id for obj in merged.results} == {1, 2}

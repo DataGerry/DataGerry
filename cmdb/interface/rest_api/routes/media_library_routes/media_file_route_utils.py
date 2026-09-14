@@ -49,6 +49,45 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def metadata_field(key: MediaFileMetadataKey | str) -> str:
+    """
+    Builds the dotted path of a key inside a MediaFile's metadata sub-document
+
+    Args:
+        key (MediaFileMetadataKey | str): The metadata key, either declared or - when it comes from a
+            request filter - a raw one
+
+    Returns:
+        str: The path to query, e.g. 'metadata.parent'
+    """
+    return f'{MediaFileKey.METADATA.value}.{key.value if isinstance(key, MediaFileMetadataKey) else key}'
+
+
+def validate_upload_metadata(metadata: dict[str, Any]) -> None:
+    """
+    Refuses upload metadata that carries a key the media library does not declare
+
+    The metadata of an upload is client-supplied and is stored as the file's metadata sub-document, so
+    only the keys MediaFileMetadataKey names may appear in it. An undeclared key used to reach the
+    manager and fail the write there, which answered a database-flavoured 400 for what is a request
+    problem - and left the content already streamed into GridFS behind. It is refused here instead,
+    naming the key
+
+    Args:
+        metadata (dict[str, Any]): The metadata as it arrived with the request
+
+    Raises:
+        HTTPException: 400 when the metadata is not an object, or carries an undeclared key
+    """
+    if not isinstance(metadata, dict):
+        abort(400, "The metadata of an upload must be an object!")
+
+    unknown_keys: list[str] = [str(key) for key in metadata if not MediaFileMetadataKey.is_valid(str(key))]
+
+    if unknown_keys:
+        abort(400, f"The metadata carries unknown key(s): {', '.join(sorted(unknown_keys))}!")
+
+
 def generate_metadata_filter(element: str, _request: Request | None = None, params: dict | None = None) -> dict:
     """
     Generates a MongoDB filter query based on provided metadata either from request or parameters
@@ -76,13 +115,13 @@ def generate_metadata_filter(element: str, _request: Request | None = None, para
                 data = get_element_from_data_request(element, _request)
 
         for key, value in data.items():
-            if 'reference' == key and value:
+            if MediaFileMetadataKey.REFERENCE.value == key and value:
                 if isinstance(value, list):
-                    filter_metadata.update({f"metadata.{key}": {'$in': value}})
+                    filter_metadata.update({metadata_field(key): {'$in': value}})
                 else:
-                    filter_metadata.update({f"metadata.{key}": {'$in': [int(value)]}})
+                    filter_metadata.update({metadata_field(key): {'$in': [int(value)]}})
             else:
-                filter_metadata.update({f"metadata.{key}": value})
+                filter_metadata.update({metadata_field(key): value})
 
         return filter_metadata
     except Exception as err:
@@ -100,27 +139,27 @@ def generate_collection_parameters(params: CollectionParameters) -> dict:
     Returns:
         dict: A MongoDB query filter based on search term or metadata
     """
-    search = params.optional.get('searchTerm')
-    param = json.loads(params.optional['metadata'])
+    search = params.optional.get(MediaFileRequestKey.SEARCH_TERM.value)
+    param = json.loads(params.optional[MediaFileRequestKey.METADATA.value])
 
     if search:
         # Builder's constructors are stateless, so they are called on the class - Builder itself is
         # abstract and cannot be instantiated
         _ = [
-            Builder.regex_('filename', search)
-            , Builder.regex_('metadata.reference_type', search)
-            , Builder.regex_('metadata.mime_type', search)
+            Builder.regex_(MediaFileKey.FILENAME.value, search)
+            , Builder.regex_(metadata_field(MediaFileMetadataKey.REFERENCE_TYPE), search)
+            , Builder.regex_(metadata_field(MediaFileMetadataKey.MIME_TYPE), search)
         ]
 
         if search.isdigit():
-            _.append({'public_id': int(search)})
-            _.append({'metadata.reference': int(search)})
-            _.append(Builder.in_('metadata.reference', [int(search)]))
-            _.append({'metadata.parent': int(search)})
+            _.append({MediaFileKey.PUBLIC_ID.value: int(search)})
+            _.append({metadata_field(MediaFileMetadataKey.REFERENCE): int(search)})
+            _.append(Builder.in_(metadata_field(MediaFileMetadataKey.REFERENCE), [int(search)]))
+            _.append({metadata_field(MediaFileMetadataKey.PARENT): int(search)})
 
-        return Builder.and_([{'metadata.folder': False}, Builder.or_(_)])
+        return Builder.and_([{metadata_field(MediaFileMetadataKey.FOLDER): False}, Builder.or_(_)])
 
-    return generate_metadata_filter('metadata', params=param)
+    return generate_metadata_filter(MediaFileRequestKey.METADATA.value, params=param)
 
 
 def create_attachment_name(name: str, index: int, metadata: dict, media_files_manager: MediaFilesManager) -> str:
@@ -174,7 +213,9 @@ def recursive_delete_filter(
     # public_id is already known - only the children need to be queried (one query per node, not two)
     _ids.append(public_id)
 
-    children = media_files_manager.get_many_media_files(metadata={'metadata.parent': public_id}).result
+    children = media_files_manager.get_many_media_files(
+        metadata={metadata_field(MediaFileMetadataKey.PARENT): public_id},
+    ).result
 
     for item in children:
         recursive_delete_filter(item['public_id'], media_files_manager, _ids)
@@ -248,7 +289,8 @@ def get_upload_from_request(_request: Request) -> tuple[FileStorage, dict[str, A
         _request (Request): The upload request, carrying the file and its metadata as form parts
 
     Raises:
-        HTTPException: 400 when the file part or the metadata is missing / unusable
+        HTTPException: 400 when the file part or the metadata is missing / unusable, or when the
+            metadata carries a key the media library does not declare
 
     Returns:
         tuple[FileStorage, dict[str, Any], dict[str, Any]]: The uploaded file, the filter identifying
@@ -260,6 +302,7 @@ def get_upload_from_request(_request: Request) -> tuple[FileStorage, dict[str, A
     existing_filter.update({MediaFileKey.FILENAME.value: upload.filename})
 
     metadata: dict[str, Any] = get_element_from_data_request(MediaFileRequestKey.METADATA.value, _request)
+    validate_upload_metadata(metadata)
 
     return upload, existing_filter, metadata
 

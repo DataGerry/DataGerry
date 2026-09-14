@@ -99,155 +99,6 @@ def _make_type_mock(public_id: int, label: str, *, has_summaries: bool = False,
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             _compose_summary_line                                                    #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_compose_summary_line_returns_default_prefix_when_type_has_no_summaries() -> None:
-    """A type without summaries yields 'label #id' as the entire line"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
-    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server')
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID}"
-
-
-def test_compose_summary_line_omits_type_label_when_with_type_is_false() -> None:
-    """with_type=False yields '#id' without the type label prefix"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
-    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server')
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock, with_type=False)
-
-    assert result == f"#{OWNER_OBJECT_ID}"
-
-
-def test_compose_summary_line_appends_summary_fields_with_separators() -> None:
-    """Type with summary fields appends '- first | second' to the default prefix"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
-        {'name': 'hostname', 'value': 'web01'},
-        {'name': 'fqdn', 'value': 'web01.example.com'},
-    ])
-    type_mock = _make_type_mock(
-        OWNER_TYPE_ID, 'Server',
-        has_summaries=True,
-        summary_fields=[{'name': 'hostname'}, {'name': 'fqdn'}],
-    )
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID} - web01 | web01.example.com"
-
-
-def test_compose_summary_line_falls_back_to_default_when_field_walk_raises() -> None:
-    """An exception while walking summary fields produces the default prefix and does not raise"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)  # 'fields' is []
-    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server', has_summaries=True)
-    type_mock.get_summary.side_effect = RuntimeError('boom')
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID}"
-
-
-def test_compose_summary_line_skips_a_summary_field_absent_from_the_object() -> None:
-    """Regression: a summary field the object has no entry for used to render the text 'None'"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
-        {'name': 'hostname', 'value': 'web01'},
-    ])
-    type_mock = _make_type_mock(
-        OWNER_TYPE_ID, 'Server',
-        has_summaries=True,
-        summary_fields=[{'name': 'hostname'}, {'name': 'missing'}],
-    )
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID} - web01"
-
-
-@pytest.mark.parametrize('unset_value', [None, ''], ids=['none', 'empty-string'])
-def test_compose_summary_line_skips_an_unset_summary_value(unset_value) -> None:
-    """Regression: an unset summary value used to leave the line trailing off as '#<id> - '"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
-        {'name': 'hostname', 'value': unset_value},
-    ])
-    type_mock = _make_type_mock(
-        OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'hostname'}],
-    )
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID}"
-
-
-@pytest.mark.parametrize('value, rendered', [(0, '0'), (False, 'False')], ids=['zero', 'false'])
-def test_compose_summary_line_renders_falsy_but_present_values(value, rendered: str) -> None:
-    """Only an absent value is skipped - a zero or a False is real data and must still show"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
-        {'name': 'ports', 'value': value},
-    ])
-    type_mock = _make_type_mock(
-        OWNER_TYPE_ID, 'Server', has_summaries=True, summary_fields=[{'name': 'ports'}],
-    )
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID} - {rendered}"
-
-
-def test_compose_summary_line_separator_follows_the_first_emitted_field() -> None:
-    """An unset FIRST field must not push a stray '|' to the front of the line"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
-        {'name': 'hostname', 'value': None},
-        {'name': 'fqdn', 'value': 'web01.example.com'},
-    ])
-    type_mock = _make_type_mock(
-        OWNER_TYPE_ID, 'Server',
-        has_summaries=True,
-        summary_fields=[{'name': 'hostname'}, {'name': 'fqdn'}],
-    )
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID} - web01.example.com"
-
-
-def test_compose_summary_line_closes_the_gap_left_by_an_unset_middle_field() -> None:
-    """An unset field between two set ones leaves no double separator"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
-        {'name': 'a', 'value': 'x'},
-        {'name': 'b', 'value': None},
-        {'name': 'c', 'value': 'z'},
-    ])
-    type_mock = _make_type_mock(
-        OWNER_TYPE_ID, 'Server',
-        has_summaries=True,
-        summary_fields=[{'name': 'a'}, {'name': 'b'}, {'name': 'c'}],
-    )
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID} - x | z"
-
-
-def test_compose_summary_line_with_every_summary_field_unset_is_the_bare_prefix() -> None:
-    """All summary fields unset yields the prefix alone, with no dangling separator"""
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
-        {'name': 'a', 'value': None},
-        {'name': 'b', 'value': ''},
-    ])
-    type_mock = _make_type_mock(
-        OWNER_TYPE_ID, 'Server',
-        has_summaries=True,
-        summary_fields=[{'name': 'a'}, {'name': 'b'}],
-    )
-
-    result = ObjectsManager._compose_summary_line(MagicMock(), obj_doc, type_mock)
-
-    assert result == f"Server #{OWNER_OBJECT_ID}"
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                              _load_types_lookup                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_load_types_lookup_returns_empty_dict_for_empty_type_ids() -> None:
@@ -323,18 +174,23 @@ def test_get_summary_line_returns_empty_string_when_object_type_not_found() -> N
 
 
 def test_get_summary_line_delegates_to_compose_summary_line_on_happy_path() -> None:
-    """When the object + type both resolve, composition is delegated to _compose_summary_line"""
+    """
+    When the object + type both resolve, the manager reads and the helper composes
+
+    The manager owns the two lookups; the text itself is composed by objects_summary_helper, which is
+    what keeps the single-object and the batch path producing the same line.
+    """
     obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
     type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server')
     mock_self = MagicMock()
     mock_self.get_object.return_value = obj_doc
     mock_self.get_object_type.return_value = type_mock
-    mock_self._compose_summary_line.return_value = f"Server #{OWNER_OBJECT_ID}"
 
-    result = ObjectsManager.get_summary_line(mock_self, OWNER_OBJECT_ID, with_type=True)
+    with patch(f'{PATH}.compose_summary_line', return_value=f"Server #{OWNER_OBJECT_ID}") as compose:
+        result = ObjectsManager.get_summary_line(mock_self, OWNER_OBJECT_ID, with_type=True)
 
     assert result == f"Server #{OWNER_OBJECT_ID}"
-    mock_self._compose_summary_line.assert_called_once_with(obj_doc, type_mock, with_type=True)
+    compose.assert_called_once_with(obj_doc, type_mock, with_type=True)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -515,66 +371,6 @@ def test_find_objects_without_projection_issues_plain_find() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        _build_reference_match_queries                                               #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_build_reference_match_queries_uses_exact_type_id_match() -> None:
-    """The field-ref query matches ref_types by exact type_id (no substring regex) plus a section query"""
-    object_ = MagicMock()
-    object_.type_id = OWNER_TYPE_ID
-
-    field_query, section_query = ObjectsManager._build_reference_match_queries(object_)
-
-    assert field_query == {
-        'type.fields.type': FieldType.REFERENCE.value,
-        'type.fields.ref_types': OWNER_TYPE_ID,
-    }
-    # No leftover regex/$or branch
-    assert '$or' not in field_query
-    assert section_query == {
-        'type.render_meta.sections.type': SectionType.REF_SECTION.value,
-        'type.render_meta.sections.reference.type_id': OWNER_TYPE_ID,
-    }
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              _mds_rows_reference                                                     #
-# -------------------------------------------------------------------------------------------------------------------- #
-def _mds_doc(field_name: str, value: Any) -> dict[str, Any]:
-    """A CmdbObject doc with one multi-data-section row carrying a single field."""
-    return {
-        'multi_data_sections': [
-            {'values': [{'data': [{'type': 'ref', 'name': field_name, 'value': value}]}]}
-        ]
-    }
-
-
-def test_mds_rows_reference_true_when_ref_field_points_at_target() -> None:
-    """Returns True when a ref-named MDS field holds the referenced public_id"""
-    result = _mds_doc('mds-ref', OWNER_OBJECT_ID)
-
-    assert ObjectsManager._mds_rows_reference(result, {'mds-ref'}, OWNER_OBJECT_ID) is True
-
-
-def test_mds_rows_reference_false_when_field_not_a_ref_field() -> None:
-    """A matching value in a non-ref field name is ignored"""
-    result = _mds_doc('not-a-ref', OWNER_OBJECT_ID)
-
-    assert ObjectsManager._mds_rows_reference(result, {'mds-ref'}, OWNER_OBJECT_ID) is False
-
-
-def test_mds_rows_reference_false_when_value_differs() -> None:
-    """A ref field pointing at a different id does not match"""
-    result = _mds_doc('mds-ref', OTHER_OWNER_OBJECT_ID)
-
-    assert ObjectsManager._mds_rows_reference(result, {'mds-ref'}, OWNER_OBJECT_ID) is False
-
-
-def test_mds_rows_reference_false_when_no_sections() -> None:
-    """An object without multi_data_sections never matches"""
-    assert ObjectsManager._mds_rows_reference({}, {'mds-ref'}, OWNER_OBJECT_ID) is False
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                            _ref_field_names_by_type                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_ref_field_names_by_type_collects_only_ref_fields() -> None:
@@ -591,24 +387,6 @@ def test_ref_field_names_by_type_collects_only_ref_fields() -> None:
     result = ObjectsManager._ref_field_names_by_type(mock_self, [OWNER_TYPE_ID])
 
     assert result == {OWNER_TYPE_ID: {'r1', 'r2'}}
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                        _filter_mds_results_referencing                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_filter_mds_results_referencing_keeps_only_matching_rows() -> None:
-    """Keeps results whose MDS rows reference the target and resolves ref names in one batch"""
-    keep = {'public_id': 1, 'type_id': OWNER_TYPE_ID}
-    drop = {'public_id': 2, 'type_id': OWNER_TYPE_ID}
-    mock_self = MagicMock()
-    mock_self._ref_field_names_by_type.return_value = {OWNER_TYPE_ID: {'mds-ref'}}
-    mock_self._mds_rows_reference.side_effect = [True, False]
-
-    result = ObjectsManager._filter_mds_results_referencing(mock_self, [keep, drop], OWNER_OBJECT_ID)
-
-    assert result == [keep]
-    # The type ref-field names are resolved exactly once (batched), not per row
-    mock_self._ref_field_names_by_type.assert_called_once_with([OWNER_TYPE_ID])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -998,18 +776,6 @@ def test_references_wraps_unexpected_error() -> None:
         ObjectsManager.references(mock_self, MagicMock(public_id=1, type_id=5), {}, 0, 0, 'public_id', 1)
 
 
-def test_merge_mds_references_wraps_failure() -> None:
-    """A failure while merging MDS references surfaces as ObjectsManagerMdsReferencesError."""
-    mock_self = MagicMock()
-    obj_result = MagicMock()
-    obj_result.results = []
-    merge = getattr(ObjectsManager, '_ObjectsManager__merge_mds_references')
-
-    with patch(f'{PATH}.CmdbObject.from_data', side_effect=RuntimeError('boom')):
-        with pytest.raises(ObjectsManagerMdsReferencesError):
-            merge(mock_self, [{'public_id': 9}], obj_result, 0, 0, 'public_id', 1)
-
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                     the shared write guard and the delete ordering                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1375,24 +1141,6 @@ class TestTheFilterShapesBothQueryBuildersAccept:
 
 class TestTheMdsMerge:
     """Merging the MDS reference hits into the ordinary ones."""
-
-    def test_an_object_already_referenced_is_not_added_twice(self) -> None:
-        """
-        The same object can be reached through a normal field AND an MDS row
-
-        It is one node in the result, which is what the referenced-ids set is for.
-        """
-        mock_self = MagicMock()
-        existing = MagicMock(public_id=7)
-        obj_result = MagicMock(results=[existing], total=1)
-
-        with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(public_id=7)):
-            merged = ObjectsManager._ObjectsManager__merge_mds_references(  # pylint: disable=protected-access
-                mock_self, [{'public_id': 7}], obj_result, 0, 0, 'public_id', 1,
-            )
-
-        assert merged.total == 1
-        assert merged.results == [existing]
 
     def test_the_mds_reference_query_tolerates_no_filter_at_all(self) -> None:
         """

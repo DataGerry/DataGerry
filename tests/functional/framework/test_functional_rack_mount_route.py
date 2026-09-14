@@ -28,6 +28,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.rack_mounts_manager import RackMountsManager
@@ -701,6 +702,20 @@ class TestManagerFailures:
             response = rest_api.get(f'{ROUTE_URL}/mounts/object/{OBJECT_ID}')
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_an_object_lookup_http_exception_keeps_its_status(self, rest_api) -> None:
+        """
+        The HTTPException arm hands an abort through untouched
+
+        The arm is unreachable in a normal request - nothing inside the try aborts. It exists so an
+        abort added later keeps its own status instead of being swallowed by the generic handler below
+        and reported as a 500, which is what this pins.
+        """
+        with patch.object(RackMountsManager, 'get_mount_of_object',
+                          side_effect=NotFound('forced')):
+            response = rest_api.get(f'{ROUTE_URL}/mounts/object/{OBJECT_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
     def test_a_failed_update_is_a_400(self, rest_api) -> None:
         """A failed update is reported"""

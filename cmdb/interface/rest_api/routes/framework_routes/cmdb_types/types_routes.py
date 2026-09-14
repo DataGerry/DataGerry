@@ -55,6 +55,10 @@ from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects, request_wants_body
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
+    build_referenced_section_usage_payload,
+    guard_referenced_section_removal,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     verify_type_is_unique,
     prepare_builder_parameters,
@@ -66,8 +70,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     get_type_instance_or_404,
     guard_location_field_removal,
     guard_selectable_as_parent_change,
-    guard_referenced_section_removal,
-    build_referenced_section_usage_payload,
     guard_uses_ports_change,
     build_uses_ports_usage_payload,
     compute_removed_global_templates,

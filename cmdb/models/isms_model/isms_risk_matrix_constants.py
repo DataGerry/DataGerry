@@ -14,13 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Constants of the IsmsRiskMatrix: its singleton id and the keys of one matrix cell
+Constants of the IsmsRiskMatrix: its singleton id, its document keys and the keys of one matrix cell
 
-The document's own top-level keys are ``RiskMatrixKey`` in
-``cmdb/database/predefined_data/predefined_data_constants.py``, where they sit next to the seeded
-default. What lives here is what that module does not name: the id the singleton is always stored
-under, and the keys *inside* a cell - which were spelled as bare literals in all four risk-matrix
-helpers, the Cerberus schema, the report builder and the report routes' aggregations.
+``RiskMatrixKey`` names the document's three top-level keys and drives the shared ``CmdbDAO``
+``from_data`` / ``to_json``. It lived in the seed package's ``predefined_data_constants`` module
+until 2026-09-11, next to the seeded default - which meant the MODEL layer imported its own document
+shape from the database-seeding package, the wrong way round. The seed data now imports it from here,
+which is the normal direction: predefined data builds model documents.
+
+``RiskMatrixCellKey`` names the keys *inside* a cell - spelled as bare literals in all four risk-matrix
+helpers, the Cerberus schema, the report builder and the report routes' aggregations before that.
 
 ``UNASSIGNED_RISK_CLASS_ID`` is the value a cell carries while no IsmsRiskClass is assigned to it. It
 is 0 rather than null because the whole grid is written at once: a freshly generated cell and a cell
@@ -32,9 +35,9 @@ from cmdb.utils import BaseStrEnum
 
 __all__: list[str] = [
     'MatrixType',
+    'RiskMatrixKey',
     'RiskMatrixCellKey',
     'RiskMatrixReportKey',
-    'RISK_MATRIX_GRID_KEY',
     'RISK_MATRIX_PUBLIC_ID',
     'UNASSIGNED_RISK_CLASS_ID',
 ]
@@ -45,8 +48,19 @@ RISK_MATRIX_PUBLIC_ID: int = 1
 # A cell with no IsmsRiskClass assigned yet
 UNASSIGNED_RISK_CLASS_ID: int = 0
 
-# The key holding the grid on the IsmsRiskMatrix document
-RISK_MATRIX_GRID_KEY: str = 'risk_matrix'
+
+
+class RiskMatrixKey(BaseStrEnum):
+    """
+    Document keys of an IsmsRiskMatrix
+
+    Three keys and a singleton: the grid itself, and the optional unit an admin labels its values with.
+    ``RISK_MATRIX`` is the key every reader indexes as a list, which is why the model coerces an absent
+    value to an empty grid rather than leaving it None
+    """
+    PUBLIC_ID = 'public_id'
+    RISK_MATRIX = 'risk_matrix'
+    MATRIX_UNIT = 'matrix_unit'
 
 
 class RiskMatrixCellKey(BaseStrEnum):
@@ -92,7 +106,7 @@ class MatrixType(BaseStrEnum):
         Returns:
             str: The response key, e.g. 'risk_matrix_before_treatment'
         """
-        return f'{RISK_MATRIX_GRID_KEY}_{self.value}'
+        return f'{RiskMatrixKey.RISK_MATRIX.value}_{self.value}'
 
 
 class RiskMatrixReportKey(BaseStrEnum):

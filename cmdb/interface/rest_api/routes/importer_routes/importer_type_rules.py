@@ -47,10 +47,12 @@ from cmdb.utils import coerce_whole_number, duplicate_names, parse_import_bool, 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     location_field_removal_blocker,
     selectable_as_parent_change_blocker,
-    referenced_section_removal_blocker,
-    referenced_section_field_removal_blocker,
     uses_ports_change_blocker,
     special_type_is_unchanged,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
+    referenced_section_field_removal_blocker,
+    referenced_section_removal_blocker,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
     IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS,

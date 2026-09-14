@@ -38,6 +38,7 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.extendable_option_model import OptionType
 from cmdb.models.isms_model import RiskType
 from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerInsertError
+from cmdb.interface.rest_api.routes.importer_routes import importer_isms_routes
 from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import (
     RESULT_CREATED,
     RESULT_EXISTING,
@@ -376,3 +377,38 @@ class TestBuildImportResult:
             RESULT_EXISTING: 1,
             RESULT_INVALID: [{'name': None}],
         }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              the two fall-through guards                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTheFallThroughGuards:
+    """
+    Both are "somebody added an enum member and forgot the branch" guards
+
+    Every member of `IsmsImportType` has a handler and every member of `RiskType` has a validation
+    branch today, so neither guard can fire from a real request - `IsmsImportType` is validated
+    before `handle_isms_import` is reached, and `risk_row_is_valid` refuses an unknown risk type at
+    its first line. Driving them needs the enum widened, which is precisely the change that would
+    make them live.
+    """
+
+    def test_an_import_target_with_no_handler_is_a_400(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Returning None instead would let the caller treat "unhandled" as "imported nothing"."""
+        monkeypatch.setattr(importer_isms_routes.ManagerProvider, 'get_manager', lambda *_a, **_k: MagicMock())
+
+        with pytest.raises(HTTPException) as excinfo:
+            importer_isms_routes.handle_isms_import(MagicMock(), 'dg-brand-new-import-target', MagicMock())
+
+        assert excinfo.value.code == 400
+
+    def test_a_risk_type_with_no_branch_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        A valid RiskType the row rules do not cover passes rather than being refused
+
+        The opposite default would reject every row of a newly added risk type, which is a worse
+        failure than importing rows whose extra rules nobody has written yet.
+        """
+        monkeypatch.setattr(RiskType, 'is_valid', classmethod(lambda _cls, _value: True))
+
+        assert risk_row_is_valid('dg-brand-new-risk-type', None, None, [], []) is True

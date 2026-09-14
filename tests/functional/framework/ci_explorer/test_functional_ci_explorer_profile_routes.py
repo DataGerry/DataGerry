@@ -26,6 +26,8 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from cmdb.errors.ci_explorer import CiExplorerGraphBuildError
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import CiExplorerProfileManager, ObjectsManager, TypesManager
@@ -596,3 +598,31 @@ class TestErrorMapping:
         monkeypatch.setattr(ci_explorer_routes_module, 'build_ci_explorer_graph', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/items?target_id=1').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_items_graph_build_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """
+        A graph the builder itself refuses to produce is a server fault, named as such
+
+        Distinct from the catch-all above: CiExplorerGraphBuildError is the builder reporting that
+        the graph could not be assembled, and it carries its own message naming the target - which a
+        generic 500 would replace with "an internal server error occured".
+        """
+        monkeypatch.setattr(ci_explorer_routes_module, 'build_ci_explorer_graph',
+                            _raiser(CiExplorerGraphBuildError('unbuildable')))
+
+        response = rest_api.get(f'{ROUTE_URL}/items?target_id=1')
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'CI Explorer graph' in response.get_json()['message']
+
+    def test_profiles_listing_passes_an_http_exception_through(self, rest_api, monkeypatch) -> None:
+        """
+        The HTTPException arm hands an abort through with its own status
+
+        Unreachable in a normal request - the listing aborts nowhere inside its try - so it needs a
+        forced abort. It exists so an abort added later is not swallowed by the generic handler and
+        reported as a 500.
+        """
+        monkeypatch.setattr(CiExplorerProfileManager, 'iterate_items', _raiser(NotFound('forced')))
+
+        assert rest_api.get(f'{ROUTE_URL}/profile').status_code == HTTPStatus.NOT_FOUND

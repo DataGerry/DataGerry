@@ -19,8 +19,9 @@ Document keys and index names of a CmdbExtendableOption
 Owned by the model layer because every layer consumes them: the predefined-data factories and the
 database updaters build option documents, the REST routes read request bodies with the same keys,
 and the model itself names its indexes from here. Two separate copies of this enum existed before
-(``cmdb.database.predefined_data.predefined_data_constants`` and the routes' own
-``extendable_options_constants``) - the note in the former asked for exactly this move.
+(the seed package's ``predefined_data_constants`` module and the routes' own
+``extendable_options_constants``) - the note in the former asked for
+exactly this move, and that module was deleted on 2026-09-11 once the last of its enums had followed.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #

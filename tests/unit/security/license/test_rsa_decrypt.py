@@ -183,3 +183,16 @@ def test_decrypt_license_blob_rejects_non_object_payload(rsa_keypair: RsaKey) ->
 
     with pytest.raises(LicenseDecryptionError):
         rd.decrypt_license_blob(blob, public_key_pem=public_pem)
+
+
+def test_a_block_wider_than_the_modulus_is_refused() -> None:
+    """
+    A recovered integer that does not fit the block width is a corrupt or wrong-key licence
+
+    `int.to_bytes` raises OverflowError there, and letting it out would surface a licence problem as
+    an unhandled arithmetic error rather than a decryption failure the caller already handles.
+    """
+    modulus = 1 << 32
+
+    with pytest.raises(LicenseDecryptionError):
+        rd._decrypt_block((modulus - 1).to_bytes(4, rd.RSA_BYTE_ORDER), modulus, 1, 2)

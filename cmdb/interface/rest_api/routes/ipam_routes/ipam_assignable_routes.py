@@ -96,6 +96,10 @@ def get_assignable_objects(request_user: CmdbUser) -> Response:
 
         return DefaultResponse(payload).make_response()
     except HTTPException as http_err:
+        # Unreachable today - nothing inside the try aborts: neither param reader refuses a value (the
+        # builders clamp instead) and the page builder is pure over its two manager reads. Kept so the
+        # arm order matches every other route, because without it an abort added later would be caught
+        # by the generic handler below and reported as a 500
         raise http_err
     except Exception as err:
         LOGGER.error(

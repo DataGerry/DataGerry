@@ -163,11 +163,40 @@ class MongoDatabaseManager:
         # Restart keep-alive for the new client
         self._start_keepalive()
 
-    def __enter__(self):
+    def __enter__(self) -> "MongoDatabaseManager":
         """
         Support with-statement for connection management
+
+        Returns:
+            MongoDatabaseManager: This manager, so the block binds it with `as`
         """
         return self
+
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> bool:
+        """
+        Closes the connection when the with-block ends
+
+        The half of the protocol this class used to be missing: `__enter__` alone makes a `with`
+        statement fail at ENTRY with a TypeError, so the support it advertised never worked. Closing is
+        the connector's own no-raise disconnect - a failed close reports the same disconnected status a
+        successful one does (see the note on `MongoConnector.disconnect`).
+
+        **The keep-alive thread outlives this block**, because it cannot be stopped: it re-creates the
+        client within its ping interval (discussion-backlog #148), so a `with` block releases the
+        connection rather than ending the manager's life
+
+        Args:
+            exc_type (Any): Exception class raised inside the block, or None
+            exc_value (Any): The exception instance, or None
+            traceback (Any): The traceback, or None
+
+        Returns:
+            bool: False - an exception raised inside the block is never suppressed
+        """
+        self.connector.disconnect()
+
+        return False
 
 
     def target_database(self, db_name: str) -> str:
@@ -183,9 +212,35 @@ class MongoDatabaseManager:
         return db_name if db_name else self.db_name
 
 
+    def _keepalive_once(self) -> None:
+        """
+        Pings the MongoDB client once, reporting a failure without raising
+
+        **The client is read fresh on every call, and that is load-bearing.** `reset_connection`
+        replaces `self.connector` while the keep-alive thread keeps running - the thread that survives
+        the reset is the one that must follow the NEW connector, so caching the client in a local (or
+        in the thread's closure) would leave the keep-alive pinging a disconnected client forever while
+        the live one is never pinged.
+
+        A failed ping is logged and nothing else: the loop has no state to change and no way to report,
+        so a permanently unreachable database produces one warning per interval and `status()` stays
+        the only thing that answers whether the connection is up
+        """
+        try:
+            self.connector.client.admin.command("ping")
+        except Exception as err:
+            LOGGER.warning("[MongoDB KeepAlive] Ping failed: %s", err)
+
+
     def _start_keepalive(self) -> None:
         """
         Start a background thread that pings the MongoDB client every 50s
+
+        **At most one thread per manager, and it is never replaced.** A live thread makes this a no-op,
+        which is what `reset_connection` relies on: it calls this again after building a new connector,
+        the existing thread is still running, and that thread picks the new client up on its next ping
+        (see `_keepalive_once`). The thread is a daemon and has no stop flag, so it ends with the
+        process - a disconnect does not stay closed, recorded as discussion-backlog #148
         """
 
         # Avoid multiple threads
@@ -193,11 +248,10 @@ class MongoDatabaseManager:
             return
 
         def _keepalive():
+            # The loop itself carries no logic and cannot be exercised from a test - it never returns.
+            # Everything that can fail lives in _keepalive_once, which is called directly instead
             while True:
-                try:
-                    self.connector.client.admin.command("ping")
-                except Exception as err:
-                    LOGGER.warning("[MongoDB KeepAlive] Ping failed: %s", err)
+                self._keepalive_once()
                 time.sleep(KEEPALIVE_PING_INTERVAL_SECONDS)
 
         t = threading.Thread(target=_keepalive, daemon=True)

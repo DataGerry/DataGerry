@@ -7,3 +7,24 @@ omit =
 [report]
 ignore_errors = True
 fail_under = 0
+
+# The "Excluded lines" methodology from TEST_COVERAGE_GAPS.md, enforced by the tool instead of
+# applied by hand when the gap table is regenerated. Until 2026-09-14 these lines were counted as
+# missed, so several rows in that table were phantom - `system_reader.py` read 62% while being
+# nothing but three `raise NotImplementedError` statements.
+#
+# `exclude_also` ADDS to coverage's built-in list (which is just `pragma: no cover`); `exclude_lines`
+# would replace it.
+#
+# Note on `pass`: a bare `pass` is excluded because the methodology says so, and no line in the repo
+# matches it today. Be aware it would also hide a never-executed `except ...: pass` arm, which is a
+# real uncovered path - if that ever matters, drop the pattern rather than working around it.
+exclude_also =
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    @(abc\.)?abstractmethod
+    def __repr__
+    def __str__
+    ^\s*\.\.\.\s*$
+    ^\s*pass\s*$
+    if __name__ == .__main__.:

@@ -32,32 +32,40 @@ def get_isms_impact_category_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsImpactCategory.SCHEMA
     """
+    # Imported inside the builder: the model imports this schema, so a module-level import of the
+    # model's constants would close a cycle (see the class_schema convention)
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.isms_model.isms_impact_category_constants import (
+        ImpactCategoryKey,
+        ImpactDescriptionKey,
+    )
+
     return {
-        'public_id': {  # public_id of the IsmsImpactCategory
+        ImpactCategoryKey.PUBLIC_ID.value: {  # public_id of the IsmsImpactCategory
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the impact category
+        ImpactCategoryKey.NAME.value: {  # Name of the impact category
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'impact_descriptions': {  # Per-impact-level description entries for this category
+        ImpactCategoryKey.IMPACT_DESCRIPTIONS.value: {  # One description entry per IsmsImpact
             'type': 'list',
             'schema': {
                 'type': 'dict',
                 'schema': {
-                    'impact_id': {  # public_id of the IsmsImpact the description belongs to
+                    ImpactDescriptionKey.IMPACT_ID.value: {  # public_id of the described IsmsImpact
                         'type': 'integer',
                         'min': 1,
                     },
-                    'value': {  # Description text shown for that impact level
+                    ImpactDescriptionKey.VALUE.value: {  # Description text shown for that impact level
                         'type': 'string',
                     },
                 },
             },
         },
-        'sort': {  # Sort order of the category
+        ImpactCategoryKey.SORT.value: {  # Sort order of the category
             'type': 'integer',
         },
     }

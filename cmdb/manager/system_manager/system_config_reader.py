@@ -101,8 +101,11 @@ class SystemConfigReader:
         """
         Delegates attribute reads to the cached `ConfigFileReader`
 
-        Note: unreachable in practice — `__new__` returns a `ConfigFileReader` directly, so no
-        `SystemConfigReader` instance ever exists for Python to invoke this on
+        Never executed: `__new__` returns a `ConfigFileReader` directly, so no `SystemConfigReader`
+        instance ever exists for Python to invoke this on. It is kept because it is what tells a
+        reader - and every static analyser - that this class delegates. Removing it makes pylint
+        report `no-member` at each of the ~15 sites that read a value through `SystemConfigReader()`,
+        since the object they hold is declared as this class
 
         Args:
             name (str): Attribute name being looked up
@@ -117,8 +120,8 @@ class SystemConfigReader:
         """
         Delegates attribute writes to the cached `ConfigFileReader`
 
-        Note: unreachable in practice — `__new__` returns a `ConfigFileReader` directly, so no
-        `SystemConfigReader` instance ever exists for Python to invoke this on
+        Unreachable for the same reason as `__getattr__`, and kept for the same reason: the pair
+        documents the delegation this class exists to perform
 
         Args:
             name (str): Attribute name being assigned

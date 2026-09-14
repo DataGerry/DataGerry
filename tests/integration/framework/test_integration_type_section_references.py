@@ -38,7 +38,7 @@ from cmdb.manager.types_manager import TypesManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     get_section_reference_selections,
     get_types_referencing_section,
     referenced_section_field_removal_blocker,

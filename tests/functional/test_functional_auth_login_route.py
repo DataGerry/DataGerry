@@ -352,14 +352,14 @@ class TestAuthSettingsAndProviders:
         assert rest_api.post(SETTINGS_URL, json={}).status_code == HTTPStatus.BAD_REQUEST
 
     def test_update_auth_settings_init_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A payload that fails CmdbAuthSettings init is a client error -> 400 (B1 regression)."""
-        monkeypatch.setattr(auth_routes, 'CmdbAuthSettings', _raiser(AuthSettingsInitError('boom')))
+        """A payload that fails CmdbAuthSettings validation is a client error -> 400 (B1 regression)."""
+        monkeypatch.setattr(auth_routes.CmdbAuthSettings, 'from_data', _raiser(AuthSettingsInitError('boom')))
 
         assert rest_api.post(SETTINGS_URL, json={'providers': []}).status_code == HTTPStatus.BAD_REQUEST
 
     def test_update_auth_settings_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error while building the settings surfaces as 500."""
-        monkeypatch.setattr(auth_routes, 'CmdbAuthSettings', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(auth_routes.CmdbAuthSettings, 'from_data', _raiser(RuntimeError('boom')))
 
         assert rest_api.post(SETTINGS_URL, json={'providers': []}).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 

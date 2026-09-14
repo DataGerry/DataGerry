@@ -18,7 +18,8 @@ Key and identity constants of a CmdbLocation
 
 These live in the model layer because every layer consumes them: the predefined-data seeding in
 ``cmdb/database``, ``LocationsManager``, the CmdbLocation routes and their helper, the Rack hooks and
-the type helper. They used to sit in ``cmdb/database/predefined_data/predefined_data_constants.py``,
+the type helper. They used to sit in the seed package's ``predefined_data_constants`` module (deleted
+2026-09-11, once the last of its enums had moved into the model layer),
 which meant the interface layer imported a document-key enum *upward* from the database layer; the
 model is the one place all of them can depend on downward
 

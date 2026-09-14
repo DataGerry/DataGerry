@@ -1413,3 +1413,60 @@ class TestValidateSubscriptionUser:
             with _app().test_request_context():
                 with pytest.raises(RequestError):
                     ru.validate_subscription_user('x', 'p')
+
+
+# ============================================ parse_assistant_parameters ============================================ #
+class TestParseAssistantParameters:
+    """
+    The decorator behind the assistant route: query parameters as the first positional argument
+
+    Its `try/except Exception -> abort(400)` was removed on 2026-09-14. Werkzeug has already parsed
+    the query string by the time a view runs and `to_dict` tolerates duplicate keys and embedded null
+    bytes, so the arm - and the 400 its docstring promised - could never fire.
+    """
+
+    @staticmethod
+    def _decorated():
+        """A view that simply returns whatever the decorator injected."""
+        @ru.parse_assistant_parameters()
+        def _view(location_args, *args, **kwargs):
+            return location_args, args, kwargs
+
+        return _view
+
+    def test_injects_the_query_parameters_first(self) -> None:
+        """The decorated view reads them as its first positional argument, not off `request`."""
+        with _app().test_request_context('/?profile=network&steps=3'):
+            location_args, _, _ = self._decorated()()
+
+        assert location_args == {'profile': 'network', 'steps': '3'}
+
+    def test_an_empty_query_string_is_an_empty_dict(self) -> None:
+        """A request with no parameters still calls the view, with nothing to act on."""
+        with _app().test_request_context('/'):
+            location_args, _, _ = self._decorated()()
+
+        assert location_args == {}
+
+    def test_later_arguments_are_forwarded_unchanged(self) -> None:
+        """An inner decorator's `request_user` has to survive being pushed one position along."""
+        with _app().test_request_context('/?a=1'):
+            _, args, kwargs = self._decorated()('positional', request_user='user')
+
+        assert args == ('positional',)
+        assert kwargs == {'request_user': 'user'}
+
+    def test_a_duplicate_key_keeps_the_first_value(self) -> None:
+        """`to_dict` collapses duplicates rather than raising - one reason the old guard was dead."""
+        with _app().test_request_context('/?profile=a&profile=b'):
+            location_args, _, _ = self._decorated()()
+
+        assert location_args == {'profile': 'a'}
+
+    def test_it_preserves_the_wrapped_functions_identity(self) -> None:
+        """`functools.wraps` matters here: Flask registers the view by its __name__."""
+        @ru.parse_assistant_parameters()
+        def _named_view(location_args):
+            return location_args
+
+        assert _named_view.__name__ == '_named_view'

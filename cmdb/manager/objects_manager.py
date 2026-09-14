@@ -52,13 +52,10 @@ from cmdb.models.object_model import (
     CmdbObject,
     CmdbObjectKey,
     CmdbObjectFieldKey,
-    CmdbObjectMdsKey,
-    CmdbObjectMdsRowKey,
 )
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
-from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRiskAssessment
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
@@ -68,6 +65,12 @@ from cmdb.models.isms_model.isms_control_measure_assignment_constants import (
 from cmdb.security.acl.helpers import verify_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.results import IterationResult
+from cmdb.manager.objects_reference_helper import (
+    build_reference_match_queries,
+    filter_mds_results_referencing,
+    merge_mds_references,
+)
+from cmdb.manager.objects_summary_helper import compose_summary_line
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -715,7 +718,19 @@ class ObjectsManager(BaseManager):
 
             results = list(self.aggregate_from_other_collection(CmdbType.COLLECTION, query_pipeline))
 
-            return self._filter_mds_results_referencing(results, referenced_object.public_id)
+            # The manager owns the read: the ref-field names are resolved per TYPE in one query, so the
+            # pure filter below decides per ROW without a type fetch of its own
+            result_type_ids: list[int] = list({
+                result.get(CmdbObjectKey.TYPE_ID.value)
+                for result in results
+                if isinstance(result.get(CmdbObjectKey.TYPE_ID.value), int)
+            })
+
+            return filter_mds_results_referencing(
+                results,
+                referenced_object.public_id,
+                self._ref_field_names_by_type(result_type_ids),
+            )
         except Exception as err:
             LOGGER.error("[get_mds_references_for_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
@@ -746,64 +761,6 @@ class ObjectsManager(BaseManager):
         }
 
 
-    def _filter_mds_results_referencing(self, results: list[dict], referenced_public_id: int) -> list[dict]:
-        """
-        Keeps only the result objects whose MDS rows reference the given object via a ref field
-
-        Args:
-            results (list[dict]): Candidate CmdbObject documents (must carry multi_data_sections)
-            referenced_public_id (int): public_id the MDS ref field must point at
-
-        Returns:
-            list[dict]: The subset of results that reference the given object in their MDS data
-        """
-        # Pre-resolve the ref-field names per type once instead of per MDS row (no N+1 type fetch)
-        result_type_ids: list[int] = list({
-            result.get(CmdbObjectKey.TYPE_ID.value)
-            for result in results
-            if isinstance(result.get(CmdbObjectKey.TYPE_ID.value), int)
-        })
-        ref_field_names_by_type: dict[int, set[str]] = self._ref_field_names_by_type(result_type_ids)
-
-        matching_results: list[dict] = []
-
-        for result in results:
-            ref_field_names: set[str] = ref_field_names_by_type.get(result.get(CmdbObjectKey.TYPE_ID.value), set())
-
-            if self._mds_rows_reference(result, ref_field_names, referenced_public_id):
-                matching_results.append(result)
-
-        return matching_results
-
-
-    @staticmethod
-    def _mds_rows_reference(result: dict, ref_field_names: set[str], referenced_public_id: int) -> bool:
-        """
-        Reports whether any MDS row of the object holds a ref field pointing at the given id
-
-        Args:
-            result (dict): A CmdbObject document carrying multi_data_sections
-            ref_field_names (set[str]): Names of the object type's 'ref'-type fields
-            referenced_public_id (int): public_id the ref field must point at
-
-        Returns:
-            bool: True if any MDS ref field references the given object
-        """
-        for mds_entry in result.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value, []):
-            for value in mds_entry.get(CmdbObjectMdsKey.VALUES.value, []):
-                for data_set in value.get(CmdbObjectMdsRowKey.DATA.value, []):
-                    if (
-                        data_set.get(CmdbObjectFieldKey.NAME.value) in ref_field_names
-                        and data_set.get(CmdbObjectFieldKey.VALUE.value) == referenced_public_id
-                    ):
-                        return True
-
-        return False
-
-
-    # The reference query exposes the full pagination/sort surface (limit/skip/sort/order) plus the
-    # target object and the ACL user/permission - eight, which is exactly what pylint allows, so the
-    # suppression this comment used to carry was doing nothing
     def references(
         self,
         object_: CmdbObject,
@@ -857,7 +814,7 @@ class ObjectsManager(BaseManager):
             query.append(Builder.unwind_({'path': '$type', 'preserveNullAndEmptyArrays': True}))
 
             # Keep only objects whose type references object_'s type and which point at its public_id
-            query.append(Builder.match_(Builder.or_(self._build_reference_match_queries(object_))))
+            query.append(Builder.match_(Builder.or_(build_reference_match_queries(object_))))
             query.append(Builder.match_({'fields.value': object_.public_id}))
 
             builder_params = BuilderParameters(criteria=query, sort=sort, order=order)
@@ -866,7 +823,7 @@ class ObjectsManager(BaseManager):
             result = self.iterate(builder_params, user, permission)
             mds_result = self.get_mds_references_for_object(object_, criteria)
 
-            merge_result = self.__merge_mds_references(mds_result, result, limit, skip, sort, order)
+            merge_result = merge_mds_references(mds_result, result, limit, skip, sort, order)
 
             return merge_result
         except ObjectsManagerMdsReferencesError as err:
@@ -876,34 +833,6 @@ class ObjectsManager(BaseManager):
         except Exception as err:
             LOGGER.error("[references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
-
-
-    @staticmethod
-    def _build_reference_match_queries(object_: CmdbObject) -> list[dict[str, Any]]:
-        """
-        Builds the field-based and section-based reference match queries for ``references()``
-
-        Both match against the joined 'type' document. ref_types is always a list of integer type
-        public_ids, so an exact match is correct (the former substring-regex alternative never
-        matched a numeric field anyway)
-
-        Args:
-            object_ (CmdbObject): The object whose referencing objects are being searched
-
-        Returns:
-            list[dict[str, Any]]: The field-ref and section-ref match queries, for an `$or`
-        """
-        field_ref_query: dict[str, Any] = {
-            'type.fields.type': FieldType.REFERENCE.value,
-            'type.fields.ref_types': object_.type_id,
-        }
-
-        section_ref_query: dict[str, Any] = {
-            'type.render_meta.sections.type': SectionType.REF_SECTION.value,
-            'type.render_meta.sections.reference.type_id': object_.type_id,
-        }
-
-        return [field_ref_query, section_ref_query]
 
 
     def get_objects_lookup(self, public_ids: list[int]) -> dict[int, CmdbObject]:
@@ -1299,143 +1228,6 @@ class ObjectsManager(BaseManager):
         )
 
 
-    def __merge_mds_references(self,
-                                mds_result: list,
-                                obj_result: IterationResult,
-                                limit: int,
-                                skip: int,
-                                sort: str,
-                                order: int) -> IterationResult:
-        """
-        Merges MDS references into the existing object result set while ensuring uniqueness.
-        The merged results are sorted and paginated as per the given parameters
-
-        Args:
-            mds_result (list[dict]): List of multi-data section references
-            obj_result (IterationResult): Existing objects retrieved via normal references
-            limit (int): Maximum number of objects to return (0 for no limit)
-            skip (int): Number of objects to skip (for pagination)
-            sort (str): Attribute name to sort by
-            order (int): Sorting order (-1 for descending, 1 for ascending)
-
-        Raises:
-            ObjectsManagerMdsReferencesError: If the merge of references failed
-
-        Returns:
-            IterationResult: Merged, sorted, and paginated result set
-        """
-        try:
-            # get public_id's of all currently referenced objects as a set
-            referenced_ids = {obj.public_id for obj in obj_result.results}
-
-            # add MDS objects to normal references if they are not already referenced
-            for ref_obj in mds_result:
-                new_obj = CmdbObject.from_data(ref_obj)
-                if new_obj.public_id not in referenced_ids:
-                    obj_result.results.append(new_obj)
-                    referenced_ids.add(new_obj.public_id)
-
-            obj_result.total = len(obj_result.results)
-
-            # sort all findings according to sort and order. The key wraps the value in a
-            # (is-None, value) tuple so objects whose sort attribute is missing/None sort
-            # consistently to one end instead of raising a TypeError on a None-vs-value
-            # comparison (Python 3); objects that DO carry the attribute keep their natural order
-            descending_order = order == -1
-
-            def _sort_key(obj: CmdbObject) -> tuple[bool, Any]:
-                value: Any = getattr(obj, sort, None)
-                return (value is None, value)
-
-            obj_result.results.sort(key=_sort_key, reverse=descending_order)
-
-            # just keep the given limit of objects if limit > 0
-            if limit > 0:
-                list_length = limit + skip
-
-                # if the list_length is longer than the object_list then just set it to len(object_list)
-                list_length = min(list_length, len(obj_result.results))
-
-                obj_result.results = obj_result.results[skip:list_length]
-
-            return obj_result
-        except Exception as err:
-            LOGGER.error("[__merge_mds_references] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerMdsReferencesError(err) from err
-
-
-    def _compose_summary_line(
-        self,
-        target_object: dict[str, Any],
-        target_object_type: Any,
-        with_type: bool = True,
-    ) -> str:
-        """
-        Composes the summary line for a CmdbObject that has already been loaded
-
-        Pure composition over already-loaded data: the object as a dict and its CmdbType
-        instance. The 'type label + public_id' prefix is built first, then the configured
-        summary fields are appended in declaration order (separator '-' before the first
-        field, '|' between fields). If anything goes wrong while walking the configured
-        fields the helper falls back to the default prefix line and logs at debug level -
-        a partially broken type definition should not block the caller. Centralizing this
-        composition lets `get_summary_line` and `get_summary_lines_lookup` share one body
-
-        A summary field the object has no value for contributes NOTHING - neither text nor a
-        separator. Interpolating it would put the literal word 'None' in front of a user (an object
-        whose summary field is unset used to read '#264 - None'), and emitting the separator alone
-        would leave a line trailing off as '#264 - '. Only a genuinely absent value is skipped:
-        `0`, `False` and other falsy-but-present values are real data and are rendered. The
-        separator therefore tracks the first field actually EMITTED, not the first one configured,
-        so an unset first field does not push a stray '|' to the front of the line
-
-        Args:
-            target_object (dict[str, Any]): The CmdbObject document (as_dict=True shape)
-            target_object_type: The CmdbType instance of the object
-            with_type (bool): If True the type label is included in the prefix
-
-        Returns:
-            str: The composed summary line
-        """
-        if with_type:
-            default_line = f"{target_object_type.label} #{target_object.get('public_id')}"
-        else:
-            default_line = f"#{target_object.get('public_id')}"
-
-        if not target_object_type.has_summaries():
-            return default_line
-
-        summary_line = default_line
-
-        try:
-            summary_fields = target_object_type.get_summary().fields
-            first = True
-
-            line: dict
-            for line in summary_fields:
-                field_name = line.get('name')
-                field_value = next(
-                    (field['value'] for field in target_object['fields'] if field['name'] == field_name), None
-                )
-
-                if field_value is None or field_value == '':
-                    continue
-
-                if first:
-                    summary_line += f' - {field_value}'
-                    first = False
-                else:
-                    summary_line += f' | {field_value}'
-        except Exception as err:
-            LOGGER.debug(
-                "Failed to build summary line for Object-ID: %s and Type-ID: %s. Error: %s!",
-                target_object.get('public_id'),
-                target_object_type.public_id,
-                err
-            )
-            summary_line = default_line
-
-        return summary_line
 
 
     def get_summary_line(self, public_id: int, with_type: bool = True) -> str:
@@ -1467,7 +1259,7 @@ class ObjectsManager(BaseManager):
             if not target_object_type:
                 return default_line
 
-            return self._compose_summary_line(target_object, target_object_type, with_type=with_type)
+            return compose_summary_line(target_object, target_object_type, with_type=with_type)
         except Exception as err:
             raise ObjectsManagerSummaryLineError(err) from err
 
@@ -1574,6 +1366,6 @@ class ObjectsManager(BaseManager):
             if doc_type is None:
                 continue
 
-            result[doc_id] = self._compose_summary_line(doc, doc_type, with_type=with_type)
+            result[doc_id] = compose_summary_line(doc, doc_type, with_type=with_type)
 
         return result

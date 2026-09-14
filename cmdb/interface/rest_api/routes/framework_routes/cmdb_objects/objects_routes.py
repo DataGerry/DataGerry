@@ -77,23 +77,27 @@ from cmdb.interface.rest_api.routes.routes_helper import (
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     delete_one_cascade,
-    handle_notify_webhooks,
-    handle_create_object_log,
-    handle_sync_config_item_count,
-    handle_delete_invalid_object_relations,
-    handle_delete_from_object_groups,
-    handle_delete_object_location,
     handle_rack_object_deleted,
     handle_port_object_deleted,
     render_or_native,
     build_object_value_view,
     apply_object_update,
-    validate_object_patch_payload,
-    build_patched_object_data,
     guard_object_delete,
     guard_objects_delete,
-    emit_object_state_change_events,
     apply_object_insert,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_helper import (
+    build_patched_object_data,
+    validate_object_patch_payload,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    emit_object_state_change_events,
+    handle_create_object_log,
+    handle_delete_from_object_groups,
+    handle_delete_invalid_object_relations,
+    handle_delete_object_location,
+    handle_notify_webhooks,
+    handle_sync_config_item_count,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     MAX_DASHBOARD_GROUPS,

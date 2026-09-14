@@ -28,8 +28,7 @@ import pytest
 
 from cmdb.manager import PortConnectionsManager
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.manager.manager_provider_model import ManagerType
-from cmdb.manager.manager_provider_model.manager_provider import ManagerProvider
+from cmdb.manager.manager_provider_model import MANAGER_CLASSES, ManagerType
 from cmdb.models.port_connection_model import CmdbPortConnection, PortConnectionKey
 from cmdb.models.port_connection_model import ConnectionType
 from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError, BaseManagerUpdateError
@@ -48,6 +47,7 @@ PORT_A: int = 3
 PORT_B: int = 10
 CONNECTION_ID: int = 55
 CABLE_CI_ID: int = 77
+OTHER_CABLE_CI_ID: int = 78
 
 
 @pytest.fixture(name='manager')
@@ -93,10 +93,8 @@ class TestTheRegistration:
         assert ManagerType.PORT_CONNECTIONS.value == 'PortConnectionsManager'
 
     def test_the_provider_resolves_the_manager_type(self) -> None:
-        """A ManagerType missing from the provider map raises BaseManagerInitError at request time"""
-        # pylint: disable=protected-access
-        assert ManagerProvider._ManagerProvider__get_manager_class(
-            ManagerType.PORT_CONNECTIONS) is PortConnectionsManager
+        """Without this entry the route's get_manager call would raise BaseManagerInitError"""
+        assert MANAGER_CLASSES[ManagerType.PORT_CONNECTIONS] is PortConnectionsManager
 
 
 class TestGetConnectionsOfPort:
@@ -304,3 +302,80 @@ class TestReplaceConnection:
 
         with pytest.raises(PortConnectionsManagerUpdateError):
             manager.replace_connection(CONNECTION_ID, {})
+
+
+class TestGetConnectionsByCableCis:
+    """The batched cable lookup behind the object-delete guard."""
+
+    def test_queries_every_id_at_once(self, manager: PortConnectionsManager) -> None:
+        """A bulk delete of 200 objects must cost one query, not 200"""
+        manager.find = MagicMock(return_value=[])
+
+        manager.get_connections_by_cable_cis([CABLE_CI_ID, OTHER_CABLE_CI_ID])
+
+        assert manager.find.call_args.kwargs['criteria'] == {
+            PortConnectionKey.CABLE_CI_ID.value: {'$in': [CABLE_CI_ID, OTHER_CABLE_CI_ID]},
+        }
+
+    def test_reads_through_find_so_nothing_sorts(self, manager: PortConnectionsManager) -> None:
+        """
+        `find` rather than `get_many`, which is what keeps the query on the partial index
+
+        `get_many` always applies a sort by public_id; a sort the caller never asked for is a reason
+        for the planner to leave the 'cable_ci_id' index this read is named after, and the guard that
+        consumes it orders by cable id itself.
+        """
+        manager.find = MagicMock(return_value=[])
+        manager.get_many = MagicMock()
+
+        manager.get_connections_by_cable_cis([CABLE_CI_ID])
+
+        manager.get_many.assert_not_called()
+        assert 'sort' not in manager.find.call_args.kwargs
+
+    def test_an_empty_selection_costs_no_query(self, manager: PortConnectionsManager) -> None:
+        """Deleting objects that hold no cable at all is the ordinary case"""
+        manager.find = MagicMock(return_value=[])
+
+        assert manager.get_connections_by_cable_cis([]) == []
+        manager.find.assert_not_called()
+
+    def test_wraps_a_read_failure(self, manager: PortConnectionsManager) -> None:
+        """A BaseManager failure surfaces as the manager's own error type"""
+        manager.find = MagicMock(side_effect=BaseManagerGetError('boom'))
+
+        with pytest.raises(PortConnectionsManagerGetError):
+            manager.get_connections_by_cable_cis([CABLE_CI_ID])
+
+
+class TestGetAssignedCableCiIds:
+    """The claimed-cable list the unassigned-cable picker subtracts."""
+
+    def test_asks_for_the_keys_presence(self, manager: PortConnectionsManager) -> None:
+        """
+        The criteria ask `$exists`, not `!= null`
+
+        `to_json` OMITS cable_ci_id when a connection names no cable, and the partial unique index is
+        filtered on that same presence - asking for null instead would match nothing.
+        """
+        manager.get_distinct = MagicMock(return_value=[])
+
+        manager.get_assigned_cable_ci_ids()
+
+        assert manager.get_distinct.call_args.args == (
+            PortConnectionKey.CABLE_CI_ID.value,
+            {PortConnectionKey.CABLE_CI_ID.value: {'$exists': True}},
+        )
+
+    def test_only_integers_survive(self, manager: PortConnectionsManager) -> None:
+        """A hand-edited row must not put a non-id into the picker's exclusion list"""
+        manager.get_distinct = MagicMock(return_value=[CABLE_CI_ID, None, 'not-an-id', OTHER_CABLE_CI_ID])
+
+        assert manager.get_assigned_cable_ci_ids() == [CABLE_CI_ID, OTHER_CABLE_CI_ID]
+
+    def test_wraps_a_read_failure(self, manager: PortConnectionsManager) -> None:
+        """A BaseManager failure surfaces as the manager's own error type"""
+        manager.get_distinct = MagicMock(side_effect=BaseManagerGetError('boom'))
+
+        with pytest.raises(PortConnectionsManagerGetError):
+            manager.get_assigned_cable_ci_ids()

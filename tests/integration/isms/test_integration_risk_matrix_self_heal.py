@@ -38,7 +38,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.isms_model import IsmsImpact, IsmsLikelihood, IsmsRiskMatrix
 from cmdb.models.isms_model.isms_helper import ensure_risk_matrix_matches_scales
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
-from cmdb.database.predefined_data.predefined_data_constants import RiskMatrixKey
+from cmdb.models.isms_model.isms_risk_matrix_constants import RiskMatrixKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 IMPACT_IDS: list[int] = [97501, 97502]

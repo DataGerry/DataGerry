@@ -114,20 +114,3 @@ class CmdbSectionTemplate(CmdbDAO):
             'predefined': instance.predefined,
             'type': instance.type,
         }
-
-
-    @classmethod
-    def to_data(cls, instance: "CmdbSectionTemplate") -> dict:
-        """
-        Dict representation of a CmdbSectionTemplate
-        TODO: check fields if correct
-        """
-        return {
-            'public_id': instance['public_id'],
-            'name': instance['name'],
-            'label': instance['label'],
-            'fields': instance['fields'],
-            'is_global': instance['is_global'],
-            'predefined': instance['predefined'],
-            'type': instance['type'],
-        }

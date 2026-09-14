@@ -67,7 +67,12 @@ class BaseCmdbApp(Flask):
             both True (see `manager/security_manager.py`). Hardcoded literal — see the
             security audit notes for this file
     """
-    def __init__(self, import_name: str, database_manager: MongoDatabaseManager | None = None) -> None:
+    def __init__(
+        self,
+        import_name: str,
+        database_manager: MongoDatabaseManager | None = None,
+        static_folder: str | None = 'static',
+    ) -> None:
         """
         Initialises the Flask app and seeds the DataGerry-specific attributes
 
@@ -83,6 +88,9 @@ class BaseCmdbApp(Flask):
             database_manager (MongoDatabaseManager | None): Mongo handle that backs
                 `current_app.database_manager`. Pass `None` for the SPA host (no DB-backed
                 routes) and a real manager for the REST app
+            static_folder (str | None): Forwarded to `Flask.__init__`. Flask's default `'static'`
+                registers a `/static/<path:filename>` rule; neither of this project's two apps has
+                such a directory, so both pass `None` and the dead rule is never created
         """
         self.database_manager: MongoDatabaseManager | None = database_manager
         self.temp_folder = '/tmp/'
@@ -140,4 +148,4 @@ class BaseCmdbApp(Flask):
             b'\x11\xeb\x8d*C\x95\xdd\xec0\xca7\x9ds\x92\xe9\x9b\x1e|i\x92i\x1c\x90\x8aw\xcd\x9aT\xbf\x1b)\x83'
         )
 
-        super().__init__(import_name)
+        super().__init__(import_name, static_folder=static_folder)

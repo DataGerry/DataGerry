@@ -198,3 +198,15 @@ class TestDeleteTemplate:
 
         assert DocapiTemplatesManager.delete_template(mgr, TEMPLATE_PUBLIC_ID) is True
         mgr.delete_item.assert_called_once_with(TEMPLATE_PUBLIC_ID)
+
+
+class TestGetMinimalTemplatesFailure:
+    """The listing projection converts a read failure into this manager's error."""
+
+    def test_a_read_failure_becomes_a_get_error(self) -> None:
+        """The route maps DocapiTemplatesManagerGetError to a 400; a raw failure would be a 500."""
+        mgr = _mock_manager()
+        mgr.find.side_effect = RuntimeError('read failed')
+
+        with pytest.raises(DocapiTemplatesManagerGetError):
+            DocapiTemplatesManager.get_minimal_templates_by(mgr)

@@ -42,7 +42,7 @@ from cmdb.manager.base_manager import BaseManager
 
 from cmdb.interface.rest_api.responses import GridFsResponse
 from cmdb.framework.media_library.media_file import MediaFile
-from cmdb.framework.media_library.media_file import FileMetadata
+from cmdb.framework.media_library import build_media_file_metadata
 from cmdb.framework.media_library.media_file_keys import (
     GRIDFS_FILES_SUFFIX,
     MediaFileKey,
@@ -95,9 +95,12 @@ class MediaFilesManager(BaseManager):
         """
         Inserts a new media file into GridFS
 
+        The metadata is normalised by `build_media_file_metadata` before it is stored: the file ends up
+        carrying every key the media library declares and nothing else, whatever the caller passed in
+
         Args:
             data (Any): The file-like object containing the media data
-            metadata (dict): Metadata describing the media file
+            metadata (dict): Metadata describing the media file, e.g. its author, folder and reference
 
         Returns:
             dict: The inserted MediaFile document
@@ -109,7 +112,7 @@ class MediaFilesManager(BaseManager):
             with self.fs.new_file(filename=data.filename) as media_file:
                 media_file.write(data)
                 media_file.public_id = self.get_new_media_file_id()
-                media_file.metadata = FileMetadata.to_json(FileMetadata(**metadata))
+                media_file.metadata = build_media_file_metadata(metadata)
 
             return media_file._file
         except Exception as err:

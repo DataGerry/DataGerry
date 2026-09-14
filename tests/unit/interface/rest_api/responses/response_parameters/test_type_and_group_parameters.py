@@ -147,6 +147,24 @@ class TestGroupDeletionParameters:
         with pytest.raises(ValueError):
             GroupDeletionParameters(QUERY_STRING, group_id='not-a-number')
 
+    @pytest.mark.parametrize('raw', ['MOVE', GroupDeleteMode.MOVE], ids=['string', 'member'])
+    def test_coerces_the_action_to_the_enum(self, raw) -> None:
+        """Flask delivers it as a string; the annotation and the manager both expect the member."""
+        params = GroupDeletionParameters(QUERY_STRING, action=raw, group_id='7')
+
+        assert params.action is GroupDeleteMode.MOVE
+
+    def test_a_missing_action_stays_none(self) -> None:
+        """Omitting it is how a caller deletes the group without touching its members."""
+        assert GroupDeletionParameters(QUERY_STRING).action is None
+
+    @pytest.mark.parametrize('raw', ['BOGUS', 'null', '', 'move'], ids=str)
+    def test_an_unknown_action_raises(self, raw: str) -> None:
+        """Letting it through would delete the group while redistributing none of its members,
+        stranding every one of them on a group_id that no longer resolves."""
+        with pytest.raises(ValueError):
+            GroupDeletionParameters(QUERY_STRING, action=raw)
+
     def test_from_data_is_inherited(self) -> None:
         """It has no JSON parameters of its own, so the base implementation is enough."""
         params = GroupDeletionParameters.from_data(QUERY_STRING, group_id='3')
