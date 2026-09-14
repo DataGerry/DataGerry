@@ -56,6 +56,8 @@ import { PortsTableComponent } from './object-view/ports-overview/components/por
 import { PortFormModalComponent } from './object-view/ports-overview/components/port-form-modal/port-form-modal.component';
 import { PortCreateWizardModalComponent } from './object-view/ports-overview/components/port-create-wizard-modal/port-create-wizard-modal.component';
 import { ConnectionFormModalComponent } from './object-view/ports-overview/components/connection-form-modal/connection-form-modal.component';
+import { InterfaceLinksModalComponent } from './object-view/ports-overview/components/interface-links-modal/interface-links-modal.component';
+import { InterfaceCandidatePickerComponent } from './object-view/ports-overview/components/interface-candidate-picker/interface-candidate-picker.component';
 import { ConnectionEndpointPickerComponent } from './object-view/ports-overview/components/connection-endpoint-picker/connection-endpoint-picker.component';
 import { ChoiceCardGroupComponent } from './object-view/ports-overview/components/choice-card-group/choice-card-group.component';
 import { ObjectOptionPickerComponent } from './object-view/ports-overview/components/object-option-picker/object-option-picker.component';
@@ -132,6 +134,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         PortFormModalComponent,
         PortCreateWizardModalComponent,
         ConnectionFormModalComponent,
+        InterfaceLinksModalComponent,
         RackOverviewComponent,
         RackElevationComponent,
         RackInspectorComponent,
@@ -205,7 +208,8 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ConnectionEndpointPickerComponent,
         ChoiceCardGroupComponent,
         ObjectOptionPickerComponent,
-        CableCiPickerComponent],
+        CableCiPickerComponent,
+        InterfaceCandidatePickerComponent],
     exports: [
         ObjectViewRenderComponent,
         ObjectTableActionsComponent,

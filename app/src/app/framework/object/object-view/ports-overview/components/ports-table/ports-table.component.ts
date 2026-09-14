@@ -75,6 +75,9 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @Input() public canEditConnection = false;
     @Input() public canDisconnect = false;
 
+    /** Reading the interfaces of a port is its own right, so the entry can show without write rights. */
+    @Input() public canViewInterfaces = false;
+
     @Output() public readonly pageChange = new EventEmitter<number>();
     @Output() public readonly pageSizeChange = new EventEmitter<number>();
     @Output() public readonly sortChange = new EventEmitter<Sort>();
@@ -83,6 +86,7 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @Output() public readonly connectPort = new EventEmitter<PortRow>();
     @Output() public readonly editConnection = new EventEmitter<PortRow>();
     @Output() public readonly disconnectPort = new EventEmitter<PortRow>();
+    @Output() public readonly manageInterfaces = new EventEmitter<PortRow>();
 
     @ViewChild('nameTemplate', { static: true }) public nameTemplate: TemplateRef<unknown>;
     @ViewChild('sideTemplate', { static: true }) public sideTemplate: TemplateRef<unknown>;
@@ -145,11 +149,15 @@ export class PortsTableComponent implements OnInit, OnChanges {
         this.disconnectPort.emit(row);
     }
 
+    public onManageInterfaces(row: PortRow): void {
+        this.manageInterfaces.emit(row);
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     /** A row without any permitted action shows a dash instead of an empty menu. */
     public hasRowActions(row: PortRow): boolean {
-        return this.canEdit || this.canDelete || this.hasConnectionActions(row);
+        return this.canEdit || this.canDelete || this.canViewInterfaces || this.hasConnectionActions(row);
     }
 
 

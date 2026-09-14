@@ -1,0 +1,235 @@
+<dg-modal
+  icon="fas fa-network-wired"
+  eyebrow="Port connectivity"
+  [title]="title"
+  [subtitle]="subtitle"
+  [scrollBody]="false"
+  (dismiss)="onClose()">
+
+  <div class="interface-links" [class.interface-links--single]="!canEdit" #layout>
+
+    @if (canEdit && port) {
+      <aside class="interface-links__pane interface-links__form">
+        <h6 class="interface-links__heading">Link an interface</h6>
+
+        <cmdb-interface-candidate-picker
+          [portId]="port.public_id"
+          [allObjects]="searchAllObjects"
+          [appendTo]="dropdownHost"
+          (selectionChange)="onSelectionChange($event)"
+          (totalChange)="onAssignableTotalChange($event)">
+        </cmdb-interface-candidate-picker>
+
+        <app-checkbox
+          id="interface-links-scope"
+          label="Search interfaces of all objects"
+          [checked]="searchAllObjects"
+          (checkedChange)="onToggleScope($event)">
+        </app-checkbox>
+
+        @if (emptyPickerHint) {
+          <p class="interface-links__hint">{{ emptyPickerHint }}</p>
+        }
+
+        <app-form-select
+          bindLabel="label"
+          bindValue="value"
+          label="Relation type"
+          placeholder="Select..."
+          [items]="relationTypes"
+          [appendTo]="dropdownHost"
+          [formControl]="relationControl">
+        </app-form-select>
+
+        @if (selectedRow) {
+          <dl class="interface-links__readout">
+            <dt>Object</dt>
+            <dd>{{ selectedRow.objectLabel }}</dd>
+
+            <dt>IP address</dt>
+            <dd>{{ selectedRow.ip || 'not set' }}</dd>
+
+            <dt>MAC address</dt>
+            <dd>{{ selectedRow.mac || 'not set' }}</dd>
+
+            <dt>Host name</dt>
+            <dd>{{ selectedRow.hostname || 'not set' }}</dd>
+
+            <dt>Subnet</dt>
+            <dd>{{ selectedRow.subnetName || 'not set' }}</dd>
+          </dl>
+
+          <p class="interface-links__note">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+            <span>IP and MAC address are shown from the interface and are not stored on the port.</span>
+          </p>
+        }
+      </aside>
+
+      <div
+        class="interface-links__handle"
+        dgHorizontalResize
+        [dgHorizontalResize]="layout"
+        [dgResizeCssVar]="'--form-width'"
+        [dgResizeMin]="240"
+        [dgResizeMax]="460"
+        [dgResizeMinOpposite]="360"
+        dgResizeAnchor="left"
+        aria-hidden="true"
+        title="Drag to resize">
+        <span class="interface-links__grip" aria-hidden="true"></span>
+      </div>
+    }
+
+    <section class="interface-links__pane interface-links__list-pane">
+      <h6 class="interface-links__heading">Linked interfaces ({{ links.length }})</h6>
+
+      @if (hasError) {
+        <app-warning-alert
+          title="Interfaces could not be loaded:"
+          message="Please close the dialog and try again. If the problem persists, contact your administrator.">
+        </app-warning-alert>
+      }
+
+      @if (danglingCount) {
+        <app-warning-alert
+          title="Interface row missing:"
+          message="A linked interface row no longer exists on its object. Unlink it and link the interface again to repair it.">
+        </app-warning-alert>
+      }
+
+      @if (links.length) {
+        <div class="interface-links__table-wrap">
+          <table class="table table-hover interface-links__table">
+            <thead>
+              <tr>
+                <th scope="col">Interface</th>
+                <th scope="col">Relation type</th>
+                @if (canEdit || canDelete) {
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                }
+              </tr>
+            </thead>
+
+            <tbody>
+              @for (row of links; track row.view.publicId) {
+                <tr [class.interface-links__row--stale]="!row.view.interface">
+                  <td>
+                    @if (row.view.interface) {
+                      <span class="interface-links__label">{{ row.view.interface.label }}</span>
+                      <small class="interface-links__meta">
+                        {{ objectLabelOf(row) }}
+                        @if (row.view.interface.details) {
+                          · {{ row.view.interface.details }}
+                        }
+                      </small>
+                    } @else {
+                      <span class="interface-links__label">
+                        <i class="fas fa-unlink" aria-hidden="true"></i>
+                        Interface row missing
+                      </span>
+                      <small class="interface-links__meta">
+                        {{ objectLabelOf(row) }} · row {{ row.view.reference.interface_multi_data_id }}
+                      </small>
+                    }
+                  </td>
+
+                  <td class="interface-links__relation-cell">
+                    @if (isEditing(row)) {
+                      <app-form-select
+                        class="interface-links__relation"
+                        bindLabel="label"
+                        bindValue="value"
+                        label="Relation type"
+                        placeholder="Select..."
+                        dropdownDirection="auto"
+                        [items]="relationTypes"
+                        [appendTo]="dropdownHost"
+                        [formControl]="row.relationControl">
+                      </app-form-select>
+                    } @else {
+                      <span class="interface-links__badge">{{ row.view.relationLabel }}</span>
+                    }
+                  </td>
+
+                  @if (canEdit || canDelete) {
+                    <td class="interface-links__action-cell">
+                      @if (isEditing(row)) {
+                        <app-button
+                          label=""
+                          icon="fas fa-check"
+                          bootstrapClass="interface-links__icon interface-links__icon--confirm"
+                          title="Save relation type"
+                          ariaLabel="Save relation type"
+                          (clicked)="onSaveRelationType(row)">
+                        </app-button>
+
+                        <app-button
+                          label=""
+                          icon="fas fa-times"
+                          bootstrapClass="interface-links__icon"
+                          title="Cancel"
+                          ariaLabel="Cancel"
+                          (clicked)="onCancelEdit(row)">
+                        </app-button>
+                      } @else {
+                        @if (canEdit && row.view.interface) {
+                          <app-button
+                            label=""
+                            icon="fas fa-pen"
+                            bootstrapClass="interface-links__icon"
+                            title="Change relation type"
+                            [ariaLabel]="'Change relation type of ' + row.view.interface.label"
+                            (clicked)="onStartEdit(row)">
+                          </app-button>
+                        }
+
+                        @if (canDelete) {
+                          <app-button
+                            label=""
+                            icon="fas fa-unlink"
+                            bootstrapClass="interface-links__icon interface-links__icon--danger"
+                            title="Unlink interface"
+                            ariaLabel="Unlink interface"
+                            (clicked)="onUnlink(row)">
+                          </app-button>
+                        }
+                      }
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else if (!hasError) {
+        <p class="interface-links__empty">
+          No interface linked yet - this port carries no logical address.
+        </p>
+      }
+    </section>
+  </div>
+
+  <app-button
+    dgModalFooter
+    label="Close"
+    bootstrapClass="btn-secondary"
+    (clicked)="onClose()">
+  </app-button>
+
+  @if (canEdit) {
+    <app-button
+      dgModalFooter
+      label="Link interface"
+      icon="fas fa-link"
+      bootstrapClass="btn-success"
+      [disabled]="!selectedRow || isWriting"
+      (clicked)="onLink()">
+    </app-button>
+  }
+</dg-modal>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>
