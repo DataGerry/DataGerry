@@ -139,9 +139,6 @@ export interface AssignableInterfaceRequest {
     page: number;
     page_size: number;
     search?: string;
-
-    /** Widens the search past the port's own object to every interface-bearing object. */
-    all_objects?: boolean;
 }
 
 
