@@ -52,9 +52,14 @@ OBJECT_ID: int = 7700
 AUTHOR_ID: int = 1
 
 
-def _face(side: str, names: list[str]) -> dict[str, Any]:
-    """One face of a preview."""
-    return {PortPreviewKey.SIDE.value: side, PortPreviewKey.NAMES.value: names}
+def _face(side: str, names: list[str], numbers: list[int] | None = None) -> dict[str, Any]:
+    """One face of a preview; `numbers` is absent for a syntax with no counter token."""
+    face: dict[str, Any] = {PortPreviewKey.SIDE.value: side, PortPreviewKey.NAMES.value: names}
+
+    if numbers is not None:
+        face[PortPreviewKey.NUMBERS.value] = numbers
+
+    return face
 
 
 def _standard_preview(names: list[str]) -> dict[str, Any]:
@@ -167,6 +172,69 @@ class TestCreateFacePorts:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              the panel's pairing                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
+class TestTheCreatedPortsCarryTheirNumber:
+    """
+    Backlog #201: a bulk-created port stored no `port_number`, so a whole device read back
+    lexicographically
+
+    `get_ports_of_object` sorts by `port_number` then `name`. With the number absent every port of a
+    batch sorted equal and the tiebreak was the name as a string - `Gi0/1, Gi0/10, Gi0/11, ... Gi0/2`.
+    A port made one at a time through `POST /ports/` never had the problem, because that route has
+    always accepted `port_number`; the two create paths disagreed.
+    """
+
+    def test_each_port_stores_the_number_that_rendered_its_name(self) -> None:
+        """Taken from the preview by position, not re-derived - the name and the number are one pair."""
+        manager = _ports_manager([101, 102, 103])
+
+        create_face_ports(
+            manager, OBJECT_ID,
+            _face(PortSide.SINGLE.value, ['Gi0/1', 'Gi0/2', 'Gi0/3'], [1, 2, 3]),
+            AUTHOR_ID, {}, [],
+        )
+
+        assert [call.args[0][PortKey.PORT_NUMBER.value]
+                for call in manager.insert_item.call_args_list] == [1, 2, 3]
+
+    def test_a_second_batch_keeps_its_own_start(self) -> None:
+        """The numbering continues where the previous batch stopped, as the names do."""
+        manager = _ports_manager([104, 105])
+
+        create_face_ports(
+            manager, OBJECT_ID,
+            _face(PortSide.SINGLE.value, ['Gi0/49', 'Gi0/50'], [49, 50]),
+            AUTHOR_ID, {}, [],
+        )
+
+        assert [call.args[0][PortKey.PORT_NUMBER.value]
+                for call in manager.insert_item.call_args_list] == [49, 50]
+
+    def test_a_face_without_numbers_writes_none(self) -> None:
+        """
+        A syntax with no counter renders a name carrying no number
+
+        Writing one anyway would put a value in the field the name does not show.
+        """
+        manager = _ports_manager([101])
+
+        create_face_ports(
+            manager, OBJECT_ID, _face(PortSide.SINGLE.value, ['Uplink']), AUTHOR_ID, {}, [],
+        )
+
+        assert PortKey.PORT_NUMBER.value not in manager.insert_item.call_args.args[0]
+
+    def test_the_shared_values_do_not_override_the_number(self) -> None:
+        """The batch's shared field values are applied first, so the identity always wins."""
+        manager = _ports_manager([101])
+
+        create_face_ports(
+            manager, OBJECT_ID, _face(PortSide.SINGLE.value, ['Gi0/7'], [7]), AUTHOR_ID,
+            {PortKey.PORT_NUMBER.value: 999}, [],
+        )
+
+        assert manager.insert_item.call_args.args[0][PortKey.PORT_NUMBER.value] == 7
+
+
 class TestCreateInternalConnections:
     """The pairing IS the connection."""
 

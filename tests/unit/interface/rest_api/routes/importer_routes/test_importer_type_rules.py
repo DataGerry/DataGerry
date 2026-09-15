@@ -760,6 +760,8 @@ class TestStoredTypeUpdateBlocker:
         """Neither location rule blocks by default; the tests that care patch them again."""
         monkeypatch.setattr(f'{RULES}.location_field_removal_blocker', lambda *_args: None)
         monkeypatch.setattr(f'{RULES}.selectable_as_parent_change_blocker', lambda *_args: None)
+        monkeypatch.setattr(f'{RULES}.field_identifier_change_blocker', lambda *_args: None)
+        monkeypatch.setattr(f'{RULES}.mds_section_identifier_change_blocker', lambda *_args: None)
 
     def test_an_ordinary_update_passes(self) -> None:
         """Nothing about the stored type refuses a plain edit."""
@@ -1019,3 +1021,52 @@ class TestNameConflictCoercesThePublicId:
 
         assert type_name_conflict_error({'name': 'stored-type'}, types_manager) \
             == TypeImportError.TYPE_NAME_EXISTS.format(name='stored-type')
+
+
+class TestTheImportRefusesAnIdentifierRename:
+    """
+    The import writes Types without going through the update route, so it needs the same rule
+
+    It gets it the way every other stored-type rule is shared: the route aborts with the blocker, the
+    import reports it per entry, and both use the identical wording.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _allow_the_other_rules(self, monkeypatch) -> None:
+        """Only the identifier rules are under test here."""
+        monkeypatch.setattr(f'{RULES}.location_field_removal_blocker', lambda *_args: None)
+        monkeypatch.setattr(f'{RULES}.selectable_as_parent_change_blocker', lambda *_args: None)
+
+    def test_a_renamed_field_is_reported(self, monkeypatch) -> None:
+        """An upload that renames a field identifier is refused with the route's own message."""
+        monkeypatch.setattr(f'{RULES}.mds_section_identifier_change_blocker', lambda *_args: None)
+        monkeypatch.setattr(
+            f'{RULES}.field_identifier_change_blocker', lambda *_args: 'field identifier refusal',
+        )
+
+        assert stored_type_update_blocker(
+            IMPORTER, stored_type(), stored_type(), False,
+        ) == 'field identifier refusal'
+
+    def test_a_renamed_mds_section_is_reported(self, monkeypatch) -> None:
+        """The section case loses every row, so the import must refuse it too."""
+        monkeypatch.setattr(f'{RULES}.field_identifier_change_blocker', lambda *_args: None)
+        monkeypatch.setattr(
+            f'{RULES}.mds_section_identifier_change_blocker', lambda *_args: 'mds section refusal',
+        )
+
+        assert stored_type_update_blocker(
+            IMPORTER, stored_type(), stored_type(), False,
+        ) == 'mds section refusal'
+
+    def test_the_identifier_rules_run_before_the_others(self, monkeypatch) -> None:
+        """
+        Order matters only for which message a caller sees first
+
+        The identifier rules are the destructive ones, so they are reported ahead of the rest.
+        """
+        monkeypatch.setattr(f'{RULES}.location_field_removal_blocker', lambda *_args: 'location')
+        monkeypatch.setattr(f'{RULES}.mds_section_identifier_change_blocker', lambda *_args: None)
+        monkeypatch.setattr(f'{RULES}.field_identifier_change_blocker', lambda *_args: 'identifier')
+
+        assert stored_type_update_blocker(IMPORTER, stored_type(), stored_type(), False) == 'identifier'

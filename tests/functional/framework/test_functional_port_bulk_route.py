@@ -279,6 +279,69 @@ class TestStandardBulkCreate:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  a patch panel                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
+class TestTheDeviceReadsBackInItsOwnOrder:
+    """
+    Backlog #201 — the regression nobody had pinned
+
+    The preview listed the ports in the right order and the writer wrote them in that order; the READ
+    was what lost it. With no `port_number` stored, `get_ports_of_object` sorted every port of the
+    batch equal and fell back to the name as a STRING.
+    """
+
+    def test_the_ports_list_numerically_not_lexicographically(self, rest_api, ports) -> None:
+        """
+        The failing case, at the size it actually shows up
+
+        Below ten ports the string order and the numeric order agree, which is why a small fixture
+        would have passed against the bug.
+        """
+        del ports
+        _bulk(rest_api, count=12)
+
+        listed = rest_api.get(f'{PORTS_URL}/object/{OWNER_OBJECT_ID}').get_json()
+
+        assert [port[PortKey.NAME.value] for port in listed] == [f'Gi0/{n}' for n in range(1, 13)]
+
+    def test_every_created_port_carries_its_number(self, rest_api, ports) -> None:
+        """What the ordering rests on."""
+        del ports
+        _bulk(rest_api, count=4)
+
+        listed = rest_api.get(f'{PORTS_URL}/object/{OWNER_OBJECT_ID}').get_json()
+
+        assert [port[PortKey.PORT_NUMBER.value] for port in listed] == [1, 2, 3, 4]
+
+    def test_a_second_batch_continues_the_numbering(self, rest_api, ports) -> None:
+        """Two batches on one device stay in one sequence rather than interleaving."""
+        del ports
+        _bulk(rest_api, count=2)
+        _bulk(rest_api, count=2, start_index=3)
+
+        listed = rest_api.get(f'{PORTS_URL}/object/{OWNER_OBJECT_ID}').get_json()
+
+        assert [port[PortKey.PORT_NUMBER.value] for port in listed] == [1, 2, 3, 4]
+        assert [port[PortKey.NAME.value] for port in listed] == ['Gi0/1', 'Gi0/2', 'Gi0/3', 'Gi0/4']
+
+    def test_the_bulk_and_the_single_create_agree(self, rest_api, ports) -> None:
+        """
+        The inconsistency that made this a bug rather than a missing feature
+
+        `POST /ports/` has always accepted `port_number`, so a hand-made port sorted correctly while a
+        bulk-made one did not - on the same object, in the same panel.
+        """
+        del ports
+        _bulk(rest_api, count=2)
+        rest_api.post(f'{PORTS_URL}/', json={
+            PortKey.OBJECT_ID.value: OWNER_OBJECT_ID,
+            PortKey.NAME.value: 'Gi0/3',
+            PortKey.PORT_NUMBER.value: 3,
+        })
+
+        listed = rest_api.get(f'{PORTS_URL}/object/{OWNER_OBJECT_ID}').get_json()
+
+        assert [port[PortKey.NAME.value] for port in listed] == ['Gi0/1', 'Gi0/2', 'Gi0/3']
+
+
 class TestPanelBulkCreate:
     """Two faces, paired by an INTERNAL connection each."""
 

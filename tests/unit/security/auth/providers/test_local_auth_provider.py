@@ -25,7 +25,7 @@ becoming a refusal rather than escaping as a 500, the missing-collaborator guard
 without a stored password - what an external provider creates - can never authenticate here.
 """
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
@@ -40,6 +40,8 @@ from cmdb.security.auth.providers.local_auth_provider import (
     EMAIL_FIELD,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+MODULE_PATH: str = 'cmdb.security.auth.providers.local_auth_provider'
 
 USER_NAME: str = 'alice'
 MIXED_CASE_USER_NAME: str = 'Alice'
@@ -155,6 +157,52 @@ class TestCredentialCheck:
         with _app().test_request_context('/'):
             with pytest.raises(AuthenticationError):
                 provider.authenticate('', '')
+
+
+class TestTheDigestComparisonIsConstantTime:
+    """
+    Backlog #95: the comparison is `hmac.compare_digest`, not `==`
+
+    Timing cannot be asserted reliably in a unit test - a stopwatch here measures the machine, not the
+    code - so what is pinned is that the constant-time primitive is the one being called, plus that
+    swapping it in changed none of the answers.
+    """
+
+    def test_the_constant_time_primitive_is_used(self) -> None:
+        """`==` would short-circuit on the first differing byte; compare_digest never does."""
+        provider = _provider(_user())
+
+        with _app().test_request_context('/'):
+            with patch(f'{MODULE_PATH}.compare_digest', return_value=True) as mock_compare:
+                provider.authenticate(USER_NAME, PASSWORD)
+
+        mock_compare.assert_called_once_with(PASSWORD_HASH, PASSWORD_HASH)
+
+    def test_a_missing_password_never_reaches_the_comparison(self) -> None:
+        """
+        compare_digest raises TypeError on None
+
+        So the guard has to run first: without it, every directory-provisioned user attempting a local
+        login would get a 500 instead of the refusal this provider is supposed to give.
+        """
+        provider = _provider(_user(password=None))
+
+        with _app().test_request_context('/'):
+            with patch(f'{MODULE_PATH}.compare_digest') as mock_compare:
+                with pytest.raises(AuthenticationError):
+                    provider.authenticate(USER_NAME, PASSWORD)
+
+        mock_compare.assert_not_called()
+
+    def test_the_refusal_names_the_missing_password(self) -> None:
+        """The distinction stays in the log - the route maps every refusal to one 401 regardless."""
+        provider = _provider(_user(password=None))
+
+        with _app().test_request_context('/'):
+            with pytest.raises(AuthenticationError) as caught:
+                provider.authenticate(USER_NAME, PASSWORD)
+
+        assert 'no local password' in str(caught.value)
 
 
 class TestUserLookup:

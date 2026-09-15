@@ -139,7 +139,8 @@ objects_blueprint = APIBlueprint('objects', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.add')
-def insert_cmdb_object(request_user: CmdbUser) -> Response:
+@objects_blueprint.validate(CmdbObject.SCHEMA)
+def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbObject into the database
 
@@ -150,14 +151,20 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
     placement is validated - all BEFORE the write. Afterwards the CmdbLocation mirror, the
     select-option sync, the CREATE webhook, the cloud item count and the create log run best-effort
 
+    The body is validated against ``CmdbObject.SCHEMA`` like the update route's, so a malformed
+    payload is a clean 400 here instead of an error from deeper in the pipeline. ``author_id`` was
+    already mandatory - ``CmdbObject.REQUIRED_INIT_KEYS`` demands it - so the schema only moves where
+    that is reported
+
     Args:
+        data (CmdbObject.SCHEMA): The validated payload of the new CmdbObject
         request_user (CmdbUser): The CmdbUser making the request
 
     Raises:
-        HTTPException: 400 when the ConfigItem limit is reached, the payload is unusable (an existing
-            public_id, an untyped field) or an IPAM invariant is violated, 403 when the IPAM license is
-            missing or the ACL denies the create, 404 when the type is unknown, 500 on an unexpected
-            error or when the created object cannot be read back
+        HTTPException: 400 when the payload fails schema validation, the ConfigItem limit is reached,
+            the payload is unusable (an existing public_id, an untyped field) or an IPAM invariant is
+            violated, 403 when the IPAM license is missing or the ACL denies the create, 404 when the
+            type is unknown, 500 on an unexpected error or when the created object cannot be read back
 
     Returns:
         DefaultResponse: The public_id of the newly inserted CmdbObject
@@ -166,7 +173,7 @@ def insert_cmdb_object(request_user: CmdbUser) -> Response:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        new_object_id: int = apply_object_insert(request.json, request_user, objects_manager, types_manager)
+        new_object_id: int = apply_object_insert(data, request_user, objects_manager, types_manager)
 
         return DefaultResponse(new_object_id).make_response()
     except HTTPException as http_err:

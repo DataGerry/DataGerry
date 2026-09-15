@@ -112,7 +112,17 @@ def create_face_ports(
     Creates every port of one previewed face, in the order the preview listed them
 
     The names come from the preview rather than being generated again, which is what makes the created
-    ports exactly the ones the customer was shown.
+    ports exactly the ones the customer was shown - and so does each port's **number**, so the value
+    stored is the very `{n}` that rendered its name.
+
+    **Storing it is what makes the face readable back in its own order.** `get_ports_of_object` sorts
+    by `port_number` and then by `name`; with the number absent every port of a batch sorted equal and
+    the tiebreak was the name as a STRING, so 48 ports created `Gi0/1 .. Gi0/48` came back
+    `Gi0/1, Gi0/10, Gi0/11, ... Gi0/2, Gi0/20` - while a port made one at a time through `POST /ports/`
+    sorted correctly, because that route has always accepted `port_number`.
+
+    A syntax with no counter token carries no numbers, and those ports are written without one: the
+    name shows no number, so neither does the field.
 
     **`ledger` is appended to in a `finally`, and that is the point.** A face of 24 ports can fail on
     its thirteenth, and the twelve already written have to be rollback-able. Returning them only on
@@ -133,9 +143,11 @@ def create_face_ports(
         list[int]: The created ports' public_ids, in creation order
     """
     created: list[int] = []
+    # Parallel to NAMES, and absent when the syntax carries no counter - see build_face
+    numbers: list[int] = face.get(PortPreviewKey.NUMBERS.value) or []
 
     try:
-        for name in face[PortPreviewKey.NAMES.value]:
+        for position, name in enumerate(face[PortPreviewKey.NAMES.value]):
             candidate: dict[str, Any] = {
                 **base_candidate,
                 PortKey.OBJECT_ID.value: object_id,
@@ -145,6 +157,9 @@ def create_face_ports(
                 PortKey.CREATION_TIME.value: datetime.now(timezone.utc),
                 PortKey.LAST_EDIT_TIME.value: None,
             }
+
+            if position < len(numbers):
+                candidate[PortKey.PORT_NUMBER.value] = numbers[position]
 
             created.append(ports_manager.insert_item(candidate))
     finally:

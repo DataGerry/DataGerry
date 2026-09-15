@@ -58,6 +58,7 @@ from tests.utils.type_import_builders import (
     NEW_PUBLIC_ID,
     IMPORTER,
     IMPORTER_ID,
+    RULES,
     HELPER,
     StubTypesManager,
     StubSectionTemplatesManager,
@@ -524,6 +525,18 @@ class TestUpdateTypeFromEntry:
 
 class TestNormalizationDuringImport:
     """Both per-entry steps repair the entry before it is written."""
+
+    @pytest.fixture(autouse=True)
+    def _allow_identifier_changes(self, monkeypatch) -> None:
+        """
+        These tests are about the repairs, not the identifier rules
+
+        An import replaces a Type's fields wholesale, so a replacement entry routinely looks
+        rename-shaped to `field_identifier_change_blocker` - which would then reach for the real
+        ObjectsManager. The rules themselves are covered in test_importer_type_rules.py.
+        """
+        monkeypatch.setattr(f'{RULES}.field_identifier_change_blocker', lambda *_args: None)
+        monkeypatch.setattr(f'{RULES}.mds_section_identifier_change_blocker', lambda *_args: None)
 
     def test_create_stamps_the_default_icon(self) -> None:
         """A created type without an icon is stored with the placeholder."""

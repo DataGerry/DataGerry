@@ -68,7 +68,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     build_location_usage_payload,
     get_type_or_404,
     get_type_instance_or_404,
+    guard_field_identifier_change,
     guard_location_field_removal,
+    guard_mds_section_identifier_change,
     guard_selectable_as_parent_change,
     guard_uses_ports_change,
     build_uses_ports_usage_payload,
@@ -614,9 +616,10 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
     Requires the ``base.framework.type.edit`` right and ApiLevel.ADMIN. The write is always a full
     document (there is no partial update): the editor and the edit time are stamped server-side, the
-    identity is pinned to the URL public_id, and three changes are refused outright - changing the
-    SpecialType, removing the location field while CmdbObjects still hold a location value, and
-    turning 'selectable_as_parent' off while CmdbObjects of the Type are placed in the tree
+    identity is pinned to the URL public_id, and several changes are refused outright - changing the
+    SpecialType, renaming a field or a multi-data-section identifier while the Type has Objects,
+    removing the location field while CmdbObjects still hold a location value, and turning
+    'selectable_as_parent' off while CmdbObjects of the Type are placed in the tree
 
     Once the document is written, the side effects run (dropped global templates removed,
     SpecialType ref_types re-wired, label/icon/selectable propagated to the Type's CmdbLocations,
@@ -662,6 +665,12 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         if not special_type_is_unchanged(old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE)):
             abort(400, "It is not possible to change the SpecialType property of Types!")
+
+        # A field's name IS its identity - every CmdbObject keys its stored values by it - so a
+        # rename would empty that value on every Object. Same for a multi-data-section, whose name is
+        # the section_id an Object stores its rows under: a rename drops every row
+        guard_field_identifier_change(request_user, old_type, new_type)
+        guard_mds_section_identifier_change(request_user, old_type, new_type)
 
         # Block removal of the location field while CmdbObjects still hold a location value
         guard_location_field_removal(request_user, old_type, new_type)

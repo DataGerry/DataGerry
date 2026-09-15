@@ -18,8 +18,9 @@ Unit tests for cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_
 
 Each route handler is unwrapped past its auth / validation / parse decorators and driven inside a
 Flask test_request_context. TypesManager (and the other managers) are patched via ManagerProvider;
-the route helpers (verify_type_is_unique, get_type_or_404, guard_location_field_removal,
-guard_referenced_section_removal, guard_uses_ports_change, ...) and
+the route helpers (verify_type_is_unique, get_type_or_404, guard_field_identifier_change,
+guard_mds_section_identifier_change, guard_location_field_removal, guard_referenced_section_removal,
+guard_uses_ports_change, ...) and
 the response factories are patched at the route module path, so only the route glue - status-code
 mapping, branch selection and the order of helper/manager calls - is exercised. No Mongo and no
 blueprint registration run
@@ -592,7 +593,9 @@ class TestUpdateCmdbType:
             patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)),
             patch(f'{ROUTE_PATH}.CmdbType'),
             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True),
-            patch(f'{ROUTE_PATH}.guard_location_field_removal'),
+            patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_location_field_removal'),
             patch(f'{ROUTE_PATH}.guard_referenced_section_removal'),
             patch(f'{ROUTE_PATH}.guard_uses_ports_change'),
             patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change'),
@@ -663,6 +666,8 @@ class TestUpdateCmdbType:
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal', side_effect=BadRequest()), \
              patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
              patch(f'{ROUTE_PATH}.guard_uses_ports_change'), \
@@ -685,6 +690,8 @@ class TestUpdateCmdbType:
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
              patch(f'{ROUTE_PATH}.guard_referenced_section_removal', side_effect=BadRequest()), \
              pytest.raises(HTTPException) as exc_info:
@@ -702,6 +709,8 @@ class TestUpdateCmdbType:
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
              patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
              patch(f'{ROUTE_PATH}.guard_uses_ports_change'), \
@@ -724,6 +733,8 @@ class TestUpdateCmdbType:
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
              patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
              patch(f'{ROUTE_PATH}.guard_selectable_as_parent_change'), \
@@ -742,6 +753,8 @@ class TestUpdateCmdbType:
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
              patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
              patch(f'{ROUTE_PATH}.guard_uses_ports_change'), \
@@ -802,6 +815,8 @@ class TestUpdateCmdbType:
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.CmdbType') as cmdb_type, \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
+             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
+             patch(f'{ROUTE_PATH}.guard_mds_section_identifier_change'), \
              patch(f'{ROUTE_PATH}.guard_location_field_removal'), \
              patch(f'{ROUTE_PATH}.guard_referenced_section_removal'), \
              patch(f'{ROUTE_PATH}.guard_uses_ports_change'), \

@@ -175,6 +175,60 @@ class TestPostObject:
         finally:
             _drop_object(database_manager, database_name, OBJECT_ID_FOR_CREATE)
 
+    def test_the_frontend_payload_shape_is_accepted(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The exact shape `new CmdbObject()` serialises to in object-add.component.ts
+
+        Pinned because the create route gained `@validate(CmdbObject.SCHEMA)` (backlog #2) and the
+        validator purges unknown keys: the frontend class initialises `status`, which the schema does
+        not declare. It was never stored anyway - `CmdbObject.from_data`/`to_json` already dropped it -
+        so purging changes nothing, and this test is what keeps that true.
+        """
+        try:
+            response = rest_api.post(f'{ROUTE_URL}/', json={
+                'public_id': OBJECT_ID_FOR_CREATE,
+                'type_id': TYPE_ID,
+                'status': True,                       # sent by the frontend, absent from the schema
+                'version': '1.0.0',
+                'author_id': 1,
+                'ci_explorer_tooltip': None,
+                'active': True,
+                'fields': [{'name': NAME_FIELD, 'value': ORIGINAL_VALUE}],
+                'multi_data_sections': [],
+            })
+
+            assert response.status_code == HTTPStatus.OK
+            stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+                .find_one({'public_id': OBJECT_ID_FOR_CREATE})
+            assert stored['fields'][0]['value'] == ORIGINAL_VALUE
+            assert 'status' not in stored
+        finally:
+            _drop_object(database_manager, database_name, OBJECT_ID_FOR_CREATE)
+
+    def test_a_payload_without_an_author_is_refused(self, rest_api) -> None:
+        """
+        `author_id` is required by the schema - and was already required by the model
+
+        `CmdbObject.REQUIRED_INIT_KEYS` demands it, so this was always refused; the schema only moves
+        where it is reported, from deep in the insert pipeline to a clean 400 at the boundary.
+        """
+        response = rest_api.post(f'{ROUTE_URL}/', json={'type_id': TYPE_ID, 'fields': []})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_misTyped_field_list_is_refused_at_the_boundary(self, rest_api) -> None:
+        """`fields` must be a list; a string used to travel further into the pipeline before failing."""
+        response = rest_api.post(f'{ROUTE_URL}/', json={
+            'type_id': TYPE_ID, 'author_id': 1, 'fields': 'not-a-list',
+        })
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
     def test_duplicate_public_id_returns_400(
         self,
         rest_api,

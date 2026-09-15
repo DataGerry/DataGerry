@@ -45,7 +45,9 @@ from cmdb.models.type_model import (
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils import coerce_whole_number, duplicate_names, parse_import_bool, is_non_blank_string
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    field_identifier_change_blocker,
     location_field_removal_blocker,
+    mds_section_identifier_change_blocker,
     selectable_as_parent_change_blocker,
     uses_ports_change_blocker,
     special_type_is_unchanged,
@@ -957,7 +959,7 @@ def stored_type_update_blocker(
     """
     Applies the rules that can only be decided against the STORED CmdbType
 
-    Everything else an import checks looks at the upload alone; these four need to know what the type
+    Everything else an import checks looks at the upload alone; these need to know what the type
     currently is, so they run once the pre-update read is in hand:
 
     1. the license feature must be unlocked to touch a type that IS a license-gated special type
@@ -965,6 +967,8 @@ def stored_type_update_blocker(
        otherwise slip past. Every gated member currently maps to IPAM, RACK included
     2. `special_type` may not be changed by an update (the marker is immutable; an upload declaring a
        different one is refused rather than silently ignored)
+    2a. a field identifier, or a multi-data-section identifier, may not be renamed while the type has
+       Objects - the name IS the key every Object stores its values and rows under
     3. the location field may not be removed while CmdbObjects still hold a location value
     4. `selectable_as_parent` may not be turned off while CmdbObjects of the type are placed
     5. a section may not be removed (or renamed) while another CmdbType pulls its fields through a
@@ -972,7 +976,7 @@ def stored_type_update_blocker(
     6. a referenced section may not be left with none of the fields such a dependent shows
     7. `uses_ports` may not be turned off while Ports of the Type's Objects still exist
 
-    Rules 3 to 7 delegate to the very blockers the normal update route aborts with, so the import and
+    Rules 2a to 7 delegate to the very blockers the normal update route aborts with, so the import and
     the route refuse the same edits with the same wording
 
     Args:
@@ -996,7 +1000,9 @@ def stored_type_update_blocker(
         return TypeImportError.SPECIAL_TYPE_IMMUTABLE.format(stored=stored_marker, uploaded=uploaded_marker)
 
     return (
-        location_field_removal_blocker(request_user, old_type, new_type)
+        field_identifier_change_blocker(request_user, old_type, new_type)
+        or mds_section_identifier_change_blocker(request_user, old_type, new_type)
+        or location_field_removal_blocker(request_user, old_type, new_type)
         or selectable_as_parent_change_blocker(request_user, old_type, new_type)
         or referenced_section_removal_blocker(request_user, old_type, new_type)
         or referenced_section_field_removal_blocker(request_user, old_type, new_type)

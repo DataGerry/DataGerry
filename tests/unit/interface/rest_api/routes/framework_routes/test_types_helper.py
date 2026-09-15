@@ -45,6 +45,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     UsesPortsUsageKey,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    describe_identifier_swap,
+    field_identifier_change_blocker,
+    guard_field_identifier_change,
+    guard_mds_section_identifier_change,
+    mds_section_identifier_change_blocker,
+    type_has_objects,
     get_types_user_data,
     get_type_or_404,
     get_type_instance_or_404,
@@ -1162,3 +1168,160 @@ class TestGuardUsesPortsChange:
         """An allowed update must not raise"""
         with _patch_managers_by_type(_port_managers([OWNER_ID], 0)):
             guard_uses_ports_change(MagicMock(), _uses_ports_type(True), _uses_ports_type(False))
+
+
+# ------------------------------------------- the identifier guards (G1) --------------------------------------------- #
+# A field's `name` and a multi-data-section's `name` ARE their identity - every CmdbObject keys its
+# stored values and rows by them, and nothing sits underneath. A rename is therefore indistinguishable
+# from one removal plus one addition, which is exactly the shape these refuse.
+
+def _type_with_fields(*names: str, mds_sections: tuple[str, ...] = ()) -> Any:
+    """A CmdbType stand-in carrying a flat field list and, optionally, MDS section ids."""
+    return SimpleNamespace(
+        public_id=77,
+        fields=[{FieldKey.NAME: name, FieldKey.TYPE: FieldType.TEXT} for name in names],
+        get_mds_section_ids=lambda: set(mds_sections),
+    )
+
+
+class TestDescribeIdentifierSwap:
+    """The pure rename detector both guards are built on."""
+
+    def test_a_removal_with_an_addition_is_rename_shaped(self) -> None:
+        """The only shape a rename can take, since a field carries no id but its name."""
+        assert describe_identifier_swap({'a', 'b'}, {'a', 'c'}) == (['b'], ['c'])
+
+    def test_a_pure_removal_is_not_a_rename(self) -> None:
+        """Dropping a field is a supported operation and stays allowed."""
+        assert describe_identifier_swap({'a', 'b'}, {'a'}) is None
+
+    def test_a_pure_addition_is_not_a_rename(self) -> None:
+        """Adding a field cannot lose anything."""
+        assert describe_identifier_swap({'a'}, {'a', 'b'}) is None
+
+    def test_an_unchanged_set_is_not_a_rename(self) -> None:
+        """A metadata-only edit - label, regex, order - touches no identifier."""
+        assert describe_identifier_swap({'a', 'b'}, {'b', 'a'}) is None
+
+    def test_both_sides_are_reported_sorted(self) -> None:
+        """The message names what went and what came, so the caller can see the swap."""
+        assert describe_identifier_swap({'a', 'b', 'c'}, {'z', 'y', 'c'}) == (['a', 'b'], ['y', 'z'])
+
+
+class TestFieldIdentifierChange:
+    """Renaming a field identifier - the flat list, which also holds every MDS field definition."""
+
+    def test_a_rename_is_refused_while_objects_exist(self) -> None:
+        """The value would be emptied on every Object of the Type."""
+        with patch(f'{PATH}.type_has_objects', return_value=True), pytest.raises(HTTPException) as exc:
+            guard_field_identifier_change(
+                MagicMock(), _type_with_fields('dg-hostname'), _type_with_fields('dg-host-name'),
+            )
+
+        assert exc.value.code == HTTP_BAD_REQUEST
+        assert 'dg-hostname' in exc.value.description
+        assert 'dg-host-name' in exc.value.description
+
+    def test_a_rename_is_allowed_while_the_type_has_no_objects(self) -> None:
+        """A Type still being designed carries no values to lose, like every sibling guard."""
+        with patch(f'{PATH}.type_has_objects', return_value=False):
+            guard_field_identifier_change(
+                MagicMock(), _type_with_fields('dg-hostname'), _type_with_fields('dg-host-name'),
+            )  # must not raise
+
+    def test_a_pure_removal_is_still_allowed(self) -> None:
+        """Dropping a field remains supported - this guard is about renaming, nothing else."""
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            guard_field_identifier_change(
+                MagicMock(), _type_with_fields('a', 'b'), _type_with_fields('a'),
+            )  # must not raise
+
+    def test_a_pure_addition_is_still_allowed(self) -> None:
+        """Adding a field loses nothing."""
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            guard_field_identifier_change(
+                MagicMock(), _type_with_fields('a'), _type_with_fields('a', 'b'),
+            )  # must not raise
+
+    def test_the_object_count_is_not_asked_for_an_unchanged_field_set(self) -> None:
+        """A metadata-only edit must not cost a count on every Type update."""
+        with patch(f'{PATH}.type_has_objects') as mock_count:
+            field_identifier_change_blocker(
+                MagicMock(), _type_with_fields('a', 'b'), _type_with_fields('a', 'b'),
+            )
+
+        mock_count.assert_not_called()
+
+    def test_the_blocker_reports_instead_of_aborting(self) -> None:
+        """The type import reports it per entry rather than aborting the whole batch."""
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            blocker = field_identifier_change_blocker(
+                MagicMock(), _type_with_fields('old'), _type_with_fields('new'),
+            )
+
+        assert blocker is not None
+        assert 'separate updates' in blocker
+
+
+class TestMdsSectionIdentifierChange:
+    """Renaming a multi-data-section - the most destructive of the three, it drops every row."""
+
+    def test_a_rename_is_refused_while_objects_exist(self) -> None:
+        """The MDS propagation matches sections on (type, name), so a rename reads as a removal."""
+        old_type = _type_with_fields('a', mds_sections=('dg-rows',))
+        new_type = _type_with_fields('a', mds_sections=('dg-rows-renamed',))
+
+        with patch(f'{PATH}.type_has_objects', return_value=True), pytest.raises(HTTPException) as exc:
+            guard_mds_section_identifier_change(MagicMock(), old_type, new_type)
+
+        assert exc.value.code == HTTP_BAD_REQUEST
+        assert 'dg-rows' in exc.value.description
+
+    def test_a_rename_is_allowed_while_the_type_has_no_objects(self) -> None:
+        """No rows exist yet."""
+        old_type = _type_with_fields('a', mds_sections=('dg-rows',))
+        new_type = _type_with_fields('a', mds_sections=('dg-rows-renamed',))
+
+        with patch(f'{PATH}.type_has_objects', return_value=False):
+            guard_mds_section_identifier_change(MagicMock(), old_type, new_type)  # must not raise
+
+    def test_removing_a_section_outright_is_still_allowed(self) -> None:
+        """Dropping an MDS section is a supported operation with its own propagation."""
+        old_type = _type_with_fields('a', mds_sections=('dg-rows', 'dg-other'))
+        new_type = _type_with_fields('a', mds_sections=('dg-rows',))
+
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            guard_mds_section_identifier_change(MagicMock(), old_type, new_type)  # must not raise
+
+    def test_the_blocker_reports_instead_of_aborting(self) -> None:
+        """Same two-path shape as every other rule on this route."""
+        old_type = _type_with_fields('a', mds_sections=('dg-rows',))
+        new_type = _type_with_fields('a', mds_sections=('dg-new',))
+
+        with patch(f'{PATH}.type_has_objects', return_value=True):
+            blocker = mds_section_identifier_change_blocker(MagicMock(), old_type, new_type)
+
+        assert blocker is not None
+        assert 'rows' in blocker
+
+
+class TestTypeHasObjects:
+    """The shared condition - one count, no documents loaded."""
+
+    def test_it_counts_the_objects_of_the_type(self) -> None:
+        """Counted server-side; the guards never load an Object to decide."""
+        objects_manager = MagicMock()
+        objects_manager.count_documents.return_value = 3
+
+        with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
+            assert type_has_objects(MagicMock(), 77) is True
+
+        assert objects_manager.count_documents.call_args.args[0][CmdbObjectKey.TYPE_ID] == 77
+
+    def test_no_objects_is_false(self) -> None:
+        """What lets a Type still being designed be reshaped freely."""
+        objects_manager = MagicMock()
+        objects_manager.count_documents.return_value = 0
+
+        with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
+            assert type_has_objects(MagicMock(), 77) is False

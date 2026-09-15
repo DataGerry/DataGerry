@@ -266,7 +266,10 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
                  patch(f'{HELPER_PATH}.handle_sync_config_item_count') as sync:
                 cmdb_object.from_data.return_value = SimpleNamespace(has_fields_of_type=lambda field_type: False)
 
-                _unwrap(insert_cmdb_object)(request_user=request_user)
+                # The route is @validate-decorated now, so it takes the validated body
+                _unwrap(insert_cmdb_object)(
+                    data={'type_id': 1, 'author_id': 1, 'fields': []}, request_user=request_user,
+                )
 
         # Off-by-one guard: no count is forwarded, so the pre-insert 5 can never reach the portal
         sync.assert_called_once_with(request_user)

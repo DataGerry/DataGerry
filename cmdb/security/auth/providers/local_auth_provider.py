@@ -24,13 +24,18 @@ compared with the stored hash. Two properties of that hash decide what this prov
       no per-user salt, and the scheme is frozen - changing it would invalidate every stored password
     - a CmdbUser without a stored password can therefore never authenticate here. That is what keeps
       users provisioned by an external provider (the LDAP one creates them without a password) out of the
-      local login instead of letting an empty or absent hash decide
+      local login instead of letting an empty or absent hash decide - refused explicitly, before the
+      digests are compared at all
+
+The digest comparison is `hmac.compare_digest`, not `==`, so it takes the same time whether the two
+values differ in the first byte or not at all (backlog #95)
 
 Every refusal is an `AuthenticationError`, because `AuthModule.login` treats exactly that as "this
 provider says no" and moves on to the next configured provider. The caller never learns which refusal it
 was: `auth_helper.local_login` maps them all to one 401, on purpose, so a failed login does not reveal
 whether the user name exists.
 """
+from hmac import compare_digest
 from logging import Logger, getLogger
 
 from flask import current_app
@@ -94,7 +99,21 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
         if not user:
             raise AuthenticationError(f"{LocalAuthenticationProvider.get_name()}: User not found!")
 
-        if self.security_manager.generate_hmac(password) == user.password:
+        # A CmdbUser provisioned by an external provider carries NO password (the LDAP provider creates
+        # them that way on purpose), so there is nothing to compare against. Checked before the
+        # comparison rather than left to it: compare_digest raises TypeError on None, which would turn
+        # this provider's clean refusal into a 500 for every directory user attempting a local login
+        if not user.password:
+            raise AuthenticationError(
+                f"{LocalAuthenticationProvider.get_name()}: CmdbUser has no local password!"
+            )
+
+        # compare_digest rather than '==': the latter returns as soon as two bytes differ, so how long
+        # it runs depends on how much of the two digests matched. Not exploitable as written - the
+        # attacker supplies the password, not the digest it hashes to, and cannot steer that prefix -
+        # but this is the only secret comparison in the codebase, and the constant-time one is what
+        # should be copied when something the caller DOES control is ever compared
+        if compare_digest(self.security_manager.generate_hmac(password), user.password):
             return user
 
         raise AuthenticationError(f"{LocalAuthenticationProvider.get_name()}: Password did not matched with hmac!")
