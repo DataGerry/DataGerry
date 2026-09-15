@@ -26,8 +26,11 @@ from typing import Any
 
 DEFAULT_AUTHENTICATOR: str = 'LocalAuthenticationProvider'
 DEFAULT_GROUP: int = 2
-DEFAULT_API_LEVEL = 0
-DEFAULT_CONFIG_ITEMS_LIMIT = 1000
+DEFAULT_API_LEVEL: int = 0
+DEFAULT_CONFIG_ITEMS_LIMIT: int = 1000
+# Database a CmdbUser belongs to when the document names none. Only meaningful in cloud mode, where
+# each subscription owns its own database; on-premise every user lives in the single configured one
+DEFAULT_DATABASE: str = 'test'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801

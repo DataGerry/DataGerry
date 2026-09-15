@@ -32,23 +32,37 @@ def get_isms_likelihood_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsLikelihood.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
+
     return {
-        'public_id': {  # public_id of the IsmsLikelihood
+        LikelihoodKey.PUBLIC_ID.value: {  # public_id of the IsmsLikelihood
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the likelihood level
+        LikelihoodKey.NAME.value: {  # Name of the likelihood level
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'calculation_basis': {  # Numeric weight of this likelihood level used in risk calculation (>= 1e-9)
+        # Numeric weight of this likelihood level used in risk calculation. Greater than zero, as on
+        # the impact scale - the other axis of the same matrix - and as the frontend's nonZeroValidator
+        # requires: a zero-weight level would flatten every risk that uses it
+        LikelihoodKey.CALCULATION_BASIS.value: {
             'type': 'float',
             'min': 1e-9,
             'required': True,
             'empty': False,
         },
-        'description': {  # Optional description of the likelihood level
+        # Optional description of the likelihood level. Nullable because that is what the model emits
+        # for a level created without one, and the frontend's edit form sends back what it was given -
+        # a non-nullable rule here answered 'null value not allowed' on a save that changed nothing
+        LikelihoodKey.DESCRIPTION.value: {
             'type': 'string',
+            'required': False,
+            'nullable': True,
         },
     }

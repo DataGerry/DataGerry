@@ -17,11 +17,13 @@
 Implementation of UpdateMultiResponse
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
+from cmdb.interface.rest_api.responses.response_constants import ResponseKey
 from cmdb.framework.importer.messages.response_failed_message import ResponseFailedMessage
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -34,7 +36,7 @@ class UpdateMultiResponse(BaseAPIResponse):
     """
     API Response for update call of multiple resources
     """
-    def __init__(self, results: list[dict], failed: list[ResponseFailedMessage] = None) -> None:
+    def __init__(self, results: list[dict], failed: list[ResponseFailedMessage] | None = None) -> None:
         """
         Initialises the UpdateMultiResponse
 
@@ -47,27 +49,34 @@ class UpdateMultiResponse(BaseAPIResponse):
         super().__init__(operation_type=OperationType.UPDATE)
 
 
-    def make_response(self, *args, **kwargs) -> Response:
+    def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
-        Make a valid http response
+        Builds the http response for the bulk update
 
         Args:
-            *args:
-            **kwargs:
+            *args (Any): Unused; kept so every response answers to the same call
+            **kwargs (Any): Unused; kept so every response answers to the same call
 
         Returns:
-            Instance of Response with http status code 202
+            Response: The http response with a HTTP 202 status code
         """
-        response = self.make_api_response(self.export(), 202)
-
-        return response
+        return self.make_api_response(self.export(), 202)
 
 
-    def export(self, *args, **kwargs) -> dict:
+    def export(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
-        Get the update instance as dict
+        Returns the response payload as a dict
+
+        Args:
+            *args (Any): Forwarded to the base envelope
+            **kwargs (Any): Forwarded to the base envelope
+
+        Returns:
+            dict[str, Any]: The updated resources under `results` and the rejected ones under
+                `failed`, plus the envelope keys
         """
-        return {**{
-            'results': self.results,
-            'failed': self.failed,
-        }, **super().export(*args, **kwargs)}
+        return {
+            ResponseKey.RESULTS.value: self.results,
+            ResponseKey.FAILED.value: self.failed,
+            **super().export(*args, **kwargs),
+        }

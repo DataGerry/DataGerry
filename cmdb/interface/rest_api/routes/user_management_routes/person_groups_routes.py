@@ -15,6 +15,19 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for CmdbPersonGroups
+
+Every route here is ADMIN-level and rights-protected. Two things govern what the write routes do
+beyond the plain CRUD:
+
+**Membership is written on both sides.** The ``group_members`` list of the payload is stored on the
+group AND mirrored into the ``groups`` of each named CmdbPerson, so the create and update routes make a
+second, reciprocal call after the group itself is persisted. The ids are checked first
+(``abort_on_unknown_references``): an unknown person id used to be stored and then mirrored into
+nothing, leaving the two sides permanently disagreeing.
+
+**Deleting is one manager call.** ``PersonGroupsManager.delete_with_follow_up`` clears the ISMS
+references, removes the group from every person and deletes the document; the route does not clean
+anything up itself, so a group deleted by any other caller is cleaned up the same way
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -27,7 +40,11 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.person_group_model import CmdbPersonGroup
+from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey
+
+from cmdb.interface.rest_api.routes.user_management_routes.person_membership_helper import (
+    abort_on_unknown_references,
+)
 
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
@@ -49,6 +66,7 @@ from cmdb.errors.manager.person_groups_manager import (
     PersonGroupsManagerDeleteError,
     PersonGroupsManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -70,6 +88,11 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
         data (CmdbPersonGroup.SCHEMA): Data of the CmdbPersonGroup which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 if a referenced CmdbPerson does not exist or the write fails,
+                       404 if the created CmdbPersonGroup could not be read back,
+                       500 on any unexpected error
+
     Returns:
         InsertSingleResponse: The new CmdbPersonGroup and its public_id
     """
@@ -78,10 +101,13 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
                                                                                  request_user)
         persons_manager: PersonsManager = ManagerProvider.get_manager(ManagerType.PERSON, request_user)
 
+        # Refuse a membership naming a person that does not exist, before anything is written
+        selected_person_ids = data.get(PersonGroupKey.GROUP_MEMBERS.value) or []
+        abort_on_unknown_references(persons_manager, selected_person_ids, 'Person')
+
         result_id = person_groups_manager.insert_item(data)
 
         # Add the new group to each of its selected member persons
-        selected_person_ids = data.get('group_members', [])
         persons_manager.add_group_to_persons(result_id, selected_person_ids)
 
         created_person_group = person_groups_manager.get_item(result_id, as_dict=True)
@@ -111,17 +137,20 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
 @person_group_blueprint.parse_collection_parameters()
 def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route for getting multiple CmdbPersonGroupGroups
+    HTTP `GET`/`HEAD` route for getting multiple CmdbPersonGroups
 
     Args:
-        params (CollectionParameters): Filter for requested CmdbPersonGroupGroups
+        params (CollectionParameters): Filter for requested CmdbPersonGroups
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 if the CmdbPersonGroups could not be read, 500 on any unexpected error
+
     Returns:
-        GetMultiResponse: All the CmdbPersonGroupGroups matching the CollectionParameters
+        GetMultiResponse: All the CmdbPersonGroups matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body = request_wants_body()
 
         person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(ManagerType.PERSON_GROUP,
                                                                                  request_user)
@@ -158,6 +187,10 @@ def get_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
         public_id (int): public_id of the CmdbPersonGroup
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 404 if no CmdbPersonGroup carries the public_id, 400 if it could not be read,
+                       500 on any unexpected error
+
     Returns:
         GetSingleResponse: The requested CmdbPersonGroup
     """
@@ -168,7 +201,7 @@ def get_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
         requested_person_group = person_groups_manager.get_item(public_id, as_dict=True)
 
         if requested_person_group:
-            return GetSingleResponse(requested_person_group, body = request.method == 'HEAD').make_response()
+            return GetSingleResponse(requested_person_group, body=request_wants_body()).make_response()
 
         abort(404, f"The PersonGroup with ID:{public_id} was not found!")
     except HTTPException as http_err:
@@ -196,6 +229,10 @@ def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user:
         data (CmdbPersonGroup.SCHEMA): New CmdbPersonGroup data
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 404 if no CmdbPersonGroup carries the public_id, 400 if a referenced CmdbPerson
+                       does not exist or the write fails, 500 on any unexpected error
+
     Returns:
         UpdateSingleResponse: The new data of the CmdbPersonGroup
     """
@@ -209,15 +246,19 @@ def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user:
         if not to_update_person_group:
             abort(404, f"The PersonGroup with ID:{public_id} was not found!")
 
-        # Check for added or removed persons
-        existing_persons = set(to_update_person_group.get('group_members', []))  # old person public_ids
-        updated_persons = set(data.get('group_members', []))  # new person public_ids
+        # Check for added or removed persons. Read with 'or []' rather than a .get() default: a
+        # document written before updater_20260909 can carry null here, and set(None) raises
+        existing_persons = set(to_update_person_group.get(PersonGroupKey.GROUP_MEMBERS.value) or [])
+        updated_persons = set(data.get(PersonGroupKey.GROUP_MEMBERS.value) or [])
 
         persons_to_add = updated_persons - existing_persons  # New persons
         persons_to_remove = existing_persons - updated_persons  # Removed persons
 
+        # Refuse a membership naming a person that does not exist, before anything is written
+        abort_on_unknown_references(persons_manager, persons_to_add, 'Person')
+
         # Pin the public_id to the URL so a forged body public_id cannot rewrite the document identity
-        data['public_id'] = public_id
+        data[PersonGroupKey.PUBLIC_ID.value] = public_id
 
         # Persist the PersonGroup first, then sync the reciprocal person membership only on success
         person_groups_manager.update_item(public_id, CmdbPersonGroup.from_data(data))
@@ -251,23 +292,25 @@ def delete_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response
         public_id (int): public_id of the CmdbPersonGroup which should be deleted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 404 if no CmdbPersonGroup carries the public_id, 400 if the read or the
+                       deletion fails, 500 on any unexpected error
+
     Returns:
         DeleteSingleResponse: The deleted CmdbPersonGroup data
     """
     try:
         person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(ManagerType.PERSON_GROUP,
                                                                                  request_user)
-        persons_manager: PersonsManager = ManagerProvider.get_manager(ManagerType.PERSON, request_user)
 
         to_delete_person_group = person_groups_manager.get_item(public_id, as_dict=True)
 
         if not to_delete_person_group:
             abort(404, f"The PersonGroup with ID:{public_id} was not found!")
 
+        # One call: the manager clears the ISMS references, removes the group from every CmdbPerson
+        # listing it and deletes the document
         person_groups_manager.delete_with_follow_up(public_id)
-
-        # Delete the group from all persons
-        persons_manager.delete_group_from_persons(public_id)
 
         return DeleteSingleResponse(to_delete_person_group).make_response()
     except HTTPException as http_err:

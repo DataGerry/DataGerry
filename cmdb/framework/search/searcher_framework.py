@@ -14,18 +14,40 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of SearcherFramework
+This module contains the implementation of the SearcherFramework
+
+The object search runs as ONE aggregation: the criteria the caller built are followed by a ``$facet``
+(see `search_facet`) whose three branches answer the total, the requested page and the per-type
+tallies of the same matched set. This class runs it, renders the page and wraps everything in a
+`SearchResult`, which additionally reports per hit which of its fields matched the search patterns.
+
+Three things are worth knowing before changing anything here:
+
+* **The access control arrives inside the incoming pipeline.** `SearchPipelineBuilder.build(...)` is
+  called with the request user and `AccessControlPermission.READ` by the routes, so the criteria are
+  already ACL-filtered when they reach this class - which is why it takes no user for the query and
+  passes one only to the renderer.
+* **`groups` is a frontend contract.** Each entry is a ready-made TYPE search parameter that the
+  Angular result bar re-submits; its keys are `SearchGroupKey`.
+* **A page of 0 means every match.** The paging semantics live in `search_facet.build_page_stages`,
+  the one place that also knows MongoDB refuses a `$limit: 0`.
+
+`SearchPipelineBuilder` is imported from the manager layer on purpose: the framework layer sits above
+the managers (see CLAUDE.md), so this is a downward dependency
 """
 from logging import Logger, getLogger
+from typing import Any
 
-from cmdb.manager.query_builder.search_pipeline_builder import SearchPipelineBuilder #TODO: IMPORT-FIX
+from cmdb.manager.query_builder.search_pipeline_builder import SearchPipelineBuilder
 from cmdb.manager import ObjectsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model import CmdbType
+
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.search.search_constants import SearchFacetKey, SearchGroupKey
+from cmdb.framework.search.search_facet import build_search_facet
 from cmdb.framework.search.search_result import SearchResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -38,108 +60,158 @@ class SearcherFramework:
     """
     Framework searcher implementation for object search
     """
+
+    # Page size used when a request names none. Read by the search route, which passes it on as the
+    # default of its ?limit= parameter
     DEFAULT_LIMIT: int = 10
+
+    # The "no search term" sentinel of the quick-count route's ?searchValue=: an empty pattern
+    # matches every object, which is what an untyped quick search means
     DEFAULT_REGEX: str = ''
 
 
-    def __init__(self, objects_manager: ObjectsManager):
-        self.objects_manager = objects_manager
+    def __init__(self, objects_manager: ObjectsManager) -> None:
+        """
+        Initialises the SearcherFramework
+
+        Args:
+            objects_manager (ObjectsManager): db interface for CmdbObjects, which runs the aggregation
+        """
+        self.objects_manager: ObjectsManager = objects_manager
 
 
     def aggregate(
         self,
-        pipeline: list[dict],
+        pipeline: list[dict[str, Any]],
         request_user: CmdbUser | None = None,
         limit: int = DEFAULT_LIMIT,
         skip: int = 0,
-        **kwargs
+        resolve: bool = False,
     ) -> SearchResult[RenderResult]:
         """
-        Use mongodb aggregation system with pipeline queries
+        Runs a search pipeline and answers with one rendered page plus the search's metadata
+
+        The caller's criteria are extended by the search ``$facet``, so the total, the page and the
+        per-type groups come out of a single aggregation. Only the page is rendered. The criteria are
+        expected to carry their own access-control stages (the routes build them with the request
+        user), so `request_user` is passed to the renderer rather than to the query
+
         Args:
-            pipeline (list[dict]): list of requirement pipes
-            request_user (CmdbUser): User who started this search
-            permission (AccessControlPermission) : Permission enum for possible ACL operations..
-            limit (int): max number of documents to return
-            skip (int): number of documents to be skipped
-            **kwargs:
+            pipeline (list[dict[str, Any]]): The search criteria as aggregation stages
+            request_user (CmdbUser | None): User the results are rendered for. Defaults to None
+            limit (int): Page size; 0 or less means every match. Defaults to DEFAULT_LIMIT
+            skip (int): Number of matches to skip; a negative value is treated as 0. Defaults to 0
+            resolve (bool): Resolves referenced CmdbObjects while rendering (the route's ``?resolve=``).
+                            Defaults to False
+
+        Raises:
+            ObjectsManagerIterationError: When the aggregation itself fails
+
         Returns:
-            SearchResult with generic list of RenderResults
+            SearchResult[RenderResult]: The rendered page, the total, the per-type groups and, per
+                                        hit, the fields that matched the search patterns
         """
+        search_pipeline_builder = SearchPipelineBuilder(pipeline)
 
-        # Insert skip and limit
-        plb = SearchPipelineBuilder(pipeline)
+        # Read before the facet is appended: these are the patterns the CALLER searched for, and the
+        # facet stage carries none of its own
+        matches_regex: list[str] = self._collect_search_patterns(search_pipeline_builder)
 
-        # define search output
-        stages: dict = {}
+        search_pipeline_builder.add_pipe(build_search_facet(skip, limit))
 
-        stages.update({'metadata': [SearchPipelineBuilder.count_('total')]})
-        stages.update({'data': [
-            SearchPipelineBuilder.skip_(skip),
-            SearchPipelineBuilder.limit_(limit)
-        ]})
+        raw_result = self.objects_manager.aggregate_objects(pipeline=search_pipeline_builder.pipeline)
 
-        group_stage: dict = {
-            'group': [
-                SearchPipelineBuilder.lookup_(CmdbType.COLLECTION, 'type_id', 'public_id', 'lookup_data'),
-                SearchPipelineBuilder.unwind_('$lookup_data'),
-                SearchPipelineBuilder.project_({'_id': 0, 'type_id': 1, 'label': '$lookup_data.label'}),
-                SearchPipelineBuilder.group_('$$ROOT.type_id', {'types': {'$first': '$$ROOT'}, 'total': {'$sum': 1}}),
-                SearchPipelineBuilder.project_(
-                    {'_id': 0,
-                     'searchText': '$types.label',
-                     'searchForm': 'type',
-                     'searchLabel': '$types.label',
-                     'settings': {'types': ['$types.type_id']},
-                     'total': 1
-                     }),
-                SearchPipelineBuilder.sort_('total', -1)
-            ]
-        }
-        stages.update(group_stage)
-        plb.add_pipe(SearchPipelineBuilder.facet_(stages))
-        raw_search_result = self.objects_manager.aggregate_objects(pipeline=plb.pipeline)
-        raw_search_result_list = list(raw_search_result)
+        # $facet always emits exactly one document carrying all three branches; reading it defensively
+        # keeps a changed facet from turning into an IndexError inside a route
+        facet_result: dict[str, Any] = next(iter(raw_result), {})
 
-        try:
-            matches_regex = plb.get_regex_pipes_values()
-        except Exception as err:
-            LOGGER.error("[aggregate] Exception: %s. Type: %s", err, type(err), exc_info=True)
-            matches_regex = []
+        matched_documents: list[dict[str, Any]] = facet_result.get(SearchFacetKey.DATA.value, [])
+        groups: list[dict[str, Any]] = facet_result.get(SearchFacetKey.GROUP.value, [])
+        total_results: int = self._read_total(facet_result)
 
-        if len(raw_search_result_list[0]['data']) > 0:
-            raw_search_result_list_entry = raw_search_result_list[0]
-            # parse result list
-            pre_rendered_result_list = [CmdbObject(**raw_result) for raw_result in raw_search_result_list_entry['data']]
+        rendered_results: list[RenderResult] = self._render_page(matched_documents, request_user, resolve)
 
-            rendered_result_list: list[RenderResult] = RenderList(
-                pre_rendered_result_list,
-                request_user
-            ).render_result_list()
-
-            total_results = raw_search_result_list_entry['metadata'][0].get('total', 0)
-            group_result_list = raw_search_result_list[0]['group']
-
-        else:
-            rendered_result_list = []
-            group_result_list = []
-            total_results = 0
-        # generate output
-        search_result = SearchResult[RenderResult](
-            results=rendered_result_list,
+        return SearchResult[RenderResult](
+            results=rendered_results,
             total_results=total_results,
-            groups=group_result_list,
-            alive=raw_search_result.alive,
+            groups=groups,
+            # Not serialized by SearchResult.to_json, so nothing reads it today - but a value that is
+            # computed has to be true: the cursor is already drained here, and its own 'alive' would
+            # therefore always be False
+            alive=skip + len(rendered_results) < total_results,
             matches_regex=matches_regex,
             limit=limit,
-            skip=skip
+            skip=skip,
         )
-        return search_result
 
 
-    def search(self, query: dict, request_user: CmdbUser = None, limit: int = DEFAULT_LIMIT,
-               skip: int = 0) -> SearchResult[RenderResult]:
+    @staticmethod
+    def _collect_search_patterns(search_pipeline_builder: SearchPipelineBuilder) -> list[str]:
         """
-        Uses mongodb find query system
+        Reads the regex patterns of a search pipeline, which the hits are highlighted against
+
+        A failure here costs the highlighting and nothing else, so it is reported and the search still
+        answers its page - the alternative would be failing a search that found what the user asked for
+
+        Args:
+            search_pipeline_builder (SearchPipelineBuilder): The builder holding the search criteria
+
+        Returns:
+            list[str]: The `$regex` values found in the pipeline, empty when they could not be read
         """
-        raise NotImplementedError()
+        try:
+            return search_pipeline_builder.get_regex_pipes_values()
+        except Exception as err:
+            LOGGER.error("[aggregate] Failed to read the search patterns: %s. Type: %s", err, type(err))
+
+            return []
+
+
+    @staticmethod
+    def _read_total(facet_result: dict[str, Any]) -> int:
+        """
+        Reads the match count out of the facet's metadata branch
+
+        The branch is a `$count`, which emits NO document when nothing matched - so an empty branch
+        means zero rather than a missing value
+
+        Args:
+            facet_result (dict[str, Any]): The single document the `$facet` stage emitted
+
+        Returns:
+            int: The number of matched CmdbObjects
+        """
+        metadata: list[dict[str, Any]] = facet_result.get(SearchFacetKey.METADATA.value, [])
+
+        if not metadata:
+            return 0
+
+        return metadata[0].get(SearchGroupKey.TOTAL.value, 0)
+
+
+    @staticmethod
+    def _render_page(
+            matched_documents: list[dict[str, Any]],
+            request_user: CmdbUser | None,
+            resolve: bool) -> list[RenderResult]:
+        """
+        Renders the matched documents of one page for the requesting user
+
+        `from_data` rather than `CmdbObject(**raw)`: an aggregation result may carry keys the model
+        does not declare, and from_data ignores those instead of turning them into silent attributes -
+        it also normalises the two timestamps
+
+        Args:
+            matched_documents (list[dict[str, Any]]): The page's raw CmdbObject documents
+            request_user (CmdbUser | None): User the results are rendered for
+            resolve (bool): Resolves referenced CmdbObjects while rendering
+
+        Returns:
+            list[RenderResult]: The rendered page, empty when nothing matched
+        """
+        if not matched_documents:
+            return []
+
+        objects: list[CmdbObject] = [CmdbObject.from_data(document) for document in matched_documents]
+
+        return RenderList(objects, request_user, resolve).render_result_list()

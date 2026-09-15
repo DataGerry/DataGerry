@@ -13,3 +13,27 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Models of the security / authentication domain
+
+Currently one entity: `CmdbAuthSettings`, the in-memory form of the stored `auth` settings section,
+plus the keys and defaults that describe that document
+"""
+from .auth_settings import CmdbAuthSettings
+from .auth_settings_constants import (
+    AUTH_SETTINGS_ID,
+    DEFAULT_TOKEN_LIFETIME,
+    MINUTES_PER_DAY,
+    AuthSettingsKey,
+    ProviderEntryKey,
+)
+# -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'AUTH_SETTINGS_ID',
+    'DEFAULT_TOKEN_LIFETIME',
+    'MINUTES_PER_DAY',
+    'AuthSettingsKey',
+    'CmdbAuthSettings',
+    'ProviderEntryKey',
+]

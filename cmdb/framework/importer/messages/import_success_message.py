@@ -26,13 +26,13 @@ class ImportSuccessMessage(ImportMessage):
     Extends: ImportMessage
     """
 
-    def __init__(self, public_id: int, obj: dict = None):
+    def __init__(self, public_id: int, obj: dict | None = None) -> None:
         """
         Initialises the ImportSuccessMessage
 
         Args:
-            public_id: public_id of the new CmdbObject
-            obj (optional): CmdbObject instance
+            public_id (int): public_id of the new CmdbObject
+            obj (dict | None): CmdbObject instance
         """
         self.public_id = public_id
         super().__init__(obj=obj)

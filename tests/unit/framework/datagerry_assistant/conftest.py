@@ -118,17 +118,15 @@ def _ipam_interface_template() -> dict[str, Any]:
 
 
 # The predefined templates the profiles reference, using the real dg-* field names so that
-# summary_fields look-ups in the profiles resolve
+# summary_fields look-ups in the profiles resolve. Deliberately holds ONLY the templates that still
+# ship: PredefinedTemplateProvider.get_template subscripts this map, so a profile asking for a
+# retired template (e.g. the removed 'dg-rackmounting') raises KeyError instead of quietly building
+# a type from a stand-in the product no longer has
 FAKE_PREDEFINED_TEMPLATES: dict[str, dict[str, Any]] = {
     'dg-modelspec': _fmt_template('dg-modelspec', 'Model specifications', [
         ('text', 'dg-modelspec-manufacturer', 'Manufacturer'),
         ('text', 'dg-modelspec-model', 'Model name'),
         ('text', 'dg-modelspec-serial', 'Serial number'),
-    ]),
-    'dg-rackmounting': _fmt_template('dg-rackmounting', 'Rack mounting', [
-        ('text', 'dg-rackmounting-ru', 'Rack units'),
-        ('text', 'dg-rackmounting-position', 'Mounting position'),
-        ('select', 'dg-rackmounting-orientation', 'Mounting orientation'),
     ]),
     IpamSection.INTERFACE: _ipam_interface_template(),
 }

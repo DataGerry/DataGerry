@@ -15,11 +15,20 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of IsmsControlMeasureAssignment in DataGerry - ISMS
+
+An IsmsControlMeasureAssignment links one IsmsControlMeasure to one IsmsRiskAssessment and tracks its
+implementation (collection ``isms.controlMeasureAssignment``).
+
+Its two date fields follow the same rule as the assessment's four (see IsmsRiskAssessment): they
+arrive as the Mongo extended-JSON wrapper ``{'$date': <epoch millis>}`` and are stored as real BSON
+dates, normalised by ``from_data`` here and by ``GenericManager`` on the raw-dict write paths. Older
+databases stored the wrapper itself and are migrated by ``updater_20260907``
 """
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime
-from dateutil.parser import parse
+
+from cmdb.utils import coerce_document_dates
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.priority_enum import Priority
@@ -65,6 +74,10 @@ class IsmsControlMeasureAssignment(CmdbDAO):
     ]
 
     SCHEMA: dict[str, Any] = get_isms_control_measure_assignment_schema()
+
+    # The date-typed fields every write path normalises into real BSON dates. Spelled out here rather
+    # than taken from a key enum: this model's remaining literals are consolidated in its own sweep
+    DATE_FIELDS: tuple[str, ...] = ('planned_implementation_date', 'finished_implementation_date')
 
 
     #pylint: disable=R0913, R0917
@@ -117,32 +130,35 @@ class IsmsControlMeasureAssignment(CmdbDAO):
         """
         Initialises a IsmsControlMeasureAssignment from a dict
 
+        Reads a stored document as well as a validated request payload, normalising the two date
+        fields in place first: a payload carries them as ``{'$date': ...}`` wrappers or timestamp
+        strings, a stored document as real dates. A date that cannot be read is refused instead of
+        guessed - the previous implementation parsed strings with ``fuzzy=True``, which turns a note
+        like 'planned for Q3' into a date built from today
+
         Args:
             data (dict): Data with which the IsmsControlMeasureAssignment should be initialised
 
         Raises:
-            IsmsControlMeasureAssignmentInitFromDataError: If the initialisation with the given data fails
+            IsmsControlMeasureAssignmentInitFromDataError: If the initialisation with the given data
+                fails, including a date field whose value is not a readable timestamp
 
         Returns:
             IsmsControlMeasureAssignment: IsmsControlMeasureAssignment with the given data
         """
         try:
-            planned_implementation_date = data.get('planned_implementation_date', None)
-            finished_implementation_date = data.get('finished_implementation_date', None)
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if isinstance(planned_implementation_date, str):
-                planned_implementation_date = parse(planned_implementation_date, fuzzy=True)
-
-            if isinstance(finished_implementation_date, str):
-                finished_implementation_date = parse(finished_implementation_date, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
                 public_id = data.get('public_id'),
                 control_measure_id = data.get('control_measure_id'),
                 risk_assessment_id = data.get('risk_assessment_id'),
-                planned_implementation_date = planned_implementation_date,
+                planned_implementation_date = data.get('planned_implementation_date'),
                 implementation_status = data.get('implementation_status'),
-                finished_implementation_date = finished_implementation_date,
+                finished_implementation_date = data.get('finished_implementation_date'),
                 priority = data.get('priority'),
                 responsible_for_implementation_id_ref_type = data.get('responsible_for_implementation_id_ref_type'),
                 responsible_for_implementation_id = data.get('responsible_for_implementation_id'),

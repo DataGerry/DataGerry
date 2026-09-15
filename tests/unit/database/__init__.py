@@ -17,7 +17,7 @@
 Unit tests for the cmdb.database package (top-level modules)
 
 Scope is the pure, side-effect-free logic: the BSON<->JSON codec and retry decorator in
-database_utils, and the query-construction logic in mongo_query_builder. The pymongo I/O wrappers
+the json_codec / retry pair, and the query-construction logic in mongo_query_builder. The pymongo I/O wrappers
 in mongo_database_manager / mongo_connector are exercised by the integration and functional suites
 (they need a live MongoDB), and methods with known open issues are deliberately left untested.
 """

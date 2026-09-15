@@ -23,8 +23,7 @@ from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
-from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
-from cmdb.interface.rest_api.responses.helpers.api_projector import APIProjector
+from cmdb.interface.rest_api.responses.response_constants import ResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -37,44 +36,44 @@ class GetSingleResponse(BaseAPIResponse):
     API Response for get calls with a single resource.
     """
 
-    def __init__(self, result: dict, body: bool = None, projection: dict | None = None) -> None:
+    def __init__(self, result: dict, body: bool | None = None, projection: dict | None = None) -> None:
         """
-        Constructor of GetSingleResponse
+        Initializes the GetSingleResponse
+
+        Args:
+            result (dict): The resource to answer with
+            body (bool | None): Whether to answer with a payload; False answers without one (HEAD).
+                None means yes
+            projection (dict | None): An optional client `?projection=` to trim the result with
         """
-        if projection:
-            projection = APIProjection(projection)
-            self.result = APIProjector(result, projection).project
-        else:
-            self.result: dict = result
+        self.result: dict = self.apply_projection(result, projection)
+
         super().__init__(operation_type=OperationType.GET, body=body)
 
 
     def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
-        Make a valid http response
+        Builds the http response carrying the single resource
 
         Args:
-            *args:
-            **kwargs:
+            *args (Any): Positional arguments forwarded to `export`
+            **kwargs (Any): Keyword arguments forwarded to `export`
 
         Returns:
-            Instance of Response with a HTTP 200 status code
+            Response: The http response with a HTTP 200 status code, without a payload when the
+                caller asked for none
         """
-        if self.body:
-            response = self.make_api_response(self.export(*args, **kwargs))
-        else:
-            response = self.make_api_response(None)
-
-        return response
+        return self.make_body_response(*args, **kwargs)
 
 
     def export(self) -> dict[str, Any]:
         """
-        Get content of the response as dict
+        Returns the response payload as a dict
+
+        Returns:
+            dict[str, Any]: The resource under `result`, plus the envelope keys
         """
         return {
-            **{
-                'result': self.result
-            },
-            **super().export()
+            ResponseKey.RESULT.value: self.result,
+            **super().export(),
         }

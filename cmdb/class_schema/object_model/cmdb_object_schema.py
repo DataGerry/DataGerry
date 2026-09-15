@@ -82,5 +82,11 @@ def get_cmdb_object_schema() -> dict[str, Any]:
             'type': 'list',
             'required': False,
             'default': [],
+        },
+        'location_name': {  # Transient: custom CmdbLocation tree name; consumed by the location sync, never stored
+            'type': 'string',
+            'required': False,
+            'nullable': True,
+            'empty': True,
         }
     }

@@ -87,8 +87,15 @@ def fixture_log_manager() -> MagicMock:
 
 @pytest.fixture(name='patched_manager')
 def fixture_patched_manager(log_manager: MagicMock) -> Any:
-    """Patches OcConnectionLogManager at the route module path."""
-    with patch(f'{ROUTE_PATH}.OcConnectionLogManager', return_value=log_manager):
+    """
+    Patches the manager factory the routes call
+
+    The construction moved into `oc_connection_log_helper.build_connection_log_manager` when the six
+    identical copies were extracted, so the routes' collaborator is that factory - patching
+    `OcConnectionLogManager` at this module path would let the real manager be built (and read the
+    OpenCelium config).
+    """
+    with patch(f'{ROUTE_PATH}.build_connection_log_manager', return_value=log_manager):
         yield
 
 
@@ -174,6 +181,68 @@ class TestGetFlowcharts:
         assert response.status_code == HTTPStatus.OK
         log_manager.get_flowcharts.assert_called_once_with(TARGET_ID)
 
+    def test_on_premise_leaves_the_connector_name_alone(self, flask_app, log_manager, patched_manager) -> None:
+        """There is no tenant prefix to strip on an on-premise installation"""
+        del patched_manager
+        log_manager.get_flowcharts.return_value = [{'connectorName': 'MySQL'}]
+
+        with flask_app.test_request_context():
+            response = _unwrap(oc_get_flowcharts)(request_user=REQUEST_USER, target_id=TARGET_ID)
+
+        assert response.json == [{'connectorName': 'MySQL'}]
+
+    def test_hosted_cloud_strips_the_tenant_prefix(self, log_manager, patched_manager) -> None:
+        """
+        The branch that had never been executed
+
+        On a hosted installation every connector is registered as `<database>_<name>` so tenants
+        cannot see each other's, and the prefix is not the customer's to read.
+        """
+        del patched_manager
+        log_manager.get_flowcharts.return_value = [{'connectorName': 'db_customer_MySQL'}]
+        app = BaseCmdbApp(__name__)
+        app.database_manager = MagicMock()
+        app.cloud_mode = True
+        app.local_mode = False
+
+        with app.test_request_context():
+            response = _unwrap(oc_get_flowcharts)(request_user=REQUEST_USER, target_id=TARGET_ID)
+
+        assert response.json == [{'connectorName': 'customer_MySQL'}]
+
+    def test_hosted_cloud_survives_a_dict_payload(self, log_manager, patched_manager) -> None:
+        """
+        The shape the manager's annotation claimed
+
+        Iterated as a list of dicts, a dict yields its keys - so this payload raised a TypeError,
+        i.e. a 500 for every hosted request, and no test had ever reached the branch.
+        """
+        del patched_manager
+        log_manager.get_flowcharts.return_value = {'connectorName': 'db_customer_MySQL'}
+        app = BaseCmdbApp(__name__)
+        app.database_manager = MagicMock()
+        app.cloud_mode = True
+        app.local_mode = False
+
+        with app.test_request_context():
+            response = _unwrap(oc_get_flowcharts)(request_user=REQUEST_USER, target_id=TARGET_ID)
+
+        assert response.json == {'connectorName': 'customer_MySQL'}
+
+    def test_local_cloud_development_leaves_the_name_alone(self, log_manager, patched_manager) -> None:
+        """`--cloud --local` is a developer's stack, not a hosted tenant"""
+        del patched_manager
+        log_manager.get_flowcharts.return_value = [{'connectorName': 'db_customer_MySQL'}]
+        app = BaseCmdbApp(__name__)
+        app.database_manager = MagicMock()
+        app.cloud_mode = True
+        app.local_mode = True
+
+        with app.test_request_context():
+            response = _unwrap(oc_get_flowcharts)(request_user=REQUEST_USER, target_id=TARGET_ID)
+
+        assert response.json == [{'connectorName': 'db_customer_MySQL'}]
+
     def test_get_error_returns_500(self, flask_app, log_manager, patched_manager) -> None:
         """An OcConnectionLogGetError maps to 500."""
         del patched_manager
@@ -230,6 +299,59 @@ class TestGetLogList:
 
         assert response.status_code == HTTPStatus.OK
         log_manager.get_log_list.assert_called_once_with(CONNECTION_ID, SCHEDULER_ID, 's')
+
+    def test_a_zero_connection_id_is_accepted(self, flask_app, log_manager, patched_manager) -> None:
+        """
+        0 counts as provided
+
+        The guard read the parsed id for truthiness, so `?connectionId=0` answered "was not
+        provided" - the wrong mistake to send a caller looking for. Whether the id exists is
+        OpenCelium's to answer.
+        """
+        del patched_manager
+        log_manager.get_log_list.return_value = {'logs': []}
+
+        with flask_app.test_request_context(f'/connections/logs/list?connectionId=0&schedulerId={SCHEDULER_ID}'
+                                           '&status=SUCCESS'):
+            response = _unwrap(oc_get_log_list)(request_user=REQUEST_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        log_manager.get_log_list.assert_called_once_with(0, SCHEDULER_ID, 'SUCCESS')
+
+    def test_a_zero_scheduler_id_is_accepted(self, flask_app, log_manager, patched_manager) -> None:
+        """Same rule for the scheduler id"""
+        del patched_manager
+        log_manager.get_log_list.return_value = {'logs': []}
+
+        with flask_app.test_request_context('/connections/logs/list?connectionId=1&schedulerId=0&status=SUCCESS'):
+            response = _unwrap(oc_get_log_list)(request_user=REQUEST_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        log_manager.get_log_list.assert_called_once_with(1, 0, 'SUCCESS')
+
+    def test_a_non_numeric_connection_id_returns_400(self, flask_app, log_manager, patched_manager) -> None:
+        """It WAS provided, so the message names what is wrong with it"""
+        del patched_manager, log_manager
+
+        with flask_app.test_request_context(f'/connections/logs/list?connectionId=abc'
+                                            f'&schedulerId={SCHEDULER_ID}&status=s'):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(oc_get_log_list)(request_user=REQUEST_USER)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert 'whole number' in str(exc_info.value.description)
+
+    def test_an_empty_status_returns_400(self, flask_app, log_manager, patched_manager) -> None:
+        """`?status=` was sent - reporting it as absent would be wrong"""
+        del patched_manager, log_manager
+
+        with flask_app.test_request_context(f'/connections/logs/list?connectionId={CONNECTION_ID}'
+                                            f'&schedulerId={SCHEDULER_ID}&status='):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(oc_get_log_list)(request_user=REQUEST_USER)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert 'was empty' in str(exc_info.value.description)
 
     def test_missing_connection_id_returns_400(self, flask_app, log_manager, patched_manager) -> None:
         """A missing connectionId aborts with 400."""
@@ -307,6 +429,27 @@ class TestDeleteLogs:
 
 class TestRouteRegistration:
     """The blueprint registers every documented route (guards the previously missing DELETE decorator)."""
+
+    def test_every_route_is_registered(self) -> None:
+        """
+        All six, not only the one that was once missing its decorator
+
+        This file shipped an unregistered DELETE route before - a missing '@' - so the whole map is
+        asserted rather than the one rule that broke.
+        """
+        app = Flask(__name__)
+        app.register_blueprint(oc_connection_log_blueprint)
+
+        registered = {(rule.rule, method) for rule in app.url_map.iter_rules() for method in rule.methods}
+
+        assert {
+            ('/connections/logs/<string:target_id>', 'GET'),
+            ('/connections/logs/children/<string:target_id>', 'GET'),
+            ('/connections/logs/flowcharts/<int:target_id>', 'GET'),
+            ('/connections/logs/first_level/<string:target_id>', 'GET'),
+            ('/connections/logs/list', 'GET'),
+            ('/connections/logs/<int:target_id>', 'DELETE'),
+        } <= registered
 
     def test_delete_logs_route_is_registered(self) -> None:
         """``DELETE /connections/logs/<int:target_id>`` is registered on the blueprint (the '@' was missing)."""

@@ -56,8 +56,8 @@ def test_increase_updater_version_writes_setting() -> None:
     base = _bare_base()
     base.settings_manager = MagicMock()
 
-    base.increase_updater_version(20240603)
+    base.increase_updater_version(20250619)
 
     base.settings_manager.write.assert_called_once_with(
-        _id='updater', data={'_id': 'updater', 'version': 20240603},
+        _id='updater', data={'_id': 'updater', 'version': 20250619},
     )

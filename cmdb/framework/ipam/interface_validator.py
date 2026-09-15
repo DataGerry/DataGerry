@@ -20,6 +20,11 @@ Confirms the referenced subnet exists and has SpecialType SUBNET, the IP parses 
 IPv6 and sits inside the subnet (and is neither the network nor the broadcast address), and
 the IP is not already in use by another interface row anywhere in the system that references
 the same subnet
+
+The uniqueness check takes an ``(exclude_object_id, exclude_row_index)`` pair so an edited row is not
+flagged against its own stored state. ``exclude_row_index`` is a row's **``multi_data_id``**, never its
+position in the section - see ``interface_row_keys`` for why the distinction matters and what happens
+to legacy rows that carry no id
 """
 from typing import Any
 
@@ -56,6 +61,39 @@ from cmdb.framework.ipam.references import resolve_special_type_id
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
+def interface_row_keys(section: dict[str, Any]) -> list[Any]:
+    """
+    Returns the identity of each interface row of a section, in row order
+
+    A row's identity is its ``multi_data_id`` - a stable per-section counter assigned as
+    ``highest_id + 1`` when the row is created and never reused - NOT its position in ``values``.
+    That distinction is the whole point of this function: the two numbering systems differ by one
+    from the very first row (ids start at 1, positions at 0) and drift further apart as rows are
+    deleted, so matching a row by position silently identifies the wrong row.
+
+    Rows predating row ids carry no ``multi_data_id``. When ANY row of the section lacks one the
+    whole section falls back to positions, so a section is measured in one numbering system
+    throughout - never a mix, which could otherwise let a legacy row's position collide with a
+    modern row's id.
+
+    Both sides of the self-exclusion pair must derive the row key through this function, or the
+    exclusion compares values from different numbering systems and never matches
+
+    Args:
+        section (dict[str, Any]): One MDS section dict of a CmdbObject
+
+    Returns:
+        list[Any]: One key per row, in the order the rows appear in ``values``
+    """
+    rows: list[dict[str, Any]] = section.get(CmdbObjectMdsKey.VALUES, []) or []
+    row_ids: list[Any] = [row.get(CmdbObjectMdsRowKey.MULTI_DATA_ID) for row in rows]
+
+    if all(isinstance(row_id, int) for row_id in row_ids):
+        return row_ids
+
+    return list(range(len(rows)))
+
+
 def _load_subnet_object(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
@@ -186,8 +224,8 @@ def _check_ip_uniqueness(
         subnet_object_id (int): public_id of the referenced subnet
         ip_address (str): The candidate IP address as string
         exclude_object_id (int | None): public_id of the candidate's own object when editing
-        exclude_row_index (int | None): row position of the candidate within its MDS section
-            when editing
+        exclude_row_index (int | None): ``multi_data_id`` of the candidate row within its MDS
+            section when editing (NOT its position - see ``interface_row_keys``)
 
     Returns:
         list[dict[str, Any]]: One error per collision found, empty when the IP is unique
@@ -292,12 +330,18 @@ def _collect_collision_errors(
     Walks the candidate documents' interface rows and reports collisions, honoring the row
     exclusion pair so the candidate's own pre-edit row is not flagged against itself
 
+    Rows are identified through ``interface_row_keys`` - by ``multi_data_id``, not by position - so
+    ``exclude_row_index`` must be the candidate row's ``multi_data_id`` too. Keying this on the
+    position was a bug: the exclusion missed for every row (ids start at 1, positions at 0), so
+    editing a row that already had an IP reported that IP as used by the very object being edited
+
     Args:
         candidates (list[dict[str, Any]]): CmdbObject documents pre-filtered by the Mongo query
         subnet_object_id (int): public_id of the subnet being checked
         ip_address (str): The candidate IP as string
         exclude_object_id (int | None): public_id to skip per (object, row) exclusion
-        exclude_row_index (int | None): row index to skip per (object, row) exclusion
+        exclude_row_index (int | None): row IDENTITY to skip per (object, row) exclusion; the
+            candidate row's ``multi_data_id`` (see ``interface_row_keys``)
 
     Returns:
         list[dict[str, Any]]: One error per remaining collision
@@ -311,7 +355,9 @@ def _collect_collision_errors(
             if section.get(CmdbObjectMdsKey.SECTION_ID) != IpamSection.INTERFACE:
                 continue
 
-            for row_index, row in enumerate(section.get(CmdbObjectMdsKey.VALUES, []) or []):
+            rows: list[dict[str, Any]] = section.get(CmdbObjectMdsKey.VALUES, []) or []
+
+            for row_key, row in zip(interface_row_keys(section), rows):
                 if not _row_matches(row, subnet_object_id, ip_address):
                     continue
 
@@ -319,13 +365,13 @@ def _collect_collision_errors(
                     exclude_object_id is not None
                     and exclude_row_index is not None
                     and candidate_id == exclude_object_id
-                    and row_index == exclude_row_index
+                    and row_key == exclude_row_index
                 ):
                     continue
 
                 errors.append(build_error(
                     f"IP {ip_address} is already used in subnet {subnet_object_id} "
-                    f"by object {candidate_id} (interface row {row_index})",
+                    f"by object {candidate_id} (interface row {row_key})",
                 ))
 
     return errors

@@ -112,9 +112,32 @@ class TestParseRegistrationTime:
 
         assert parse_registration_time(raw) is raw
 
-    def test_bson_date_unexpected_type_is_unchanged(self) -> None:
-        """A ``$date`` value that is neither str nor int is returned as the original dict."""
-        raw = {'$date': 3.5}
+    def test_bson_date_float_millis_is_parsed(self) -> None:
+        """
+        A ``$date`` carrying a float is read as milliseconds like an int is.
+
+        This used to be returned unchanged, because the coercion lived here and only handled ints.
+        It now goes through the shared ``coerce_mongo_datetime``, which reads every shape the API
+        round-trip produces - a JSON client is free to send the millis as a float.
+        """
+        result = parse_registration_time({'$date': float(EPOCH_MS)})
+
+        assert result == datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+    def test_bson_date_boolean_is_unchanged(self) -> None:
+        """
+        A ``$date`` that cannot be a timestamp is still passed through untouched.
+
+        bool is an int subclass in Python, so before the shared caster's guard this read as one
+        millisecond past the epoch instead of being refused.
+        """
+        raw = {'$date': True}
+
+        assert parse_registration_time(raw) is raw
+
+    def test_bson_date_unreadable_string_is_unchanged(self) -> None:
+        """An unparseable payload leaves the value as it was, for the caller to reject."""
+        raw = {'$date': 'not-a-timestamp'}
 
         assert parse_registration_time(raw) is raw
 

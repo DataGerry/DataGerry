@@ -955,38 +955,38 @@ def test_filter_rows_by_network_substring_matches_unparsable_string_cidr() -> No
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               active_search                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-def testactive_search_returns_none_for_none_input() -> None:
+def test_active_search_returns_none_for_none_input() -> None:
     """None coerces to '' and falls below the min-length gate"""
     assert active_search(None) is None  # type: ignore[arg-type]
 
 
-def testactive_search_returns_none_for_empty_string() -> None:
+def test_active_search_returns_none_for_empty_string() -> None:
     """An empty string is never active"""
     assert active_search('') is None
 
 
-def testactive_search_returns_none_for_whitespace_only_input() -> None:
+def test_active_search_returns_none_for_whitespace_only_input() -> None:
     """Whitespace strips to empty -> not active"""
     assert active_search('   ') is None
 
 
-def testactive_search_returns_none_for_query_below_min_length() -> None:
+def test_active_search_returns_none_for_query_below_min_length() -> None:
     """A 1-char query (with MIN_QUERY_LENGTH=2) is not yet active"""
     assert IpamSearch.MIN_QUERY_LENGTH == 2  # pinning the policy this test depends on
     assert active_search('1') is None
 
 
-def testactive_search_returns_stripped_needle_at_min_length() -> None:
+def test_active_search_returns_stripped_needle_at_min_length() -> None:
     """A query exactly at MIN_QUERY_LENGTH becomes active and is returned stripped"""
     assert active_search('  ab  ') == 'ab'
 
 
-def testactive_search_returns_stripped_needle_above_min_length() -> None:
+def test_active_search_returns_stripped_needle_above_min_length() -> None:
     """A longer query is returned stripped of surrounding whitespace"""
     assert active_search('  10.0  ') == '10.0'
 
 
-def testactive_search_does_not_truncate_at_max_query_length() -> None:
+def test_active_search_does_not_truncate_at_max_query_length() -> None:
     """MAX_QUERY_LENGTH clipping is the route's job, not the helper's"""
     long_query: str = 'x' * (IpamSearch.MAX_QUERY_LENGTH + 50)
 
@@ -1294,8 +1294,27 @@ def test_load_subnets_for_supernet_queries_with_parent_supernet_field_filter() -
             },
         },
         as_dict=True,
+        projection=None,
     )
     types_manager.get_one_by.assert_called_once_with({TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET})
+
+
+def test_load_subnets_for_supernet_passes_a_projection_through() -> None:
+    """
+    A caller's projection reaches the manager unchanged
+
+    The overview needs the whole document (it computes per-subnet usage from it) and so keeps the
+    default; the sidebar tree passes its own narrow projection.
+    """
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = []
+    types_manager = MagicMock()
+    types_manager.get_one_by.return_value = {CmdbObjectKey.PUBLIC_ID: SUBNET_TYPE_ID}
+    projection: dict = {'public_id': 1, 'fields': 1}
+
+    load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID, projection)
+
+    assert objects_manager.find_objects.call_args.kwargs['projection'] == projection
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

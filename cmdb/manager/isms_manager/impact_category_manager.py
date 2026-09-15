@@ -27,6 +27,11 @@ from cmdb.manager.isms_manager.isms_manager_helper import load_impact_calculatio
 
 from cmdb.models.isms_model import IsmsImpactCategory, IsmsRiskAssessment
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey, RISK_CALCULATION_MATRIX_KEYS
+from cmdb.models.isms_model.isms_impact_category_constants import (
+    NEW_IMPACT_DESCRIPTION_PLACEHOLDER,
+    ImpactCategoryKey,
+    ImpactDescriptionKey,
+)
 
 from cmdb.errors.manager.impact_category_manager import IMPACT_CATEGORY_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -150,9 +155,9 @@ class ImpactCategoryManager(GenericManager):
             new_impact_id (int): public_id of the newly created IsmsImpact
         """
         update = {
-            "impact_descriptions": {
-                "impact_id": new_impact_id,
-                "value": "-"
+            ImpactCategoryKey.IMPACT_DESCRIPTIONS.value: {
+                ImpactDescriptionKey.IMPACT_ID.value: new_impact_id,
+                ImpactDescriptionKey.VALUE.value: NEW_IMPACT_DESCRIPTION_PLACEHOLDER,
             }
         }
 
@@ -167,8 +172,8 @@ class ImpactCategoryManager(GenericManager):
             deleted_impact_id (int): public_id of the deleted IsmsImpact
         """
         update = {
-            "impact_descriptions": {
-                "impact_id": {"$eq": deleted_impact_id}
+            ImpactCategoryKey.IMPACT_DESCRIPTIONS.value: {
+                ImpactDescriptionKey.IMPACT_ID.value: {"$eq": deleted_impact_id}
             }
         }
 

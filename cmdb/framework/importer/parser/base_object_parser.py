@@ -31,31 +31,23 @@ class BaseObjectParser(BaseParser):
     """
     A base class for object parsers
 
+    Inherits the configuration handling from BaseParser and narrows the parse result to an
+    ObjectParserResponse.
+
     Extends: BaseParser
     """
 
-    def __init__(self, parser_config: dict) -> None:
-        """
-        Initializes the BaseObjectParser with a given configuration
-
-        Args:
-            parser_config (dict): A dictionary containing parser-specific settings
-        """
-        super().__init__(parser_config)
-
-
-    #TODO: ANNOTATION-FIX (add type annotation for "file")
-    def parse(self, file) -> ObjectParserResponse:
+    def parse(self, file: str) -> ObjectParserResponse:
         """
         Parses the given file
 
         Args:
-            file: The file to be parsed
-
-        Raises:
-            NotImplementedError: This method must be implemented in a subclass
+            file (str): Path to the file to be parsed
 
         Returns:
             ObjectParserResponse: The result of the parsing process
+
+        Raises:
+            NotImplementedError: This method must be implemented in a subclass
         """
-        raise NotImplementedError("Subclasses must implement the `parse` method.")
+        raise NotImplementedError("Subclasses must implement the `parse` method!")

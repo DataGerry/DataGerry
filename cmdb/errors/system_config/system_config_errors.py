@@ -30,15 +30,16 @@ class ConfigFileError(Exception):
 
 # ------------------------------------------------ ConfigFile - ERRORS ----------------------------------------------- #
 
-class ConfigFileModificationError(ConfigFileError):
-    """
-    Raises if values of loaded config file should be edited
-    """
-
-
 class ConfigFileNotFound(ConfigFileError):
     """
     Error if local config file could not be loaded
+    """
+
+
+class ConfigFileParsingError(ConfigFileError):
+    """
+    Error if the config file exists but is not valid ini content (raised instead of leaking the
+    underlying configparser error)
     """
 
 

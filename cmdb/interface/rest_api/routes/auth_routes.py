@@ -28,6 +28,7 @@ from cmdb.manager import SettingsManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
+from cmdb.models.security_models.auth_settings_constants import AUTH_SETTINGS_ID
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -103,7 +104,7 @@ def get_auth_settings(request_user: CmdbUser) -> Response:
     try:
         settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-        auth_settings = settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__)
+        auth_settings = settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
         auth_module = AuthModule(auth_settings)
 
         return DefaultResponse(auth_module.settings).make_response()
@@ -138,7 +139,7 @@ def get_installed_providers(request_user: CmdbUser) -> Response:
         settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
         auth_module = AuthModule(
-            settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__)
+            settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
         )
 
         for provider in auth_module.providers:
@@ -172,7 +173,7 @@ def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response
         settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
         auth_module = AuthModule(
-            settings_manager.get_all_values_from_section('auth', default=AuthModule.__DEFAULT_SETTINGS__)
+            settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
         )
 
         provider = auth_module.get_provider(provider_class)
@@ -215,16 +216,22 @@ def update_auth_settings(request_user: CmdbUser) -> Response:
             abort(400, 'No new data was provided')
 
         try:
-            new_auth_setting_instance = CmdbAuthSettings(**new_auth_settings_values)
+            # require_complete: the update carries the WHOLE section. A payload omitting 'providers'
+            # would otherwise blank the configured LDAP provider, since an absent key and a reset to
+            # the default are indistinguishable once the defaults have been applied
+            new_auth_setting_instance = CmdbAuthSettings.from_data(new_auth_settings_values, require_complete=True)
         except AuthSettingsInitError as err:
             # A malformed auth-settings payload is a client error, not a server fault
             LOGGER.error("[update_auth_settings] Error: %s", err)
-            abort(400, "Could not initialise auth settings from the provided data!")
+            abort(400, f"Could not initialise auth settings from the provided data: {err}")
 
-        update_result = settings_manager.write(_id='auth', data=new_auth_setting_instance.__dict__)
+        update_result = settings_manager.write(
+            _id=AUTH_SETTINGS_ID,
+            data=CmdbAuthSettings.to_json(new_auth_setting_instance),
+        )
 
         if update_result.acknowledged:
-            return DefaultResponse(settings_manager.get_section('auth')).make_response()
+            return DefaultResponse(settings_manager.get_section(AUTH_SETTINGS_ID)).make_response()
 
         abort(400, 'Could not update auth settings')
     except HTTPException as http_err:

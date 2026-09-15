@@ -35,7 +35,8 @@ from cmdb.security.license.license_constants import LicenseFeature
 # Document-generator surfaces (template list lives on the docs blueprint at /docs, the rest on /docapi)
 TEMPLATE_LIST_URL: str = '/docs/template'
 TEMPLATE_SINGLE_URL: str = '/docapi/template/1'
-TEMPLATE_CREATE_URL: str = '/docapi/template'
+# The create route is registered WITH the trailing slash (the form the frontend calls)
+TEMPLATE_CREATE_URL: str = '/docapi/template/'
 RENDER_URL: str = '/docapi/template/1/render/1'
 CHATGPT_MESSAGE_URL: str = '/chatgpt/message'
 

@@ -129,8 +129,15 @@ def _make_interface_row(
     subnet_id: int | None,
     ip: str | None,
     interface_type: str | None = None,
+    multi_data_id: int | None = None,
 ) -> dict[str, Any]:
-    """Builds one MDS interface row with an optional dg-interface-type entry."""
+    """
+    Builds one MDS interface row with an optional dg-interface-type entry
+
+    ``multi_data_id`` defaults to None so existing callers build LEGACY rows, which
+    ``interface_row_keys`` keys by position. Pass an id to build a row the way the application
+    actually creates one.
+    """
     data: list[dict[str, Any]] = []
 
     if subnet_id is not None:
@@ -142,7 +149,12 @@ def _make_interface_row(
     if interface_type is not None:
         data.append(_make_field(InterfaceField.TYPE, interface_type))
 
-    return {CmdbObjectMdsRowKey.DATA: data}
+    row: dict[str, Any] = {CmdbObjectMdsRowKey.DATA: data}
+
+    if multi_data_id is not None:
+        row[CmdbObjectMdsRowKey.MULTI_DATA_ID] = multi_data_id
+
+    return row
 
 
 def _make_interface_section(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -971,3 +983,53 @@ def test_delete_allows_regular_object_even_with_interface_subnet() -> None:
     target = _interface_object(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, [SIBLING_SUBNET_ID])
 
     assert object_delete_requires_ipam_license(types_manager, target) is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                     _extract_interface_rows - the row key is the row ID                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+#
+# The first element of each tuple doubles as the self-exclusion key against the stored object, so it
+# has to be the row's multi_data_id. Emitting the POSITION here (with the stored side also keyed by
+# position) is what made an edited interface row collide with its own stored row once the positions
+# had shifted.
+
+FIRST_ROW_ID: int = 1
+
+
+def test_extract_interface_rows_keys_rows_by_their_row_id() -> None:
+    """A modern row's key is its multi_data_id, not its index in the section"""
+    obj = _make_object_doc(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, mds=[_make_interface_section([
+        _make_interface_row(SIBLING_SUBNET_ID, '10.0.0.5', multi_data_id=FIRST_ROW_ID),
+        _make_interface_row(SIBLING_SUBNET_ID, '10.0.0.6', multi_data_id=7),
+    ])])
+
+    assert [row_key for row_key, _, _, _ in _extract_interface_rows(obj)] == [FIRST_ROW_ID, 7]
+
+
+def test_extract_interface_rows_key_of_a_single_modern_row_is_not_zero() -> None:
+    """The off-by-one behind the bug, pinned on the candidate side too"""
+    obj = _make_object_doc(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, mds=[_make_interface_section([
+        _make_interface_row(SIBLING_SUBNET_ID, '10.0.0.5', multi_data_id=FIRST_ROW_ID),
+    ])])
+
+    assert [row_key for row_key, _, _, _ in _extract_interface_rows(obj)] == [FIRST_ROW_ID]
+
+
+def test_extract_interface_rows_falls_back_to_positions_for_legacy_rows() -> None:
+    """Rows with no multi_data_id keep the previous positional keys, so nothing regresses"""
+    obj = _make_object_doc(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, mds=[_make_interface_section([
+        _make_interface_row(SIBLING_SUBNET_ID, '10.0.0.5'),
+        _make_interface_row(SIBLING_SUBNET_ID, '10.0.0.6'),
+    ])])
+
+    assert [row_key for row_key, _, _, _ in _extract_interface_rows(obj)] == [0, 1]
+
+
+def test_extract_interface_rows_still_reads_each_rows_values() -> None:
+    """Keying by id must not disturb the subnet / ip / type each tuple carries"""
+    obj = _make_object_doc(CANDIDATE_OBJECT_ID, OTHER_TYPE_ID, mds=[_make_interface_section([
+        _make_interface_row(SIBLING_SUBNET_ID, '10.0.0.5', 'ipv4', multi_data_id=3),
+    ])])
+
+    assert _extract_interface_rows(obj) == [(3, SIBLING_SUBNET_ID, '10.0.0.5', 'ipv4')]

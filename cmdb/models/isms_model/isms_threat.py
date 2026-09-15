@@ -15,54 +15,92 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of IsmsThreat in DataGerry - ISMS
-"""
-from logging import Logger, getLogger
 
-from cmdb.models.cmdb_dao import CmdbDAO
+An IsmsThreat is one threat catalogue entry of the ISMS (collection ``isms.threat``): one half of what
+a THREAT_X_VULNERABILITY risk is built from, held in ``IsmsRisk.threats``. Four properties of this
+document are worth knowing before changing it:
+
+**``source`` is a reference, not text.** It holds the public_id of a ``CmdbExtendableOption`` of option
+type ``THREAT_VULNERABILITY`` - the one option list both catalogues share - naming where the entry came
+from (a standard, a catalogue, an internal assessment). Null when the entry has no stated source.
+
+**The catalogue is looked up by ``name``, so ``name`` is indexed.** The CSV importer resolves names to
+public_ids in one batched ``$in`` query per import, both when importing threats directly and when
+a *risk* import names an unknown threat - which creates one implicitly. Unlike the ISMS scales, this
+collection is not bounded: a published catalogue runs to hundreds of entries. The index is not unique,
+because ``source`` is what distinguishes two catalogues' identically named entries.
+
+**An entry cannot be deleted while a risk references it.** ``delete_isms_item_if_unused_by_risk`` asks
+``isms.risk`` whether any risk still names it, single and bulk alike, and refuses rather than cascading -
+a risk without its threat would be a different risk.
+
+**IsmsVulnerability is its structural twin.** The two documents carry exactly the same five keys, so one
+serialises cleanly as the other; ``IsmsRisk`` keeps them in two separate reference lists, where such a
+swap would reach the response unnoticed. The shared ``CmdbDAO.to_json`` type-checks its instance for
+that reason. ``ThreatKey`` names every persisted key and drives the shared ``from_data`` / ``to_json``
+"""
+from typing import Any
 
 from cmdb.class_schema.isms_model.isms_threat_schema import get_isms_threat_schema
+from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.isms_model.isms_threat_constants import ThreatKey
 
 from cmdb.errors.models.isms_threat import (
     IsmsThreatInitError,
     IsmsThreatInitFromDataError,
     IsmsThreatToJsonError,
 )
-
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  IsmsThreat - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class IsmsThreat(CmdbDAO):
     """
-    Implementation of IsmsThreat which represents a threat in ISMS
+    Implementation of IsmsThreat which represents one threat catalogue entry in ISMS
 
     Extends: CmdbDAO
     """
     COLLECTION = "isms.threat"
-    SCHEMA: dict = get_isms_threat_schema()
 
+    INDEX_KEYS: list[dict[str, Any]] = [
+        # The catalogue's lookup key: both the threat import and a risk import that names an unknown
+        # threat resolve it with a '$in' on this field. Not unique - two catalogues may name the same
+        # threat, and 'source' is what tells them apart
+        {
+            'keys': [(ThreatKey.NAME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': ThreatKey.NAME.value,
+            'unique': False,
+        },
+    ]
 
-    #pylint: disable=R0917
+    SCHEMA: dict[str, Any] = get_isms_threat_schema()
+
+    # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
+    KEYS = ThreatKey
+    INIT_FROM_DATA_ERROR = IsmsThreatInitFromDataError
+    TO_JSON_ERROR = IsmsThreatToJsonError
+
     def __init__(
             self,
+            *,
             public_id: int,
             name: str,
-            source: int,
-            identifier: str = None,
-            description: str = None,
-        ):
+            source: int | None = None,
+            identifier: str | None = None,
+            description: str | None = None,
+        ) -> None:
         """
         Initialises an IsmsThreat
 
+        Keyword-only, because CmdbDAO.__new__ looks for public_id in **kwargs and runs before this:
+        a positional call could never have worked
+
         Args:
             public_id (int): public_id of the IsmsThreat
-            name (str): The name of the IsmsThreat
-            source (int): Source of the IsmsThreat
-            identifier (str, optional): Identifier of the IsmsThreat
-            description (str, optional): Description of the IsmsThreat
+            name (str): The name of the threat, and the key its catalogue is looked up by
+            source (int, optional): public_id of the CmdbExtendableOption('THREAT_VULNERABILITY')
+                                    naming where this entry came from
+            identifier (str, optional): External identifier / catalogue number of the threat
+            description (str, optional): Description of the threat
 
         Raises:
             IsmsThreatInitError: If the IsmsThreat could not be initialised
@@ -76,56 +114,3 @@ class IsmsThreat(CmdbDAO):
             super().__init__(public_id = public_id)
         except Exception as err:
             raise IsmsThreatInitError(err) from err
-
-# -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
-
-    @classmethod
-    def from_data(cls, data: dict) -> "IsmsThreat":
-        """
-        Initialises a IsmsThreat from a dict
-
-        Args:
-            data (dict): Data with which the IsmsThreat should be initialised
-
-        Raises:
-            IsmsThreatInitFromDataError: If the initialisation with the given data fails
-
-        Returns:
-            IsmsThreat: IsmsThreat with the given data
-        """
-        try:
-            return cls(
-                public_id = data.get('public_id'),
-                name = data.get('name'),
-                source = data.get('source'),
-                identifier = data.get('identifier'),
-                description = data.get('description'),
-            )
-        except Exception as err:
-            raise IsmsThreatInitFromDataError(err) from err
-
-
-    @classmethod
-    def to_json(cls, instance: "IsmsThreat") -> dict:
-        """
-        Converts a IsmsThreat into a json compatible dict
-
-        Args:
-            instance (IsmsThreat): The IsmsThreat which should be converted
-
-        Raises:
-            IsmsThreatToJsonError: If the IsmsThreat could not be converted to a json compatible dict
-
-        Returns:
-            dict: Json compatible dict of the IsmsThreat values
-        """
-        try:
-            return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'source': instance.source,
-                'identifier': instance.identifier,
-                'description': instance.description,
-            }
-        except Exception as err:
-            raise IsmsThreatToJsonError(err) from err

@@ -16,11 +16,31 @@
 """
 REST routes for the IPAM sidebar tree
 
-Exposes the initial tree payload (every supernet plus every unassigned subnet in one call),
-the per-supernet subtree endpoint used to lazily expand one supernet entry into its full
-CIDR-nested subnet tree, and the unassigned-subnets endpoint for targeted refreshes of the
-'Unassigned' group. All payloads carry lightweight nodes (public_id, name, cidr, address
-family) sorted IPv4 before IPv6 and ascending by CIDR within each family
+Three GET routes behind the sidebar's IPAM section:
+
+* ``GET /`` - the initial payload, every supernet plus every unassigned subnet in one call
+* ``GET /supernets/<public_id>`` - one supernet's full CIDR-nested subnet tree, fetched when the
+  user expands that entry
+* ``GET /unassigned`` - the 'Unassigned' block alone, for a targeted refresh. **Nothing calls this
+  today**: the frontend service exposes only the first two, and this route's payload is the block
+  ``GET /`` already returned - discussion-backlog #205
+
+All payloads carry lightweight nodes (public_id, name, cidr, address family under 'type', the
+CmdbType icon) sorted IPv4 before IPv6 and ascending by CIDR within each family. "Lightweight" is
+about the node, not the query: the routes load the WHOLE catalogue of both special types with no
+pagination, so the response grows with the installation. The document width is bounded - the
+builders load only the two keys a node reads (``TREE_NODE_PROJECTION``) - but the row count is not.
+
+These routes are transport glue: resolve the managers, delegate, map failures onto HTTP. The
+payloads are built by ``cmdb.framework.ipam.tree_overview``, which also owns the one shape worth
+knowing before reading a tree: a subnet is 'unassigned' when it has no usable supernet reference, so
+a subnet referencing a supernet that does **not exist** is in neither block and appears nowhere in
+the tree (discussion-backlog #204 - unreachable through the write and delete guards, but nothing
+reports it if the data ever gets there).
+
+Like the rest of the folder the surface sits behind the licensed IPAM feature (the blueprint is
+gated in ``init_rest_api``), carries no per-user ACL right (#149) and does not filter reads by the
+object ACL (#150, which names the tree loaders explicitly)
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -29,15 +49,13 @@ from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import ObjectsManager, TypesManager
-
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ipam.tree_overview import (
     build_ipam_tree,
     build_supernet_subnet_tree,
     build_unassigned_subnets,
 )
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import read_ipam_managers
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
@@ -66,12 +84,16 @@ def get_ipam_tree(request_user: CmdbUser) -> Response:
     Args:
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 500 on an unexpected error. An installation with no SUPERNET / SUBNET
+                       CmdbType defined is not an error - both blocks come back empty, so the
+                       sidebar renders on a fresh system
+
     Returns:
         Response: {'supernets': [supernet entries], 'unassigned': [subnet nodes]}
     """
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        objects_manager, types_manager = read_ipam_managers(request_user)
 
         tree: dict[str, Any] = build_ipam_tree(objects_manager, types_manager)
 
@@ -103,12 +125,17 @@ def get_supernet_subnet_tree(public_id: int, request_user: CmdbUser) -> Response
         public_id (int): public_id of the SUPERNET CmdbObject whose subtree is returned
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 404 when no CmdbObject with this public_id exists; 400 when it is not a
+                       SUPERNET or no SUPERNET CmdbType is defined (both raised by
+                       `load_supernet_object`, so the id is validated before any subtree is built);
+                       500 on an unexpected error
+
     Returns:
         Response: {'children': [root nodes, each with nested 'children']}
     """
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        objects_manager, types_manager = read_ipam_managers(request_user)
 
         subtree: dict[str, Any] = build_supernet_subnet_tree(objects_manager, types_manager, public_id)
 
@@ -140,12 +167,15 @@ def get_unassigned_subnets(request_user: CmdbUser) -> Response:
     Args:
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 500 on an unexpected error. No SUBNET CmdbType defined answers with an empty
+                       block rather than an error
+
     Returns:
         Response: {'unassigned': [subnet nodes]}
     """
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        objects_manager, types_manager = read_ipam_managers(request_user)
 
         unassigned: dict[str, Any] = build_unassigned_subnets(objects_manager, types_manager)
 

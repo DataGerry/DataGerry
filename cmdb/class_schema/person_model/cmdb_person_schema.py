@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -20,6 +20,11 @@ A CmdbPerson represents a person record in DataGerry (collection ``management.pe
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbPerson.SCHEMA.
+
+The optional keys are ``nullable`` on purpose. A client that has no value for one may send null - the
+Angular person form does exactly that for ``email`` - and refusing it would answer 400 for a payload
+that says nothing wrong. What is never *stored* is null: ``CmdbPerson.__init__`` coerces null to the
+empty string / empty list, so the document a GET returns can always be sent straight back
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,37 +36,44 @@ def get_cmdb_person_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbPerson.SCHEMA
     """
+    # Imported inside the builder: the key enum lives in the model layer, which imports this module
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.person_model.person_constants import PersonKey
+
     return {
-        'public_id': {  # public_id of the CmdbPerson
+        PersonKey.PUBLIC_ID.value: {  # public_id of the CmdbPerson
             'type': 'integer',
             'min': 1,
         },
-        'display_name': {  # Displayed name of the Person
+        PersonKey.DISPLAY_NAME.value: {  # Displayed name of the Person
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'first_name': {  # First name of the Person
+        PersonKey.FIRST_NAME.value: {  # First name of the Person
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'last_name': {  # Last name of the Person
+        PersonKey.LAST_NAME.value: {  # Last name of the Person
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'phone_number': {  # Optional phone number of the Person
+        PersonKey.PHONE_NUMBER.value: {  # Optional phone number; null is accepted and stored as ''
             'type': 'string',
+            'nullable': True,
         },
-        'email': {  # Optional email of the Person; validated against an email pattern
+        PersonKey.EMAIL.value: {  # Optional email; validated against an email pattern when non-empty
             'type': 'string',
             'required': False,
             'empty': True,
+            'nullable': True,
             'regex': r'^(?!.*\.\.)[\w\.-]+@[a-zA-Z\d-]+(\.[a-zA-Z]{2,})+$',  # Email regex pattern
         },
-        'groups': {  # public_ids of the CmdbPersonGroups this Person is assigned to
+        PersonKey.GROUPS.value: {  # public_ids of the CmdbPersonGroups this Person is assigned to
             'type': 'list',
+            'nullable': True,
             'schema': {
                 'type': 'integer',
                 'min': 1,

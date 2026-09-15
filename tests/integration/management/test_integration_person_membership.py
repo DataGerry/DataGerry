@@ -365,3 +365,106 @@ class TestDeleteWithFollowUp:
         assert database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
             .find_one({'public_id': PERSON_ID_A}) is None
         assert _risk_assessment(database_manager, database_name)['risk_assessor_id'] is None
+
+
+class TestDeleteCascadeCleansTheCounterpartCollection:
+    """The half of the cascade that moved out of the delete routes and into the managers."""
+
+    def test_deleting_a_person_removes_them_from_every_group(
+        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        Any caller deleting a person now gets the membership cleaned up, not just the delete route
+
+        The route used to make a second call for this, so an importer or a bulk delete left the
+        person listed in every group - a membership pointing at a public_id that no longer resolves.
+        """
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+            .insert_one(_person_doc(PERSON_ID_A, groups=[GROUP_ID_A, GROUP_ID_B]))
+        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).insert_many([
+            _group_doc(GROUP_ID_A, group_members=[PERSON_ID_A]),
+            _group_doc(GROUP_ID_B, group_members=[PERSON_ID_A, PERSON_ID_OTHER]),
+        ])
+
+        persons_manager.delete_with_follow_up(PERSON_ID_A)
+
+        assert _group_members(database_manager, database_name, GROUP_ID_A) == []
+        assert _group_members(database_manager, database_name, GROUP_ID_B) == [PERSON_ID_OTHER]
+
+    def test_deleting_a_group_removes_it_from_every_person(
+        self,
+        person_groups_manager: PersonGroupsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The mirror image, written straight to the person collection by the group's own manager."""
+        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
+            .insert_one(_group_doc(GROUP_ID_A, group_members=[PERSON_ID_A, PERSON_ID_B]))
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_many([
+            _person_doc(PERSON_ID_A, groups=[GROUP_ID_A]),
+            _person_doc(PERSON_ID_B, groups=[GROUP_ID_A, GROUP_ID_B]),
+        ])
+
+        person_groups_manager.delete_with_follow_up(GROUP_ID_A)
+
+        assert _person_groups(database_manager, database_name, PERSON_ID_A) == []
+        assert _person_groups(database_manager, database_name, PERSON_ID_B) == [GROUP_ID_B]
+
+    def test_a_person_and_a_group_sharing_a_public_id_are_not_confused(
+        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The two counters are independent, so overlapping ids are the normal case, not a corner one
+
+        Deleting person 96001 must not touch an assessment whose owner is the GROUP with the same
+        public_id - which is what the '_ref_type' half of every polymorphic filter is for.
+        """
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+            .insert_one(_person_doc(PERSON_ID_A))
+        database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).insert_one({
+            'public_id': RISK_ASSESSMENT_ID,
+            'risk_owner_id': PERSON_ID_A,
+            'risk_owner_id_ref_type': PersonReferenceType.PERSON_GROUP.value,
+        })
+
+        persons_manager.delete_with_follow_up(PERSON_ID_A)
+
+        assert _risk_assessment(database_manager, database_name)['risk_owner_id'] == PERSON_ID_A
+
+    def test_the_person_is_gone_from_every_place_at_once(
+        self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The whole cascade in one call: assessor, polymorphic owner, interviewed list, assignment, group
+
+        Asserted together because the value of moving it into the manager is that a caller gets all
+        of it, not a subset that depends on which route they came through.
+        """
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+            .insert_one(_person_doc(PERSON_ID_A, groups=[GROUP_ID_A]))
+        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
+            .insert_one(_group_doc(GROUP_ID_A, group_members=[PERSON_ID_A]))
+        database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).insert_one({
+            'public_id': RISK_ASSESSMENT_ID,
+            'risk_assessor_id': PERSON_ID_A,
+            'risk_owner_id': PERSON_ID_A,
+            'risk_owner_id_ref_type': PersonReferenceType.PERSON.value,
+            'interviewed_persons': [PERSON_ID_A, PERSON_ID_OTHER],
+        })
+        database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name).insert_one({
+            'public_id': CONTROL_ASSIGNMENT_ID,
+            'responsible_for_implementation_id': PERSON_ID_A,
+            'responsible_for_implementation_id_ref_type': PersonReferenceType.PERSON.value,
+        })
+
+        persons_manager.delete_with_follow_up(PERSON_ID_A)
+
+        assessment = _risk_assessment(database_manager, database_name)
+        assignment = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+            .find_one({'public_id': CONTROL_ASSIGNMENT_ID})
+
+        assert assessment['risk_assessor_id'] is None
+        assert assessment['risk_owner_id'] is None
+        assert assessment['interviewed_persons'] == [PERSON_ID_OTHER]
+        assert assignment['responsible_for_implementation_id'] is None
+        assert _group_members(database_manager, database_name, GROUP_ID_A) == []

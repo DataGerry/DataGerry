@@ -13,3 +13,11 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Export engine for CmdbObjects (framework layer)
+
+Holds the export configuration (`config/`), the per-format serializers (`format/`), the writer that
+drives them (`writer/`), the shared constants and the exported-file naming helper. The CmdbType export
+is NOT part of this engine - it is a standalone JSON serialization in the exporter route helper, and
+only borrows the filename timestamp from here
+"""

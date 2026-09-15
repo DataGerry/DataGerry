@@ -15,13 +15,35 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of IsmsImpact in DataGerry - ISMS
+
+An IsmsImpact is one level of the ISMS impact scale (collection ``isms.impact``) - the "how bad would
+it be" axis of the risk matrix. Four properties of this document are worth knowing before changing it:
+
+**``calculation_basis`` is a number, and it is the reason this entity exists.** It is the weight the
+risk matrix multiplies and the value every risk assessment's ``maximum_impact_value`` is recomputed
+from, which ``ImpactManager.update_with_follow_up`` does across the whole assessment collection when
+this field changes. It is stored as a float (the schema's ``'type': 'float', 'min': 0.0``); the model
+annotated it ``str`` until 2026-09-07, which was the only claim of that anywhere.
+
+**The collection is a small fixed scale**, three to six rows in practice - the whole set is preloaded
+in one query by ``load_impact_calculation_basis``. That is why it declares no ``INDEX_KEYS`` even
+though the frontend's table sorts on ``calculation_basis`` server-side: sorting a handful of documents
+needs no index, and the other ISMS scale entities declare none either.
+
+**``IsmsLikelihood`` is its structural twin.** Both carry exactly ``public_id`` / ``name`` /
+``calculation_basis`` / ``description``, so one serialises cleanly as the other - a mix-up produces a
+valid-looking payload rather than an error. The shared ``CmdbDAO.to_json`` type-checks its instance for
+that reason, a guard this model had of its own before the check was lifted into the base class.
+
+**Its key set is closed.** ``ImpactKey`` names every persisted key and drives the shared
+``CmdbDAO.from_data`` / ``to_json``; ``IMPACT_REQUIRED_DOCUMENT_KEYS`` keeps a document that lacks a
+name or a calculation basis from becoming an instance holding None
 """
-from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.models.cmdb_dao import CmdbDAO
-
 from cmdb.class_schema.isms_model.isms_impact_schema import get_isms_impact_schema
+from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.isms_model.isms_impact_constants import IMPACT_REQUIRED_DOCUMENT_KEYS, ImpactKey
 
 from cmdb.errors.models.isms_impact import (
     IsmsImpactInitError,
@@ -29,37 +51,43 @@ from cmdb.errors.models.isms_impact import (
     IsmsImpactToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                                  IsmsImpact - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class IsmsImpact(CmdbDAO):
     """
-    Implementation of IsmsImpact which represents the impact of events
+    Implementation of IsmsImpact which represents one level of the ISMS impact scale
 
     Extends: CmdbDAO
     """
     COLLECTION = "isms.impact"
     SCHEMA: dict[str, Any] = get_isms_impact_schema()
 
+    # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither;
+    # REQUIRED_INIT_KEYS is what keeps from_data refusing a document that carries no name or basis
+    KEYS = ImpactKey
+    REQUIRED_INIT_KEYS: list[str] = IMPACT_REQUIRED_DOCUMENT_KEYS
+    INIT_FROM_DATA_ERROR = IsmsImpactInitFromDataError
+    TO_JSON_ERROR = IsmsImpactToJsonError
 
     def __init__(
         self,
+        *,
         public_id: int,
         name: str,
-        calculation_basis: str,
+        calculation_basis: float,
         description: str | None = None
     ) -> None:
         """
         Initialises an IsmsImpact
 
+        Keyword-only, because CmdbDAO.__new__ looks for public_id in **kwargs and runs before this:
+        a positional call could never have worked
+
         Args:
             public_id (int): public_id of the IsmsImpact
-            name (str): The name of the IsmsImpact
-            calculation_basis (float): The calculation_basis of the IsmsImpact
-            description (str | None): The description of the IsmsImpact
+            name (str): The name of the impact level
+            calculation_basis (float): The numeric weight of this impact level in the risk calculation
+            description (str | None): The description of the impact level
 
         Raises:
             IsmsImpactInitError: If the IsmsImpact could not be initialised
@@ -69,60 +97,6 @@ class IsmsImpact(CmdbDAO):
             self.calculation_basis = calculation_basis
             self.description = description
 
-            super().__init__(public_id=public_id)
+            super().__init__(public_id = public_id)
         except Exception as err:
-            raise IsmsImpactInitError(str(err)) from err
-
-# -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
-
-    @classmethod
-    def from_data(cls, data: dict[str, Any]) -> "IsmsImpact":
-        """
-        Initialises a IsmsImpact from a dict
-
-        Args:
-            data (dict[str, Any]): Data with which the IsmsImpact should be initialised
-
-        Raises:
-            IsmsImpactInitFromDataError: If the initialisation with the given data fails
-
-        Returns:
-            IsmsImpact: IsmsImpact with the given data
-        """
-        try:
-            return cls(
-                public_id = data['public_id'],
-                name = data['name'],
-                calculation_basis = data['calculation_basis'],
-                description = data.get('description'),
-            )
-        except Exception as err:
-            raise IsmsImpactInitFromDataError(str(err)) from err
-
-
-    @classmethod
-    def to_json(cls, instance: "CmdbDAO") -> dict[str, Any]:
-        """
-        Converts a IsmsImpact into a json compatible dict
-
-        Args:
-            instance (IsmsImpact): The IsmsImpact which should be converted
-
-        Raises:
-            IsmsImpactToJsonError: If the IsmsImpact could not be converted to a json compatible dict
-
-        Returns:
-            dict[str, Any]: Json compatible dict of the IsmsImpact values
-        """
-        try:
-            if not isinstance(instance, IsmsImpact):
-                raise TypeError(f"Expected IsmsImpact in 'to_json' got: {type(instance).__name__}!")
-
-            return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'calculation_basis': instance.calculation_basis,
-                'description': instance.description,
-            }
-        except Exception as err:
-            raise IsmsImpactToJsonError(str(err)) from err
+            raise IsmsImpactInitError(err) from err

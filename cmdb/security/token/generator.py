@@ -19,7 +19,8 @@ Implementation of TokenGenerator
 from logging import Logger, getLogger
 from datetime import datetime, timedelta, timezone
 
-from authlib.jose import jwt
+from joserfc import jwt
+from joserfc.jwk import RSAKey
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import SettingsManager
@@ -27,6 +28,7 @@ from cmdb.manager import SettingsManager
 from cmdb import __title__
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.security.key.holder import KeyHolder
+from cmdb.security.token.token_constants import TokenAlgorithm
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -59,7 +61,7 @@ class TokenGenerator:
         self.key_holder = KeyHolder(dbm)
 
         self.header = {
-            'alg': 'RS512'
+            'alg': TokenAlgorithm.RS512.value
         }
 
         #TODO: REFACTOR-FIX
@@ -110,6 +112,7 @@ class TokenGenerator:
             }
         }
         claims = {**self.DEFAULT_CLAIMS, **token_claims, **payload_claims, **optional_claims}
-        token = jwt.encode(self.header, claims, self.key_holder.get_private_key())
+        private_key = RSAKey.import_key(self.key_holder.get_private_key())
+        token = jwt.encode(self.header, claims, private_key, algorithms=[TokenAlgorithm.RS512.value])
 
-        return token
+        return token.encode('utf-8')

@@ -58,6 +58,7 @@ from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerDeleteError,
     ControlMeasureAssignmentManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -191,7 +192,7 @@ def get_isms_control_measure_assignments(params: CollectionParameters, request_u
     # response, so the number of lookup maps legitimately exceeds the default local-variable limit
     # pylint: disable=too-many-locals
     try:
-        body = request.method == 'HEAD'
+        body = request_wants_body()
 
         cma_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
             ManagerType.CONTROL_MEASURE_ASSIGNMENT,
@@ -336,7 +337,7 @@ def get_isms_control_measure_assignment(public_id: int, request_user: CmdbUser) 
                                                 )
 
         return GetSingleResponse(requested_control_measure_assignment,
-                                 body = request.method == 'HEAD').make_response()
+                                 body=request_wants_body()).make_response()
     except HTTPException as http_err:
         raise http_err
     except ControlMeasureAssignmentManagerGetError as err:

@@ -15,12 +15,42 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of CmdbExtendableOption in DataGerry
+
+One CmdbExtendableOption is **one selectable entry of one dropdown**: an `OptionType` names the
+dropdown, `value` is the text a user picks, and `(option_type, value)` is the option's identity -
+enforced by the unique compound index below, not by the routes' read-then-write guard.
+
+Documents reach the collection from three places, only one of which passes the Cerberus schema:
+
+* `POST` / `PUT /extendable_options/` - schema-validated, and the only path a user drives directly.
+* the ISMS CSV importer, which creates the options a row references (`importer_isms_routes`).
+* the two predefined-data seeders (`predefined_data/isms_data`, `predefined_data/port_data`), whose
+  documents carry `predefined: True`.
+
+`predefined` is what the routes gate on: an option DataGerry ships can neither be created, edited
+nor deleted through the API. It is a two-state flag - an absent key or a stored `null` reads as
+False - which `extendable_option_utils.coerce_predefined` is responsible for.
+
+`ExtendableOptionKey` names every persisted key and drives the shared `CmdbDAO.from_data` /
+`to_json`, so this model implements neither: the enum is the payload contract. The constructor is
+the validating place and coerces through `extendable_option_utils`, which the list route's
+normalisation shares - see that module for why a read accepts more than a write does.
 """
 from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.extendable_option_model.option_type_enum import OptionType
+from cmdb.models.extendable_option_model.extendable_option_constants import (
+    ExtendableOptionKey,
+    OPTION_TYPE_VALUE_INDEX_NAME,
+)
+from cmdb.models.extendable_option_model.extendable_option_utils import (
+    coerce_option_type,
+    coerce_option_value,
+    coerce_predefined,
+    coerce_public_id,
+)
 
 from cmdb.class_schema.extendable_option_model.cmdb_extendable_option_schema import get_cmdb_extendable_option_schema
 
@@ -38,88 +68,91 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbExtendableOption(CmdbDAO):
     """
-    Implementation of CmdbExtendableOption which is single value for an OptionType
+    Implementation of CmdbExtendableOption, one selectable value of one OptionType
 
     Extends: CmdbDAO
     """
     COLLECTION = "framework.extendableOptions"
-    MODEL = 'ExtendableOption'
-    INDEX_KEYS: list[dict[str, Any]] = [
-        {'keys': [('option_type', CmdbDAO.DAO_ASCENDING)], 'name': 'option_type', 'unique': False}
+
+    # The two keys a document must carry to be an option at all: without them it names neither a
+    # dropdown nor an entry in it. Read through the shared from_data, which refuses such a document
+    # instead of building an instance whose value is None - the shape the list route used to answer
+    # as 'value': null
+    REQUIRED_INIT_KEYS: list[str] = [
+        ExtendableOptionKey.VALUE.value,
+        ExtendableOptionKey.OPTION_TYPE.value,
     ]
 
-    SCHEMA: dict = get_cmdb_extendable_option_schema()
+    INDEX_KEYS: list[dict[str, Any]] = [
+        # An option's identity is its value within its own list, and this index is the actual
+        # guarantee. The create and update routes check first (extendable_options_helper.
+        # option_value_exists), but that is a read-then-write, and the ISMS CSV importer resolves
+        # values through its own read-then-insert - so before this index concurrent writers could
+        # (and on installations older than 2026-07-06, without any check at all, did) leave two
+        # identical entries in the same dropdown.
+        #
+        # Compound with option_type FIRST, so it is also a usable index for every 'all options of
+        # this type' query - which is why the collection's former non-unique 'option_type' index was
+        # dropped rather than kept beside it (updater_20260902).
+        #
+        # Case- and whitespace-sensitive, exactly like the route guard: 'CAT6', 'cat6' and ' CAT6'
+        # are three different options. Existing databases are de-duplicated by updater_20260902
+        # before it builds this index; changing INDEX_KEYS alone would have changed nothing for them,
+        # since index reconciliation is name-based and purely additive
+        {
+            'keys': [
+                (ExtendableOptionKey.OPTION_TYPE.value, CmdbDAO.DAO_ASCENDING),
+                (ExtendableOptionKey.VALUE.value, CmdbDAO.DAO_ASCENDING),
+            ],
+            'name': OPTION_TYPE_VALUE_INDEX_NAME,
+            'unique': True,
+        },
+    ]
+
+    SCHEMA: dict[str, Any] = get_cmdb_extendable_option_schema()
+
+    # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
+    KEYS = ExtendableOptionKey
+    INIT_FROM_DATA_ERROR = CmdbExtendableOptionInitFromDataError
+    TO_JSON_ERROR = CmdbExtendableOptionToJsonError
 
 
-    def __init__(self, public_id: int, value: str, option_type: OptionType, predefined: bool = False):
+    def __init__(
+            self,
+            *,
+            public_id: int,
+            value: str,
+            option_type: OptionType | str,
+            predefined: bool | None = False,
+        ) -> None:
         """
-        Initialises an CmdbExtendableOption
+        Initialises a CmdbExtendableOption
+
+        Keyword-only, because CmdbDAO.__new__ looks for public_id in **kwargs and runs before this:
+        a positional call could never have worked
 
         Args:
             public_id (int): public_id of the CmdbExtendableOption
-            value (str): value of the CmdbExtendableOption
-            option_type (str): OptionType of CmdbExtendableOption
-            predefined (bool): If True it is created by 
+            value (str): The option value, i.e. the text offered in the dropdown
+            option_type (OptionType | str): The OptionType whose list this option belongs to. A
+                                            member and the string it is stored as are both accepted;
+                                            the value is what gets stored
+            predefined (bool | None): True for an option DataGerry ships, which the routes refuse to
+                                      create, edit or delete. None (an absent or null key) reads as
+                                      False. Defaults to False
 
         Raises:
             CmdbExtendableOptionInitError: If the CmdbExtendableOption could not be initialised
         """
         try:
-            self.value = value
-            self.option_type = option_type
-            self.predefined = predefined
+            self.value: str = coerce_option_value(value)
+            self.option_type: str = coerce_option_type(option_type)
+            self.predefined: bool = coerce_predefined(predefined)
 
-            super().__init__(public_id=public_id)
+            # Coerced here rather than left to CmdbDAO's int(): an option is always constructed from
+            # a stored document or from the update route's URL id, so a missing or zero public_id is
+            # a document that cannot be addressed - and it says so, instead of raising the int()
+            # TypeError the caller then has to interpret
+            super().__init__(public_id=coerce_public_id(public_id))
         except Exception as err:
             raise CmdbExtendableOptionInitError(err) from err
-
-# -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
-
-    @classmethod
-    def from_data(cls, data: dict) -> "CmdbExtendableOption":
-        """
-        Initialises a CmdbExtendableOption from a dict
-
-        Args:
-            data (dict): Data with which the CmdbExtendableOption should be initialised
-
-        Raises:
-            CmdbExtendableOptionInitFromDataError: If the initialisation with the given data fails
-
-        Returns:
-            CmdbExtendableOption: CmdbExtendableOption with the given data
-        """
-        try:
-            return cls(
-                public_id = data.get('public_id'),
-                value = data.get('value'),
-                option_type = data.get('option_type'),
-                predefined = data.get('predefined', False),
-            )
-        except Exception as err:
-            raise CmdbExtendableOptionInitFromDataError(err) from err
-
-
-    @classmethod
-    def to_json(cls, instance: "CmdbExtendableOption") -> dict:
-        """
-        Converts a CmdbExtendableOption into a json compatible dict
-
-        Args:
-            instance (CmdbExtendableOption): The CmdbExtendableOption which should be converted
-
-        Raises:
-            CmdbExtendableOptionToJsonError: If the CmdbExtendableOption could not be converted to a json dict
-
-        Returns:
-            dict: Json compatible dict of the CmdbExtendableOption values
-        """
-        try:
-            return {
-                'public_id': instance.get_public_id(),
-                'value': instance.value,
-                'option_type': instance.option_type,
-                'predefined': instance.predefined,
-            }
-        except Exception as err:
-            raise CmdbExtendableOptionToJsonError(err) from err

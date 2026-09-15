@@ -24,11 +24,10 @@ from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
-from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
-from cmdb.interface.rest_api.responses.helpers.api_projector import APIProjector
 from cmdb.interface.rest_api.responses.helpers.api_pagination import APIPagination
 from cmdb.interface.rest_api.responses.helpers.api_pager import APIPager
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.interface.rest_api.responses.response_constants import ResponseHeader, ResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -45,24 +44,21 @@ class GetMultiResponse(BaseAPIResponse):
                  total: int,
                  params: CollectionParameters,
                  url: str | None = None,
-                 body: bool = None) -> None:
+                 body: bool | None = None) -> None:
         """
-        Constructor of GetMultiResponse
+        Initializes the GetMultiResponse
 
         Args:
-            results: List of filtered elements in payload
-            total: Complete number of elements
-            params: HTTP query parameters
-            url: Requested url
-            body: If http response should not have a body
+            results (list[dict]): The elements of the requested page
+            total (int): The complete number of elements matching the request, across all pages
+            params (CollectionParameters): The parsed query parameters, consulted for a `?projection=`
+                and reported back in the pager block
+            url (str | None): The requested url, used to build the pagination links
+            body (bool | None): Whether to answer with a payload; False answers without one (HEAD).
+                None means yes
         """
         self.parameters: CollectionParameters = params
-
-        if self.parameters.projection:
-            project = APIProjection(self.parameters.projection)
-            self.results = APIProjector(results, project).project
-        else:
-            self.results = results
+        self.results: list[dict] = self.apply_projection(results, params.projection)
 
         self.count: int = len(self.results)
         self.total: int = total
@@ -80,21 +76,21 @@ class GetMultiResponse(BaseAPIResponse):
 
     def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
-        Make a valid http response.
+        Builds the http response carrying the page
+
+        The complete count is reported as a header as well, so a HEAD request answers how many
+        resources match without a payload - which is what the Angular services read it for
 
         Args:
-            *args:
-            **kwargs:
+            *args (Any): Positional arguments forwarded to `export`
+            **kwargs (Any): Keyword arguments forwarded to `export`, e.g. `pagination=False`
 
         Returns:
-            Instance of Response
+            Response: The http response with a HTTP 200 status code, without a payload when the
+                caller asked for none
         """
-        if self.body:
-            response = self.make_api_response(self.export(*args, **kwargs))
-        else:
-            response = self.make_api_response(None)
-
-        response.headers['X-Total-Count'] = self.total
+        response: Response = self.make_body_response(*args, **kwargs)
+        response.headers[ResponseHeader.TOTAL_COUNT.value] = self.total
 
         return response
 
@@ -108,18 +104,19 @@ class GetMultiResponse(BaseAPIResponse):
         Returns:
             Instance as a dict
         """
-        extra = {}
+        extra: dict[str, Any] = {}
 
         if pagination:
             extra = {
-                'parameters': CollectionParameters.to_dict(self.parameters),
-                'pager': self.pager.to_dict(),
-                'pagination': self.pagination.to_dict()
+                ResponseKey.PARAMETERS.value: CollectionParameters.to_dict(self.parameters),
+                ResponseKey.PAGER.value: self.pager.to_dict(),
+                ResponseKey.PAGINATION.value: self.pagination.to_dict(),
             }
 
-        return {**{
-            'results': self.results,
-            'count': self.count,
-            'total': self.total,
-            **extra
-        }, **super().export()}
+        return {
+            ResponseKey.RESULTS.value: self.results,
+            ResponseKey.COUNT.value: self.count,
+            ResponseKey.TOTAL.value: self.total,
+            **extra,
+            **super().export(),
+        }

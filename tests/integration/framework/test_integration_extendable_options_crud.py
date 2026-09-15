@@ -20,6 +20,12 @@ Pins the manager-layer behaviour against a real MongoDB: insert / get / update /
 through the bound collection and iterate_items honours BuilderParameters. ExtendableOptionsManager
 is a thin GenericManager subclass, so this exercises the generic CRUD wiring for the option
 collection.
+
+Its three own reads are pinned here too, because what they answer depends on the stored document
+rather than on the model: the value snapshot (`get_option_values`), the public_id -> value lookup a
+report resolves labels through (`get_option_values_by_id`), and the raw documents the list route
+sends (`iterate_option_documents`). Also pinned: a model read back through `get_item` really does
+carry the stored values - the model shares `CmdbDAO.from_data` / `to_json` since 2026-09-10.
 """
 from typing import Any
 
@@ -37,6 +43,8 @@ OPTION_ID_FOR_UPDATE: int = 9813
 OPTION_ID_FOR_DELETE: int = 9814
 OPTION_ID_FOR_ITERATE_A: int = 9815
 OPTION_ID_FOR_ITERATE_B: int = 9816
+OPTION_ID_FOR_LOOKUP_A: int = 9817
+OPTION_ID_FOR_LOOKUP_B: int = 9818
 MISSING_OPTION_ID: int = 9899
 
 ORIGINAL_VALUE: str = 'Integration Option'
@@ -49,6 +57,8 @@ SEED_OPTION_IDS: list[int] = [
     OPTION_ID_FOR_DELETE,
     OPTION_ID_FOR_ITERATE_A,
     OPTION_ID_FOR_ITERATE_B,
+    OPTION_ID_FOR_LOOKUP_A,
+    OPTION_ID_FOR_LOOKUP_B,
 ]
 
 
@@ -214,3 +224,152 @@ class TestIterateExtendableOptions:
         finally:
             _delete_option(database_manager, database_name, OPTION_ID_FOR_ITERATE_A)
             _delete_option(database_manager, database_name, OPTION_ID_FOR_ITERATE_B)
+
+
+class TestGetItemBuildsTheModel:
+    """``get_item`` reads a stored document back through the shared from_data."""
+
+    def test_the_stored_values_survive_the_read(
+        self,
+        extendable_options_manager: ExtendableOptionsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The model is what the update route compares its payload against, so it must be faithful."""
+        try:
+            extendable_options_manager.insert_item(_option_data(OPTION_ID_FOR_GET, 'model-read'))
+
+            option = extendable_options_manager.get_item(OPTION_ID_FOR_GET)
+
+            assert isinstance(option, CmdbExtendableOption)
+            assert option.get_public_id() == OPTION_ID_FOR_GET
+            assert option.value == 'model-read'
+            assert option.option_type == OptionType.RISK.value
+            assert option.predefined is False
+        finally:
+            _delete_option(database_manager, database_name, OPTION_ID_FOR_GET)
+
+    def test_a_document_without_the_predefined_flag_reads_as_not_predefined(
+        self,
+        extendable_options_manager: ExtendableOptionsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The flag is two-state, and only an insert through the schema is guaranteed to carry it
+
+        A document written directly (the ISMS importer, a seeder, an older version) may not, and the
+        update and delete guards both read it.
+        """
+        try:
+            _collection(database_manager, database_name).insert_one({
+                'public_id': OPTION_ID_FOR_GET,
+                'value': 'flagless',
+                'option_type': OptionType.RISK.value,
+            })
+
+            assert extendable_options_manager.get_item(OPTION_ID_FOR_GET).predefined is False
+        finally:
+            _delete_option(database_manager, database_name, OPTION_ID_FOR_GET)
+
+
+class TestGetOptionValuesById:
+    """The public_id -> value lookup, over the real (option_type, value) index."""
+
+    def test_it_groups_the_requested_lists(
+        self,
+        extendable_options_manager: ExtendableOptionsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """Two lists come back from one read, apart, keyed by the ids a report references."""
+        try:
+            extendable_options_manager.insert_item(_option_data(OPTION_ID_FOR_LOOKUP_A, 'Lookup Risk'))
+            extendable_options_manager.insert_item({
+                'public_id': OPTION_ID_FOR_LOOKUP_B,
+                'value': 'Lookup State',
+                'option_type': OptionType.IMPLEMENTATION_STATE.value,
+                'predefined': False,
+            })
+
+            value_maps = extendable_options_manager.get_option_values_by_id(
+                [OptionType.RISK.value, OptionType.IMPLEMENTATION_STATE.value]
+            )
+
+            assert value_maps[OptionType.RISK.value][OPTION_ID_FOR_LOOKUP_A] == 'Lookup Risk'
+            assert value_maps[OptionType.IMPLEMENTATION_STATE.value][OPTION_ID_FOR_LOOKUP_B] == 'Lookup State'
+        finally:
+            _delete_option(database_manager, database_name, OPTION_ID_FOR_LOOKUP_A)
+            _delete_option(database_manager, database_name, OPTION_ID_FOR_LOOKUP_B)
+
+    def test_an_unrequested_option_type_is_not_read(
+        self,
+        extendable_options_manager: ExtendableOptionsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A label from another dropdown resolving would put a wrong value in a report."""
+        try:
+            extendable_options_manager.insert_item(_option_data(OPTION_ID_FOR_LOOKUP_A, 'Lookup Risk'))
+
+            value_maps = extendable_options_manager.get_option_values_by_id(
+                [OptionType.IMPLEMENTATION_STATE.value]
+            )
+
+            assert OptionType.RISK.value not in value_maps
+        finally:
+            _delete_option(database_manager, database_name, OPTION_ID_FOR_LOOKUP_A)
+
+
+class TestIterateOptionDocuments:
+    """The list route's read: documents and a total, with no model built."""
+
+    def test_it_answers_documents_and_the_total(
+        self,
+        extendable_options_manager: ExtendableOptionsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The documents are what the route normalises; the total is what the envelope carries."""
+        try:
+            extendable_options_manager.insert_item(_option_data(OPTION_ID_FOR_ITERATE_A, 'Iter A'))
+            extendable_options_manager.insert_item(_option_data(OPTION_ID_FOR_ITERATE_B, 'Iter B'))
+
+            documents, total = extendable_options_manager.iterate_option_documents(BuilderParameters(
+                criteria={'public_id': {'$in': [OPTION_ID_FOR_ITERATE_A, OPTION_ID_FOR_ITERATE_B]}}
+            ))
+
+            assert total == 2
+            assert all(isinstance(document, dict) for document in documents)
+            assert {document['public_id'] for document in documents} == {
+                OPTION_ID_FOR_ITERATE_A, OPTION_ID_FOR_ITERATE_B,
+            }
+        finally:
+            _delete_option(database_manager, database_name, OPTION_ID_FOR_ITERATE_A)
+            _delete_option(database_manager, database_name, OPTION_ID_FOR_ITERATE_B)
+
+    def test_a_drifted_document_still_reaches_the_caller(
+        self,
+        extendable_options_manager: ExtendableOptionsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The read does not judge the documents - the route's normalisation does
+
+        Which is what makes one unreadable option a skipped row rather than a failed read.
+        """
+        try:
+            _collection(database_manager, database_name).insert_one({
+                'public_id': OPTION_ID_FOR_ITERATE_A,
+                'option_type': OptionType.RISK.value,
+            })
+
+            documents, total = extendable_options_manager.iterate_option_documents(BuilderParameters(
+                criteria={'public_id': OPTION_ID_FOR_ITERATE_A}
+            ))
+
+            assert total == 1
+            assert documents[0]['public_id'] == OPTION_ID_FOR_ITERATE_A
+        finally:
+            _delete_option(database_manager, database_name, OPTION_ID_FOR_ITERATE_A)

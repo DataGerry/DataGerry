@@ -330,7 +330,13 @@ class TestGetCmdbCategory:
     def test_returns_document_via_get_single_response(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """The found document is handed to GetSingleResponse with ``body`` reflecting the HTTP verb."""
+        """
+        The found document is handed to GetSingleResponse, asking for a body on a GET
+
+        This assertion used to expect ``body=False`` for a GET: the 28 read routes derived the flag as
+        ``request.method == 'HEAD'``, which is the answer inverted (the flag means "send a body"), and
+        the inversion was invisible because the flag itself was inert. Corrected 2026-09-09.
+        """
         del patched_manager_provider
         mgr.get_category.return_value = SAMPLE_CATEGORY_DICT
         sentinel_response = MagicMock(name='wsgi_response')
@@ -339,7 +345,7 @@ class TestGetCmdbCategory:
             response_ctor.return_value.make_response.return_value = sentinel_response
             result = self._call(flask_app, CATEGORY_PUBLIC_ID)
 
-        response_ctor.assert_called_once_with(SAMPLE_CATEGORY_DICT, body=False)
+        response_ctor.assert_called_once_with(SAMPLE_CATEGORY_DICT, body=True)
         assert result is sentinel_response
 
     def test_returns_404_when_id_not_present(

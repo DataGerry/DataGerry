@@ -41,22 +41,26 @@ from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type
 
 SPECIAL_TYPE_ID: int = 47301
 NORMAL_TYPE_ID: int = 47302
+RACK_TYPE_ID: int = 47303
 SUBNET_REF: int = 47350
 OBJECT_ID: int = 47360
+
+SEEDED_TYPE_IDS: list[int] = [SPECIAL_TYPE_ID, NORMAL_TYPE_ID, RACK_TYPE_ID]
 
 
 @pytest.fixture(scope='module', autouse=True)
 def _seed_types(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds one IPAM special type and one normal type into the real database"""
+    """Seeds an IPAM special type, a normal type and a non-IPAM special type (RACK)"""
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     types.insert_many([
         make_type_doc(SPECIAL_TYPE_ID, 'int-lic-special', SpecialType.SUBNET),
         make_type_doc(NORMAL_TYPE_ID, 'int-lic-normal', None),
+        make_type_doc(RACK_TYPE_ID, 'int-lic-rack', SpecialType.RACK),
     ])
 
     yield
 
-    types.delete_many({CmdbObjectKey.PUBLIC_ID: {'$in': [SPECIAL_TYPE_ID, NORMAL_TYPE_ID]}})
+    types.delete_many({CmdbObjectKey.PUBLIC_ID: {'$in': SEEDED_TYPE_IDS}})
 
 
 @pytest.fixture(name='types_manager')
@@ -111,6 +115,18 @@ def test_write_detection_allows_interface_without_subnet(types_manager: TypesMan
     assert object_write_requires_ipam_license(types_manager, candidate, previous_object=None) is False
 
 
+def test_write_detection_gates_a_rack_object_behind_ipam(types_manager: TypesManager) -> None:
+    """
+    A Rack object write is gated behind IPAM - an INTERIM policy, not a claim that a Rack is IPAM
+
+    The detector matches per member via SpecialType.get_license_gated_types, so it still does not
+    fire on the mere presence of a 'special_type' marker; RACK is simply in the gated set for now.
+    """
+    candidate = make_object_doc(OBJECT_ID, RACK_TYPE_ID, [make_field('dg-rack-name', 'rack-1')])
+
+    assert object_write_requires_ipam_license(types_manager, candidate, previous_object=None) is True
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          object delete detection                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -126,3 +142,10 @@ def test_delete_detection_allows_regular_object_with_interface_subnet(types_mana
     target = _interface_object(NORMAL_TYPE_ID, SUBNET_REF)
 
     assert object_delete_requires_ipam_license(types_manager, target) is False
+
+
+def test_delete_detection_gates_a_rack_object_behind_ipam(types_manager: TypesManager) -> None:
+    """Deleting a Rack object is gated behind IPAM too, under the same interim policy"""
+    target = make_object_doc(OBJECT_ID, RACK_TYPE_ID, [make_field('dg-rack-name', 'rack-1')])
+
+    assert object_delete_requires_ipam_license(types_manager, target) is True

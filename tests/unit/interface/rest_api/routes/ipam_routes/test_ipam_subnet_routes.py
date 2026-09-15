@@ -23,8 +23,14 @@ the page / search subset; unassign_ips_route forwards the body's 'ips' list and 
 get_subnet_options forwards page / page_size / search / type and rejects invalid address-family
 tokens with 400 before the builder runs.
 Substantive behavior belongs to the framework-layer builders and is covered there; this module
-only exercises the transport boundary. The framework helpers and ManagerProvider.get_manager are
-patched at the route module path, and each route is unwrapped past its auth decorators.
+only exercises the transport boundary. The framework helpers and `read_ipam_managers` (the shared
+resolver of the objects / types manager pair) are patched at the route module path, and each route
+is unwrapped past its auth decorators.
+
+The final section pins the error mapping every route shares: an HTTPException raised by a builder
+(the 400s / 404s the framework layer aborts with) propagates untouched, while any other exception is
+logged and turned into a 500. Those two arms are the whole difference between a client seeing the
+framework's message and seeing a generic server error, so each route is checked separately.
 """
 from typing import Any, Callable
 
@@ -32,9 +38,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, NotFound
 
+from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.special_type_model.ipam_constants import IpAddressFamily, IpamPagination, IpamSearch
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
+    DEFAULT_PAGE,
+    read_ipam_managers,
+    read_json_object_body,
+    read_pagination_params,
+    read_search_param,
+    read_string_param,
+)
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_subnet_routes import (
     get_subnet_overview,
     get_subnet_options,
@@ -73,7 +88,7 @@ def test_get_subnet_overview_forwards_all_query_params(flask_app: Flask) -> None
     bare = _unwrap(get_subnet_overview)
 
     with patch(f'{ROUTE_PATH}.build_subnet_overview', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context(
              '/overview/5?page=2&page_size=10&search=db8&sort=ip&order=-1&status=assigned&type=50,51'):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
@@ -91,7 +106,7 @@ def test_get_subnet_overview_applies_defaults_when_no_query_params(flask_app: Fl
     bare = _unwrap(get_subnet_overview)
 
     with patch(f'{ROUTE_PATH}.build_subnet_overview', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5'):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
@@ -108,7 +123,7 @@ def test_get_subnet_overview_truncates_search_at_max_query_length(flask_app: Fla
     long_search: str = 'a' * (IpamSearch.MAX_QUERY_LENGTH + 25)
 
     with patch(f'{ROUTE_PATH}.build_subnet_overview', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context(f'/overview/5?search={long_search}'):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
@@ -124,7 +139,7 @@ def test_get_invalid_subnet_overview_forwards_page_size_and_search(flask_app: Fl
     bare = _unwrap(get_invalid_subnet_overview)
 
     with patch(f'{ROUTE_PATH}.build_invalid_ips_overview', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5/invalid?page=3&page_size=20&search=dead'):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
@@ -139,7 +154,7 @@ def test_get_invalid_subnet_overview_truncates_search_at_max_query_length(flask_
     long_search: str = 'b' * (IpamSearch.MAX_QUERY_LENGTH + 5)
 
     with patch(f'{ROUTE_PATH}.build_invalid_ips_overview', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context(f'/overview/5/invalid?search={long_search}'):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
@@ -155,7 +170,7 @@ def test_get_subnet_sector_ips_forwards_sector_start_and_pagination(flask_app: F
     bare = _unwrap(get_subnet_sector_ips)
 
     with patch(f'{ROUTE_PATH}.build_subnet_sector_ips', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5/sector?sector_start=2001:db8::&page=2&page_size=10'):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
@@ -170,7 +185,7 @@ def test_get_subnet_sector_ips_aborts_400_when_sector_start_missing(flask_app: F
     bare = _unwrap(get_subnet_sector_ips)
 
     with patch(f'{ROUTE_PATH}.build_subnet_sector_ips') as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5/sector'):
         with pytest.raises(HTTPException) as exc_info:
             bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
@@ -188,7 +203,7 @@ def test_unassign_ips_route_forwards_public_id_ips_and_user(flask_app: Flask) ->
     request_user = MagicMock()
 
     with patch(f'{ROUTE_PATH}.unassign_ips_from_subnet', return_value={}) as mock_unassign, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5/unassign', method='POST',
                                         json={'ips': ['2001:db8::5', '2001:db8::6']}):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=request_user)
@@ -204,7 +219,7 @@ def test_unassign_ips_route_forwards_none_when_ips_key_absent(flask_app: Flask) 
     bare = _unwrap(unassign_ips_route)
 
     with patch(f'{ROUTE_PATH}.unassign_ips_from_subnet', return_value={}) as mock_unassign, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5/unassign', method='POST', json={}):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
@@ -216,7 +231,7 @@ def test_unassign_ips_route_forwards_mode_to_unassigner(flask_app: Flask) -> Non
     bare = _unwrap(unassign_ips_route)
 
     with patch(f'{ROUTE_PATH}.unassign_ips_from_subnet', return_value={}) as mock_unassign, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5/unassign', method='POST',
                                         json={'ips': ['10.0.0.1'], 'mode': 'row'}):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
@@ -232,7 +247,7 @@ def test_export_subnet_ips_returns_csv_attachment(flask_app: Flask) -> None:
     bare = _unwrap(export_subnet_ips)
 
     with patch(f'{ROUTE_PATH}.build_subnet_ips_csv', return_value=b'csv-bytes') as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5/export'):
         response = bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
@@ -240,8 +255,9 @@ def test_export_subnet_ips_returns_csv_attachment(flask_app: Flask) -> None:
     assert response.get_data() == b'csv-bytes'
     assert response.mimetype == 'text/csv'
     disposition: str = response.headers['Content-Disposition']
-    assert 'attachment; filename=subnet_5_ips_' in disposition
-    assert disposition.endswith('.csv')
+    # Quoted like every other export in the repo
+    assert disposition.startswith('attachment; filename="subnet_5_ips_')
+    assert disposition.endswith('.csv"')
 
 
 def test_export_subnet_ips_propagates_too_big_abort(flask_app: Flask) -> None:
@@ -249,7 +265,7 @@ def test_export_subnet_ips_propagates_too_big_abort(flask_app: Flask) -> None:
     bare = _unwrap(export_subnet_ips)
 
     with patch(f'{ROUTE_PATH}.build_subnet_ips_csv', side_effect=HTTPException(), ), \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/overview/5/export'):
         with pytest.raises(HTTPException):
             bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
@@ -266,7 +282,7 @@ def test_get_subnet_options_forwards_all_query_params(flask_app: Flask) -> None:
     bare = _unwrap(get_subnet_options)
 
     with patch(f'{ROUTE_PATH}.build_subnet_options_page', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context(f'/?page=3&page_size=20&search=db8&type={IpAddressFamily.IPV6.value}'):
         bare(request_user=MagicMock())
 
@@ -281,7 +297,7 @@ def test_get_subnet_options_applies_defaults_when_no_query_params(flask_app: Fla
     bare = _unwrap(get_subnet_options)
 
     with patch(f'{ROUTE_PATH}.build_subnet_options_page', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context('/'):
         bare(request_user=MagicMock())
 
@@ -297,7 +313,7 @@ def test_get_subnet_options_truncates_search_at_max_query_length(flask_app: Flas
     long_search: str = 'd' * (IpamSearch.MAX_QUERY_LENGTH + 15)
 
     with patch(f'{ROUTE_PATH}.build_subnet_options_page', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context(f'/?search={long_search}'):
         bare(request_user=MagicMock())
 
@@ -310,7 +326,7 @@ def test_get_subnet_options_aborts_400_on_invalid_family_token(flask_app: Flask)
     bare = _unwrap(get_subnet_options)
 
     with patch(f'{ROUTE_PATH}.build_subnet_options_page') as mock_build, \
-         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          flask_app.test_request_context(f'/?type={INVALID_FAMILY_TOKEN}'):
         with pytest.raises(HTTPException) as exc_info:
             bare(request_user=MagicMock())
@@ -325,8 +341,300 @@ def test_get_subnet_options_accepts_both_valid_family_tokens(flask_app: Flask) -
 
     for token in (IpAddressFamily.IPV4.value, IpAddressFamily.IPV6.value):
         with patch(f'{ROUTE_PATH}.build_subnet_options_page', return_value={}) as mock_build, \
-             patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+             patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
              flask_app.test_request_context(f'/?type={token}'):
             bare(request_user=MagicMock())
 
         assert mock_build.call_args.kwargs['family'] == token
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        shared query-string readers (helper)                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_read_pagination_params_reads_both_values(flask_app: Flask) -> None:
+    """Explicit page / page_size are read off the query string"""
+    with flask_app.test_request_context('/?page=3&page_size=25'):
+        assert read_pagination_params() == (3, 25)
+
+
+@pytest.mark.parametrize('query', ['', '?page=0&page_size=0', '?page=nope&page_size=nope'])
+def test_read_pagination_params_falls_back_to_the_defaults(flask_app: Flask, query: str) -> None:
+    """A missing, zero or unparsable value falls back to the default page / page size"""
+    with flask_app.test_request_context(f'/{query}'):
+        assert read_pagination_params() == (DEFAULT_PAGE, IpamPagination.DEFAULT_PAGE_SIZE)
+
+
+def test_read_search_param_truncates_at_the_maximum_length(flask_app: Flask) -> None:
+    """An oversized search query is cut at IpamSearch.MAX_QUERY_LENGTH before it reaches a builder"""
+    oversized = 'x' * (IpamSearch.MAX_QUERY_LENGTH + 25)
+
+    with flask_app.test_request_context(f'/?search={oversized}'):
+        assert read_search_param() == 'x' * IpamSearch.MAX_QUERY_LENGTH
+
+
+def test_read_search_param_defaults_to_empty(flask_app: Flask) -> None:
+    """No search query means an empty filter"""
+    with flask_app.test_request_context('/'):
+        assert read_search_param() == ''
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        unassign_ips_route - request body guard                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('body, content_type', [
+    ('not-json-at-all', 'application/json'),
+    ('{"ips": [', 'application/json'),
+    ('[1, 2, 3]', 'application/json'),
+    ('', 'application/json'),
+])
+def test_unassign_ips_route_aborts_400_for_a_non_object_body(
+    flask_app: Flask, body: str, content_type: str,
+) -> None:
+    """A body that is not a JSON object is rejected here, not reported as a missing 'ips' field"""
+    bare = _unwrap(unassign_ips_route)
+
+    with patch(f'{ROUTE_PATH}.unassign_ips_from_subnet') as mock_unassign, \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context('/overview/5/unassign', method='POST',
+                                        data=body, content_type=content_type):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert exc_info.value.code == 400
+    mock_unassign.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              shared error mapping                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+ERROR_MAPPING_CASES: list[tuple[str, Any, str, dict[str, Any]]] = [
+    ('build_subnet_options_page', get_subnet_options, '/', {}),
+    ('build_subnet_overview', get_subnet_overview, '/overview/5', {'public_id': SUBNET_PUBLIC_ID}),
+    ('unassign_ips_from_subnet', unassign_ips_route, '/overview/5/unassign', {'public_id': SUBNET_PUBLIC_ID}),
+    ('build_subnet_sector_ips', get_subnet_sector_ips, '/overview/5/sector?sector_start=10.0.0.0',
+     {'public_id': SUBNET_PUBLIC_ID}),
+    ('build_invalid_ips_overview', get_invalid_subnet_overview, '/overview/5/invalid',
+     {'public_id': SUBNET_PUBLIC_ID}),
+    ('build_subnet_ips_csv', export_subnet_ips, '/overview/5/export', {'public_id': SUBNET_PUBLIC_ID}),
+]
+
+ERROR_MAPPING_IDS: list[str] = [case[0] for case in ERROR_MAPPING_CASES]
+
+
+@pytest.mark.parametrize('builder_name, route, path, kwargs', ERROR_MAPPING_CASES, ids=ERROR_MAPPING_IDS)
+def test_an_unexpected_builder_failure_becomes_500(
+    flask_app: Flask, builder_name: str, route: Any, path: str, kwargs: dict[str, Any],
+) -> None:
+    """Any non-HTTP exception from the framework layer is logged and mapped onto a 500"""
+    bare = _unwrap(route)
+    method = 'POST' if 'unassign' in path else 'GET'
+    json_body = {'ips': ['10.0.0.5']} if method == 'POST' else None
+
+    with patch(f'{ROUTE_PATH}.{builder_name}', side_effect=RuntimeError('boom')), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context(path, method=method, json=json_body):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock(), **kwargs)
+
+    assert exc_info.value.code == 500
+
+
+@pytest.mark.parametrize('builder_name, route, path, kwargs', ERROR_MAPPING_CASES, ids=ERROR_MAPPING_IDS)
+def test_an_http_exception_from_a_builder_propagates_untouched(
+    flask_app: Flask, builder_name: str, route: Any, path: str, kwargs: dict[str, Any],
+) -> None:
+    """The framework's own 400 / 404 aborts reach the client instead of being masked as a 500"""
+    bare = _unwrap(route)
+    method = 'POST' if 'unassign' in path else 'GET'
+    json_body = {'ips': ['10.0.0.5']} if method == 'POST' else None
+    not_found = NotFound('Subnet with public_id 5 was not found!')
+
+    with patch(f'{ROUTE_PATH}.{builder_name}', side_effect=not_found), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context(path, method=method, json=json_body):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock(), **kwargs)
+
+    assert exc_info.value is not_found
+
+
+def test_read_json_object_body_returns_the_decoded_object(flask_app: Flask) -> None:
+    """A JSON object body is decoded and handed back unchanged"""
+    with flask_app.test_request_context('/', method='POST', json={'ips': ['10.0.0.5'], 'mode': 'row'}):
+        assert read_json_object_body() == {'ips': ['10.0.0.5'], 'mode': 'row'}
+
+
+@pytest.mark.parametrize('body', ['not-json-at-all', '{"ips": [', '[1, 2, 3]', '"a string"', ''])
+def test_read_json_object_body_aborts_400_for_anything_else(flask_app: Flask, body: str) -> None:
+    """An absent, unparseable or non-object body is a 400 rather than a silent empty dict"""
+    with flask_app.test_request_context('/', method='POST', data=body, content_type='application/json'):
+        with pytest.raises(HTTPException) as exc_info:
+            read_json_object_body()
+
+    assert exc_info.value.code == 400
+
+
+def test_read_string_param_reads_the_value(flask_app: Flask) -> None:
+    """A present parameter is handed back as sent"""
+    with flask_app.test_request_context('/?sort=ip'):
+        assert read_string_param('sort') == 'ip'
+
+
+@pytest.mark.parametrize('query', ['/', '/?sort=', '/?other=x'])
+def test_read_string_param_answers_empty_for_absent_or_empty(flask_app: Flask, query: str) -> None:
+    """
+    Absent and present-but-empty both read as empty, never as None
+
+    This is the whole reason the helper exists: Flask returns None for both cases, and a None
+    reaching a builder means "no filter" only by accident - it would break the `or ''` contract the
+    builders are written against.
+    """
+    with flask_app.test_request_context(query):
+        assert read_string_param('sort') == ''
+
+
+def test_read_string_param_keeps_whitespace_and_case(flask_app: Flask) -> None:
+    """
+    No normalisation happens here
+
+    The address-family comparison is case-sensitive and the type-id list is split by the builder, so
+    the reader must not quietly strip or lower anything.
+    """
+    with flask_app.test_request_context('/?type=%20IPv4%20'):
+        assert read_string_param('type') == ' IPv4 '
+
+
+def test_read_ipam_managers_returns_the_objects_and_types_pair() -> None:
+    """
+    The pair comes back in the order the framework builders take them
+
+    Every builder in cmdb.framework.ipam takes (objects_manager, types_manager) as its first two
+    positional arguments, so the tuple order is a contract and not a detail.
+    """
+    helper_path: str = 'cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper'
+    objects_manager = MagicMock(name='objects_manager')
+    types_manager = MagicMock(name='types_manager')
+
+    with patch(f'{helper_path}.ManagerProvider.get_manager',
+               side_effect=[objects_manager, types_manager]) as mock_get_manager:
+        resolved = read_ipam_managers(MagicMock())
+
+    assert resolved == (objects_manager, types_manager)
+    requested = [call.args[0] for call in mock_get_manager.call_args_list]
+    assert requested == [ManagerType.OBJECTS, ManagerType.TYPES]
+
+
+def test_read_ipam_managers_passes_the_request_user_through() -> None:
+    """The user selects the database in cloud mode, so it must reach every get_manager call"""
+    helper_path: str = 'cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper'
+    request_user = MagicMock(name='request_user')
+
+    with patch(f'{helper_path}.ManagerProvider.get_manager', return_value=MagicMock()) as mock_get_manager:
+        read_ipam_managers(request_user)
+
+    for call in mock_get_manager.call_args_list:
+        assert call.args[1] is request_user
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                              the export takes NONE of the overview's filters                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+# Pinned because coverage cannot see it: every line of export_subnet_ips runs either way. The route
+# accepts no query parameters at all while its sibling overview narrows by four, so the Export button
+# beside a filtered IP table exports the whole subnet - discussion-backlog #202. If that is ever
+# changed, these two tests are what should fail first
+FILTERED_EXPORT_QUERY: str = '/overview/5/export?search=db8&sort=ip&order=-1&status=assigned&type=50,51'
+
+
+def test_export_subnet_ips_ignores_every_overview_filter(flask_app: Flask) -> None:
+    """The builder is called with the managers and the public_id only - no filter reaches it"""
+    bare = _unwrap(export_subnet_ips)
+
+    with patch(f'{ROUTE_PATH}.build_subnet_ips_csv', return_value=b'csv-bytes') as mock_build, \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context(FILTERED_EXPORT_QUERY):
+        bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert mock_build.call_args.kwargs == {}
+    assert len(mock_build.call_args.args) == 3
+    assert mock_build.call_args.args[2] == SUBNET_PUBLIC_ID
+
+
+def test_export_subnet_ips_is_byte_identical_with_and_without_filters(flask_app: Flask) -> None:
+    """
+    A filtered request and an unfiltered one produce the same file
+
+    The stronger statement of the same fact: not merely that the filters are dropped on the way to
+    the builder, but that the caller cannot tell the two requests apart from the response.
+    """
+    bare = _unwrap(export_subnet_ips)
+    responses: list[bytes] = []
+
+    for path in ('/overview/5/export', FILTERED_EXPORT_QUERY):
+        with patch(f'{ROUTE_PATH}.build_subnet_ips_csv', return_value=b'csv-bytes'), \
+             patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+             flask_app.test_request_context(path):
+            responses.append(bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock()).get_data())
+
+    assert responses[0] == responses[1]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                          the invalid-only view forwards its subset and nothing more                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_get_invalid_subnet_overview_forwards_no_sort_status_or_type(flask_app: Flask) -> None:
+    """
+    The invalid-only view takes page / page_size / search and nothing else
+
+    Its envelope is the same as the full overview's, which makes it tempting to assume it accepts the
+    same filters. It does not: sort, order, status and the type-id list are silently ignored, so a
+    caller that sends them gets an unsorted, unfiltered page back.
+    """
+    bare = _unwrap(get_invalid_subnet_overview)
+
+    with patch(f'{ROUTE_PATH}.build_invalid_ips_overview', return_value={}) as mock_build, \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context(
+             '/overview/5/invalid?page=2&page_size=10&search=db8&sort=ip&order=-1&status=free&type=50'):
+        bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert mock_build.call_args.kwargs == {'page': 2, 'page_size': 10, 'search': 'db8'}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the refusal messages are the constants                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_invalid_family_message_names_the_value_and_the_allowed_tokens(flask_app: Flask) -> None:
+    """
+    The 400 echoes what was sent and lists what is accepted
+
+    Both halves matter: the comparison is case-sensitive, so a caller who sent 'IPv4' needs to see
+    its own value back, and the same `type` parameter means a CmdbType id list one route over, so
+    naming the allowed tokens is what tells them which of the two meanings they got wrong.
+    """
+    bare = _unwrap(get_subnet_options)
+
+    with patch(f'{ROUTE_PATH}.build_subnet_options_page', return_value={}), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context(f'/?type={INVALID_FAMILY_TOKEN}'):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock())
+
+    assert exc_info.value.code == 400
+    assert INVALID_FAMILY_TOKEN in exc_info.value.description
+    assert IpAddressFamily.IPV4.value in exc_info.value.description
+    assert IpAddressFamily.IPV6.value in exc_info.value.description
+
+
+def test_sector_start_message_names_the_missing_parameter(flask_app: Flask) -> None:
+    """The 400 names the parameter, so the caller knows which one to add"""
+    bare = _unwrap(get_subnet_sector_ips)
+
+    with patch(f'{ROUTE_PATH}.build_subnet_sector_ips', return_value={}), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context('/overview/5/sector'):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert exc_info.value.code == 400
+    assert 'sector_start' in exc_info.value.description

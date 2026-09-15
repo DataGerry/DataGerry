@@ -19,9 +19,13 @@ Unit tests for cmdb.manager.open_celium_managers.oc_connector_manager.OcConnecto
 The manager wraps an OcApiConnector talking to OpenCelium over HTTP; the connector is patched out at
 the OcBaseManager module path. Each test stubs the connector verb with a fake response and asserts
 the endpoint + payload, the parsed 2xx body, and the per-operation OC error on a non-2xx response
-(or the bool/None contract for the boolean / all-connectors methods). The manager runs on-premise
-(the autouse app context defaults cloud_mode/local_mode to False), so no OC master password env is
+(or the bool/None contract for the boolean / all-connectors methods). Most tests run on-premise (the
+autouse app context defaults cloud_mode/local_mode to False), so no OC master password env is
 required. No HTTP, no Mongo.
+
+Since 2026-09-10 the HOSTED-cloud constructor is covered too - `TestTheMasterPasswordGuard` pushes its
+own app context, because that guard is the one piece of logic in the file and had never been executed:
+it decides whether a hosted installation can serve connectors at all.
 """
 import json
 from http import HTTPStatus
@@ -41,9 +45,14 @@ from cmdb.manager.open_celium_managers.oc_connector_manager import (
     CHECK_MASTER_PW_EXISTS_URL,
     CONNECTOR_EXISTS_URL,
 )
+from cmdb.interface.cmdb_app import BaseCmdbApp
+from cmdb.open_celium.oc_constants import OC_MASTER_PW_ENV_VAR
+
 from cmdb.errors.open_celium.connector import (
     OcConnectorCreateError,
+    OcConnectorError,
     OcConnectorGetError,
+    OcConnectorMasterPasswordError,
     OcConnectorUpdateError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -134,18 +143,35 @@ class TestCheckMasterPw:
 
         assert connector_manager.check_master_pw(MASTER_PW) is False
 
-    def test_raw_returns_body(self, connector_manager: OcConnectorManager) -> None:
-        """With raw=True a 2xx response returns the parsed body."""
+
+class TestGetMasterPwStatus:
+    """``get_master_pw_status`` answers OpenCelium's own status body, not a bool."""
+
+    def test_returns_the_body(self, connector_manager: OcConnectorManager) -> None:
+        """
+        The master-password route hands this to the frontend, which reads more than valid/invalid
+
+        It used to be `check_master_pw(pw, raw=True)` - one name for two shapes, so a caller had to
+        know which of them it had asked for.
+        """
         connector_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, {'status': 'set'})
 
-        assert connector_manager.check_master_pw(MASTER_PW, raw=True) == {'status': 'set'}
+        assert connector_manager.get_master_pw_status(MASTER_PW) == {'status': 'set'}
 
-    def test_raw_non_2xx_raises_get_error(self, connector_manager: OcConnectorManager) -> None:
-        """With raw=True a non-2xx response raises OcConnectorGetError."""
+    def test_it_asks_the_same_endpoint_as_the_boolean_check(self, connector_manager: OcConnectorManager) -> None:
+        """Two methods, one request - the split is about the answer, not about the call"""
+        connector_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, {'status': 'set'})
+
+        connector_manager.get_master_pw_status(MASTER_PW)
+
+        connector_manager.oc_connector.oc_get.assert_called_once_with(CHECK_MASTER_PW_URL, MASTER_PW)
+
+    def test_non_2xx_raises_get_error(self, connector_manager: OcConnectorManager) -> None:
+        """A failed check is an error here, where the boolean form answers False"""
         connector_manager.oc_connector.oc_get.return_value = _response(ERROR_STATUS)
 
         with pytest.raises(OcConnectorGetError):
-            connector_manager.check_master_pw(MASTER_PW, raw=True)
+            connector_manager.get_master_pw_status(MASTER_PW)
 
 
 # ------------------------------------------------- check_master_pw_exists ------------------------------------------- #
@@ -204,12 +230,24 @@ class TestGetConnectorsByIds:
 class TestGetConnector:
     """``get_connector`` GETs /connector/<id> (with an optional master password) and guards a falsy id."""
 
-    def test_falsy_id_raises_without_http(self, connector_manager: OcConnectorManager) -> None:
-        """A falsy connector id raises OcConnectorGetError before any HTTP call."""
+    def test_a_missing_id_raises_without_http(self, connector_manager: OcConnectorManager) -> None:
+        """No id at all is refused before a request is made"""
         with pytest.raises(OcConnectorGetError):
-            connector_manager.get_connector(0)
+            connector_manager.get_connector(None)
 
         connector_manager.oc_connector.oc_get.assert_not_called()
+
+    def test_a_zero_id_is_requested(self, connector_manager: OcConnectorManager) -> None:
+        """
+        0 IS a connectorId
+
+        Read for truthiness it was refused as "not provided" - but whether a connector with that id
+        exists is OpenCelium's answer, not this proxy's.
+        """
+        connector_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, {'connectorId': 0})
+
+        assert connector_manager.get_connector(0) == {'connectorId': 0}
+        connector_manager.oc_connector.oc_get.assert_called_once_with(f"{CONNECTOR_URL}/0", None)
 
     def test_gets_with_password_and_returns_body(self, connector_manager: OcConnectorManager) -> None:
         """The connector is fetched by id with the provided password."""
@@ -276,11 +314,11 @@ class TestConnectorExists:
         assert connector_manager.connector_exists(CONNECTOR_TITLE) is True
         connector_manager.oc_connector.oc_get.assert_called_once_with(f"{CONNECTOR_EXISTS_URL}/{CONNECTOR_TITLE}")
 
-    def test_missing_result_key_returns_none(self, connector_manager: OcConnectorManager) -> None:
-        """A 2xx body without a 'result' key returns None instead of raising KeyError (uses .get)."""
+    def test_missing_result_key_returns_false(self, connector_manager: OcConnectorManager) -> None:
+        """A 2xx body without a 'result' key returns False (the method's -> bool contract)."""
         connector_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, {})
 
-        assert connector_manager.connector_exists(CONNECTOR_TITLE) is None
+        assert connector_manager.connector_exists(CONNECTOR_TITLE) is False
 
     def test_non_2xx_raises_get_error(self, connector_manager: OcConnectorManager) -> None:
         """A non-2xx response raises OcConnectorGetError."""
@@ -369,3 +407,142 @@ class TestGetMasterPw:
     def test_returns_none_on_premise(self, connector_manager: OcConnectorManager) -> None:
         """On-premise (no OC master password env) the cached value is None."""
         assert connector_manager.get_master_pw() is None
+
+
+# ------------------------------------------------ the master password ----------------------------------------------- #
+
+class TestTheMasterPasswordGuard:
+    """Constructing the manager, per installation mode."""
+
+    @staticmethod
+    def _app(*, cloud_mode: bool, local_mode: bool = False) -> BaseCmdbApp:
+        """A BaseCmdbApp flagged for the given installation mode."""
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = cloud_mode
+        app.local_mode = local_mode
+
+        return app
+
+    def _build(self, app: BaseCmdbApp) -> OcConnectorManager:
+        """Constructs the manager inside the given app's context, with no real OpenCelium connector."""
+        with app.app_context():
+            with patch(f'{BASE_PATH}.OcApiConnector'):
+                return OcConnectorManager(MagicMock(), 'db_test')
+
+    def test_hosted_cloud_reads_the_password_from_the_environment(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        The branch that had never been executed
+
+        Every connector read and write on a hosted installation is authenticated with this password.
+        """
+        monkeypatch.setenv(OC_MASTER_PW_ENV_VAR, MASTER_PW)
+
+        manager = self._build(self._app(cloud_mode=True))
+
+        assert manager.get_master_pw() == MASTER_PW
+
+    def test_hosted_cloud_without_the_password_refuses_to_construct(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        A hosted process without the password can do nothing but fail per request
+
+        It raised a bare ValueError before, which reached a route as the generic "an internal server
+        error occurred" - the cause visible only in the log.
+        """
+        monkeypatch.delenv(OC_MASTER_PW_ENV_VAR, raising=False)
+
+        with pytest.raises(OcConnectorMasterPasswordError) as err:
+            self._build(self._app(cloud_mode=True))
+
+        assert OC_MASTER_PW_ENV_VAR in str(err.value)
+
+    def test_an_empty_password_counts_as_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An empty environment variable authenticates nothing"""
+        monkeypatch.setenv(OC_MASTER_PW_ENV_VAR, '')
+
+        with pytest.raises(OcConnectorMasterPasswordError):
+            self._build(self._app(cloud_mode=True))
+
+    def test_local_cloud_development_needs_no_password(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        `--cloud --local` is a developer's own OpenCelium
+
+        Nothing is shared there, so there is no master password to demand - and the guard must not
+        stop a developer's stack from starting.
+        """
+        monkeypatch.delenv(OC_MASTER_PW_ENV_VAR, raising=False)
+
+        manager = self._build(self._app(cloud_mode=True, local_mode=True))
+
+        assert manager.get_master_pw() is None
+
+    def test_on_premise_ignores_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        The password is a hosted-installation concept
+
+        Even with the variable set, an on-premise manager holds none: the routes pass whatever
+        password the caller provided instead.
+        """
+        monkeypatch.setenv(OC_MASTER_PW_ENV_VAR, MASTER_PW)
+
+        manager = self._build(self._app(cloud_mode=False))
+
+        assert manager.get_master_pw() is None
+
+    def test_the_error_is_an_oc_connector_error(self) -> None:
+        """So a route may map the whole family and still tell this cause apart"""
+        assert issubclass(OcConnectorMasterPasswordError, OcConnectorError)
+
+
+# ------------------------------------------------ the required-argument guard --------------------------------------- #
+
+class TestTheRequiredArgumentGuard:
+    """The one guard the four reads share, and what it counts as missing."""
+
+    @pytest.mark.parametrize('connector_ids', [None, []])
+    def test_no_connector_ids_is_refused_without_http(
+            self, connector_manager: OcConnectorManager, connector_ids: Any) -> None:
+        """An empty selection would ask OpenCelium for every connector it has"""
+        with pytest.raises(OcConnectorGetError):
+            connector_manager.get_connectors_by_ids(connector_ids)
+
+        connector_manager.oc_connector.oc_post.assert_not_called()
+
+    def test_a_list_containing_zero_is_a_selection(self, connector_manager: OcConnectorManager) -> None:
+        """[0] names one connector - the list is not empty"""
+        connector_manager.oc_connector.oc_post.return_value = _response(OK_STATUS, [])
+
+        connector_manager.get_connectors_by_ids([0])
+
+        connector_manager.oc_connector.oc_post.assert_called_once_with(
+            {'identifiers': [0]}, CONNECTORS_BY_IDS_URL
+        )
+
+    @pytest.mark.parametrize('title', [None, ''])
+    def test_no_title_is_refused_without_http(
+            self, connector_manager: OcConnectorManager, title: Any) -> None:
+        """A connector is addressed by title here, and an empty one addresses nothing"""
+        with pytest.raises(OcConnectorGetError):
+            connector_manager.get_connector_by_name(title)
+
+        connector_manager.oc_connector.oc_get.assert_not_called()
+
+    @pytest.mark.parametrize('title', [None, ''])
+    def test_the_exists_check_refuses_a_missing_title_too(
+            self, connector_manager: OcConnectorManager, title: Any) -> None:
+        """Same rule, same message - one guard behind both"""
+        with pytest.raises(OcConnectorGetError):
+            connector_manager.connector_exists(title)
+
+        connector_manager.oc_connector.oc_get.assert_not_called()
+
+    def test_a_false_flagged_value_is_still_a_value(self, connector_manager: OcConnectorManager) -> None:
+        """
+        The guard asks whether something was GIVEN, not whether it is truthy
+
+        Which is the whole point: `0` and `False` are values, and OpenCelium decides what they mean.
+        """
+        connector_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, {'connectorId': 0})
+
+        assert connector_manager.get_connector(0) == {'connectorId': 0}

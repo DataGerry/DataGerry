@@ -25,8 +25,6 @@ This module is the single source of the document's Cerberus validation schema, c
 LicenseActivationRequest.SCHEMA.
 """
 from typing import Any
-
-from cmdb.security.license.license_constants import ActivationRequestKey, ActivationRequestStatus
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -37,6 +35,12 @@ def get_license_activation_request_schema() -> dict[str, Any]:
     Returns:
         dict[str, Any]: Field name to Cerberus rule mapping, consumed as LicenseActivationRequest.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.security.license would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.security.license.license_constants import ActivationRequestKey, ActivationRequestStatus
+
     return {
         ActivationRequestKey.ID: {  # OpenCelium request id (UUID string); the document identifier
             'type': 'string',

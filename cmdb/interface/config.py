@@ -16,26 +16,54 @@
 """
 Flask config object classes consumed by `BaseCmdbApp` via `app.config.from_object`
 
-`cmdb.interface.net_app.create_app` picks one of these classes from the `app_config` mapping
-based on `cmdb.__MODE__` and feeds it to `app.config.from_object`, which copies the
-upper-case class attributes onto `app.config`. The three subclasses differ only in the
-`DEBUG` and `TESTING` flags; `APPLICATION_ROOT` is inherited from `Config` and is the same
-for every variant
+Both app factories - `net_app.create_app` for the SPA host and `rest_api.create_rest_api` for the
+API - pick a class from the `app_config` mapping with `config_name_for_mode(cmdb.__MODE__)` and feed
+it to `app.config.from_object`, which copies the upper-case class attributes onto `app.config`.
+
+The three subclasses differ only in the `DEBUG` and `TESTING` flags. Nothing here names a mount
+point: the two apps are mounted at different prefixes by `DispatcherMiddleware`, so `APPLICATION_ROOT`
+cannot be a shared value and each factory sets its own (the SPA host keeps Flask's default `/`; the
+REST app sets `/rest/`). It used to live on `Config`, which meant the SPA host - mounted at `/` - was
+configured with the API's mount
 """
 # -------------------------------------------------------------------------------------------------------------------- #
+
+#: `cmdb.__MODE__` value -> key in `app_config`. Any mode not named here is production
+MODE_CONFIG_NAMES: dict[str, str] = {
+    'DEBUG': 'development',
+    'TESTING': 'testing',
+}
+
+#: The key used for every mode `MODE_CONFIG_NAMES` does not name
+DEFAULT_CONFIG_NAME: str = 'production'
+
+
+def config_name_for_mode(mode: str) -> str:
+    """
+    Maps a `cmdb.__MODE__` value onto its `app_config` key
+
+    Lives here so both app factories select their config the same way. They used to spell the
+    mapping out separately, and they disagreed: the SPA host had no `TESTING` branch, which is why
+    `TestingConfig` was reachable from the REST app but dead from `create_app`
+
+    Args:
+        mode (str): The process-wide mode, i.e. `cmdb.__MODE__`
+
+    Returns:
+        str: Key into `app_config`; DEFAULT_CONFIG_NAME for any unrecognised mode
+    """
+    return MODE_CONFIG_NAMES.get(mode, DEFAULT_CONFIG_NAME)
+
 
 class Config:
     """
     Base Flask config class — production defaults shared by every variant
 
-    `from_object` only copies upper-case attributes onto `app.config`, so the fields here
-    become Flask config keys. `APPLICATION_ROOT = '/rest/'` is inherited unchanged by every
-    subclass; see the audit notes for why this is currently questionable when the same
-    config is applied to the SPA host app
+    `from_object` only copies upper-case attributes onto `app.config`, so the fields here become
+    Flask config keys. Deliberately carries no `APPLICATION_ROOT`: see the module docstring
     """
     TESTING = False
     DEBUG = False
-    APPLICATION_ROOT = '/rest/'
 
 
 class DevelopmentConfig(Config):
@@ -60,20 +88,17 @@ class ProductionConfig(Config):
 
 class TestingConfig(Config):
     """
-    Test-only variant — registered in `app_config` but never selected by `create_app`
+    Selected when `cmdb.__MODE__ == 'TESTING'`, by both app factories
 
-    Setting `TESTING = True` switches Flask to propagating exceptions to the test client
-    instead of converting them to 500 responses. Currently unreachable from the standard
-    bootstrap; would be the right target if a test harness ever wants a non-production
-    Flask config
+    Setting `TESTING = True` switches Flask to propagating exceptions to the test client instead of
+    converting them to 500 responses
     """
     DEBUG = True
     TESTING = True
 
 
-#: Mode-name → Config-class lookup consumed by `net_app.create_app`. `'development'` is
-#: picked when `cmdb.__MODE__ == 'DEBUG'`; every other mode falls through to
-#: `'production'`. The `'testing'` entry exists for completeness but has no caller today
+#: Config-name → Config-class lookup. Both app factories index it with
+#: `config_name_for_mode(cmdb.__MODE__)`, so every entry here is reachable from both
 app_config: dict[str, type[Config]] = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,

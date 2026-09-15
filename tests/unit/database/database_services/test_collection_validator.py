@@ -63,8 +63,17 @@ class _FakeModel:
 
 @pytest.fixture(name='dbm')
 def fixture_dbm() -> MagicMock:
-    """A mocked MongoDatabaseManager"""
-    return MagicMock()
+    """
+    A mocked MongoDatabaseManager whose collections read as empty
+
+    The seeders look a document up before inserting it, so a default MagicMock - whose find_one
+    returns a truthy mock - would read as "everything is already seeded" and every seeding assertion
+    would pass vacuously.
+    """
+    dbm = MagicMock()
+    dbm.get_collection.return_value.find_one.return_value = None
+
+    return dbm
 
 
 @pytest.fixture(name='validator')
@@ -104,8 +113,8 @@ def test_validate_collections_runs_all_steps_in_order(validator: CollectionValid
     """The four init steps run once each, in the documented order"""
     calls: list[str] = []
     validator.init_database = MagicMock(side_effect=lambda: calls.append('database'))
-    validator.init_framework_collections = MagicMock(side_effect=lambda: calls.append('framework'))
-    validator.init_management_collections = MagicMock(side_effect=lambda: calls.append('management'))
+    validator.init_framework_collections = MagicMock(side_effect=lambda *_: calls.append('framework'))
+    validator.init_management_collections = MagicMock(side_effect=lambda *_: calls.append('management'))
     validator.init_cache_db = MagicMock(side_effect=lambda: calls.append('cache'))
 
     validator.validate_collections()
@@ -353,7 +362,8 @@ def test_seed_general_report_category_delegates(validator: CollectionValidator) 
 
 def test_seed_default_protection_goals_inserts_each(validator: CollectionValidator, dbm: MagicMock) -> None:
     """Every default protection goal is inserted"""
-    with patch(f'{MODULE}.get_default_protection_goals', return_value=[{'g': 1}, {'g': 2}]):
+    with patch(f'{MODULE}.get_default_protection_goals',
+               return_value=[{'public_id': 1}, {'public_id': 2}]):
         validator._seed_default_protection_goals()
 
     assert dbm.insert.call_count == 2
@@ -368,11 +378,36 @@ def test_seed_default_risk_matrix_upserts(validator: CollectionValidator, dbm: M
 
 
 def test_seed_predefined_extendable_options_inserts_each(validator: CollectionValidator, dbm: MagicMock) -> None:
-    """Every predefined ISMS extendable option is inserted"""
-    with patch(f'{MODULE}.get_default_isms_extendable_options', return_value=[{'o': 1}]):
+    """Every predefined extendable option of every feature is inserted"""
+    isms_option: dict[str, Any] = {'option_type': 'ISMS_ONE', 'value': 'a'}
+    port_options: list[dict[str, Any]] = [
+        {'option_type': 'PORT_ONE', 'value': 'b'}, {'option_type': 'PORT_TWO', 'value': 'c'},
+    ]
+
+    with patch(f'{MODULE}.get_default_isms_extendable_options', return_value=[isms_option]), \
+         patch(f'{MODULE}.get_default_port_extendable_options', return_value=port_options):
         validator._seed_predefined_extendable_options()
 
-    assert dbm.insert.call_count == 1
+    assert dbm.insert.call_count == 3
+
+
+def test_seed_predefined_extendable_options_covers_every_feature(
+    validator: CollectionValidator, dbm: MagicMock,
+) -> None:
+    """
+    Both feature sources reach the collection, not just the first.
+
+    The seeder grew a second source when Port Connectivity landed; a future third one being added to
+    the import but not to the list would otherwise be silently dropped on every fresh install.
+    """
+    validator._seed_predefined_extendable_options()
+
+    seeded = [call.args[2] for call in dbm.insert.call_args_list]
+    option_types = {str(option['option_type']) for option in seeded}
+
+    assert 'OptionType.IMPLEMENTATION_STATE' in option_types  # ISMS
+    assert 'OptionType.PORT_STATUS' in option_types           # Port Connectivity
+    assert 'OptionType.CABLE_TYPE' in option_types
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          init_framework_collections                                                #
@@ -511,3 +546,359 @@ def test_init_management_skips_admin_user_in_cloud_mode(
         validator.init_management_collections()
 
         users_manager_cls.return_value.insert_user.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     self-healing seeding (a half-finished first boot)                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTheSeedersRunOnEveryPass:
+    """
+    'The collection exists' used to stand for 'it has been seeded', and the two are not the same
+
+    A boot that created a collection and then failed while seeding it left the collection behind. On
+    the next start the create branch was skipped, so the seeding never happened again - a database
+    permanently without its root location, its protection goals or its admin group, and a boot that
+    reported success.
+    """
+
+    def test_an_existing_collection_is_still_seeded(
+        self, validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch, dbm: MagicMock,
+    ) -> None:
+        """The create branch is no longer what decides whether the predefined data is written."""
+        monkeypatch.setattr(cv_module, 'FRAMEWORK_CLASSES', [CmdbLocation])
+        validator.get_all_db_collections = MagicMock(return_value=[CmdbLocation.COLLECTION])
+        validator.init_predefined_templates = MagicMock()
+
+        validator.init_framework_collections()
+
+        dbm.create_collection.assert_not_called()
+        dbm.upsert_set.assert_called_once()
+
+    def test_a_missing_protection_goal_is_restored_and_the_others_are_not_duplicated(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """
+        Each default is looked up by public_id, so a half-seeded collection is completed
+
+        Which is the difference between "insert everything again" and "insert what is missing".
+        """
+        stored: dict[int, dict[str, Any]] = {1: {'public_id': 1}}
+        dbm.get_collection.return_value.find_one.side_effect = (
+            lambda criteria: stored.get(criteria['public_id'])
+        )
+
+        with patch(f'{MODULE}.get_default_protection_goals',
+                   return_value=[{'public_id': 1}, {'public_id': 2}, {'public_id': 3}]):
+            validator._seed_default_protection_goals()  # pylint: disable=protected-access
+
+        inserted = [call.args[2]['public_id'] for call in dbm.insert.call_args_list]
+
+        assert inserted == [2, 3]
+
+    def test_a_fully_seeded_collection_is_left_alone(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """Running on every boot must cost writes only when something is actually missing."""
+        dbm.get_collection.return_value.find_one.return_value = {'public_id': 1}
+
+        with patch(f'{MODULE}.get_default_protection_goals', return_value=[{'public_id': 1}]):
+            validator._seed_default_protection_goals()  # pylint: disable=protected-access
+
+        dbm.insert.assert_not_called()
+
+    def test_a_predefined_option_is_identified_by_its_type_and_value(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """
+        Extendable options carry no fixed public_id - the counter assigns one
+
+        So the pair that identifies them is (option_type, value), and that is what the lookup asks
+        for.
+        """
+        with patch(f'{MODULE}.get_default_isms_extendable_options',
+                   return_value=[{'option_type': 'A_TYPE', 'value': 'a value'}]), \
+             patch(f'{MODULE}.get_default_port_extendable_options', return_value=[]):
+            validator._seed_predefined_extendable_options()  # pylint: disable=protected-access
+
+        dbm.get_collection.return_value.find_one.assert_called_once_with(
+            {'option_type': 'A_TYPE', 'value': 'a value'},
+        )
+
+    def test_a_missing_fixed_group_is_restored(
+        self, validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        A CmdbUser's group_id points at these by public_id
+
+        A user referencing group 1 in a database that has no group 1 cannot be authorised at all, so
+        a missing fixed group is worth restoring rather than leaving for an operator to find.
+        """
+        monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUserGroup])
+        validator.get_all_db_collections = MagicMock(return_value=[CmdbUserGroup.COLLECTION])
+
+        with patch(f'{MODULE}.GroupsManager') as groups_manager_cls:
+            validator.init_management_collections()
+
+        assert groups_manager_cls.return_value.insert_group.call_count == len(__FIXED_GROUPS__)
+
+    def test_an_existing_fixed_group_is_not_reinserted(
+        self, validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch, dbm: MagicMock,
+    ) -> None:
+        """The lookup is by public_id, so a database with its groups pays no writes."""
+        monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUserGroup])
+        validator.get_all_db_collections = MagicMock(return_value=[CmdbUserGroup.COLLECTION])
+        dbm.get_collection.return_value.find_one.return_value = {'public_id': 1}
+
+        with patch(f'{MODULE}.GroupsManager') as groups_manager_cls:
+            validator.init_management_collections()
+
+        groups_manager_cls.return_value.insert_group.assert_not_called()
+
+
+class TestTheDefaultAdminUser:
+    """Whose seeding rule is deliberately different from every other seeder's."""
+
+    def test_it_is_created_when_the_database_has_no_users(
+        self, dbm: MagicMock, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A database nobody can log into is worth healing, and that is what an empty collection is."""
+        validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, local_mode=True)
+        monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUser])
+        validator.get_all_db_collections = MagicMock(return_value=[CmdbUser.COLLECTION])
+
+        with patch(f'{MODULE}.UsersManager') as users_manager_cls, patch(f'{MODULE}.SecurityManager'):
+            validator.init_management_collections()
+
+        users_manager_cls.return_value.insert_user.assert_called_once()
+
+    def test_it_is_not_recreated_when_any_user_exists(
+        self, dbm: MagicMock, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        The check is 'are there users', not 'is there a user named admin'
+
+        An installation that replaced the default account must not have admin/admin reappear on the
+        next boot - which a name-based check would do.
+        """
+        validator: CollectionValidator = CollectionValidator(DB_NAME, dbm, local_mode=True)
+        monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUser])
+        validator.get_all_db_collections = MagicMock(return_value=[CmdbUser.COLLECTION])
+        dbm.get_collection.return_value.find_one.return_value = {'public_id': 42, 'user_name': 'someone'}
+
+        with patch(f'{MODULE}.UsersManager') as users_manager_cls, patch(f'{MODULE}.SecurityManager'):
+            validator.init_management_collections()
+
+        users_manager_cls.return_value.insert_user.assert_not_called()
+
+    def test_cloud_mode_never_creates_one(
+        self, validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A cloud tenant's first user is provisioned through the service portal."""
+        monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUser])
+        validator.get_all_db_collections = MagicMock(return_value=[])
+
+        with patch(f'{MODULE}.UsersManager') as users_manager_cls, patch(f'{MODULE}.SecurityManager'):
+            validator.init_management_collections()
+
+        users_manager_cls.return_value.insert_user.assert_not_called()
+
+
+class TestTheCacheDatabase:
+    """The one registered collection that used to be created and then never looked at again."""
+
+    def test_an_existing_cache_database_has_its_indexes_reconciled(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """
+        A new index on CmdbCachedUser used to reach a fresh installation only
+
+        Every upgraded one kept the index set of the day its cache database was created, and the
+        collection-registry guard counts CmdbCachedUser as registered, so nothing pointed at it.
+        """
+        dbm.check_database_exists.return_value = True
+        dbm.get_index_info.return_value = {}
+
+        validator.init_cache_db()
+
+        dbm.create_indexes.assert_called_once()
+        assert dbm.create_indexes.call_args.args[1] == DG_CACHE_DB
+
+    def test_an_up_to_date_cache_database_is_left_alone(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """The reconcile is additive, so a boot with nothing to add writes nothing."""
+        dbm.check_database_exists.return_value = True
+        dbm.get_index_info.return_value = {
+            index.document['name']: {} for index in CmdbCachedUser.get_index_keys()
+        }
+
+        validator.init_cache_db()
+
+        dbm.create_indexes.assert_not_called()
+
+    def test_a_failing_cache_reconcile_does_not_stop_the_boot(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """
+        The same rule the tenant collections follow
+
+        One collection's index problem must not take down a boot that is otherwise fine - the cache
+        is a cache, and token validation refills it.
+        """
+        dbm.check_database_exists.return_value = True
+        dbm.get_index_info.side_effect = RuntimeError('index read failed')
+
+        validator.init_cache_db()
+
+    def test_a_missing_cache_database_is_created_with_its_collection(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """The first-boot path, unchanged."""
+        dbm.check_database_exists.return_value = False
+
+        validator.init_cache_db()
+
+        dbm.create_database.assert_called_once_with(DG_CACHE_DB)
+        dbm.create_collection.assert_called_once_with(CmdbCachedUser.COLLECTION, DG_CACHE_DB)
+
+
+class TestTheCollectionListing:
+    """One round trip per boot, not one per init step."""
+
+    def test_the_listing_is_taken_once_and_shared(self, validator: CollectionValidator) -> None:
+        """
+        Both init steps ask the same question of the same database
+
+        In cloud mode that was two extra round trips per tenant on every start.
+        """
+        validator.get_all_db_collections = MagicMock(return_value=[])
+        validator.init_database = MagicMock()
+        validator.init_framework_collections = MagicMock()
+        validator.init_management_collections = MagicMock()
+        validator.init_cache_db = MagicMock()
+
+        validator.validate_collections()
+
+        validator.get_all_db_collections.assert_called_once_with(DB_NAME)
+
+    def test_an_init_step_called_on_its_own_still_lists_for_itself(
+        self, validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        The parameter is optional, so the two steps remain callable in isolation
+
+        Which is what the integration suites and any future caller do.
+        """
+        monkeypatch.setattr(cv_module, 'FRAMEWORK_CLASSES', [])
+        validator.get_all_db_collections = MagicMock(return_value=[])
+        validator.init_predefined_templates = MagicMock()
+
+        validator.init_framework_collections()
+
+        validator.get_all_db_collections.assert_called_once_with(DB_NAME)
+
+
+class TestTheRootLocation:
+    """The document the whole location tree hangs off."""
+
+    def test_the_write_is_the_same_upsert_whether_or_not_the_counter_is_initialised(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """
+        The 'create' flag used to select between two identical upserts
+
+        It now selects only whether the public_id counter is initialised as well.
+        """
+        with patch(f'{MODULE}.get_root_location_data', return_value={'public_id': 1}):
+            validator.set_root_location('coll', DB_NAME, create=False)
+            validator.set_root_location('coll', DB_NAME, create=True)
+
+        first_write, second_write = dbm.upsert_set.call_args_list
+
+        assert first_write == second_write
+
+    def test_the_upsert_honours_the_database_it_was_given(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """
+        It took a db_name and then wrote to self.db_name on both paths
+
+        Harmless while the only caller passes its own database, and wrong the moment one does not.
+        """
+        with patch(f'{MODULE}.get_root_location_data', return_value={'public_id': 1}):
+            validator.set_root_location('coll', 'another-db')
+
+        assert dbm.upsert_set.call_args.args[1] == 'another-db'
+
+
+class TestTheRemainingErrorArms:
+    """A boot failure has to say which step failed, and with which error type."""
+
+    def test_a_failing_management_step_is_wrapped(
+        self, validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        CollectionInitError is what validate_collections then reports on
+
+        The wrapper now carries the original exception rather than a string of it, so a caller
+        inspecting it still sees the pymongo error underneath.
+        """
+        monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUserGroup])
+        validator.get_all_db_collections = MagicMock(side_effect=RuntimeError('listing failed'))
+
+        with pytest.raises(CollectionInitError) as caught:
+            validator.init_management_collections()
+
+        assert isinstance(caught.value.__cause__, RuntimeError)
+
+    def test_a_failing_report_category_insert_is_wrapped(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """The seeder reports a write it could not do rather than letting pymongo's error escape."""
+        dbm.insert.side_effect = RuntimeError('insert failed')
+
+        with pytest.raises(DocumentInsertError):
+            validator.create_general_report_category('coll', DB_NAME)
+
+    def test_an_existing_predefined_option_is_not_inserted_again(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """The skip side of the content check, which is what every boot after the first takes."""
+        dbm.get_collection.return_value.find_one.return_value = {'option_type': 'A_TYPE', 'value': 'a'}
+
+        with patch(f'{MODULE}.get_default_isms_extendable_options',
+                   return_value=[{'option_type': 'A_TYPE', 'value': 'a'}]), \
+             patch(f'{MODULE}.get_default_port_extendable_options', return_value=[]):
+            validator._seed_predefined_extendable_options()  # pylint: disable=protected-access
+
+        dbm.insert.assert_not_called()
+
+    def test_the_management_step_reuses_a_listing_it_is_given(
+        self, validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The shared listing reaches this step too, so it asks the server for nothing itself."""
+        monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUserGroup])
+        validator.get_all_db_collections = MagicMock()
+
+        with patch(f'{MODULE}.GroupsManager'):
+            validator.init_management_collections([CmdbUserGroup.COLLECTION])
+
+        validator.get_all_db_collections.assert_not_called()
+
+
+def test_the_framework_step_reuses_a_listing_it_is_given(
+    validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    The other half of the shared listing
+
+    validate_collections lists once and hands the same names to both steps; each still lists for
+    itself when called alone, which is what the integration suites do.
+    """
+    monkeypatch.setattr(cv_module, 'FRAMEWORK_CLASSES', [])
+    validator.get_all_db_collections = MagicMock()
+    validator.init_predefined_templates = MagicMock()
+
+    validator.init_framework_collections([])
+
+    validator.get_all_db_collections.assert_not_called()

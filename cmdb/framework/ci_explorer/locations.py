@@ -36,7 +36,7 @@ from typing import Any
 
 from cmdb.manager import LocationsManager, ObjectsManager
 
-from cmdb.database.predefined_data.predefined_data_constants import RootLocationDefault
+from cmdb.models.location_model.location_constants import RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CHILD_LOCATION_REL_COLOR: str = '#C084FC'
@@ -134,12 +134,11 @@ def collect_location_children_objects(
     if item_limit_active and remaining <= 0:
         return []
 
-    child_locations: list[Any] = locations_manager.get_locations_by(parent=target_location['public_id'])
+    object_ids: list[int] = locations_manager.get_child_object_ids(target_location['public_id'])
 
-    if not child_locations:
+    if not object_ids:
         return []
 
-    object_ids: list[int] = [loc.object_id for loc in child_locations]
     criteria: dict[str, Any] = {'public_id': {'$in': object_ids}}
 
     if types_filter:

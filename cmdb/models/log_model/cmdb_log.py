@@ -15,6 +15,17 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of CmdbLog
+
+A factory over a registry: `CmdbLog(**data)` returns an instance of the log class registered for the
+data's `log_type`, falling back to `DEFAULT_LOG_TYPE` when that type cannot be resolved. The registry
+holds exactly one entry today (`framework/constants.py` registers CmdbObjectLog under its own class
+name), and every write path passes that name - so the fallback is the corrupt-data path, not a normal
+one.
+
+**Serialization deliberately lives on the log classes, not here.** A factory cannot serialize what it
+does not know the shape of: a `to_json` on this class would hard-code one concrete log's field list and
+silently misserialize any second registered type. Callers therefore use the chosen class's own
+`from_data` / `to_json` (`CmdbObjectLog.to_json` in `LogsManager.insert_log`)
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -30,18 +41,25 @@ LOGGER: Logger = getLogger(__name__)
 class CmdbLog:
     """
     Factory and registry class for CMDB (Configuration Management Database) logs
-    
-    Dynamically instantiates log objects based on their type, 
-    allows registration of custom log types, and provides 
-    serialization methods for log instances.
+
+    Dynamically instantiates log objects based on their type and allows registration of custom log
+    types. Serialization belongs to the log classes themselves - see the module docstring
     """
     REGISTERED_LOG_TYPE: dict[Any, Any] = {}
     DEFAULT_LOG_TYPE = CmdbObjectLog
 
     def __new__(cls, *args, **kwargs) -> Any:
         """
-        Dynamically creates an instance of the appropriate log class 
-        based on provided arguments
+        Dynamically creates an instance of the appropriate log class based on provided arguments
+
+        Only the keyword arguments select the class - the log type is read from `log_type`, which has
+        no positional meaning here; positional arguments are passed on to the chosen class's
+        constructor untouched.
+
+        Note that every log class in this package derives from CmdbDAO, whose own `__new__` validates
+        the REQUIRED_INIT_KEYS against the KEYWORD arguments alone - so a value passed positionally is
+        refused there as a missing key. `*args` therefore only ever reaches a log class that does not
+        inherit that validation
 
         Args:
             *args: Positional arguments for the log class constructor
@@ -50,14 +68,19 @@ class CmdbLog:
         Returns:
             Instance of a log class derived from CmdbLog
         """
-        return cls.__get_log_class(*args, **kwargs)(*args, **kwargs)
+        return cls.__get_log_class(**kwargs)(*args, **kwargs)
 
 
     @classmethod
     def __get_log_class(cls, **kwargs) -> type:
         """
-        Retrieves the registered log class for the given 'log_type'. 
-        Defaults to DEFAULT_LOG_TYPE if no matching type is found.
+        Retrieves the registered log class for the given 'log_type'
+
+        Defaults to DEFAULT_LOG_TYPE whenever the type cannot be resolved, which is every way a stored
+        value can be unusable: absent (KeyError on the kwargs lookup), not registered (KeyError on the
+        registry) or not even hashable (TypeError - a list or dict where a name belongs, which a
+        hand-edited or half-migrated row can carry). Falling back is what keeps one corrupt row from
+        taking down the whole log list
 
         Args:
             **kwargs: Should contain a 'log_type' key
@@ -67,7 +90,7 @@ class CmdbLog:
         """
         try:
             log_class = cls.REGISTERED_LOG_TYPE[kwargs['log_type']]
-        except (KeyError, ValueError):
+        except (KeyError, TypeError):
             log_class = cls.DEFAULT_LOG_TYPE
 
         return log_class
@@ -83,46 +106,3 @@ class CmdbLog:
             log_class (type): The log class corresponding to the log_name
         """
         cls.REGISTERED_LOG_TYPE[log_name] = log_class
-
-
-    @classmethod
-    def from_data(cls, data: dict, *args, **kwargs) -> "CmdbLog":
-        """
-        Instantiates a log object from a given data dictionary
-
-        Args:
-            data (dict): Data representing the log attributes. Should include 'log_type'
-            *args: Additional positional arguments for the log class constructor
-            **kwargs: Additional keyword arguments
-
-        Returns:
-            CmdbLog: An instance of the appropriate log class populated with data
-        """
-        return cls.__get_log_class(**data).from_data(data, *args, **kwargs)
-
-
-    @classmethod
-    def to_json(cls, instance: "CmdbLog") -> dict:
-        """
-        Serializes a log instance into a JSON-compatible dictionary
-
-        Args:
-            instance (CmdbLog): The log instance to serialize
-
-        Returns:
-            dict: Dictionary containing the log's serializable data
-        """
-        return {
-            'public_id': instance.public_id,
-            'log_time': instance.log_time,
-            'log_type': instance.log_type,
-            'action': instance.action,
-            'object_id': instance.object_id,
-            'version': instance.version,
-            'user_name': instance.user_name,
-            'user_id': instance.user_id,
-            'render_state': instance.render_state,
-            'changes': instance.changes,
-            'comment': instance.comment,
-            'action_name': instance.action_name
-        }

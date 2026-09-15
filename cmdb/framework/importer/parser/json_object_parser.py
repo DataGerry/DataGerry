@@ -21,8 +21,11 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.framework.importer.content_types import JSONContent
+from cmdb.framework.importer.importer_constants import NO_CONTENT_DATA_MESSAGE, JsonParserConfigKey
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.responses.json_object_parser_response import JsonObjectParserResponse
+
+from cmdb.errors.importer import ParserNoContentError, ParserRuntimeError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -38,44 +41,50 @@ class JsonObjectParser(BaseObjectParser, JSONContent):
 
     Attributes:
         DEFAULT_CONFIG (dict): The default configuration for the parser. Includes:
-            - indent: The number of spaces to use for indentation in the output (default 2)
             - encoding: The file encoding used when reading the file (default 'UTF-8')
     """
     DEFAULT_CONFIG: dict[str, Any] = {
-        'indent': 2,
-        'encoding': 'UTF-8'
+        JsonParserConfigKey.ENCODING.value: 'UTF-8',
     }
 
-
-    def __init__(self, parser_config: dict = None) -> None:
-        """
-        Initializes the JsonObjectParser with a given configuration
-
-        Args:
-            parser_config (dict, optional): Custom configuration to override default settings
-                If None, the default configuration will be used
-        """
-        super().__init__(parser_config)
-
-
-    def parse(self, file) -> JsonObjectParserResponse:
+    def parse(self, file: str) -> JsonObjectParserResponse:
         """
         Parses the provided JSON file and returns a response containing the parsed data
 
         The file is read with the encoding specified in the configuration, and the JSON data is loaded.
-        It returns a structured response containing the number of entries and the parsed data
+        It returns a structured response containing the number of entries and the parsed data.
 
         Args:
             file (str): The path to the JSON file to be parsed
 
         Returns:
             JsonObjectParserResponse: A structured response containing:
-                - count: The number of entries in the parsed JSON data
-                - entries: The actual parsed JSON data (usually a list or dictionary)
+                - count: The number of objects in the parsed JSON list
+                - entries: The parsed objects (the top-level JSON list)
+
+        Raises:
+            ParserNoContentError: If the top-level list is empty, so there is nothing to import
+            ParserRuntimeError: If the file cannot be read/parsed, or its top level is not a JSON list
         """
         run_config = self.get_config()
 
-        with open(file, 'r', encoding=run_config.get('encoding')) as json_file:
-            parsed = json.load(json_file)
+        try:
+            with open(file, 'r', encoding=run_config.get(JsonParserConfigKey.ENCODING.value)) as json_file:
+                parsed = json.load(json_file)
+        except Exception as err:
+            LOGGER.error("Error parsing JSON file: %s", err)
+            raise ParserRuntimeError(f"[{self.__class__.__name__}]: An error occurred: {err}") from err
+
+        # The import shape is a list of objects; require it so ``count`` is the object count (a dict would
+        # otherwise count its keys, a scalar would fail on len())
+        if not isinstance(parsed, list):
+            raise ParserRuntimeError(
+                f"[{self.__class__.__name__}]: expected a JSON list of objects at the top level"
+            )
+
+        if not parsed:
+            # An empty list parsed perfectly and simply holds nothing to import - the same condition a
+            # header-only CSV is in, reported the same way so both formats answer alike
+            raise ParserNoContentError(NO_CONTENT_DATA_MESSAGE.format(parser=self.__class__.__name__))
 
         return JsonObjectParserResponse(count=len(parsed), entries=parsed)

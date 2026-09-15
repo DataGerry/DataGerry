@@ -15,6 +15,17 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for the CmdbObjectGroups
+
+Every route here is ADMIN-level and rights-protected. Two things are worth knowing before changing
+them:
+
+**``group_type`` decides what ``assigned_ids`` holds** - CmdbObject ids for a STATIC group, CmdbType
+ids for a DYNAMIC one - and the schema now refuses any third value, because the two cleanup paths that
+keep ``assigned_ids`` free of deleted ids each select the groups they maintain by mode.
+
+**Deleting a group deletes ISMS documents.** ``ObjectGroupsManager.delete_with_follow_up`` removes every
+IsmsRiskAssessment that assesses the group and every IsmsControlMeasureAssignment belonging to those
+assessments. The route neither warns nor reports how many went with it
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -28,7 +39,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.object_group_model import CmdbObjectGroup
+from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -49,6 +60,7 @@ from cmdb.errors.manager.object_groups_manager import (
     ObjectGroupsManagerDeleteError,
     ObjectGroupsManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -69,6 +81,10 @@ def insert_cmdb_object_group(data: dict[str, Any], request_user: CmdbUser) -> Re
     Args:
         data (CmdbObjectGroup.SCHEMA): Data of the CmdbObjectGroup which should be inserted
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 400 if the CmdbObjectGroup could not be written, 404 if it could not be read
+                       back, 500 on any unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbObjectGroup and its public_id
@@ -114,11 +130,14 @@ def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser)
         params (CollectionParameters): Filter for requested CmdbObjectGroups
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 if the CmdbObjectGroups could not be read, 500 on any unexpected error
+
     Returns:
         GetMultiResponse: All the CmdbObjectGroups matching the CollectionParameters
     """
     try:
-        body: bool = request.method == 'HEAD'
+        body: bool = request_wants_body()
 
         object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
             ManagerType.OBJECT_GROUP,
@@ -161,6 +180,10 @@ def get_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response:
         public_id (int): public_id of the CmdbObjectGroup
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 404 if no CmdbObjectGroup carries the public_id, 400 if it could not be read,
+                       500 on any unexpected error
+
     Returns:
         GetSingleResponse: The requested CmdbObjectGroup
     """
@@ -175,7 +198,7 @@ def get_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response:
         if not requested_object_group:
             abort(404, f"The ObjectGroup with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_object_group, body = request.method == 'HEAD').make_response()
+        return GetSingleResponse(requested_object_group, body=request_wants_body()).make_response()
     except HTTPException as http_err:
         raise http_err
     except ObjectGroupsManagerGetError as err:
@@ -201,6 +224,10 @@ def update_cmdb_object_group(public_id: int, data: dict[str, Any], request_user:
         data (CmdbObjectGroup.SCHEMA): New CmdbObjectGroup data
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 404 if no CmdbObjectGroup carries the public_id, 400 if the write fails,
+                       500 on any unexpected error
+
     Returns:
         UpdateSingleResponse: The new data of the CmdbObjectGroup
     """
@@ -216,7 +243,7 @@ def update_cmdb_object_group(public_id: int, data: dict[str, Any], request_user:
             abort(404, f"The ObjectGroup with ID:{public_id} was not found!")
 
         # Pin the public_id from the URL so the body cannot overwrite or drop it
-        data['public_id'] = public_id
+        data[ObjectGroupKey.PUBLIC_ID.value] = public_id
 
         object_groups_manager.update_item(public_id, CmdbObjectGroup.from_data(data))
 
@@ -246,6 +273,11 @@ def delete_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response
     Args:
         public_id (int): public_id of the CmdbObjectGroup which should be deleted
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 if no CmdbObjectGroup carries the public_id, 400 if the read or the
+                       deletion (including its IsmsRiskAssessment cascade) fails, 500 on any
+                       unexpected error
 
     Returns:
         DeleteSingleResponse: The deleted CmdbObjectGroup data

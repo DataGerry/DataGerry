@@ -14,13 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides CmdbLocation related classes and methods
+Provides CmdbLocation related helpers: the canonical document read, the tree-level ordering, the
+root-document check and the two coercions the model and that read share
 """
 from .location_utils import (
+    coerce_type_icon,
+    coerce_type_selectable,
+    sort_locations_by_name,
+    to_location_document,
     validate_root_location,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'coerce_type_icon',
+    'coerce_type_selectable',
+    'sort_locations_by_name',
+    'to_location_document',
     'validate_root_location',
 ]

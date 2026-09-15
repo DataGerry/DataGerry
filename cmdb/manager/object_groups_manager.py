@@ -24,8 +24,15 @@ from pymongo.results import UpdateResult
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.object_group_model import CmdbObjectGroup, ObjectReferenceType, ObjectGroupMode
+from cmdb.models.object_group_model import (
+    CmdbObjectGroup,
+    ObjectGroupKey,
+    ObjectReferenceType,
+    ObjectGroupMode,
+)
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 
 from cmdb.errors.manager.object_groups_manager import (
     OBJECT_GROUPS_MANAGER_ERRORS,
@@ -67,7 +74,7 @@ class ObjectGroupsManager(GenericManager):
 
             return self.delete_item(public_id)
         except Exception as err:
-            raise ObjectGroupsManagerDeleteError(str(err)) from err
+            raise ObjectGroupsManagerDeleteError(err) from err
 
 
     def delete_object_group_from_risk_assessment_cascade(self, deleted_group_id: int) -> None:
@@ -90,33 +97,33 @@ class ObjectGroupsManager(GenericManager):
         """
         # Find all RiskAssessments referencing this ObjectGroup
         risk_assessment_query = {
-            'object_id_ref_type': ObjectReferenceType.OBJECT_GROUP,
-            'object_id': deleted_group_id
+            RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ObjectReferenceType.OBJECT_GROUP.value,
+            RiskAssessmentKey.OBJECT_ID.value: deleted_group_id,
         }
 
         matching_risk_assessments = list(self.dbm.find(
             IsmsRiskAssessment.COLLECTION,
             self.db_name,
             risk_assessment_query,
-            projection={'public_id': 1}
+            projection={RiskAssessmentKey.PUBLIC_ID.value: 1}
         ))
 
         if not matching_risk_assessments:
             return  # Nothing to delete
 
         # Collect all RiskAssessment public_ids
-        risk_assessment_ids = [ra['public_id'] for ra in matching_risk_assessments]
+        risk_assessment_ids = [ra[RiskAssessmentKey.PUBLIC_ID.value] for ra in matching_risk_assessments]
 
         # Delete the RiskAssessments
         self.delete_many_from_other_collection(
             IsmsRiskAssessment.COLLECTION,
-            {'public_id': {'$in': risk_assessment_ids}},
+            {RiskAssessmentKey.PUBLIC_ID.value: {'$in': risk_assessment_ids}},
         )
 
         # Delete all ControlMeasureAssignments referencing those RiskAssessments
         self.delete_many_from_other_collection(
             IsmsControlMeasureAssignment.COLLECTION,
-            {'risk_assessment_id': {'$in': risk_assessment_ids}},
+            {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: {'$in': risk_assessment_ids}},
         )
 
 
@@ -132,14 +139,14 @@ class ObjectGroupsManager(GenericManager):
         Returns:
             UpdateResult: Result of the deletion
         """
-        criteria: dict[str, ObjectGroupMode] = {"group_type": group_type}
+        criteria: dict[str, Any] = {ObjectGroupKey.GROUP_TYPE.value: group_type.value}
 
         if isinstance(public_ids, list):
-            criteria["assigned_ids"] = {"$in": public_ids}
-            update: dict[str, Any] = {"assigned_ids": {"$in": public_ids}}
+            criteria[ObjectGroupKey.ASSIGNED_IDS.value] = {"$in": public_ids}
+            update: dict[str, Any] = {ObjectGroupKey.ASSIGNED_IDS.value: {"$in": public_ids}}
         else:
-            criteria["assigned_ids"] = public_ids
-            update = {"assigned_ids": public_ids}
+            criteria[ObjectGroupKey.ASSIGNED_IDS.value] = public_ids
+            update = {ObjectGroupKey.ASSIGNED_IDS.value: public_ids}
 
         return self.update_many_pull(
             criteria=criteria,

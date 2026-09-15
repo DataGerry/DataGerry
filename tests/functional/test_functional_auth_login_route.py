@@ -64,7 +64,7 @@ def _enable_cloud(rest_api, monkeypatch, *, local: bool = True) -> None:
 
 
 def _cloud_user() -> CmdbUser:
-    """A CmdbUser as retrive_user would return it in the cloud flow."""
+    """A CmdbUser as retrieve_user would return it in the cloud flow."""
     return CmdbUser(public_id=CLOUD_USER_ID, user_name='cloud-user', active=True, database='cloud_db')
 
 
@@ -143,7 +143,7 @@ class TestCloudLogin:
                             lambda _u, _p: {'subscriptions': [{'id': 's1', 'name': 'Sub 1', 'database': 'db1'}]})
         monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: True)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
-        monkeypatch.setattr(auth_helper, 'retrive_user', lambda *_a, **_k: _cloud_user())
+        monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: _cloud_user())
 
         response = rest_api.post(LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw'})
 
@@ -159,7 +159,7 @@ class TestCloudLogin:
         monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: False)
         monkeypatch.setattr(auth_helper, 'init_db_routine', init_calls.append)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
-        monkeypatch.setattr(auth_helper, 'retrive_user', lambda *_a, **_k: _cloud_user())
+        monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: _cloud_user())
 
         response = rest_api.post(LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw'})
 
@@ -193,7 +193,7 @@ class TestCloudLogin:
         ]})
         monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: True)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
-        monkeypatch.setattr(auth_helper, 'retrive_user', lambda *_a, **_k: _cloud_user())
+        monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: _cloud_user())
 
         response = rest_api.post(
             LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw', 'subscription': {'id': 's2'}},
@@ -251,7 +251,7 @@ class TestCloudLogin:
         monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: False)
         monkeypatch.setattr(auth_helper, 'init_db_routine', init_calls.append)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
-        monkeypatch.setattr(auth_helper, 'retrive_user', lambda *_a, **_k: _cloud_user())
+        monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: _cloud_user())
 
         response = rest_api.post(
             LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw', 'subscription': {'id': 's2'}},
@@ -266,7 +266,7 @@ class TestCloudLogin:
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal', _single_subscription_portal)
         monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: True)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
-        monkeypatch.setattr(auth_helper, 'retrive_user', lambda *_a, **_k: None)
+        monkeypatch.setattr(auth_helper, 'retrieve_user', lambda *_a, **_k: None)
 
         assert rest_api.post(LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw'}).status_code \
             == HTTPStatus.UNAUTHORIZED
@@ -293,7 +293,7 @@ class TestCloudLogin:
         monkeypatch.setattr(auth_helper, 'check_user_in_service_portal', _single_subscription_portal)
         monkeypatch.setattr(auth_helper, 'check_db_exists', lambda _db: True)
         monkeypatch.setattr(auth_helper, 'set_admin_user', lambda *_a, **_k: None)
-        monkeypatch.setattr(auth_helper, 'retrive_user', _raiser(exc))
+        monkeypatch.setattr(auth_helper, 'retrieve_user', _raiser(exc))
 
         assert rest_api.post(LOGIN_URL, json={'user_name': 'cloud@x.io', 'password': 'pw'}).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
@@ -352,14 +352,14 @@ class TestAuthSettingsAndProviders:
         assert rest_api.post(SETTINGS_URL, json={}).status_code == HTTPStatus.BAD_REQUEST
 
     def test_update_auth_settings_init_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A payload that fails CmdbAuthSettings init is a client error -> 400 (B1 regression)."""
-        monkeypatch.setattr(auth_routes, 'CmdbAuthSettings', _raiser(AuthSettingsInitError('boom')))
+        """A payload that fails CmdbAuthSettings validation is a client error -> 400 (B1 regression)."""
+        monkeypatch.setattr(auth_routes.CmdbAuthSettings, 'from_data', _raiser(AuthSettingsInitError('boom')))
 
         assert rest_api.post(SETTINGS_URL, json={'providers': []}).status_code == HTTPStatus.BAD_REQUEST
 
     def test_update_auth_settings_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error while building the settings surfaces as 500."""
-        monkeypatch.setattr(auth_routes, 'CmdbAuthSettings', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(auth_routes.CmdbAuthSettings, 'from_data', _raiser(RuntimeError('boom')))
 
         assert rest_api.post(SETTINGS_URL, json={'providers': []}).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 

@@ -22,6 +22,7 @@ from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
+from cmdb.interface.rest_api.responses.response_constants import ResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -47,23 +48,29 @@ class DeleteSingleResponse(BaseAPIResponse):
 
     def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
-        Make a valid http response
+        Builds the http response for the deletion
 
         Args:
-            *args:
-            **kwargs:
+            *args (Any): Positional arguments forwarded to `export`
+            **kwargs (Any): Keyword arguments forwarded to `export`
+
         Returns:
-            Instance of Response with 204 if raw content was set else 202
+            Response: The http response, 202 when the deleted resource is reported back, 204 when
+                there is nothing to report
         """
-        status_code = 204 if not self.raw else 202
+        status_code: int = 204 if not self.raw else 202
 
         return self.make_api_response(self.export(*args, **kwargs), status_code)
 
 
-    def export(self) -> dict:
+    def export(self) -> dict[str, Any]:
         """
-        Get the delete instance as dict.
+        Returns the response payload as a dict
+
+        Returns:
+            dict[str, Any]: The deleted resource under `raw`, plus the envelope keys
         """
-        return {**{
-            'raw': self.raw
-        }, **super().export()}
+        return {
+            ResponseKey.RAW.value: self.raw,
+            **super().export(),
+        }

@@ -16,9 +16,13 @@
 """
 Provides all CmdbPerson relevant classes
 """
+from .person_constants import PersonKey, PERSON_OPTIONAL_TEXT_KEYS, PERSON_LIST_KEYS
 from .cmdb_person import CmdbPerson
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'CmdbPerson',
+    'PersonKey',
+    'PERSON_OPTIONAL_TEXT_KEYS',
+    'PERSON_LIST_KEYS',
 ]

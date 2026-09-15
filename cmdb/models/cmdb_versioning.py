@@ -96,23 +96,36 @@ class Versioning:
 
     def update_major(self) -> int:
         """
-        Increments the major version
+        Increments the major version and resets the minor and patch components
+
+        Semantic versioning: a major release starts a new line, so 1.2.3 becomes 2.0.0 rather than
+        2.2.3 - carrying the old minor and patch forward made the string read as if changes had
+        accumulated within a line that had just been replaced
 
         Returns:
             int: Updated major version
         """
         self.major += 1
+        self.minor = 0
+        self.patch = 0
+
         return self.major
 
 
     def update_minor(self) -> int:
         """
-        Increments the minor version and resets the patch version
+        Increments the minor version and resets the patch component
+
+        Semantic versioning, and what this docstring already promised: 1.2.3 becomes 1.3.0. The reset
+        was missing, so a series of edits produced strings like 1.5.7 where the patch count belonged
+        to a minor version two releases old
 
         Returns:
             int: Updated minor version
         """
         self.minor += 1
+        self.patch = 0
+
         return self.minor
 
 

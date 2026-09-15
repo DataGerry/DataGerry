@@ -167,6 +167,39 @@ class BaseManager:
             raise BaseManagerGetError(str(err)) from err
 
 
+    def aggregate_query(
+        self,
+        builder_params: BuilderParameters,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Performs the data aggregation of a query WITHOUT the accompanying count aggregation
+
+        The data half of ``iterate_query``, split out for callers that never read the total: a count
+        is a second full aggregation over the same criteria, so a caller which only consumes the rows
+        (e.g. running a CmdbReport) pays for it twice otherwise. Use this whenever no total is needed
+        and ``iterate_query`` when it is - the two build the identical data pipeline
+
+        Args:
+            builder_params (BuilderParameters): Parameters to define the query
+            user (CmdbUser | None): The user making the request. Defaults to None
+            permission (AccessControlPermission | None): Permission to check. Defaults to None
+
+        Raises:
+            BaseManagerIterationError: If the aggregation process fails
+
+        Returns:
+            list[dict[str, Any]]: The aggregation results
+        """
+        try:
+            query: list[dict] = self.query_builder.build(builder_params, user, permission)
+
+            return list(self.aggregate(query))
+        except Exception as err:
+            raise BaseManagerIterationError(str(err)) from err
+
+
     def iterate_query(
         self,
         builder_params: BuilderParameters,
@@ -174,7 +207,11 @@ class BaseManager:
         permission: AccessControlPermission | None = None
     ) -> tuple[list[dict[str, Any]], int]:
         """
-        Performs an aggregation on the database
+        Performs an aggregation on the database, plus a second one for the total document count
+
+        Delegates the data half to ``aggregate_query``; only the count pipeline is run here. Callers
+        that discard the total should call ``aggregate_query`` directly instead of ignoring the
+        second element of the returned tuple
 
         Args:
             builder_params (BuilderParameters): Parameters to define the query
@@ -188,10 +225,9 @@ class BaseManager:
             tuple[list[dict[str, Any]], int]: The aggregation results and the total document count
         """
         try:
-            query: list[dict] = self.query_builder.build(builder_params, user, permission)
-            count_query: list[dict] = self.query_builder.count(builder_params.get_criteria())
+            aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params, user, permission)
 
-            aggregation_result = list(self.aggregate(query))
+            count_query: list[dict] = self.query_builder.count(builder_params.get_criteria())
             total_cursor = self.aggregate(count_query)
 
             total = next(total_cursor, {}).get('total', 0)
@@ -231,7 +267,7 @@ class BaseManager:
 
         Raises:
             BaseManagerGetError: When the find_one operation fails
-        
+
         Returns:
             dict[str, Any] | None: The found document as a dictionary or None if no document matches the query
         """
@@ -270,6 +306,7 @@ class BaseManager:
             sort: str = 'public_id',
             direction: int = -1,
             limit: int = 0,
+            projection: dict[str, Any] | None = None,
             **requirements: Any) -> list[dict[str, Any]]:
         """
         Retrieves documents from a given collection that match the specified requirements
@@ -279,7 +316,12 @@ class BaseManager:
             sort (str): Field to sort by (default: 'public_id')
             direction (int): Sorting direction (1 for ascending, -1 for descending)
             limit (int): Number of documents to retrieve (0 for no limit)
-            **requirements (dict): Key-value pairs for filtering the documents
+            projection (dict[str, Any] | None): The fields to return, as a MongoDB projection. When
+                given it replaces the database layer's default (which only drops `_id`), so a caller
+                reading a few keys of a large document does not pay for the rest - remember to
+                exclude `_id` explicitly, since MongoDB returns it unless told otherwise
+            **requirements (dict): Key-value pairs for filtering the documents; a dotted path
+                (`'multi_data_sections.section_id'`) is a valid key here
 
         Raises:
             BaseManagerGetError: If an error occurs during the retrieval process
@@ -290,12 +332,14 @@ class BaseManager:
         try:
             requirements_filter = requirements if requirements else {}
             formatted_sort = [(sort, direction)]
+            find_options: dict[str, Any] = {} if projection is None else {'projection': projection}
 
             return self.dbm.find_all(collection=collection,
                                      db_name=self.db_name,
                                      limit=limit,
                                      filter=requirements_filter,
-                                     sort=formatted_sort)
+                                     sort=formatted_sort,
+                                     **find_options)
         except DocumentGetError as err:
             raise BaseManagerGetError(str(err)) from err
 
@@ -337,14 +381,13 @@ class BaseManager:
         return self.find(*args, **kwargs)
 
 
-    def find(self, *args: Any, criteria: dict | None = None, **kwargs: Any) -> list[dict[str, Any]]:
+    def find(self, criteria: dict | None = None, **kwargs: Any) -> list[dict[str, Any]]:
         """
-        Retrieves documents from the specified collection that match the given criteria.
+        Retrieves documents from this manager's collection that match the given criteria
 
         Args:
-            *args: Additional positional arguments for the 'find' operation
             criteria (dict | None): The filter criteria for the find query. Defaults to None
-            **kwargs: Additional keyword arguments for the 'find' operation
+            **kwargs: Additional keyword arguments for the 'find' operation (projection, sort, limit)
 
         Raises:
             BaseManagerGetError: If an error occurs while retrieving documents from the collection
@@ -357,10 +400,9 @@ class BaseManager:
                 criteria = {}
 
             return list(self.dbm.find(
-                collection=self.collection,
-                db_name=self.db_name,
+                self.collection,
+                self.db_name,
                 filter=criteria,
-                *args,
                 **kwargs
             ))
         except DocumentGetError as err:
@@ -504,21 +546,23 @@ class BaseManager:
             raise BaseManagerGetError(str(err)) from err
 
 
-    def count_documents(self, criteria: dict[str, Any] | None = None) -> int:
+    def count_documents(self, criteria: dict[str, Any] | None = None, limit: int | None = None) -> int:
         """
         Counts the number of documents in a collection based on the given filter
 
         Args:
             criteria (dict[str, Any] | None): Filter selecting documents to count. Defaults to None
+            limit (int | None): Stop counting after this many matches; ``limit=1`` turns the count
+                into an existence check the server can short-circuit. Defaults to None (count all)
 
         Raises:
             BaseManagerGetError: If an error occurs during the 'count' operation
 
         Returns:
-            int: The number of documents that match the given criteria
+            int: The number of documents that match the given criteria, capped at 'limit' when given
         """
         try:
-            return self.dbm.count(self.collection, self.db_name, criteria)
+            return self.dbm.count(self.collection, self.db_name, criteria, limit)
         except DocumentGetError as err:
             raise BaseManagerGetError(str(err)) from err
 
@@ -531,7 +575,7 @@ class BaseManager:
         *args: Any,
         add_to_set: bool = True,
         plain: bool = False,
-        col: str | None = None,
+        collection: str | None = None,
         **kwargs: Any
     ) -> UpdateResult:
         """
@@ -545,7 +589,7 @@ class BaseManager:
                 operators. Defaults to True
             plain (bool): If True, send `data` as-is without wrapping it in an operator.
                 Defaults to False
-            col (str | None): Collection to update; defaults to this manager's collection when None
+            collection (str | None): Collection to update; defaults to this manager's collection when None
             **kwargs: Additional keyword arguments passed to the update operation
 
         Raises:
@@ -555,38 +599,12 @@ class BaseManager:
             UpdateResult: The outcome of the update, including the matched and modified counts
         """
         try:
-            collection = col if col else self.collection
+            target_collection = collection or self.collection
 
             return self.dbm.update(
-                collection, self.db_name, criteria, data, *args,
+                target_collection, self.db_name, criteria, data, *args,
                 add_to_set=add_to_set, plain=plain, **kwargs
             )
-        except DocumentUpdateError as err:
-            raise BaseManagerUpdateError(str(err)) from err
-
-
-    def upsert_set(self, data: dict[str, Any], collection: str | None = None) -> UpdateResult:
-        """
-        Inserts or updates a document by matching on its public_id (upsert)
-
-        Updates the document with the given public_id in the target collection; if no such
-        document exists it is inserted with the provided data
-
-        Args:
-            data (dict[str, Any]): The document data; must contain a 'public_id' to match on
-            collection (str | None): Collection to upsert into; defaults to this manager's
-                collection when None
-
-        Raises:
-            BaseManagerUpdateError: If an error occurs during the upsert operation
-
-        Returns:
-            UpdateResult: The outcome of the upsert (matched / modified / upserted info)
-        """
-        try:
-            target_collection = collection if collection else self.collection
-
-            return self.dbm.upsert_set(target_collection, self.db_name, data)
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(str(err)) from err
 
@@ -601,8 +619,8 @@ class BaseManager:
         Inserts or updates a single document matched by arbitrary criteria
 
         Sets the matched document's fields from `data`; if nothing matches, inserts a new document
-        carrying both the criteria keys and `data`. Unlike `upsert_set` the match is not tied to
-        `public_id`, so this supports `_id`-keyed singletons
+        carrying both the criteria keys and `data`. The match is by arbitrary criteria (not tied to
+        `public_id`), so this supports `_id`-keyed singletons
 
         Args:
             criteria (dict[str, Any]): The filter selecting the document to upsert
@@ -742,10 +760,7 @@ class BaseManager:
             bool: True if the deletion was acknowledged, otherwise False
         """
         try:
-            target_collection = self.collection
-
-            if collection:
-                target_collection = collection
+            target_collection = collection or self.collection
 
             result = self.dbm.delete(target_collection, self.db_name, criteria)
 

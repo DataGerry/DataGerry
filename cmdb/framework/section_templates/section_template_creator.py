@@ -38,8 +38,8 @@ class SectionTemplateCreator:
     Factory for the predefined section templates DataGerry ships with
 
     Exposes a single entry point, get_predefined_templates, which returns freshly built dict
-    representations of every predefined template (Rack mounting, Model specifications and the IPAM
-    interface MDS section). The private helpers assemble the shared section/field skeletons so each
+    representations of every predefined template (Model specifications and the IPAM interface MDS
+    section). The private helpers assemble the shared section/field skeletons so each
     template definition only declares what is specific to it. The creator is stateless: every call
     returns new dicts and performs no database access.
     """
@@ -54,7 +54,6 @@ class SectionTemplateCreator:
         """
         predefined_templates: list[dict[str, Any]] = []
 
-        predefined_templates.append(self.__get_rack_mounting_template())
         predefined_templates.append(self.__get_model_spec_template())
         predefined_templates.append(self.__get_ipam_interface_template())
 
@@ -132,54 +131,6 @@ class SectionTemplateCreator:
         return field_values
 
 # --------------------------------------------------- DATA SECTION --------------------------------------------------- #
-
-    def __get_rack_mounting_template(self) -> dict[str, Any]:
-        """
-        Retrieves the 'Rack mounting' predefined section template
-
-        A plain section with two positive-integer text fields (rack units, mounting position) and a
-        horizontal/vertical orientation select.
-
-        Returns:
-            dict[str, Any]: The 'Rack mounting' section template
-        """
-        rack_section: dict[str, Any] = self.__get_template_section("dg-rackmounting", "Rack mounting")
-
-        rack_fields: list[dict[str, Any]] = []
-
-        positive_integer_regex: str = "^\\d+$"
-
-        rack_fields.append(self.__get_template_section_field("text",
-                                                             "dg-rackmounting-ru",
-                                                             "Rack units",
-                                                             None,
-                                                             positive_integer_regex))
-        rack_fields.append(self.__get_template_section_field("text",
-                                                             "dg-rackmounting-position",
-                                                             "Mounting position",
-                                                             None,
-                                                             positive_integer_regex))
-
-        rack_field_options: list[dict[str, str]] = [
-            {
-                'name': 'horizontal',
-                'label': 'Horizontal'
-            },
-            {
-                'name': 'vertical',
-                'label': 'Vertical'
-            }
-        ]
-
-        rack_fields.append(self.__get_template_section_field("select",
-                                                             "dg-rackmounting-orientation",
-                                                             "Mounting orientation",
-                                                             rack_field_options))
-
-        rack_section['fields'] = rack_fields
-
-        return rack_section
-
 
     def __get_model_spec_template(self) -> dict[str, Any]:
         """

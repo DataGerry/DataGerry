@@ -16,10 +16,17 @@
 """
 Helper methods shared by the CmdbUserGroup REST routes
 """
+from typing import Any
 from flask import abort
 
 from cmdb.manager import GroupsManager
-from cmdb.models.group_model import CmdbUserGroup, GroupDeleteMode
+from cmdb.models.group_model import (
+    CmdbUserGroup,
+    GroupDeleteMode,
+    GroupKey,
+    ADMIN_GROUP_ID,
+    MASTER_RIGHT_NAME,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -58,3 +65,40 @@ def resolve_move_target(
         abort(404, f"The target UserGroup for moving users with ID:{target_group_id} was not found!")
 
     return target_group
+
+
+def ensure_admin_group_keeps_master_right(public_id: int, data: dict[str, Any]) -> None:
+    """
+    Refuses a CmdbUserGroup update that would strip the master right from the administrator group
+
+    The administrator group (``ADMIN_GROUP_ID``) is seeded with the single right
+    ``MASTER_RIGHT_NAME`` ('base.*'), which is what grants its members every other right. Since an
+    update is always a full-object write, a payload whose ``rights`` list omits that right would
+    remove it - and with it the ``base.user-management.group.edit`` right needed to hand it back,
+    locking every administrator out of the system with no in-app way to recover
+
+    The membership test deliberately mirrors ``CmdbUserGroup.from_data``, which resolves rights by
+    matching right names against the raw payload list: a payload carrying full right *dicts*
+    instead of name strings resolves to no rights at all, so it is rejected here as well
+
+    Any other group, and any other change to the administrator group (its name, its label, adding
+    further rights), is unaffected
+
+    Args:
+        public_id (int): public_id of the CmdbUserGroup being updated (taken from the URL)
+        data (dict[str, Any]): The validated update payload for that group
+
+    Raises:
+        HTTPException: 400 if the administrator group's update payload does not keep the master right
+    """
+    if public_id != ADMIN_GROUP_ID:
+        return
+
+    submitted_rights: list = data.get(GroupKey.RIGHTS) or []
+
+    if MASTER_RIGHT_NAME not in submitted_rights:
+        abort(
+            400,
+            f"The right '{MASTER_RIGHT_NAME}' cannot be removed from the administrator group, "
+            "otherwise no user could administrate DataGerry anymore!"
+        )
