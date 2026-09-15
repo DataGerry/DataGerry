@@ -16,15 +16,14 @@
 """
 This module contains the ExporterConfigType Enumeration
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ExporterConfigType(Enum):
+class ExporterConfigType(BaseStrEnum):
     """
-    Type of exported data (NATIVE = CmdbObject, RENDER = RenderResult)
+    View used to serialize the exported data: NATIVE exports the raw CmdbObject values, RENDER exports
+    the rendered RenderResult values (references resolved to summaries). The value matches the (upper-cased)
+    `view` query parameter the export routes receive.
     """
-    NATIVE = 2
-    RENDER = 3
-
-    def __str__(self):
-        return self.name
+    NATIVE = 'NATIVE'
+    RENDER = 'RENDER'

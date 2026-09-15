@@ -25,7 +25,7 @@ from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.right_model.all_rights import flat_rights_tree, ALL_RIGHTS
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import CmdbUserGroup, PROTECTED_GROUP_IDS
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager.groups_manager import (
@@ -38,8 +38,6 @@ from cmdb.errors.manager.groups_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-PROTECTED_GROUP_IDS: tuple[int, int] = (1, 2)
 
 # Document field carrying the CmdbUserGroup identity (pinned on update so a payload can never rewrite it)
 PUBLIC_ID_FIELD: str = 'public_id'

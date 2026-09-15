@@ -54,7 +54,7 @@ class ServerManagementProfile(ProfileBase):
         """
         Builds the 'Server' type for the 'Server Management' profile
 
-        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
+        Includes the dg-modelspec and dg-ipam-interface templates plus conditional
         reference sections to the Operating System and User / Customer User types.
 
         Returns:
@@ -89,7 +89,6 @@ class ServerManagementProfile(ProfileBase):
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec'),
             self.get_ipam_interface_section(),
-            self.type_constructor.get_predefined_template_data('dg-rackmounting'),
             {
                 "name": "section-77142",
                 "label": "Location",
@@ -140,7 +139,7 @@ class ServerManagementProfile(ProfileBase):
         """
         Builds the 'Appliance' type for the 'Server Management' profile
 
-        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
+        Includes the dg-modelspec and dg-ipam-interface templates plus conditional
         reference sections to the Operating System and User / Customer User types.
 
         Returns:
@@ -161,7 +160,6 @@ class ServerManagementProfile(ProfileBase):
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec'),
             self.get_ipam_interface_section(),
-            self.type_constructor.get_predefined_template_data('dg-rackmounting'),
             {
                 "name": "section-21475",
                 "label": "Location",

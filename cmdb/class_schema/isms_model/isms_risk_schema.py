@@ -19,8 +19,19 @@ Validation schema for IsmsRisk
 An IsmsRisk describes a risk through its threats, vulnerabilities and protection goals
 (collection ``isms.risk``).
 
-This module is the single source of the document's Cerberus validation schema,
-consumed as IsmsRisk.SCHEMA.
+This module is the single source of the document's Cerberus validation schema, consumed as
+IsmsRisk.SCHEMA. Two things it deliberately does or does not express:
+
+  - ``risk_type`` is pinned to the RiskType values here, which makes validation - not the route - the
+    place an unknown type is refused. The insert and update routes used to re-check it with
+    ``RiskType.is_valid`` after this schema had already passed anything
+  - which fields a given risk_type actually uses (threats / vulnerabilities / consequences) is NOT
+    expressed: it is a cross-field rule, checked by the frontend and by the CSV importer's
+    ``risk_row_is_valid``
+
+The three text fields are ``nullable``, because that is what the model produces: an unset identifier,
+consequences or description round-trips as null, and the frontend patches that null straight back into
+the form it later saves - which this schema used to answer with 'null value not allowed'
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -32,43 +43,54 @@ def get_isms_risk_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsRisk.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.isms_model.isms_risk_constants import RiskKey
+    from cmdb.models.isms_model.risk_type_enum import RiskType
+
     return {
-        'public_id': {  # public_id of the IsmsRisk
+        RiskKey.PUBLIC_ID.value: {  # public_id of the IsmsRisk
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the risk
+        RiskKey.NAME.value: {  # Name of the risk
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'risk_type': {  # THREAT_X_VULNERABILITY / THREAT / EVENT (a RiskType value)
+        RiskKey.RISK_TYPE.value: {  # Decides which of the fields below the risk uses
             'type': 'string',
             'required': True,
             'empty': False,
+            'allowed': [risk_type.value for risk_type in RiskType],
         },
-        'protection_goals': {  # public_ids of the affected IsmsProtectionGoals
+        RiskKey.PROTECTION_GOALS.value: {  # public_ids of the affected IsmsProtectionGoals
             'type': 'list',
         },
-        'threats': {  # public_ids of the associated IsmsThreats
+        RiskKey.THREATS.value: {  # public_ids of the associated IsmsThreats
             'type': 'list',
         },
-        'category_id': {  # public_id of the risk's category
+        RiskKey.CATEGORY_ID.value: {  # public_id of the CmdbExtendableOption holding the risk's category
             'type': 'integer',
             'required': True,
             'nullable': True,
             'empty': False,
         },
-        'vulnerabilities': {  # public_ids of the associated IsmsVulnerabilities
+        RiskKey.VULNERABILITIES.value: {  # public_ids of the associated IsmsVulnerabilities
             'type': 'list',
         },
-        'identifier': {  # External identifier of the risk
+        RiskKey.IDENTIFIER.value: {  # External identifier of the risk. Null when unset - see above
             'type': 'string',
+            'nullable': True,
         },
-        'consequences': {  # Description of the risk's consequences
+        RiskKey.CONSEQUENCES.value: {  # Consequences of the risk, used by an EVENT risk
             'type': 'string',
+            'nullable': True,
         },
-        'description': {  # Description of the risk
+        RiskKey.DESCRIPTION.value: {  # Description of the risk
             'type': 'string',
+            'nullable': True,
         },
     }

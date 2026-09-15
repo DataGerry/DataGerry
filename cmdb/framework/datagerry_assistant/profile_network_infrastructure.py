@@ -55,7 +55,7 @@ class NetworkInfrastructureProfile(ProfileBase):
         """
         Builds the 'Switch' type for the 'Network Infrastructure' profile
 
-        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
+        Includes the dg-modelspec and dg-ipam-interface templates plus conditional
         reference sections to the Operating System and User / Customer User types.
 
         Returns:
@@ -76,7 +76,6 @@ class NetworkInfrastructureProfile(ProfileBase):
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec',['dg-modelspec-model']),
             self.get_ipam_interface_section(),
-            self.type_constructor.get_predefined_template_data('dg-rackmounting', ['dg-rackmounting-position']),
             {
                 "name": "section-78906",
                 "label": "Location",
@@ -127,7 +126,7 @@ class NetworkInfrastructureProfile(ProfileBase):
         """
         Builds the 'Router' type for the 'Network Infrastructure' profile
 
-        Includes the dg-modelspec, dg-ipam-interface and dg-rackmounting templates plus conditional
+        Includes the dg-modelspec and dg-ipam-interface templates plus conditional
         reference sections to the Operating System and User / Customer User types.
 
         Returns:
@@ -148,7 +147,6 @@ class NetworkInfrastructureProfile(ProfileBase):
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec',['dg-modelspec-model']),
             self.get_ipam_interface_section(),
-            self.type_constructor.get_predefined_template_data('dg-rackmounting', ['dg-rackmounting-position']),
             {
                 "name": "section-98615",
                 "label": "Location",
@@ -199,7 +197,7 @@ class NetworkInfrastructureProfile(ProfileBase):
         """
         Builds the 'Patch Panel' type for the 'Network Infrastructure' profile
 
-        Includes the dg-modelspec and dg-rackmounting templates. Unlike the other network types it
+        Includes the dg-modelspec template. Unlike the other network types it
         has no conditional reference sections.
 
         Returns:
@@ -219,7 +217,6 @@ class NetworkInfrastructureProfile(ProfileBase):
                 ]
             },
             self.type_constructor.get_predefined_template_data('dg-modelspec',['dg-modelspec-model']),
-            self.type_constructor.get_predefined_template_data('dg-rackmounting', ['dg-rackmounting-position']),
             {
                 "name": "section-99357",
                 "label": "Location",

@@ -22,6 +22,11 @@ factories patched at the route module path. No Mongo and no blueprint registrati
 the route glue (input validation, status-code mapping, ordering of manager calls) is exercised.
 The update not-found / immutable-property cases pin the bug fix that made those aborts surface as
 their intended 404 / 400 instead of being swallowed into 500
+
+Since 2026-08-25 also: the template NAME is required and immutable (it is the key consuming types
+reference it by, so a rename would orphan every one of them and the propagation would silently apply to
+nobody), the 'fields' payload has to be a list of objects, and a failure in the second half of either
+write path is reported as a partial application
 """
 # pylint: disable=protected-access
 from types import SimpleNamespace
@@ -30,7 +35,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, NotFound
 
 from cmdb.manager import SectionTemplatesManager
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_routes import (
@@ -84,10 +89,27 @@ def _create_params(**overrides: Any) -> dict[str, Any]:
     return params
 
 
+UPDATE_TEMPLATE_NAME: str = 'tpl-under-update'
+
+
+def _stored_template(**attributes: Any) -> MagicMock:
+    """
+    Builds the stored-template mock the update guard reads
+
+    ``name`` has to be assigned rather than passed to MagicMock(), where it names the mock itself.
+    """
+    template = MagicMock(**attributes)
+    template.name = attributes.pop('template_name', UPDATE_TEMPLATE_NAME)
+
+    return template
+
+
 def _update_params(**overrides: Any) -> dict[str, Any]:
     """Builds a valid update payload (query-string style)."""
     params: dict[str, Any] = {
         'public_id': str(TEMPLATE_PUBLIC_ID),
+        # The name is required and immutable, so a valid payload repeats the stored one
+        'name': UPDATE_TEMPLATE_NAME,
         'label': 'Tpl',
         'type': 'section',
         'is_global': 'false',
@@ -346,7 +368,7 @@ def _call_update(flask_app: Flask, params: dict[str, Any]) -> Any:
 def test_update_persists_and_propagates(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
     """A valid update persists the template and propagates the change to consumers"""
     del patched_manager_provider
-    mgr.get_section_template.return_value = MagicMock(predefined=False, type='section')
+    mgr.get_section_template.return_value = _stored_template(predefined=False, type='section')
 
     with patch(f'{ROUTE_PATH}.UpdateSingleResponse'):
         _call_update(flask_app, _update_params())
@@ -372,7 +394,7 @@ def test_update_predefined_template_not_editable_maps_to_400(
 ) -> None:
     """A predefined template cannot be edited via the API: any update aborts 400 without persisting"""
     del patched_manager_provider
-    mgr.get_section_template.return_value = MagicMock(predefined=True, type='section')
+    mgr.get_section_template.return_value = _stored_template(predefined=True, type='section')
 
     # predefined='true' matches the stored flag, so this isolates the not-editable guard
     with pytest.raises(HTTPException) as excinfo:
@@ -387,7 +409,7 @@ def test_update_changing_predefined_maps_to_400(
 ) -> None:
     """Turning a non-predefined template into a predefined one aborts 400 (immutable flag)"""
     del patched_manager_provider
-    mgr.get_section_template.return_value = MagicMock(predefined=False, type='section')
+    mgr.get_section_template.return_value = _stored_template(predefined=False, type='section')
 
     with pytest.raises(HTTPException) as excinfo:
         _call_update(flask_app, _update_params(predefined='true'))
@@ -398,7 +420,7 @@ def test_update_changing_predefined_maps_to_400(
 def test_update_changing_type_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
     """Changing the immutable 'type' aborts 400 (not swallowed into 500)"""
     del patched_manager_provider
-    mgr.get_section_template.return_value = MagicMock(predefined=False, type='multi-data-section')
+    mgr.get_section_template.return_value = _stored_template(predefined=False, type='multi-data-section')
 
     with pytest.raises(HTTPException) as excinfo:
         _call_update(flask_app, _update_params(type='section'))
@@ -436,7 +458,7 @@ def test_update_missing_label_maps_to_400(
 def test_update_manager_error_maps_to_400(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
     """A SectionTemplatesManagerUpdateError is translated to HTTP 400 (a failed update operation)"""
     del patched_manager_provider
-    mgr.get_section_template.return_value = MagicMock(predefined=False, type='section')
+    mgr.get_section_template.return_value = _stored_template(predefined=False, type='section')
     mgr.update_section_template.side_effect = SectionTemplatesManagerUpdateError('boom')
 
     with pytest.raises(HTTPException) as excinfo:
@@ -513,3 +535,316 @@ def test_delete_manager_error_maps_to_400(flask_app: Flask, mgr: MagicMock, patc
         _call_delete(flask_app)
 
     assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     name immutability + propagation                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_update_requires_the_name(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+    """
+    A payload without a name is refused (regression)
+
+    It used to be accepted and written, and handle_section_template_changes then read the name off the
+    payload, found none, and returned - so the update reported success while no consuming type was
+    touched.
+    """
+    del patched_manager_provider
+    params = _update_params()
+    del params['name']
+
+    with flask_app.test_request_context('/', method='PUT'):
+        with pytest.raises(HTTPException) as excinfo:
+            _unwrap(update_section_template)(params=params, request_user=MagicMock())
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.update_section_template.assert_not_called()
+
+
+def test_update_can_not_rename_the_template(flask_app: Flask, mgr: MagicMock,
+                                            patched_manager_provider: Any) -> None:
+    """
+    Renaming is refused: the name is what consuming types reference
+
+    A rename would leave the template under a new name while every type keeps the old one in
+    global_template_ids, and the propagation would look up the NEW name and find nobody.
+    """
+    del patched_manager_provider
+    mgr.get_section_template.return_value = _stored_template(predefined=False, type='section')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_update(flask_app, _update_params(name='a-different-name'))
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.update_section_template.assert_not_called()
+    mgr.handle_section_template_changes.assert_not_called()
+
+
+def test_update_keeping_the_name_propagates(flask_app: Flask, mgr: MagicMock,
+                                            patched_manager_provider: Any) -> None:
+    """The guard must not refuse a template its own name - and then the propagation runs."""
+    del patched_manager_provider
+    mgr.get_section_template.return_value = _stored_template(predefined=False, type='section')
+
+    with patch(f'{ROUTE_PATH}.UpdateSingleResponse'):
+        _call_update(flask_app, _update_params())
+
+    mgr.update_section_template.assert_called_once()
+    mgr.handle_section_template_changes.assert_called_once()
+
+
+def test_update_reports_a_failed_propagation_as_a_partial_application(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+) -> None:
+    """
+    The template is already written when the propagation runs, so a failure says so
+
+    Reporting a plain failed update would be a lie: the template really did change.
+    """
+    del patched_manager_provider
+    mgr.get_section_template.return_value = _stored_template(predefined=False, type='section')
+    mgr.handle_section_template_changes.side_effect = RuntimeError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_update(flask_app, _update_params())
+
+    assert excinfo.value.code == HTTP_SERVER_ERROR
+    assert 'was updated' in excinfo.value.description
+
+
+@pytest.mark.parametrize('fields', ['"5"', '{}', '[1]', 'null'], ids=['string', 'object', 'list-of-int', 'null'])
+def test_update_rejects_a_fields_payload_that_is_not_a_list_of_objects(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any, fields: str,
+) -> None:
+    """
+    'fields' has to be a list of field objects (regression)
+
+    Only the JSON syntax was checked, so a bare value such as "5" parsed cleanly and was stored as the
+    field list.
+    """
+    del patched_manager_provider
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_update(flask_app, _update_params(fields=fields))
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.update_section_template.assert_not_called()
+
+
+def test_create_rejects_a_fields_payload_that_is_not_a_list_of_objects(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+) -> None:
+    """The same shape rule on the way in."""
+    del patched_manager_provider
+    mgr.get_one_by.return_value = None
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_create(flask_app, _create_params(fields='"5"'))
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.insert_section_template.assert_not_called()
+
+
+def test_delete_reports_a_failure_after_the_cleanup_as_a_partial_application(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+) -> None:
+    """
+    The consumers are cleaned before the document goes, so a failure after that is a partial application
+    """
+    del patched_manager_provider
+    mgr.get_section_template.return_value = _stored_template(predefined=False, is_global=True)
+    mgr.delete_section_template.side_effect = RuntimeError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_delete(flask_app)
+
+    assert excinfo.value.code == HTTP_SERVER_ERROR
+    assert 'removed from the types' in excinfo.value.description
+
+
+def test_delete_of_a_non_global_template_maps_a_failure_normally(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+) -> None:
+    """Nothing was cleaned up, so the failure is an ordinary delete error rather than a partial one."""
+    del patched_manager_provider
+    mgr.get_section_template.return_value = _stored_template(predefined=False, is_global=False)
+    mgr.delete_section_template.side_effect = SectionTemplatesManagerDeleteError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_delete(flask_app)
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.cleanup_global_section_templates.assert_not_called()
+
+
+def test_get_single_returns_the_template_document(flask_app: Flask, mgr: MagicMock,
+                                                  patched_manager_provider: Any) -> None:
+    """
+    The read hands out the template as a document, not the model instance
+
+    It used to pass the instance into DefaultResponse, which only serialised through the response
+    encoder's fallback.
+    """
+    del patched_manager_provider
+    stored = _stored_template(predefined=False, type='section')
+    mgr.get_section_template.return_value = stored
+    document = {'public_id': TEMPLATE_PUBLIC_ID, 'name': UPDATE_TEMPLATE_NAME}
+
+    with patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor, \
+         patch(f'{ROUTE_PATH}.CmdbSectionTemplate.to_json', return_value=document) as to_json:
+        with flask_app.test_request_context('/', method='GET'):
+            _unwrap(get_section_template)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
+
+    to_json.assert_called_once_with(stored)
+    response_ctor.assert_called_once_with(document)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        unexpected failures -> 500                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_create_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
+                                             patched_manager_provider: Any) -> None:
+    """An unmapped failure while inserting is a 500, not a leaked traceback."""
+    del patched_manager_provider
+    mgr.get_one_by.return_value = None
+    mgr.insert_section_template.side_effect = RuntimeError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_create(flask_app, _create_params())
+
+    assert excinfo.value.code == HTTP_SERVER_ERROR
+
+
+def test_get_all_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
+                                              patched_manager_provider: Any) -> None:
+    """An unmapped failure while iterating is a 500."""
+    del patched_manager_provider
+    mgr.iterate.side_effect = RuntimeError('boom')
+
+    with flask_app.test_request_context('/', method='GET'), \
+         patch(f'{ROUTE_PATH}.BuilderParameters'), \
+         patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}):
+        with pytest.raises(HTTPException) as excinfo:
+            _unwrap(get_all_section_templates)(params=MagicMock(), request_user=MagicMock())
+
+    assert excinfo.value.code == HTTP_SERVER_ERROR
+
+
+def test_get_single_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
+                                                 patched_manager_provider: Any) -> None:
+    """An unmapped failure while reading one template is a 500."""
+    del patched_manager_provider
+    mgr.get_section_template.side_effect = RuntimeError('boom')
+
+    with flask_app.test_request_context('/', method='GET'):
+        with pytest.raises(HTTPException) as excinfo:
+            _unwrap(get_section_template)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
+
+    assert excinfo.value.code == HTTP_SERVER_ERROR
+
+
+def test_count_manager_error_maps_to_400(flask_app: Flask, mgr: MagicMock,
+                                         patched_manager_provider: Any) -> None:
+    """A failed read behind the count is a 400."""
+    del patched_manager_provider
+    mgr.get_section_template.side_effect = SectionTemplatesManagerGetError('boom')
+
+    with flask_app.test_request_context('/', method='GET'):
+        with pytest.raises(HTTPException) as excinfo:
+            _unwrap(get_global_section_template_count)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+def test_count_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
+                                            patched_manager_provider: Any) -> None:
+    """An unmapped failure while counting is a 500."""
+    del patched_manager_provider
+    mgr.get_section_template.return_value = _stored_template(is_global=True)
+    mgr.get_global_template_usage_count.side_effect = RuntimeError('boom')
+
+    with flask_app.test_request_context('/', method='GET'):
+        with pytest.raises(HTTPException) as excinfo:
+            _unwrap(get_global_section_template_count)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
+
+    assert excinfo.value.code == HTTP_SERVER_ERROR
+
+
+def test_update_read_error_maps_to_400(flask_app: Flask, mgr: MagicMock,
+                                       patched_manager_provider: Any) -> None:
+    """A failed read of the target template is a 400."""
+    del patched_manager_provider
+    mgr.get_section_template.side_effect = SectionTemplatesManagerGetError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_update(flask_app, _update_params())
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+def test_update_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
+                                             patched_manager_provider: Any) -> None:
+    """An unmapped failure while writing is a 500 naming the id."""
+    del patched_manager_provider
+    mgr.get_section_template.return_value = _stored_template(predefined=False, type='section')
+    mgr.update_section_template.side_effect = RuntimeError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_update(flask_app, _update_params())
+
+    assert excinfo.value.code == HTTP_SERVER_ERROR
+    assert str(TEMPLATE_PUBLIC_ID) in excinfo.value.description
+
+
+def test_delete_read_error_maps_to_400(flask_app: Flask, mgr: MagicMock,
+                                       patched_manager_provider: Any) -> None:
+    """A failed read of the target template is a 400."""
+    del patched_manager_provider
+    mgr.get_section_template.side_effect = SectionTemplatesManagerGetError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_delete(flask_app)
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+
+
+def test_delete_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
+                                             patched_manager_provider: Any) -> None:
+    """An unmapped failure before the cleanup is a 500."""
+    del patched_manager_provider
+    mgr.get_section_template.return_value = _stored_template(predefined=False, is_global=True)
+    mgr.cleanup_global_section_templates.side_effect = RuntimeError('boom')
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_delete(flask_app)
+
+    assert excinfo.value.code == HTTP_SERVER_ERROR
+
+
+@pytest.mark.parametrize('boolean_key', ['is_global', 'predefined'])
+def test_update_non_boolean_flag_maps_to_400(flask_app: Flask, mgr: MagicMock,
+                                             patched_manager_provider: Any, boolean_key: str) -> None:
+    """The boolean flags arrive as strings, so an unrecognised value is a client error."""
+    del patched_manager_provider
+
+    with pytest.raises(HTTPException) as excinfo:
+        _call_update(flask_app, _update_params(**{boolean_key: 'maybe'}))
+
+    assert excinfo.value.code == HTTP_BAD_REQUEST
+    mgr.update_section_template.assert_not_called()
+
+
+def test_get_all_http_exception_keeps_its_status(flask_app: Flask, mgr: MagicMock,
+                                                 patched_manager_provider: Any) -> None:
+    """An HTTPException from a collaborator passes through instead of becoming a 500."""
+    del patched_manager_provider
+    mgr.iterate.side_effect = NotFound()
+
+    with flask_app.test_request_context('/', method='GET'), \
+         patch(f'{ROUTE_PATH}.BuilderParameters'), \
+         patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}):
+        with pytest.raises(HTTPException) as excinfo:
+            _unwrap(get_all_section_templates)(params=MagicMock(), request_user=MagicMock())
+
+    assert excinfo.value.code == HTTP_NOT_FOUND

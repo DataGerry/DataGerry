@@ -320,3 +320,20 @@ class TestValidateParentAssignment:
 
         assert reason is not None
         assert 'cycle' in reason
+
+
+class TestGetAncestorIdsFailure:
+    """The $graphLookup walk converts a database failure into this manager's error."""
+
+    def test_an_iteration_failure_becomes_a_get_error(self) -> None:
+        """
+        The caller is the parent-assignment validator, whose route maps CategoriesManagerGetError
+
+        A BaseManagerIterationError reaching it unconverted would be a 500 instead of the 400 that
+        every other failure of that validation answers.
+        """
+        mgr = _mock_manager()
+        mgr.aggregate.side_effect = BaseManagerIterationError('pipeline failed')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager._get_ancestor_ids(mgr, PARENT_CATEGORY_PUBLIC_ID)

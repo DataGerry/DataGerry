@@ -24,6 +24,7 @@ from .users_manager_errors import (
     UsersManagerUpdateError,
     UsersManagerDeleteError,
     UsersManagerIterationError,
+    UsersManagerActionError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -35,4 +36,5 @@ __all__: list[str] = [
     'UsersManagerUpdateError',
     'UsersManagerDeleteError',
     'UsersManagerIterationError',
+    'UsersManagerActionError',
 ]

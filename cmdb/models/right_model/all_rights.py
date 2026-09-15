@@ -15,6 +15,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all DataGerry rights
+
+Every right in the product is declared here, once, as a nested tuple tree: a branch is a tuple whose
+first element is the wildcard right of that level and whose remaining elements are its children (each
+in turn a right or a nested tuple). `ALL_RIGHTS` is the root, and the nesting is what
+`CmdbUserGroup.has_extended_right` mirrors at check time - holding a branch's '*' right grants
+everything below it.
+
+The tree is built at import time and never mutated, so adding a right means adding a line here and
+nothing else; `RightsManager` and `GroupsManager` flatten it for lookup, and
+`RightsManager.tree_to_json` serialises it with the nesting preserved for the frontend's rights picker.
 """
 from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.import_rights import ImportRight, ImportObjectRight, ImportTypeRight
@@ -42,6 +52,12 @@ from cmdb.models.right_model.framework_rights import (
     ExtendableOptionRight,
     ObjectGroupRight,
     CiExplorerRight,
+    ReportRight,
+    IpamRight,
+    LocationRight,
+    RackRight,
+    PortRight,
+    ConnectionRight,
 )
 from cmdb.models.right_model.isms_rights import (
     IsmsRight,
@@ -58,6 +74,7 @@ from cmdb.models.right_model.isms_rights import (
     RiskAssessmentRight,
     ControlMeasureAssignmentRight,
     IsmsReportRight,
+    IsmsImportRight,
 )
 from cmdb.models.right_model.oc_rights import (
     OpenCeliumRight,
@@ -107,8 +124,7 @@ FRAMEWORK_RIGHTS = (
             TypeRight('add', Levels.PROTECTED, description='Add types'),
             TypeRight('edit', Levels.SECURE, description='Edit types'),
             TypeRight('delete', Levels.SECURE, description='Delete types'),
-            TypeRight('activation', Levels.SECURE, description='Activate/Deactivate types'),
-            TypeRight('clean', Levels.SECURE, description='Clean type fields')
+            TypeRight('activation', Levels.SECURE, description='Activate/Deactivate types')
         )
     ),
     (
@@ -189,6 +205,48 @@ FRAMEWORK_RIGHTS = (
         (
             CiExplorerRight('view', description='View CiExplorer'),
             CiExplorerRight('edit', Levels.PROTECTED, description='Edit CiExplorer'),
+        ),
+        ReportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Reports'),
+        (
+            ReportRight('view', description='View reports'),
+            ReportRight('add', description='Add reports'),
+            ReportRight('edit', Levels.PROTECTED, description='Edit reports'),
+            ReportRight('delete', Levels.SECURE, description='Delete reports'),
+        ),
+        IpamRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage IPAM'),
+        (
+            IpamRight('view', description='View IPAM'),
+            IpamRight('add', description='Add IPAM entries'),
+            IpamRight('edit', Levels.PROTECTED, description='Edit IPAM entries'),
+            IpamRight('delete', Levels.SECURE, description='Delete IPAM entries'),
+        ),
+        LocationRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage locations'),
+        (
+            LocationRight('view', description='View locations'),
+            LocationRight('add', description='Add locations'),
+            LocationRight('edit', Levels.PROTECTED, description='Edit locations'),
+            LocationRight('delete', Levels.SECURE, description='Delete locations'),
+        ),
+        RackRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage racks'),
+        (
+            RackRight('view', description='View racks'),
+            RackRight('add', description='Add racks'),
+            RackRight('edit', Levels.PROTECTED, description='Edit racks'),
+            RackRight('delete', Levels.DANGER, description='Delete racks'),
+        ),
+        PortRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ports'),
+        (
+            PortRight('view', description='View ports'),
+            PortRight('add', description='Add ports'),
+            PortRight('edit', Levels.PROTECTED, description='Edit ports'),
+            PortRight('delete', Levels.DANGER, description='Delete ports'),
+        ),
+        ConnectionRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage port connections'),
+        (
+            ConnectionRight('view', description='View port connections'),
+            ConnectionRight('add', description='Add port connections'),
+            ConnectionRight('edit', Levels.PROTECTED, description='Edit port connections'),
+            ConnectionRight('delete', Levels.DANGER, description='Delete port connections'),
         ),
 )
 
@@ -284,6 +342,10 @@ ISMS_RIGHTS = (
         IsmsReportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage Reports of ISMS'),
         (
             IsmsReportRight('view', description='View ISMS Reports'),
+        ),
+        IsmsImportRight(GLOBAL_RIGHT_IDENTIFIER, description='Manage ISMS imports'),
+        (
+            IsmsImportRight('add', description='Import ISMS entities'),
         ),
     ),
 )
@@ -407,15 +469,19 @@ ALL_RIGHTS = (
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
-def flat_rights_tree(right_tree) -> list[BaseRight]:
+def flat_rights_tree(right_tree: tuple | list) -> list[BaseRight]:
     """
-    Flat the right tree to list
+    Flattens a nested right tree into a flat list of rights
+
+    Recurses into nested tuples/lists and collects every leaf `BaseRight` into a single flat list,
+    discarding the grouping structure. This is the one implementation of the flattening;
+    `RightsManager.flat_tree` delegates to it
 
     Args:
-        right_tree: Tuple tree of rights
+        right_tree (tuple | list): A nested structure containing rights
 
     Returns:
-        list[BaseRight]: Flatted right tree
+        list[BaseRight]: A flat list containing all rights
     """
     rights: list[BaseRight] = []
 

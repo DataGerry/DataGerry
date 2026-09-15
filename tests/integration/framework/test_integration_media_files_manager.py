@@ -19,6 +19,9 @@ Integration tests for MediaFilesManager against a real MongoDB GridFS
 Pins the GridFS-backed CRUD: insert_file stores the file + metadata and returns the document,
 get_file / file_exists / get_many_media_files resolve it, update_file persists a metadata change
 (guarding the '<collection>.files' target), and delete_file removes it.
+
+Also what the stored metadata sub-document looks like: every declared key present, the mime type
+falling back to the default, and an undeclared key dropped instead of failing the insert.
 """
 from io import BytesIO
 
@@ -27,7 +30,7 @@ from werkzeug.datastructures import FileStorage
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.media_files_manager import MediaFilesManager
-from cmdb.framework.media_library.media_file import MediaFile
+from cmdb.framework.media_library import DEFAULT_MIME_TYPE, MediaFile, MediaFileMetadataKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 AUTHOR_ID: int = 1
@@ -95,6 +98,33 @@ class TestInsertAndRead:
 
         names = {item['filename'] for item in response.result}
         assert {FILE_NAME_A, FILE_NAME_B} <= names
+
+
+class TestInsertedMetadata:
+    """insert_file stores the metadata sub-document the media library declares, and only that."""
+
+    def test_every_declared_key_is_stored(self, media_files_manager: MediaFilesManager) -> None:
+        """A file inserted with only an author still carries the whole sub-document."""
+        inserted = media_files_manager.insert_file(_upload(FILE_NAME_A), {'author_id': AUTHOR_ID})
+
+        assert set(inserted['metadata']) == {key.value for key in MediaFileMetadataKey}
+
+    def test_an_undeclared_key_is_not_stored(self, media_files_manager: MediaFilesManager) -> None:
+        """An undeclared key used to raise a TypeError that failed the insert."""
+        inserted = media_files_manager.insert_file(
+            _upload(FILE_NAME_A), {'author_id': AUTHOR_ID, 'bogus': 'value'},
+        )
+
+        assert 'bogus' not in inserted['metadata']
+
+    def test_a_missing_mime_type_falls_back_to_the_default(
+            self, media_files_manager: MediaFilesManager) -> None:
+        """The route stamps the upload's mime type; without one the default is stored, never ''."""
+        inserted = media_files_manager.insert_file(
+            _upload(FILE_NAME_A), {'author_id': AUTHOR_ID, 'mime_type': ''},
+        )
+
+        assert inserted['metadata']['mime_type'] == DEFAULT_MIME_TYPE
 
 
 class TestUpdate:

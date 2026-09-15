@@ -16,19 +16,38 @@
 """
 Pre-check REST routes for IPAM validation
 
-These routes never write — they answer "would this be valid if the frontend submitted it?"
-The same validators are also called from the CmdbObject insert/update path so server-side
-enforcement cannot be bypassed by an API client
+Four POST routes, one per IPAM candidate shape - ``/validate/subnet``, ``/validate/supernet``,
+``/validate/vlan`` and ``/validate/interface`` - each taking a JSON body and answering the same
+``{valid: bool, errors: [...]}`` envelope. They **never write**: they answer "would this be valid if
+the frontend submitted it?", so the form can refuse a bad value while it is being typed instead of
+at save time.
+
+Two things follow from that and shape the whole module:
+
+* **The validators behind them are the same ones the CmdbObject insert / update path calls**, so
+  server-side enforcement cannot be bypassed by an API client that skips the pre-check. These
+  routes are a second entrance to one rule, never a rule of their own - which is also why they own
+  no error messages beyond the ones about the request shape itself
+* **A wrong answer is the failure mode to design against, not an exception.** Nothing here writes,
+  so the damage a bug does is not corruption - it is telling the customer their valid subnet
+  overlaps something, or letting an invalid one through to a save that then refuses it. That is why
+  the body readers refuse an unusable value instead of reading it as absent: see
+  ``read_optional_object_id``, where an unreadable ``exclude_subnet_id`` would otherwise make the
+  candidate collide with itself
+
+A HTTP 400 from these routes therefore always means "your request was malformed", never "your
+candidate is invalid" - an invalid candidate is a 200 with ``valid: false`` and the reasons.
+
+The whole surface sits behind the licensed IPAM feature (the blueprint is gated in
+``init_rest_api``) and, like the rest of the folder, carries no per-user ACL right yet -
+discussion-backlog #149
 """
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
-
-from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
@@ -39,6 +58,17 @@ from cmdb.framework.ipam.subnet_validator import validate_subnet
 from cmdb.framework.ipam.supernet_validator import validate_supernet
 from cmdb.framework.ipam.vlan_validator import validate_vlan
 from cmdb.framework.ipam.interface_validator import validate_interface_rows
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
+    parse_interface_rows_payload,
+    read_ipam_managers,
+    read_json_object_body,
+    read_optional_object_id,
+    read_required_object_id,
+    read_required_string,
+)
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import (
+    VALIDATION_ROWS_NOT_A_LIST_MESSAGE,
+)
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 
@@ -52,27 +82,8 @@ ipam_validation_blueprint = APIBlueprint('ipam_validation', __name__)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                  PURE HELPERS                                                        #
+#                                                 RESPONSE ENVELOPE                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _coerce_optional_int(value: Any) -> int | None:
-    """
-    Coerces a request payload value to an int when possible
-
-    Args:
-        value (Any): The raw payload value (typically int, str, or None)
-
-    Returns:
-        int | None: The integer form, or None when 'value' is None / not int-coercible
-    """
-    if value is None:
-        return None
-
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _build_validation_response(errors: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Wraps a validator's error list into the response envelope used by every IPAM pre-check route
@@ -84,57 +95,9 @@ def _build_validation_response(errors: list[dict[str, Any]]) -> dict[str, Any]:
         dict[str, Any]: {'valid': bool, 'errors': list[...]}
     """
     return {
-        IpamValidationResponseKey.VALID: not errors,
-        IpamValidationResponseKey.ERRORS: errors,
+        IpamValidationResponseKey.VALID.value: not errors,
+        IpamValidationResponseKey.ERRORS.value: errors,
     }
-
-
-def _parse_interface_rows_payload(
-    raw_rows: list[Any],
-) -> list[tuple[int, int | None, str | None, str | None]]:
-    """
-    Normalizes the inline `/validate/interface` row list into the tuple shape the batch
-    validator expects
-
-    Each entry must be a dict carrying an integer 'row_index'; non-integer or missing
-    'row_index' fails the request because the response must echo the index back so the
-    frontend can map errors to form rows. Missing / non-coercible 'subnet_id' or
-    'ip_address' are treated as None — those rows still get cross-row dupe scrutiny but
-    are skipped by the per-row DB check, matching save-time semantics for incomplete rows.
-    A missing / empty 'interface_type' is treated as None so the type-family consistency
-    check is skipped for that row, matching save-time semantics for legacy rows
-
-    Args:
-        raw_rows (list[Any]): The 'rows' field straight off the JSON payload
-
-    Returns:
-        list[tuple[int, int | None, str | None, str | None]]: (row_index, subnet_ref, ip,
-            interface_type) tuples
-    """
-    rows: list[tuple[int, int | None, str | None, str | None]] = []
-
-    for index, raw in enumerate(raw_rows):
-        if not isinstance(raw, dict):
-            abort(400, f"rows[{index}] must be an object")
-
-        row_index_raw: Any = raw.get(IpamValidationRequestKey.ROW_INDEX)
-
-        try:
-            row_index: int = int(row_index_raw)
-        except (TypeError, ValueError):
-            abort(400, f"rows[{index}].{IpamValidationRequestKey.ROW_INDEX.value} is required and must be an integer")
-
-        subnet_ref: int | None = _coerce_optional_int(raw.get(IpamValidationRequestKey.SUBNET_ID))
-
-        ip_raw: Any = raw.get(IpamValidationRequestKey.IP_ADDRESS)
-        ip_address: str | None = ip_raw if isinstance(ip_raw, str) and ip_raw else None
-
-        type_raw: Any = raw.get(IpamValidationRequestKey.INTERFACE_TYPE)
-        interface_type: str | None = type_raw if isinstance(type_raw, str) and type_raw else None
-
-        rows.append((row_index, subnet_ref, ip_address, interface_type))
-
-    return rows
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -159,28 +122,33 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
     Args:
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 400 when the body is not a JSON object, when 'network_range' is absent or not a
+                       non-empty string, or when 'parent_supernet_id' / 'exclude_subnet_id' is present
+                       but is not a whole number; 500 on an unexpected error. An INVALID candidate is
+                       not an error here - it is a 200 carrying valid: false
+
     Returns:
         Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
-        network_range: Any = payload.get(IpamValidationRequestKey.NETWORK_RANGE)
+        network_range: str = read_required_string(payload, IpamValidationRequestKey.NETWORK_RANGE.value)
+        subnet_type: Any = payload.get(IpamValidationRequestKey.SUBNET_TYPE.value)
 
-        if not isinstance(network_range, str) or not network_range:
-            abort(400, "'network_range' is required and must be a string")
-
-        subnet_type: Any = payload.get(IpamValidationRequestKey.SUBNET_TYPE)
-
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        objects_manager, types_manager = read_ipam_managers(request_user)
 
         errors: list[dict[str, Any]] = validate_subnet(
             objects_manager,
             types_manager,
             network_range=network_range,
-            parent_supernet_id=_coerce_optional_int(payload.get(IpamValidationRequestKey.PARENT_SUPERNET_ID)),
-            exclude_subnet_id=_coerce_optional_int(payload.get(IpamValidationRequestKey.EXCLUDE_SUBNET_ID)),
+            parent_supernet_id=read_optional_object_id(
+                payload, IpamValidationRequestKey.PARENT_SUPERNET_ID.value,
+            ),
+            exclude_subnet_id=read_optional_object_id(
+                payload, IpamValidationRequestKey.EXCLUDE_SUBNET_ID.value,
+            ),
             subnet_type=subnet_type if isinstance(subnet_type, str) else None,
         )
 
@@ -211,18 +179,19 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disa
     Args:
         request_user (CmdbUser): CmdbUser making the request (unused; see above)
 
+    Raises:
+        HTTPException: 400 when the body is not a JSON object or 'network_range' is absent / not a
+                       non-empty string; 500 on an unexpected error. An INVALID candidate is not an
+                       error here - it is a 200 carrying valid: false
+
     Returns:
         Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
-        network_range: Any = payload.get(IpamValidationRequestKey.NETWORK_RANGE)
-
-        if not isinstance(network_range, str) or not network_range:
-            abort(400, "'network_range' is required and must be a string")
-
-        supernet_type: Any = payload.get(IpamValidationRequestKey.SUPERNET_TYPE)
+        network_range: str = read_required_string(payload, IpamValidationRequestKey.NETWORK_RANGE.value)
+        supernet_type: Any = payload.get(IpamValidationRequestKey.SUPERNET_TYPE.value)
 
         errors: list[dict[str, Any]] = validate_supernet(
             network_range=network_range,
@@ -245,24 +214,26 @@ def validate_vlan_route(request_user: CmdbUser) -> Response:
     HTTP `POST` route that pre-validates a vlan candidate without writing anything
 
     Body:
-        subnet_id (int): The id of the subnet the vlan would reference
+        subnet_id (int): The id of the subnet the vlan would reference. Required - unlike the
+            interface route's per-row subnet_id, which tolerates a half-typed row
 
     Args:
         request_user (CmdbUser): CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 when the body is not a JSON object or 'subnet_id' is absent / not a whole
+                       number; 500 on an unexpected error. An INVALID candidate is not an error here -
+                       it is a 200 carrying valid: false
 
     Returns:
         Response: {'valid': bool, 'errors': list[{message}]}
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
-        subnet_id: int | None = _coerce_optional_int(payload.get(IpamValidationRequestKey.SUBNET_ID))
+        subnet_id: int = read_required_object_id(payload, IpamValidationRequestKey.SUBNET_ID.value)
 
-        if subnet_id is None:
-            abort(400, "'subnet_id' is required and must be an integer")
-
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        objects_manager, types_manager = read_ipam_managers(request_user)
 
         errors: list[dict[str, Any]] = validate_vlan(objects_manager, types_manager, subnet_id)
 
@@ -305,27 +276,37 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
     Args:
         request_user (CmdbUser): CmdbUser making the request
 
+    Raises:
+        HTTPException: 400 when the body is not a JSON object, when 'rows' is absent or not a list,
+                       when an entry is not an object or carries no readable 'row_index', or when
+                       'exclude_object_id' is present but is not a whole number; 500 on an unexpected
+                       error. Rows that are merely INVALID are not errors here - they come back in the
+                       200's error list, each tagged with its row_index
+
     Returns:
         Response: {'valid': bool, 'errors': list[{message, details: {row_index}}]}
     """
     try:
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = read_json_object_body()
 
-        raw_rows: Any = payload.get(IpamValidationRequestKey.ROWS)
+        raw_rows: Any = payload.get(IpamValidationRequestKey.ROWS.value)
 
         if not isinstance(raw_rows, list):
-            abort(400, "'rows' is required and must be a list of {row_index, subnet_id, ip_address}")
+            abort(400, VALIDATION_ROWS_NOT_A_LIST_MESSAGE.format(
+                field=IpamValidationRequestKey.ROWS.value,
+            ))
 
-        rows: list[tuple[int, int | None, str | None, str | None]] = _parse_interface_rows_payload(raw_rows)
+        rows: list[tuple[int, int | None, str | None, str | None]] = parse_interface_rows_payload(raw_rows)
 
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        objects_manager, types_manager = read_ipam_managers(request_user)
 
         errors: list[dict[str, Any]] = validate_interface_rows(
             objects_manager,
             types_manager,
             rows,
-            exclude_object_id=_coerce_optional_int(payload.get(IpamValidationRequestKey.EXCLUDE_OBJECT_ID)),
+            exclude_object_id=read_optional_object_id(
+                payload, IpamValidationRequestKey.EXCLUDE_OBJECT_ID.value,
+            ),
         )
 
         return DefaultResponse(_build_validation_response(errors)).make_response()

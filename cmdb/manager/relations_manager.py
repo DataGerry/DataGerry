@@ -23,16 +23,13 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
 
-from cmdb.models.relation_model import CmdbRelation
+from cmdb.models.relation_model import CmdbRelation, RelationKey
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager.relations_manager import RELATIONS_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# Document field carrying the CmdbRelation identity (pinned on update so a payload can never rewrite it)
-PUBLIC_ID_FIELD: str = 'public_id'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               RelationsManager - CLASS                                               #
@@ -43,9 +40,11 @@ class RelationsManager(GenericManager):
 
     Keeps the named public API (``insert_relation`` / ``get_relation`` / ``iterate`` /
     ``update_relation`` / ``delete_relation``) used by the existing route call sites, delegating the
-    CRUD + per-operation error wrapping to GenericManager. Adds the relation-specific operations
-    ``remove_type_from_relations`` (server-side cascade on type deletion) and
-    ``get_added_and_removed_fields`` (section/field diff helper)
+    CRUD + per-operation error wrapping to GenericManager. Adds the relation-specific
+    ``remove_type_from_relations`` (server-side cascade on type deletion)
+
+    The section/field diff of an update is pure data work and needs no database, so it lives with the
+    route helpers (``relations_helper.get_added_and_removed_fields``) rather than here
 
     Extends: GenericManager
     """
@@ -133,7 +132,7 @@ class RelationsManager(GenericManager):
             data = CmdbRelation.to_json(data)
 
         # Pin the identity: a payload public_id can never rewrite the document's id
-        data[PUBLIC_ID_FIELD] = public_id
+        data[RelationKey.PUBLIC_ID.value] = public_id
 
         self.update_item(public_id, data)
 
@@ -147,15 +146,15 @@ class RelationsManager(GenericManager):
         """
         criteria: dict[str, list[dict[str, int]]] = {
             '$or': [
-                {'parent_type_ids': type_id},
-                {'child_type_ids': type_id}
+                {RelationKey.PARENT_TYPE_IDS.value: type_id},
+                {RelationKey.CHILD_TYPE_IDS.value: type_id}
             ]
         }
 
         update: dict[str, dict[str, int]] = {
             '$pull': {
-                'parent_type_ids': type_id,
-                'child_type_ids': type_id
+                RelationKey.PARENT_TYPE_IDS.value: type_id,
+                RelationKey.CHILD_TYPE_IDS.value: type_id
             }
         }
 
@@ -177,37 +176,3 @@ class RelationsManager(GenericManager):
             bool: True if deletion was successful
         """
         return self.delete_item(public_id)
-
-# -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-    def get_added_and_removed_fields(self,
-                                     old_relation: dict[str, Any],
-                                     new_relation: dict[str, Any]) -> dict[str, list[str]]:
-        """
-        Compares the 'sections' of two CmdbRelations to find which fields were added or removed
-
-        Collects every field identifier referenced by the sections of each relation and returns
-        the set difference in both directions.
-
-        Args:
-            old_relation (dict[str, Any]): The CmdbRelation before the change (carries 'sections')
-            new_relation (dict[str, Any]): The CmdbRelation after the change (carries 'sections')
-
-        Returns:
-            dict[str, list[str]]: A dict with keys 'added' and 'removed', each a list of the field
-                identifiers that were added to / removed from the relation's sections
-        """
-        old_fields: set[str] = set()
-        new_fields: set[str] = set()
-
-        # Collect every field identifier referenced across the relation's sections
-        for section in old_relation.get("sections", []):
-            old_fields.update(section.get("fields", []))
-
-        for section in new_relation.get("sections", []):
-            new_fields.update(section.get("fields", []))
-
-        return {
-            "added": list(new_fields - old_fields),
-            "removed": list(old_fields - new_fields),
-        }

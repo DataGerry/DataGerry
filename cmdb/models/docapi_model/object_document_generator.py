@@ -16,10 +16,13 @@
 """
 Represents an ObjectDocumentGenerator in DataGerry
 """
+from html import escape
 from logging import Logger, getLogger
 from typing import Any
 from io import BytesIO
 from datetime import datetime
+
+from markupsafe import Markup
 
 from cmdb.manager import ObjectsManager
 
@@ -29,6 +32,7 @@ from cmdb.framework.docapi.docapi_template.docgen_toc import TableOfContents
 from cmdb.framework.docapi.docapi_template.docgen_header_footer import PageHeaderFooter
 from cmdb.models.docapi_model.template_engine import TemplateEngine
 from cmdb.models.docapi_model.pdf_document_type import PdfDocumentType
+from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
 from cmdb.models.docapi_model.default_template_data import DefaultTemplateData
 from cmdb.framework.rendering.render_result import RenderResult
@@ -44,6 +48,15 @@ class ObjectDocumentGenerator:
     """
     A generator for creating document files from templates
     """
+    # Fallback shown when no display name is available
+    UNKNOWN_DISPLAY_NAME: str = "unknown"
+    # strftime format for the document's generation timestamp
+    DATETIME_FORMAT: str = "%d.%m.%Y %H:%M"
+    # xhtml2pdf page markers injected as template variables
+    PDF_NEW_PAGE: str = "<pdf:nextpage />"
+    PDF_CURRENT_PAGE: str = "<pdf:pagenumber />"
+    PDF_TOTAL_PAGES: str = "<pdf:pagecount />"
+
     # Default CSS to ensure consistent document styling in TinyMCE and the final PDF
     default_css: str = """
         img {
@@ -80,70 +93,39 @@ class ObjectDocumentGenerator:
         cmdb_render_object: RenderResult,
         doctype: PdfDocumentType,
         objects_manager: ObjectsManager,
-        request_user: CmdbUser = None
+        request_user: CmdbUser | None = None
         ) -> None:
         """
         Initializes the ObjectDocumentGenerator
 
         Args:
             template (DocapiTemplate): The template object containing structure and styling
-            cmdb_object (RenderResult): The CmdbObject RenderResult
+            cmdb_render_object (RenderResult): The CmdbObject RenderResult
             doctype (PdfDocumentType): The document type that determines the final output format
             objects_manager (ObjectsManager): The manager responsible for CmdbObject operations
+            request_user (CmdbUser | None): The user requesting the document (optional)
         """
         self.template: DocapiTemplate = template
         self.cmdb_render_object: RenderResult = cmdb_render_object
         self.doctype: PdfDocumentType = doctype
         self.objects_manager: ObjectsManager = objects_manager
-        self.request_user: CmdbUser = request_user
+        self.request_user: CmdbUser | None = request_user
 
 
     def generate_doc(self) -> BytesIO:
         """
         Generates a document by rendering the template with CmdbObject data
 
-        The method fetches relevant data, applies it to the template,
-        constructs an HTML document, and then generates the final document
+        The method fetches relevant data, applies it to the template, constructs an HTML document,
+        and then generates the final document
 
         Returns:
             BytesIO: A file-like object containing the generated PDF document
         """
         template_str: str = self.template.get_template_data()
 
-        if self.template.template_type == "DEFAULT":
-            template_data: dict[str, Any] = DefaultTemplateData(
-                self.cmdb_render_object,
-                template_str,
-                self.request_user,
-                self.template.template_type,
-            ).get_template_data()
-        else:
-            template_data: dict[str, Any] = ObjectTemplateData(
-                self.cmdb_render_object,
-                self.objects_manager,
-                self.request_user,
-                self.template.template_type
-            ).get_template_data()
-
-
-        author: str | None = None
-        author_data: dict[str, Any] = self.objects_manager.get_one_from_other_collection(
-            CmdbUser.COLLECTION,
-            self.template.get_author_id()
-        )
-
-        if author_data:
-            author_instance: CmdbUser = CmdbUser.from_data(author_data)
-            author = author_instance.get_display_name()
-
-        # Set additional Keys
-        template_data['author'] = author or "unknown"
-        template_data['template_label'] = self.template.get_label()
-        template_data['user_display_name'] = self.request_user.get_display_name()
-        template_data['current_time'] = datetime.now().strftime("%d.%m.%Y %H:%M")
-        template_data['new_page'] = "<pdf:nextpage />"
-        template_data['current_page_count'] = "<pdf:pagenumber />"
-        template_data['total_page_count'] = "<pdf:pagecount />"
+        template_data: dict[str, Any] = self._build_template_data(template_str)
+        template_data.update(self._build_meta_keys())
 
         cover_page: CoverPage = CoverPage(self.template.get_cover_page())
         toc: TableOfContents = TableOfContents(self.template.get_table_of_contents())
@@ -153,12 +135,7 @@ class ObjectDocumentGenerator:
             self.template.get_page_config()
         )
 
-        final_css: str = (
-            self.default_css
-            + page_header_footer.get_css()
-            + cover_page.get_css()
-            + toc.get_css()
-        )
+        final_css: str = self._build_css(cover_page, toc, page_header_footer)
 
         # Add cover page, header, footer and toc to html if they are activated
         improved_template_str: str = (
@@ -166,35 +143,125 @@ class ObjectDocumentGenerator:
             + cover_page.get_html()
             + toc.get_html()
             + "<div>"
-            + self.template.get_template_data()
+            + template_str
             + "</div>"
         )
 
-        # LOGGER.debug(f"template style: {self.template.get_template_style()}")
-        # LOGGER.debug(f"css:\n {final_css}")
-        # LOGGER.debug(f"html:\n {improved_template_str}")
+        rendered_template: str = TemplateEngine.render_template_string(improved_template_str, template_data)
 
-        rendered_template: str = TemplateEngine().render_template_string(
-            improved_template_str,
-            template_data
+        document: str = self._build_html(rendered_template, final_css)
+
+        return self.doctype.create_doc(document)
+
+
+    def _build_template_data(self, template_str: str) -> dict[str, Any]:
+        """
+        Builds the base template data for the object, choosing the renderer by template type
+
+        Args:
+            template_str (str): The raw template body (needed by the DEFAULT renderer)
+
+        Returns:
+            dict[str, Any]: The template data produced by the matching template-data builder
+        """
+        if self.template.template_type == DocapiTemplateType.DEFAULT:
+            return DefaultTemplateData(
+                self.cmdb_render_object,
+                template_str,
+                self.request_user,
+                self.template.template_type,
+            ).get_template_data()
+
+        return ObjectTemplateData(
+            self.cmdb_render_object,
+            self.objects_manager,
+            self.request_user,
+            self.template.template_type
+        ).get_template_data()
+
+
+    def _resolve_author(self) -> str:
+        """
+        Resolves the template author's display name
+
+        Returns:
+            str: The author's display name, or ``UNKNOWN_DISPLAY_NAME`` if the author is not found
+        """
+        author_data: dict[str, Any] = self.objects_manager.get_one_from_other_collection(
+            CmdbUser.COLLECTION,
+            self.template.get_author_id()
         )
 
-        # LOGGER.debug(f"rendered_template:\n {rendered_template}")
+        if author_data:
+            return CmdbUser.from_data(author_data).get_display_name() or self.UNKNOWN_DISPLAY_NAME
 
-        # Construct the full HTML document
-        html: str = (
-            f"<html>"
-            f"<head>"
-            f'<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />'
-            f'<meta charset="UTF-8" />'
-            f'<title>{self.template.get_label()}</title>'
-            f'<style>{final_css}{self.template.get_template_style()}</style>'
-            f"</head>"
-            f"<body>"
-            f"{rendered_template}"
-            f"</body>"
-            f"</html>"
+        return self.UNKNOWN_DISPLAY_NAME
+
+
+    def _build_meta_keys(self) -> dict[str, Any]:
+        """
+        Builds the document-level template keys (author, labels, timestamp and PDF page markers)
+
+        Returns:
+            dict[str, Any]: The additional keys merged into the template data
+        """
+        user_display_name: str = (
+            self.request_user.get_display_name() if self.request_user else self.UNKNOWN_DISPLAY_NAME
         )
 
-        # Generate and return the final document
-        return self.doctype.create_doc(html)
+        return {
+            'author': self._resolve_author(),
+            'template_label': self.template.get_label(),
+            'user_display_name': user_display_name,
+            'current_time': datetime.now().strftime(self.DATETIME_FORMAT),
+            # Trusted xhtml2pdf markup — mark safe so the autoescaping engine emits it verbatim
+            'new_page': Markup(self.PDF_NEW_PAGE),
+            'current_page_count': Markup(self.PDF_CURRENT_PAGE),
+            'total_page_count': Markup(self.PDF_TOTAL_PAGES),
+        }
+
+
+    def _build_css(self, cover_page: CoverPage, toc: TableOfContents, page_header_footer: PageHeaderFooter) -> str:
+        """
+        Concatenates the default CSS with the per-component CSS
+
+        Args:
+            cover_page (CoverPage): The cover page component
+            toc (TableOfContents): The table-of-contents component
+            page_header_footer (PageHeaderFooter): The header/footer component
+
+        Returns:
+            str: The combined CSS for the document
+        """
+        return (
+            self.default_css
+            + page_header_footer.get_css()
+            + cover_page.get_css()
+            + toc.get_css()
+        )
+
+
+    def _build_html(self, body: str, css: str) -> str:
+        """
+        Wraps the rendered body and CSS into a full HTML document
+
+        Args:
+            body (str): The rendered template body
+            css (str): The combined document CSS
+
+        Returns:
+            str: The full HTML document string
+        """
+        return (
+            "<html>"
+            "<head>"
+            '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />'
+            '<meta charset="UTF-8" />'
+            f'<title>{escape(self.template.get_label())}</title>'
+            f'<style>{css}{self.template.get_template_style()}</style>'
+            "</head>"
+            "<body>"
+            f"{body}"
+            "</body>"
+            "</html>"
+        )

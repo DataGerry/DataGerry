@@ -17,8 +17,10 @@
 Provides all CmdbUser related models
 """
 from .cmdb_user import CmdbUser
+from .cmdb_user_key_enum import CmdbUserKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'CmdbUser',
+    'CmdbUserKey',
 ]

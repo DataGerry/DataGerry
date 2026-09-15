@@ -36,7 +36,7 @@ class DefaultResponse(BaseAPIResponse):
 
     Extends: BaseAPIResponse
     """
-    def __init__(self, value: Any) -> None:
+    def __init__(self, value: Any, body: bool = True) -> None:
         """
         Initializes the DefaultResponse instance with the provided value
 
@@ -45,13 +45,17 @@ class DefaultResponse(BaseAPIResponse):
 
         Args:
             value (Any): The value to be included in the response body
+            body (bool): Whether to answer WITH the payload. Defaults to True, because most callers
+                are not HEAD-capable routes; a route that answers HEAD passes
+                `routes_helper.request_wants_body()` so the payload is neither built nor serialized
+                for a request that discards it
         """
         self.value = value
 
-        super().__init__(OperationType.GET)
+        super().__init__(OperationType.GET, body=body)
 
 
-    def make_response(self, status: int = 200) -> Response:
+    def make_response(self, *args: Any, status: int = 200, **kwargs: Any) -> Response:
         """
         Constructs and returns a valid HTTP response with the given status code
 
@@ -60,9 +64,30 @@ class DefaultResponse(BaseAPIResponse):
         status code
 
         Args:
+            *args (Any): Unused; kept so every response answers to the same call
             status (int, optional): The HTTP status code for the response. Defaults to 200 (OK)
+            **kwargs (Any): Unused; kept so every response answers to the same call
 
         Returns:
             Response: The HTTP response instance containing the `value` and the provided status code
         """
-        return self.make_api_response(self.value, status)
+        return self.make_body_response(status=status)
+
+
+    def export(self, *args: Any, **kwargs: Any) -> Any:
+        """
+        Returns the payload this response answers with
+
+        The value as it was handed in: unlike the paginated responses, a DefaultResponse adds no
+        envelope of its own
+
+        Args:
+            *args (Any): Unused; kept so every response answers to the same call
+            **kwargs (Any): Unused; kept so every response answers to the same call
+
+        Returns:
+            Any: The response value
+        """
+        del args, kwargs
+
+        return self.value

@@ -40,6 +40,7 @@ TYPE_ID_FOR_GET: int = 9501
 TYPE_ID_FOR_UPDATE: int = 9502
 TYPE_ID_FOR_DELETE: int = 9503
 TYPE_ID_FOR_INSERT: int = 9504
+TYPE_ID_FOR_PORTS: int = 9505
 MISSING_TYPE_ID: int = 9599
 
 ORIGINAL_LABEL: str = 'Original Label'
@@ -121,7 +122,7 @@ class TestInsertType:
 #                                                        GET                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGetType:
-    """``TypesManager.get_type`` returns the doc by id and respects ``as_dict``."""
+    """``get_type`` returns the raw doc by id and ``get_type_instance`` the hydrated CmdbType."""
 
     @pytest.fixture(autouse=True)
     def _seed_one(
@@ -135,23 +136,24 @@ class TestGetType:
         yield
         _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_GET)
 
-    def test_returns_dict_by_default(self, types_manager: TypesManager) -> None:
-        """Default ``as_dict=True`` returns the doc as a dict."""
+    def test_get_type_returns_the_raw_document(self, types_manager: TypesManager) -> None:
+        """``get_type`` returns the stored doc as a dict."""
         result = types_manager.get_type(TYPE_ID_FOR_GET)
 
         assert isinstance(result, dict)
         assert result['public_id'] == TYPE_ID_FOR_GET
 
-    def test_returns_cmdb_type_when_as_dict_false(self, types_manager: TypesManager) -> None:
-        """``as_dict=False`` returns a ``CmdbType`` instance instead of a raw dict."""
-        result = types_manager.get_type(TYPE_ID_FOR_GET, as_dict=False)
+    def test_get_type_instance_returns_a_cmdb_type(self, types_manager: TypesManager) -> None:
+        """``get_type_instance`` returns a ``CmdbType`` instead of a raw dict."""
+        result = types_manager.get_type_instance(TYPE_ID_FOR_GET)
 
         assert isinstance(result, CmdbType)
         assert result.public_id == TYPE_ID_FOR_GET
 
     def test_returns_none_for_missing_id(self, types_manager: TypesManager) -> None:
-        """A missing id returns None rather than raising."""
+        """A missing id returns None rather than raising, in both read modes."""
         assert types_manager.get_type(MISSING_TYPE_ID) is None
+        assert types_manager.get_type_instance(MISSING_TYPE_ID) is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -179,6 +181,32 @@ class TestUpdateType:
         finally:
             _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 
+    def test_matched_count_reports_whether_the_type_existed(
+        self,
+        types_manager: TypesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The UpdateResult distinguishes "updated" from "no such type"
+
+        The update route relies on this instead of reading the document back after the write, so
+        the contract is pinned here against a real MongoDB
+        """
+        try:
+            types_manager.insert_type(_type_data(TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL))
+
+            hit = types_manager.update_type(TYPE_ID_FOR_UPDATE, _type_data(TYPE_ID_FOR_UPDATE, UPDATED_LABEL))
+            miss = types_manager.update_type(MISSING_TYPE_ID, _type_data(MISSING_TYPE_ID, UPDATED_LABEL))
+
+            assert hit.matched_count == 1
+            assert miss.matched_count == 0
+            # A miss must not upsert a new document either
+            assert types_manager.get_type(MISSING_TYPE_ID) is None
+        finally:
+            _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_UPDATE)
+            _delete_type_by_id(database_manager, database_name, MISSING_TYPE_ID)
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       DELETE                                                         #
@@ -200,3 +228,85 @@ class TestDeleteType:
         assert types_manager.get_type(TYPE_ID_FOR_DELETE) is None
         # belt-and-braces cleanup in case delete_type semantics ever change
         _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_DELETE)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       uses_ports (Port Connectivity, step 1)                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUsesPortsPersistence:
+    """The 'uses_ports' flag survives the round trip through MongoDB."""
+
+    def test_a_document_written_without_the_key_loads_as_false(
+        self,
+        types_manager: TypesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The pre-feature state, reproduced against a real database.
+
+        Every CmdbType in an existing installation looks exactly like this - the key simply is not
+        there - and each one has to hydrate as "does not use ports". This is the behaviour that lets
+        step 1 ship without a migration; step 2's updater then backfills the key itself.
+        """
+        try:
+            types_manager.insert_type(_type_data(TYPE_ID_FOR_PORTS, ORIGINAL_LABEL))
+
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+                .find_one({'public_id': TYPE_ID_FOR_PORTS})
+            assert stored is not None
+            assert 'uses_ports' not in stored  # the manager stores what it is given, nothing more
+
+            assert types_manager.get_type_instance(TYPE_ID_FOR_PORTS).uses_ports is False
+        finally:
+            _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_PORTS)
+
+    def test_the_flag_persists_and_hydrates(
+        self,
+        types_manager: TypesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A type stored as port-bearing comes back as one"""
+        try:
+            data = _type_data(TYPE_ID_FOR_PORTS, ORIGINAL_LABEL)
+            data['uses_ports'] = True
+            types_manager.insert_type(data)
+
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+                .find_one({'public_id': TYPE_ID_FOR_PORTS})
+            assert stored is not None
+            assert stored['uses_ports'] is True
+
+            assert types_manager.get_type_instance(TYPE_ID_FOR_PORTS).uses_ports is True
+        finally:
+            _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_PORTS)
+
+    def test_a_to_json_update_keeps_the_flag(
+        self,
+        types_manager: TypesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """
+        The update path writes CmdbType.to_json, so the flag has to survive that trip.
+
+        A to_json that dropped the key would silently clear the flag on every edit of a port-bearing
+        type - the write is a full-document update, so an absent key is a removed key.
+        """
+        try:
+            data = _type_data(TYPE_ID_FOR_PORTS, ORIGINAL_LABEL)
+            data['uses_ports'] = True
+            types_manager.insert_type(data)
+
+            instance = types_manager.get_type_instance(TYPE_ID_FOR_PORTS)
+            instance.label = 'Renamed'
+            types_manager.update_type(TYPE_ID_FOR_PORTS, CmdbType.to_json(instance))
+
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+                .find_one({'public_id': TYPE_ID_FOR_PORTS})
+            assert stored is not None
+            assert stored['label'] == 'Renamed'
+            assert stored['uses_ports'] is True
+        finally:
+            _delete_type_by_id(database_manager, database_name, TYPE_ID_FOR_PORTS)

@@ -31,7 +31,13 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import GroupsManager, UsersManager
-from cmdb.models.group_model import CmdbUserGroup, GroupDeleteMode
+from cmdb.models.group_model import (
+    CmdbUserGroup,
+    GroupDeleteMode,
+    ADMIN_GROUP_ID,
+    USER_GROUP_ID,
+    MASTER_RIGHT_NAME,
+)
 from cmdb.models.user_model import CmdbUser
 from cmdb.errors.manager.groups_manager import (
     GroupsManagerInsertError,
@@ -50,8 +56,8 @@ from cmdb.errors.manager.users_manager import (
 ROUTE_URL: str = '/groups'
 
 ADMIN_USER_PUBLIC_ID: int = CmdbUser.ADMIN_PUBLIC_ID
-ADMIN_GROUP_PUBLIC_ID: int = 1
-USER_GROUP_PUBLIC_ID: int = 2
+ADMIN_GROUP_PUBLIC_ID: int = ADMIN_GROUP_ID
+USER_GROUP_PUBLIC_ID: int = USER_GROUP_ID
 
 GROUP_ID_FOR_CREATE: int = 9851
 GROUP_ID_FOR_GET: int = 9852
@@ -61,6 +67,7 @@ GROUP_ID_FOR_DELETE_MOVE: int = 9855
 GROUP_ID_FOR_DELETE_MOVE_TARGET: int = 9856
 GROUP_ID_FOR_DELETE_MODE: int = 9857
 MISMATCHED_PAYLOAD_GROUP_ID: int = 9858
+GROUP_ID_FOR_RIGHTS_UPDATE: int = 9859
 GUARD_USER_PUBLIC_ID: int = 9860
 MISSING_GROUP_ID: int = 9899
 
@@ -73,6 +80,7 @@ ALL_GROUP_IDS: list[int] = [
     GROUP_ID_FOR_DELETE_MOVE_TARGET,
     GROUP_ID_FOR_DELETE_MODE,
     MISMATCHED_PAYLOAD_GROUP_ID,
+    GROUP_ID_FOR_RIGHTS_UPDATE,
 ]
 
 ORIGINAL_LABEL: str = 'Original'
@@ -99,7 +107,7 @@ def _group_doc(public_id: int, label: str = ORIGINAL_LABEL,
 def _insert_admin_rights_group(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
     """Inserts a CmdbUserGroup carrying the ``base.*`` wildcard right (mirrors the bootstrap admin group)."""
     database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)\
-        .insert_one(_group_doc(public_id, rights=['base.*']))
+        .insert_one(_group_doc(public_id, rights=[MASTER_RIGHT_NAME]))
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -260,6 +268,76 @@ class TestPutGroup:
         finally:
             _drop_group(database_manager, database_name, GROUP_ID_FOR_UPDATE)
             _drop_group(database_manager, database_name, MISMATCHED_PAYLOAD_GROUP_ID)
+
+
+class TestPutAdminGroupMasterRight:
+    """PUT /groups/<admin id> may never drop the master right, but stays editable otherwise."""
+
+    @pytest.fixture(name='groups_collection')
+    def _restore_admin_group(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Yields the groups collection and restores the bootstrap admin group doc afterwards."""
+        collection = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)
+        original = collection.find_one({'public_id': ADMIN_GROUP_PUBLIC_ID})
+        assert original is not None
+        yield collection
+        collection.replace_one({'public_id': ADMIN_GROUP_PUBLIC_ID}, original)
+
+    def test_admin_group_cannot_drop_master_right(self, rest_api, groups_collection) -> None:
+        """A payload without ``base.*`` is refused with 400 and the stored right is untouched."""
+        admin_group = groups_collection.find_one({'public_id': ADMIN_GROUP_PUBLIC_ID})
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{ADMIN_GROUP_PUBLIC_ID}',
+            json={
+                'public_id': ADMIN_GROUP_PUBLIC_ID,
+                'name': admin_group['name'],
+                'label': admin_group['label'],
+                'rights': [],
+            },
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert MASTER_RIGHT_NAME in groups_collection.find_one({'public_id': ADMIN_GROUP_PUBLIC_ID})['rights']
+
+    def test_admin_group_label_stays_editable(self, rest_api, groups_collection) -> None:
+        """A payload keeping ``base.*`` is accepted, so the rest of the admin group remains editable."""
+        admin_group = groups_collection.find_one({'public_id': ADMIN_GROUP_PUBLIC_ID})
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{ADMIN_GROUP_PUBLIC_ID}',
+            json={
+                'public_id': ADMIN_GROUP_PUBLIC_ID,
+                'name': admin_group['name'],
+                'label': UPDATED_LABEL,
+                'rights': [MASTER_RIGHT_NAME],
+            },
+        )
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        stored = groups_collection.find_one({'public_id': ADMIN_GROUP_PUBLIC_ID})
+        assert stored['label'] == UPDATED_LABEL
+        assert MASTER_RIGHT_NAME in stored['rights']
+
+    def test_other_group_may_drop_all_rights(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The guard is admin-group only: any other group may still have all its rights removed."""
+        _insert_admin_rights_group(database_manager, database_name, GROUP_ID_FOR_RIGHTS_UPDATE)
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{GROUP_ID_FOR_RIGHTS_UPDATE}',
+                json=_group_payload(GROUP_ID_FOR_RIGHTS_UPDATE, rights=[]),
+            )
+
+            assert response.status_code == HTTPStatus.ACCEPTED
+            stored = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)\
+                .find_one({'public_id': GROUP_ID_FOR_RIGHTS_UPDATE})
+            assert stored['rights'] == []
+        finally:
+            _drop_group(database_manager, database_name, GROUP_ID_FOR_RIGHTS_UPDATE)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

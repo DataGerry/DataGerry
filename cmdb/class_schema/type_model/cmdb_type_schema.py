@@ -72,7 +72,11 @@ def get_cmdb_type_schema() -> dict[str, Any]:
             'type': 'boolean',
             'default': True
         },
-        'global_template_ids': {  # The public_id's of global CmdbSectionTemplates used by this CmdbType
+        'uses_ports': {  # If True, CmdbObjects of this CmdbType may carry physical ports (Port Connectivity)
+            'type': 'boolean',
+            'default': False
+        },
+        'global_template_ids': {  # The names of the global CmdbSectionTemplates used by this CmdbType
             'type': 'list',
             'required': False,
             'schema': {

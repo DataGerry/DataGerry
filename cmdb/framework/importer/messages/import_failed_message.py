@@ -14,19 +14,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Import of ImportFailedMessage
+Implementation of ImportFailedMessage
 """
-from cmdb.framework.importer.messages.import_message import ImportMessage
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ImportFailedMessage(ImportMessage):
-    """Message wrapper for failed imported objects"""
+class ImportFailedMessage:
+    """
+    Report entry for a single rejected/failed imported object
 
-    def __init__(self, error_message: str, obj: dict | None = None):
-        """Init message
-        Args:
-            error_message: reason why it failed - exception error or something
-            obj (optional): failed dict
+    Serializes (via ``__dict__``) to ``{failed_object, errors}``: the object exactly as the user
+    provided it, plus every reason it could not be imported.
+    """
+
+    def __init__(self, failed_object: dict, errors: list[str]) -> None:
         """
-        self.error_message = error_message
-        super().__init__(obj=obj)
+        Initialises the ImportFailedMessage
+
+        Args:
+            failed_object (dict): The object as provided by the user (a JSON entry, or a CSV row
+                transformed to a JSON object)
+            errors (list[str]): The reasons the object was rejected or failed to import
+        """
+        self.failed_object: dict = failed_object
+        self.errors: list[str] = errors

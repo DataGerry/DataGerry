@@ -14,13 +14,37 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Shared constants for the CmdbRelation REST routes
+Shared constants for the CmdbRelation and CmdbObjectRelation REST routes
 
-Names the ACL rights guarding the CmdbRelation routes so the routes reference enum members
-instead of repeating the literal right strings.
+Names the ACL rights guarding the routes, plus the request / response keys that belong to a route
+rather than to the document: the relation-tab pagination parameters and the keys of the relation-tab
+instances body. The document's own keys live with the model (``ObjectRelationKey``,
+``ObjectRelationRole``, ``RelationTabKey`` in ``cmdb.models.object_relation_model``) because the
+managers read the very same keys.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'DEFAULT_TAB_PAGE_SIZE',
+    'MAX_TAB_PAGE_SIZE',
+    'SORT_DIRECTIONS',
+    'RelationRight',
+    'ObjectRelationRight',
+    'ObjectRelationTabParam',
+    'TabInstancesKey',
+    'BulkDeleteKey',
+]
+
+# Page size used when the relation-tab instances route is called without an explicit 'limit'
+DEFAULT_TAB_PAGE_SIZE: int = 10
+
+# Upper bound for that route's 'limit'. A tab can hold thousands of instances and each row costs a
+# rendered counterpart, so an unbounded page is refused instead of silently served
+MAX_TAB_PAGE_SIZE: int = 1000
+
+# Sort directions accepted by the relation-tab instances route, in MongoDB's own encoding
+SORT_DIRECTIONS: tuple[int, ...] = (1, -1)
 
 
 class RelationRight(BaseStrEnum):
@@ -41,3 +65,26 @@ class ObjectRelationRight(BaseStrEnum):
     VIEW = 'base.framework.objectRelation.view'
     EDIT = 'base.framework.objectRelation.edit'
     DELETE = 'base.framework.objectRelation.delete'
+
+
+class ObjectRelationTabParam(BaseStrEnum):
+    """Query parameters of the relation-tab instances route"""
+    RELATION_ID = 'relation_id'
+    ROLE = 'role'
+    LIMIT = 'limit'
+    PAGE = 'page'
+    SORT = 'sort'
+    ORDER = 'order'
+
+
+class TabInstancesKey(BaseStrEnum):
+    """Keys of the relation-tab instances response body and of a single row"""
+    TOTAL = 'total'
+    COUNT = 'count'
+    RESULTS = 'results'
+    COUNTERPART = 'counterpart'
+
+
+class BulkDeleteKey(BaseStrEnum):
+    """Keys of a bulk-delete request body"""
+    TARGET_IDS = 'target_ids'

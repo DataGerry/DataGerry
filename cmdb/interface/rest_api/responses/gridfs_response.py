@@ -15,6 +15,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of GridFsResponse
+
+**Not an API response**, despite the name and the package it lives in: a plain container the media
+library uses to carry a page of GridFS files plus the total, with no `make_response` and no envelope.
+`media_file_routes` unpacks it and answers through a real response class.
+
+It is constructed in `media_files_manager`, which is why the manager layer currently imports from
+`cmdb.interface` - an upward dependency; where this container should move instead is
+discussion-backlog #216
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 

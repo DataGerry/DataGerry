@@ -29,7 +29,8 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.isms_manager.risk_matrix_manager import RiskMatrixManager
 from cmdb.manager.license_manager.license_service import LicenseService
-from cmdb.models.isms_model import IsmsRiskMatrix
+from cmdb.models.isms_model import IsmsRiskMatrix, IsmsImpact, IsmsLikelihood
+from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.manager.risk_matrix_manager import RiskMatrixManagerGetError, RiskMatrixManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,6 +44,12 @@ ALL_RISK_MATRIX_IDS: list[int] = [RISK_MATRIX_ID]
 
 MATRIX_UNIT: str = 'EUR'
 UPDATED_MATRIX_UNIT: str = 'USD'
+
+# The self-heal operates on the SINGLETON, so its tests seed and restore the real one
+HEAL_IMPACT_IDS: list[int] = [97810, 97811]
+HEAL_LIKELIHOOD_IDS: list[int] = [97820, 97821, 97822]
+HEAL_CELL_COUNT: int = len(HEAL_IMPACT_IDS) * len(HEAL_LIKELIHOOD_IDS)
+ASSIGNED_RISK_CLASS_ID: int = 97830
 
 
 def _risk_matrix_payload(public_id: int, matrix_unit: str = MATRIX_UNIT) -> dict[str, Any]:
@@ -138,3 +145,124 @@ class TestErrorMapping:
         response = rest_api.put(f'{ROUTE_URL}/{RISK_MATRIX_ID}', json=_risk_matrix_payload(RISK_MATRIX_ID))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_get_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get surfaces as 500."""
+        monkeypatch.setattr(RiskMatrixManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A RiskMatrixManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(RiskMatrixManager, 'get_item', _raiser(RiskMatrixManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{RISK_MATRIX_ID}',
+                            json=_risk_matrix_payload(RISK_MATRIX_ID)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(RiskMatrixManager, 'get_item', lambda *_a, **_k: {'public_id': RISK_MATRIX_ID})
+        monkeypatch.setattr(RiskMatrixManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{RISK_MATRIX_ID}',
+                            json=_risk_matrix_payload(RISK_MATRIX_ID)).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestStaleGridIsRepairedOnRead:
+    """
+    GET rebuilds the singleton's grid when it no longer matches the configured scales
+
+    The reported defect: a database whose scales were configured while the old minimum-configuration
+    guard was in place holds an EMPTY grid, and removing that guard repaired nothing - the matrix is
+    only ever written by the six impact and likelihood write routes, so without this the customer sees
+    an empty array until someone happens to edit a scale.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _singleton_state(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds the scales and an empty singleton grid, restoring both afterwards."""
+        matrices = database_manager.get_collection(IsmsRiskMatrix.COLLECTION, database_name)
+        impacts = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)
+        likelihoods = database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)
+
+        stored_singleton = matrices.find_one({'public_id': RISK_MATRIX_PUBLIC_ID})
+
+        impacts.insert_many([{'public_id': public_id, 'name': f'Impact {public_id}',
+                              'calculation_basis': float(index + 1)}
+                             for index, public_id in enumerate(HEAL_IMPACT_IDS)])
+        likelihoods.insert_many([{'public_id': public_id, 'name': f'Likelihood {public_id}',
+                                  'calculation_basis': float(index + 1)}
+                                 for index, public_id in enumerate(HEAL_LIKELIHOOD_IDS)])
+
+        # The state every affected database is in: scales configured, grid never built
+        matrices.delete_many({'public_id': RISK_MATRIX_PUBLIC_ID})
+        matrices.insert_one({'public_id': RISK_MATRIX_PUBLIC_ID, 'risk_matrix': [], 'matrix_unit': None})
+
+        yield matrices
+
+        impacts.delete_many({'public_id': {'$in': HEAL_IMPACT_IDS}})
+        likelihoods.delete_many({'public_id': {'$in': HEAL_LIKELIHOOD_IDS}})
+        matrices.delete_many({'public_id': RISK_MATRIX_PUBLIC_ID})
+
+        if stored_singleton:
+            matrices.insert_one(stored_singleton)
+
+    @staticmethod
+    def _store_grid(matrices, cells: list[dict[str, Any]]) -> None:
+        """Puts the singleton into a known grid state"""
+        matrices.delete_many({'public_id': RISK_MATRIX_PUBLIC_ID})
+        matrices.insert_one({'public_id': RISK_MATRIX_PUBLIC_ID, 'risk_matrix': cells,
+                             'matrix_unit': None})
+
+    def test_an_empty_grid_is_rebuilt(self, rest_api, _singleton_state) -> None:
+        """Impacts and likelihoods configured, grid empty - the read answers with the full grid."""
+        self._store_grid(_singleton_state, [])
+
+        response = rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert len(response.get_json()['result']['risk_matrix']) == HEAL_CELL_COUNT
+
+    def test_the_repair_is_persisted(self, rest_api, _singleton_state) -> None:
+        """The rebuilt grid is written back, so every later reader sees it without recomputing."""
+        self._store_grid(_singleton_state, [])
+
+        rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}')
+
+        stored = _singleton_state.find_one({'public_id': RISK_MATRIX_PUBLIC_ID})
+
+        assert len(stored['risk_matrix']) == HEAL_CELL_COUNT
+
+    def test_a_current_grid_is_not_rewritten(self, rest_api, _singleton_state) -> None:
+        """The healthy path must not touch the document - an assignment in it proves it was kept."""
+        rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}')
+
+        healed = _singleton_state.find_one({'public_id': RISK_MATRIX_PUBLIC_ID})['risk_matrix']
+        healed[0]['risk_class_id'] = ASSIGNED_RISK_CLASS_ID
+        self._store_grid(_singleton_state, healed)
+
+        response = rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}')
+        served = response.get_json()['result']['risk_matrix']
+
+        assert len(served) == HEAL_CELL_COUNT
+        assert served[0]['risk_class_id'] == ASSIGNED_RISK_CLASS_ID
+
+    def test_the_repair_keeps_existing_assignments(self, rest_api, _singleton_state) -> None:
+        """A grid built for a smaller scale is extended, not replaced: the assignment survives."""
+        rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}')
+
+        healed = _singleton_state.find_one({'public_id': RISK_MATRIX_PUBLIC_ID})['risk_matrix']
+        kept_cell = dict(healed[0], risk_class_id=ASSIGNED_RISK_CLASS_ID)
+        self._store_grid(_singleton_state, [kept_cell])
+
+        served = rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}').get_json()['result']['risk_matrix']
+        survivor = [cell for cell in served
+                    if cell['impact_id'] == kept_cell['impact_id']
+                    and cell['likelihood_id'] == kept_cell['likelihood_id']]
+
+        assert len(served) == HEAL_CELL_COUNT
+        assert survivor[0]['risk_class_id'] == ASSIGNED_RISK_CLASS_ID
+
+    def test_another_id_is_still_a_404(self, rest_api, _singleton_state) -> None:
+        """Only the singleton is healed - no other id has scales to be measured against."""
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_RISK_MATRIX_ID}').status_code == HTTPStatus.NOT_FOUND

@@ -23,7 +23,8 @@ route filters on the "DataGerry" invoker name (the cloud "DataGerryCloud" branch
 AUTOMATIONS 403 gate is covered by the functional automations-gating suite.
 
 These pin the handler glue: the manager call, the success payload, the DataGerry-template filter and
-the per-error abort mapping.
+the per-error abort mapping. The filter itself and the cloud invoker-name decision live in
+`oc_template_helper` and are tested there, without a Flask context.
 """
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -92,8 +93,15 @@ def fixture_template_manager() -> MagicMock:
 
 @pytest.fixture(name='patched_manager')
 def fixture_patched_manager(template_manager: MagicMock) -> Any:
-    """Patches OcTemplateManager at the route module path."""
-    with patch(f'{ROUTE_PATH}.OcTemplateManager', return_value=template_manager):
+    """
+    Patches the manager factory the routes call
+
+    The construction moved into `oc_template_helper.build_template_manager` when the four identical
+    copies were extracted, so the route's collaborator is that factory - patching
+    `OcTemplateManager` at this module path would let the real manager be built (and read the
+    OpenCelium config).
+    """
+    with patch(f'{ROUTE_PATH}.build_template_manager', return_value=template_manager):
         yield
 
 
@@ -182,6 +190,128 @@ class TestGetAllOcTemplates:
 
 
 # ----------------------------------------------- get_all_oc_templates_detailed -------------------------------------- #
+
+class TestTheListRoutesNormalise:
+    """Both list routes answer a LIST, whatever the manager reports."""
+
+    def test_get_all_answers_a_list_when_open_celium_is_empty(
+            self, flask_app, template_manager, patched_manager) -> None:
+        """
+        The manager reports an empty OpenCelium body as None
+
+        It used to reach the frontend as `null` on this route while the detailed route answered [] -
+        two shapes for one concept.
+        """
+        del patched_manager
+        template_manager.get_all_templates.return_value = None
+
+        with flask_app.test_request_context('/templates', method='GET'):
+            response = _unwrap(get_all_oc_templates)(request_user=REQUEST_USER)
+
+        assert response.json == []
+
+    def test_detailed_answers_a_list_when_open_celium_is_empty(
+            self, flask_app, template_manager, patched_manager) -> None:
+        """The same for the filtered route, which is the one the Automations view calls"""
+        del patched_manager
+        template_manager.get_all_templates.return_value = None
+
+        with flask_app.test_request_context('/templates/all/1/2', method='GET'):
+            response = _unwrap(get_all_oc_templates_detailed)(
+                request_user=REQUEST_USER,
+                from_connector_id=FROM_CONNECTOR_ID,
+                to_connector_id=TO_CONNECTOR_ID,
+            )
+
+        assert response.json == []
+
+    def test_a_malformed_template_does_not_fail_the_list(
+            self, flask_app, template_manager, patched_manager) -> None:
+        """A null connection level used to raise AttributeError, i.e. a 500 for every template"""
+        del patched_manager
+        template_manager.get_all_templates.return_value = [
+            {'connection': None},
+            _template_with_invoker(DATAGERRY_INVOKER),
+        ]
+
+        with flask_app.test_request_context('/templates/all/1/2', method='GET'):
+            response = _unwrap(get_all_oc_templates_detailed)(
+                request_user=REQUEST_USER,
+                from_connector_id=FROM_CONNECTOR_ID,
+                to_connector_id=TO_CONNECTOR_ID,
+            )
+
+        assert response.json == [_template_with_invoker(DATAGERRY_INVOKER)]
+
+
+class TestTheReadRoutesHonourHead:
+    """A HEAD request must not cost the payload it discards."""
+
+    def test_get_single_sends_no_body_for_head(self, flask_app, template_manager, patched_manager) -> None:
+        """DefaultResponse ignored the HEAD case until 2026-09-10 - werkzeug dropped the body after
+        the whole payload had been built and serialized"""
+        del patched_manager
+        template_manager.get_template_by_id.return_value = {'templateId': TEMPLATE_ID}
+
+        with flask_app.test_request_context(f'/templates/{TEMPLATE_ID}', method='HEAD'):
+            response = _unwrap(get_oc_template)(request_user=REQUEST_USER, template_id=TEMPLATE_ID)
+
+        assert response.get_data(as_text=True) == ''
+
+    def test_get_all_sends_no_body_for_head(self, flask_app, template_manager, patched_manager) -> None:
+        """The unfiltered list route too"""
+        del patched_manager
+        template_manager.get_all_templates.return_value = [{'templateId': TEMPLATE_ID}]
+
+        with flask_app.test_request_context('/templates', method='HEAD'):
+            response = _unwrap(get_all_oc_templates)(request_user=REQUEST_USER)
+
+        assert response.get_data(as_text=True) == ''
+
+    def test_detailed_sends_no_body_for_head(self, flask_app, template_manager, patched_manager) -> None:
+        """And the filtered one, which is the only route with a frontend caller"""
+        del patched_manager
+        template_manager.get_all_templates.return_value = [_template_with_invoker(DATAGERRY_INVOKER)]
+
+        with flask_app.test_request_context('/templates/all/1/2', method='HEAD'):
+            response = _unwrap(get_all_oc_templates_detailed)(
+                request_user=REQUEST_USER,
+                from_connector_id=FROM_CONNECTOR_ID,
+                to_connector_id=TO_CONNECTOR_ID,
+            )
+
+        assert response.get_data(as_text=True) == ''
+
+    def test_a_get_still_sends_the_body(self, flask_app, template_manager, patched_manager) -> None:
+        """The flag is per request, not a switch that turns the payload off"""
+        del patched_manager
+        template_manager.get_all_templates.return_value = [{'templateId': TEMPLATE_ID}]
+
+        with flask_app.test_request_context('/templates', method='GET'):
+            response = _unwrap(get_all_oc_templates)(request_user=REQUEST_USER)
+
+        assert response.json == [{'templateId': TEMPLATE_ID}]
+
+
+class TestCreateRejectsAMalformedBody:
+    """The one HTTPException a template route can raise itself."""
+
+    def test_a_non_json_body_keeps_its_status(self, flask_app, template_manager, patched_manager) -> None:
+        """
+        `request.json` answers a malformed body with a 400, and the route re-raises it
+
+        Every other route's re-raise arm was removed with this sweep: `handle_oc_errors` does the
+        same thing one level out, and nothing else in those bodies can raise an HTTPException.
+        """
+        del patched_manager, template_manager
+
+        with flask_app.test_request_context('/templates', method='POST', data='not json',
+                                            content_type='text/plain'):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(create_oc_template)(request_user=REQUEST_USER)
+
+        assert exc_info.value.code in (HTTPStatus.BAD_REQUEST, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+
 
 class TestGetAllOcTemplatesDetailed:
     """``get_all_oc_templates_detailed`` keeps only templates whose invoker is the DataGerry one."""

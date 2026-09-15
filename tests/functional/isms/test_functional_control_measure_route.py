@@ -19,6 +19,11 @@ Functional smoke for the ``/isms/control_measures`` REST routes
 Covers CRUD, the control_measure_type enum validation (invalid type -> 400 on insert and update),
 the manager-error -> 400 mapping, and the 400 when deleting a ControlMeasure still referenced by a
 ControlMeasureAssignment. The routes are ISMS-license gated, so the check is stubbed.
+
+``is_applicable`` gets its own class: the schema accepts a null, but the Statement of Applicability has
+two answers, so neither write path may store one. Insert normalises the validated payload before it is
+written and update goes through ``IsmsControlMeasure.from_data``, which normalises too - these tests
+read the stored document back out of the collection rather than trusting the response.
 """
 from http import HTTPStatus
 from typing import Any
@@ -47,10 +52,24 @@ CM_ID_FOR_DELETE: int = 98303
 CM_ID_FOR_BLOCKED_DELETE: int = 98304
 MISSING_CM_ID: int = 98399
 
-CONTROL_ASSIGNMENT_ID: int = 98350
+# is_applicable normalisation: one control measure per write path
+CM_ID_FOR_NULL_INSERT: int = 98321
+CM_ID_FOR_NULL_UPDATE: int = 98322
 
-ALL_CM_IDS: list[int] = [CM_ID_FOR_GET, CM_ID_FOR_UPDATE, CM_ID_FOR_DELETE, CM_ID_FOR_BLOCKED_DELETE]
-ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CONTROL_ASSIGNMENT_ID]
+# bulk-delete fixtures: two unused controls, one still referenced by an assignment
+CM_BULK_UNUSED_A: int = 98311
+CM_BULK_UNUSED_B: int = 98312
+CM_BULK_USED: int = 98313
+
+CONTROL_ASSIGNMENT_ID: int = 98350
+BULK_ASSIGNMENT_ID: int = 98351
+
+ALL_CM_IDS: list[int] = [
+    CM_ID_FOR_GET, CM_ID_FOR_UPDATE, CM_ID_FOR_DELETE, CM_ID_FOR_BLOCKED_DELETE,
+    CM_BULK_UNUSED_A, CM_BULK_UNUSED_B, CM_BULK_USED,
+    CM_ID_FOR_NULL_INSERT, CM_ID_FOR_NULL_UPDATE,
+]
+ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CONTROL_ASSIGNMENT_ID, BULK_ASSIGNMENT_ID]
 
 
 def _control_measure_payload(public_id: int, control_measure_type: str = ControlMeasureType.CONTROL,
@@ -217,11 +236,104 @@ class TestDeleteControlMeasure:
         assert rest_api.get(f'{ROUTE_URL}/{CM_ID_FOR_BLOCKED_DELETE}').status_code == HTTPStatus.OK
 
 
+class TestDeleteManyControlMeasures:
+    """DELETE /isms/control_measures/delete/<ids> removes unused controls and reports the still-used ones."""
+
+    def test_bulk_delete_removes_unused_and_reports_in_use(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Unused controls are deleted; the one referenced by an assignment is kept and reported in_use."""
+        _insert_control_measure(database_manager, database_name, CM_BULK_UNUSED_A)
+        _insert_control_measure(database_manager, database_name, CM_BULK_UNUSED_B)
+        _insert_control_measure(database_manager, database_name, CM_BULK_USED)
+        database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+            .insert_one({'public_id': BULK_ASSIGNMENT_ID, 'control_measure_id': CM_BULK_USED})
+
+        response = rest_api.delete(f'{ROUTE_URL}/delete/{CM_BULK_UNUSED_A},{CM_BULK_UNUSED_B},{CM_BULK_USED}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        body = response.get_json()
+        assert body['successfully'] == sorted([CM_BULK_UNUSED_A, CM_BULK_UNUSED_B])
+        assert body['in_use'] == [CM_BULK_USED]
+        # the unused ones are gone, the in-use one is preserved
+        assert rest_api.get(f'{ROUTE_URL}/{CM_BULK_UNUSED_A}').status_code == HTTPStatus.NOT_FOUND
+        assert rest_api.get(f'{ROUTE_URL}/{CM_BULK_USED}').status_code == HTTPStatus.OK
+
+    def test_bulk_delete_ignores_non_existent_ids(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A non-existent id is neither deleted-reported nor errored; only real deletions are listed."""
+        _insert_control_measure(database_manager, database_name, CM_BULK_UNUSED_A)
+
+        response = rest_api.delete(f'{ROUTE_URL}/delete/{CM_BULK_UNUSED_A},{MISSING_CM_ID}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        body = response.get_json()
+        assert body['successfully'] == [CM_BULK_UNUSED_A]
+        assert body['in_use'] == []
+
+    def test_bulk_delete_invalid_id_returns_400(self, rest_api) -> None:
+        """A non-integer id in the list is rejected with 400."""
+        assert rest_api.delete(f'{ROUTE_URL}/delete/{CM_BULK_UNUSED_A},not-an-int')\
+            .status_code == HTTPStatus.BAD_REQUEST
+
+
 def _raiser(exc: Exception):
     """Returns a function that ignores its args and raises the given exception."""
     def _fail(*_args, **_kwargs):
         raise exc
     return _fail
+
+
+class TestIsApplicableIsNeverStoredAsNull:
+    """The schema accepts a null; the write paths must not persist one (see the module docstring)."""
+
+    def _stored(self, database_manager: MongoDatabaseManager, database_name: str,
+                public_id: int) -> dict[str, Any]:
+        """Reads a control measure straight out of the collection."""
+        return database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
+            .find_one({'public_id': public_id}, {'_id': 0})
+
+    def test_insert_with_null_stores_false(self, rest_api, database_manager: MongoDatabaseManager,
+                                           database_name: str) -> None:
+        """The insert route writes the validated payload, so it normalises before handing it over."""
+        payload = _control_measure_payload(CM_ID_FOR_NULL_INSERT)
+        payload['is_applicable'] = None
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        created_id = response.get_json()['raw']['public_id']
+        assert self._stored(database_manager, database_name, created_id)['is_applicable'] is False
+
+    def test_update_with_null_stores_false(self, rest_api, database_manager: MongoDatabaseManager,
+                                           database_name: str) -> None:
+        """The update route goes through from_data, which normalises on the way in."""
+        _insert_control_measure(database_manager, database_name, CM_ID_FOR_NULL_UPDATE)
+        payload = _control_measure_payload(CM_ID_FOR_NULL_UPDATE)
+        payload['is_applicable'] = None
+
+        response = rest_api.put(f'{ROUTE_URL}/{CM_ID_FOR_NULL_UPDATE}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert self._stored(database_manager, database_name,
+                            CM_ID_FOR_NULL_UPDATE)['is_applicable'] is False
+        # from_data normalises in place, so the echoed payload reports what was stored
+        assert response.get_json()['result']['is_applicable'] is False
+
+    def test_list_reports_a_legacy_null_as_false(self, rest_api, database_manager: MongoDatabaseManager,
+                                                 database_name: str) -> None:
+        """A document that predates the normalisation is answered as False, not null."""
+        legacy = _control_measure_payload(CM_ID_FOR_NULL_INSERT)
+        legacy['is_applicable'] = None
+        database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name).insert_one(legacy)
+
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+
+        assert response.status_code == HTTPStatus.OK
+        entry = next(cm for cm in response.get_json()['results']
+                     if cm['public_id'] == CM_ID_FOR_NULL_INSERT)
+        assert entry['is_applicable'] is False
 
 
 class TestErrorMapping:
@@ -265,3 +377,73 @@ class TestErrorMapping:
         monkeypatch.setattr(ControlMeasureManager, 'delete_item', _raiser(ControlMeasureManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CM_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created item cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(ControlMeasureManager, 'insert_item', lambda *_a, **_k: CM_ID_FOR_GET)
+        monkeypatch.setattr(ControlMeasureManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_control_measure_payload(CM_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureManager, 'insert_item', lambda *_a, **_k: CM_ID_FOR_GET)
+        monkeypatch.setattr(ControlMeasureManager, 'get_item', _raiser(ControlMeasureManagerGetError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_control_measure_payload(CM_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_control_measure_payload(CM_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{CM_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureManager, 'get_item', _raiser(ControlMeasureManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{CM_ID_FOR_UPDATE}', json=_control_measure_payload(CM_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureManager, 'get_item', lambda *_a, **_k: {'public_id': CM_ID_FOR_UPDATE})
+        monkeypatch.setattr(ControlMeasureManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{CM_ID_FOR_UPDATE}', json=_control_measure_payload(CM_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureManager, 'get_item', _raiser(ControlMeasureManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CM_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureManager, 'get_item', lambda *_a, **_k: {'public_id': CM_ID_FOR_DELETE})
+        monkeypatch.setattr(ControlMeasureManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CM_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

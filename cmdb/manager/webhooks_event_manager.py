@@ -23,28 +23,10 @@ from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 
-from cmdb.errors.manager import (
-    BaseManagerInitError,
-    BaseManagerInsertError,
-    BaseManagerGetError,
-    BaseManagerUpdateError,
-    BaseManagerDeleteError,
-    BaseManagerIterationError,
-)
+from cmdb.errors.manager.webhooks_event_manager import WEBHOOKS_EVENT_MANAGER_ERRORS
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# WebhookEvents share the BaseManager errors (no dedicated hierarchy yet, see discussion backlog) so
-# this manager can run on GenericManager
-WEBHOOK_EVENT_MANAGER_ERRORS: dict[str, type[Exception]] = {
-    'init': BaseManagerInitError,
-    'insert': BaseManagerInsertError,
-    'get': BaseManagerGetError,
-    'update': BaseManagerUpdateError,
-    'delete': BaseManagerDeleteError,
-    'iterate': BaseManagerIterationError,
-}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             WebhooksEventManager - CLASS                                             #
@@ -56,4 +38,4 @@ class WebhooksEventManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
-        super().__init__(dbm, CmdbWebhookEvent, WEBHOOK_EVENT_MANAGER_ERRORS, database)
+        super().__init__(dbm, CmdbWebhookEvent, WEBHOOKS_EVENT_MANAGER_ERRORS, database)

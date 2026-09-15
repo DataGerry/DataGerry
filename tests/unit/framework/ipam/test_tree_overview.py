@@ -38,6 +38,8 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamTreeKey,
 )
 from cmdb.framework.ipam.tree_overview import (
+    TREE_NODE_PROJECTION,
+    unassigned_subnet_nodes,
     _coerce_ref_id,
     _collect_referenced_supernet_ids,
     load_all_special_type_objects,
@@ -403,7 +405,7 @@ def test_nest_subnet_nodes_keeps_children_in_ascending_cidr_order() -> None:
 #                                          load_all_special_type_objects                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_load_all_special_type_objects_pins_the_type_id_criteria() -> None:
-    """The loader queries exactly {type_id: <resolved id>} with as_dict=True"""
+    """The loader queries exactly {type_id: <resolved id>} with as_dict=True and no projection"""
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = []
     types_manager = MagicMock()
@@ -413,9 +415,43 @@ def test_load_all_special_type_objects_pins_the_type_id_criteria() -> None:
 
     mock_resolve.assert_called_once_with(types_manager, SpecialType.SUBNET)
     objects_manager.find_objects.assert_called_once_with(
-        {CmdbObjectKey.TYPE_ID: SUBNET_TYPE_ID}, as_dict=True,
+        {CmdbObjectKey.TYPE_ID.value: SUBNET_TYPE_ID}, as_dict=True, projection=None,
     )
     assert result == []
+
+
+def test_load_all_special_type_objects_passes_a_projection_through() -> None:
+    """
+    A caller's projection reaches the manager unchanged
+
+    The tree passes TREE_NODE_PROJECTION so a sidebar render does not drag every subnet's whole
+    document out of the database; callers that compute over a subnet keep the default of None.
+    """
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = []
+    types_manager = MagicMock()
+
+    with patch(f'{PATH}.resolve_special_type_id', return_value=SUBNET_TYPE_ID):
+        load_all_special_type_objects(
+            objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION,
+        )
+
+    objects_manager.find_objects.assert_called_once_with(
+        {CmdbObjectKey.TYPE_ID.value: SUBNET_TYPE_ID},
+        as_dict=True,
+        projection=TREE_NODE_PROJECTION,
+    )
+
+
+def test_the_tree_projection_is_exactly_what_a_node_reads() -> None:
+    """
+    The projection must not drop a key the node shapers read
+
+    public_id is the node's own id; every other value - name, cidr, the address-family selector and
+    the parent reference - is read out of `fields` by `extract_field_value`, which looks nowhere
+    else. If a shaper ever starts reading a third key, this is what should fail.
+    """
+    assert TREE_NODE_PROJECTION == {'public_id': 1, 'fields': 1}
 
 
 def test_load_all_special_type_objects_returns_empty_when_type_undefined() -> None:
@@ -465,8 +501,12 @@ def test_build_ipam_tree_loads_supernets_then_subnets() -> None:
     with patch(f'{PATH}.load_all_special_type_objects', side_effect=[[], []]) as mock_load:
         tree = build_ipam_tree(objects_manager, types_manager)
 
-    assert mock_load.call_args_list[0].args == (objects_manager, types_manager, SpecialType.SUPERNET)
-    assert mock_load.call_args_list[1].args == (objects_manager, types_manager, SpecialType.SUBNET)
+    assert mock_load.call_args_list[0].args == (
+        objects_manager, types_manager, SpecialType.SUPERNET, TREE_NODE_PROJECTION,
+    )
+    assert mock_load.call_args_list[1].args == (
+        objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION,
+    )
     assert tree == {IpamTreeKey.SUPERNETS: [], IpamTreeKey.UNASSIGNED: []}
 
 
@@ -503,7 +543,9 @@ def test_build_supernet_subnet_tree_validates_then_nests_the_assigned_subnets() 
         subtree = build_supernet_subnet_tree(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
     mock_validate.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID)
-    mock_load.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    mock_load.assert_called_once_with(
+        objects_manager, types_manager, SUPERNET_OBJECT_ID, TREE_NODE_PROJECTION,
+    )
 
     roots = subtree[IpamTreeKey.CHILDREN]
     assert [n[CmdbObjectKey.PUBLIC_ID] for n in roots] == [SUBNET_OBJECT_ID_A]

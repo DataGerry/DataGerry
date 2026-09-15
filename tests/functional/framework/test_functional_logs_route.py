@@ -26,8 +26,15 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from flask import abort
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager import LogsManager
+from cmdb.errors.manager import (
+    BaseManagerGetError,
+    BaseManagerIterationError,
+    BaseManagerDeleteError,
+)
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.log_model.log_action_enum import LogAction
@@ -355,3 +362,149 @@ class TestIncludeUsers:
 
         users_map = response.get_json()['results']['users']
         assert str(USER_ID_MISSING) not in users_map
+
+
+def _raiser(exc: Exception):
+    """Returns a function that ignores its args and raises the given exception."""
+    def _fail(*_args, **_kwargs):
+        raise exc
+
+    return _fail
+
+
+def _abort_418(*_args, **_kwargs):
+    """Aborts with a status no handler maps, proving HTTPExceptions pass through untouched."""
+    abort(HTTPStatus.IM_A_TEAPOT)
+
+
+class TestCorrespondingLogWithoutObject:
+    """A log that does not belong to an object cannot have corresponding object logs."""
+
+    NON_OBJECT_LOG_ID: int = 90020
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds a log document that carries no object_id (the collection is shared by log_type)."""
+        doc = _log_doc(self.NON_OBJECT_LOG_ID, OBJECT_ID_WITH_EDITS)
+        del doc['object_id']
+        _logs(database_manager, database_name).insert_one(doc)
+        yield
+        _logs(database_manager, database_name).delete_one({'public_id': self.NON_OBJECT_LOG_ID})
+
+    def test_returns_400_instead_of_500(self, rest_api) -> None:
+        """The missing key used to raise a KeyError into the catch-all and answer 500 (regression)."""
+        response = rest_api.get(f'{ROUTE_URL}/{self.NON_OBJECT_LOG_ID}/corresponding')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestErrorMapping:
+    """Every handler maps its manager failures to the documented status codes."""
+
+    LIST_URLS: list[str] = [
+        f'{ROUTE_URL}/object/exists',
+        f'{ROUTE_URL}/object/notexists',
+        f'{ROUTE_URL}/object/deleted',
+        f'{ROUTE_URL}/object/{OBJECT_ID_WITH_EDITS}',
+    ]
+
+    # ---- single read ---- #
+    def test_single_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A BaseManagerGetError on the single read maps to 400."""
+        monkeypatch.setattr(LogsManager, 'get_one', _raiser(BaseManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on the single read maps to 500."""
+        monkeypatch.setattr(LogsManager, 'get_one', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # ---- lists ---- #
+    @pytest.mark.parametrize('url', LIST_URLS, ids=['exists', 'notexists', 'deleted', 'by-object'])
+    def test_list_iteration_error_returns_400(self, rest_api, monkeypatch, url: str) -> None:
+        """A BaseManagerIterationError maps every list route to 400."""
+        monkeypatch.setattr(LogsManager, 'iterate', _raiser(BaseManagerIterationError('boom')))
+
+        assert rest_api.get(url).status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('url', LIST_URLS, ids=['exists', 'notexists', 'deleted', 'by-object'])
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch, url: str) -> None:
+        """An unexpected error maps every list route to 500."""
+        monkeypatch.setattr(LogsManager, 'iterate', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(url).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    @pytest.mark.parametrize('url', LIST_URLS, ids=['exists', 'notexists', 'deleted', 'by-object'])
+    def test_list_passes_an_http_exception_through(self, rest_api, monkeypatch, url: str) -> None:
+        """An HTTPException raised inside a list handler keeps its own status (regression)."""
+        monkeypatch.setattr(LogsManager, 'iterate', _abort_418)
+
+        assert rest_api.get(url).status_code == HTTPStatus.IM_A_TEAPOT
+
+    # ---- corresponding ---- #
+    def test_corresponding_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A BaseManagerGetError while reading the source log maps to 400."""
+        monkeypatch.setattr(LogsManager, 'get_one', _raiser(BaseManagerGetError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}/corresponding').status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_corresponding_iteration_error_returns_400(
+        self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A BaseManagerIterationError while collecting the siblings maps to 400."""
+        _logs(database_manager, database_name).insert_one(_log_doc(LOG_ID_SINGLE, OBJECT_ID_WITH_EDITS))
+        monkeypatch.setattr(LogsManager, 'iterate', _raiser(BaseManagerIterationError('boom')))
+        try:
+            assert rest_api.get(f'{ROUTE_URL}/{LOG_ID_SINGLE}/corresponding').status_code \
+                == HTTPStatus.BAD_REQUEST
+        finally:
+            _logs(database_manager, database_name).delete_one({'public_id': LOG_ID_SINGLE})
+
+    def test_corresponding_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps the corresponding route to 500."""
+        monkeypatch.setattr(LogsManager, 'get_one', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}/corresponding').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # ---- delete ---- #
+    def test_delete_read_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A BaseManagerGetError while reading the log to delete maps to 400."""
+        monkeypatch.setattr(LogsManager, 'get_one', _raiser(BaseManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_error_returns_400(
+        self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A BaseManagerDeleteError maps the delete to 400."""
+        _logs(database_manager, database_name).insert_one(_log_doc(LOG_ID_FOR_DELETE, OBJECT_ID_WITH_EDITS))
+        monkeypatch.setattr(LogsManager, 'delete', _raiser(BaseManagerDeleteError('boom')))
+        try:
+            assert rest_api.delete(f'{ROUTE_URL}/{LOG_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _logs(database_manager, database_name).delete_one({'public_id': LOG_ID_FOR_DELETE})
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error maps the delete to 500."""
+        monkeypatch.setattr(LogsManager, 'get_one', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestDeleteResponseShape:
+    """The delete route answers with the manager's boolean acknowledgement, not a count."""
+
+    def test_returns_true(self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A deleted log is reported as `true` (documented as a boolean, not a delete count)."""
+        _logs(database_manager, database_name).insert_one(_log_doc(LOG_ID_FOR_DELETE, OBJECT_ID_WITH_EDITS))
+        try:
+            response = rest_api.delete(f'{ROUTE_URL}/{LOG_ID_FOR_DELETE}')
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.get_json() is True
+        finally:
+            _logs(database_manager, database_name).delete_one({'public_id': LOG_ID_FOR_DELETE})

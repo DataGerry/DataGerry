@@ -25,9 +25,22 @@ from cmdb.models.type_model.type_summary import TypeSummary
 from cmdb.models.type_model.type_field_section import TypeFieldSection
 from cmdb.models.type_model.type_reference_section import TypeReferenceSection
 from cmdb.models.type_model.type_multi_data_section import TypeMultiDataSection
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: Which section class builds a stored section, chosen by its `type` key. A `type` this version does
+#: not know - or a document written before the key existed - falls back to TypeFieldSection rather
+#: than being refused or dropped: refusing would make a type saved by a newer version unreadable, and
+#: dropping would silently lose the section's fields
+SECTION_CLASSES: dict[str, type[TypeSection]] = {
+    SectionType.SECTION.value: TypeFieldSection,
+    SectionType.MDS_SECTION.value: TypeMultiDataSection,
+    SectionType.REF_SECTION.value: TypeReferenceSection,
+}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    TypeRenderMeta                                                    #
@@ -63,18 +76,10 @@ class TypeRenderMeta:
         Returns:
             TypeRenderMeta: TypeRenderMeta class with given data
         """
-        sections: list[TypeSection] = []
-
-        for section in data.get('sections', []):
-            section_type = section.get('type', 'section')
-            if section_type == 'section':
-                sections.append(TypeFieldSection.from_data(section))
-            elif section_type == 'multi-data-section':
-                sections.append(TypeMultiDataSection.from_data(section))
-            elif section_type == 'ref-section':
-                sections.append(TypeReferenceSection.from_data(section))
-            else:
-                sections.append(TypeFieldSection.from_data(section))
+        sections: list[TypeSection] = [
+            SECTION_CLASSES.get(section.get(SectionKey.TYPE.value), TypeFieldSection).from_data(section)
+            for section in data.get(TypeSchemaKey.SECTIONS.value, [])
+        ]
 
         return cls(
             icon=data.get('icon'),

@@ -42,6 +42,17 @@ class ParserRuntimeError(ImporterError):
     """
 
 
+class ParserNoContentError(ParserRuntimeError):
+    """
+    Raised when a file parses correctly but carries no data rows to import
+
+    Kept apart from a plain ParserRuntimeError because the two need opposite answers: a malformed file or
+    a wrong parser configuration is a parsing problem, while an empty file - a freshly downloaded import
+    template, for instance - parsed perfectly and simply has nothing in it. Naming that separately lets
+    the routes report the real reason instead of pointing at settings that are not at fault
+    """
+
+
 class ImporterLoadError(ImporterError):
     """
     Raised when an error occurs loading the importer

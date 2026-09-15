@@ -24,8 +24,7 @@ from werkzeug.wrappers import Response
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
-from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
-from cmdb.interface.rest_api.responses.helpers.api_projector import APIProjector
+from cmdb.interface.rest_api.responses.response_constants import ResponseHeader, ResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -37,43 +36,57 @@ class GetListResponse(BaseAPIResponse):
     """
     API Response for a simple list without iteration
     """
-    def __init__(self, results: list[dict], body: bool = None, params: APIParameters = None) -> None:
-        self.params = params
+    def __init__(
+            self,
+            results: list[dict],
+            body: bool | None = None,
+            params: APIParameters | None = None) -> None:
+        """
+        Initializes the GetListResponse
 
-        if self.params and self.params.projection:
-            projection = APIProjection(self.params.projection)
-            self.results = APIProjector(results, projection).project
-        else:
-            self.results: list[dict] = results
+        Args:
+            results (list[dict]): The resources to answer with, in the order they were read
+            body (bool | None): Whether to answer with a payload; False answers without one (HEAD).
+                None means yes
+            params (APIParameters | None): The request parameters, consulted for a `?projection=`
+        """
+        self.params: APIParameters | None = params
+        self.results: list[dict] = self.apply_projection(
+            results, params.projection if params else None,
+        )
 
         super().__init__(operation_type=OperationType.GET, body=body)
 
 
     def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
-        Make a valid http response.
+        Builds the http response carrying the list
+
+        The total count is reported as a header as well, so a HEAD request answers how many resources
+        there are without a payload
 
         Args:
-            *args:
-            **kwargs:
+            *args (Any): Positional arguments forwarded to `export`
+            **kwargs (Any): Keyword arguments forwarded to `export`
 
         Returns:
-            Instance of Response with a HTTP 200 status code.
+            Response: The http response with a HTTP 200 status code, without a payload when the
+                caller asked for none
         """
-        if self.body:
-            response = self.make_api_response(self.export(*args, **kwargs))
-        else:
-            response = self.make_api_response(None)
-
-        response.headers['X-Total-Count'] = len(self.results)
+        response: Response = self.make_body_response(*args, **kwargs)
+        response.headers[ResponseHeader.TOTAL_COUNT.value] = len(self.results)
 
         return response
 
 
     def export(self) -> dict[str, Any]:
         """
-        Get the list response
+        Returns the response payload as a dict
+
+        Returns:
+            dict[str, Any]: The resources under `results`, plus the envelope keys
         """
-        return {**{
-            'results': self.results
-        }, **super().export()}
+        return {
+            ResponseKey.RESULTS.value: self.results,
+            **super().export(),
+        }

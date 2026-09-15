@@ -21,16 +21,44 @@ before and after treatment (collection ``isms.riskAssessment``).
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsRiskAssessment.SCHEMA.
+
+Every field whose value belongs to an enum is pinned here with an ``allowed`` list built from that
+enum, which makes validation - not the model - the place an unknown reference type, treatment option
+or priority is refused. The keys come from ``RiskAssessmentKey``, so the schema and the model cannot
+drift apart on a key name
 """
 from typing import Any
-
-from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
-from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# Allowed values for the reference-type discriminator fields, pinned to their enums
-_OBJECT_REF_TYPES: list[str] = [ref_type.value for ref_type in ObjectReferenceType]
-_PERSON_REF_TYPES: list[str] = [ref_type.value for ref_type in PersonReferenceType]
+# The three shapes a date arrives in: the Mongo extended-JSON wrapper {'$date': ...} the frontend
+# sends, a timestamp string from an API client, and a real datetime (an already-normalised payload).
+# All three are normalised to a datetime before the document is stored
+_DATE_TYPES: list[str] = ['dict', 'string', 'datetime']
+
+
+def _get_date_schema(nullable: bool) -> dict[str, Any]:
+    """
+    Builds the Cerberus rules for one of the assessment's four date fields
+
+    Args:
+        nullable (bool): Whether the field may be null - false only for 'risk_assessment_date',
+            which every write path requires
+
+    Returns:
+        dict[str, Any]: The Cerberus rules for a single date field
+    """
+    rules: dict[str, Any] = {
+        'anyof_type': _DATE_TYPES,
+        'required': True,
+    }
+
+    if nullable:
+        rules['nullable'] = True
+    else:
+        # An empty wrapper is as unusable as no date at all
+        rules['empty'] = False
+
+    return rules
 
 
 def _get_risk_calculation_schema(required_impacts: bool) -> dict[str, Any]:
@@ -103,146 +131,162 @@ def get_isms_risk_assessment_schema() -> dict:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsRiskAssessment.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.isms_model.isms_risk_assessment_constants import (
+        CONTROL_MEASURE_ASSIGNMENTS_KEY,
+        RiskAssessmentKey,
+    )
+    from cmdb.models.isms_model.priority_enum import Priority
+    from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
+    from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
+    from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+
+    # Allowed values for the reference-type discriminator fields, pinned to their enums
+    object_ref_types: list[str] = [ref_type.value for ref_type in ObjectReferenceType]
+    person_ref_types: list[str] = [ref_type.value for ref_type in PersonReferenceType]
+
+    # Allowed values of the two remaining enum-typed fields, pinned the same way. Both were previously
+    # unconstrained ('type': string / integer only), so an API client could store a treatment option or
+    # a priority the frontend has no name for and the reports cannot group by
+    treatment_options: list[str] = [option.value for option in TreatmentOption]
+    priorities: list[int] = [priority.value for priority in Priority]
+
     return {
-        'public_id': {
+        RiskAssessmentKey.PUBLIC_ID.value: {
             'type': 'integer',
             'min': 1,
         },
-        'risk_id': {  # public_id of referenced IsmsRisk
+        RiskAssessmentKey.RISK_ID.value: {  # public_id of referenced IsmsRisk
             'type': 'integer',
             'required': True,
             'empty': False
         },
-        'object_id_ref_type': {  # ObjectReferenceType Enum
+        RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: {  # ObjectReferenceType Enum
             'type': 'string',
             'required': True,
             'empty': False,
-            'allowed': _OBJECT_REF_TYPES,
+            'allowed': object_ref_types,
         },
-        'object_id': {  # public_id of referenced CmdbObject or CmdbObjectGroup (dependening on 'object_reference_type')
+        # public_id of referenced CmdbObject or CmdbObjectGroup (depending on 'object_id_ref_type')
+        RiskAssessmentKey.OBJECT_ID.value: {
             'type': 'integer',
             'min': 1,
             'required': True,
             'empty': False
         },
         # Risk calculation before treatment
-        'risk_calculation_before': _get_risk_calculation_schema(required_impacts=True),
-        'risk_assessor_id': {  # public_id of CmdbPerson
+        RiskAssessmentKey.RISK_CALCULATION_BEFORE.value: _get_risk_calculation_schema(required_impacts=True),
+        RiskAssessmentKey.RISK_ASSESSOR_ID.value: {  # public_id of CmdbPerson
             'type': 'integer',
             'min': 1,
             'required': True,
             'nullable': True,
         },
-        'risk_owner_id_ref_type': {  # PersonReferenceType Enum
+        RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE.value: {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
-            'allowed': _PERSON_REF_TYPES,
+            'allowed': person_ref_types,
         },
-        'risk_owner_id': {  # public_id of CmdbPerson or CmdbPersonGroup
+        RiskAssessmentKey.RISK_OWNER_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup
             'type': 'integer',
             'min': 1,
             'required': True,
             'nullable': True,
         },
-        'interviewed_persons': {  # Multiselect of CmdbPersons
+        RiskAssessmentKey.INTERVIEWED_PERSONS.value: {  # Multiselect of CmdbPersons
             'type': 'list',
             'required': True,
             'nullable': True
         },
-        'risk_assessment_date': {  # Date of risk calculation before treatment
-            'type': 'dict',
-            'required': True,
-            'empty': False
-        },
-        'additional_info': {  # Additional information field value
+        # Date of risk calculation before treatment
+        RiskAssessmentKey.RISK_ASSESSMENT_DATE.value: _get_date_schema(nullable=False),
+        RiskAssessmentKey.ADDITIONAL_INFO.value: {  # Additional information field value
             'type': 'string',
             'required': True,
             'nullable': True,
         },
         # Risk treatment
-        'risk_treatment_option': {  # TreatmentOption Enum
+        RiskAssessmentKey.RISK_TREATMENT_OPTION.value: {  # TreatmentOption Enum
             'type': 'string',
             'required': True,
             'nullable': True,
+            'allowed': treatment_options,
         },
-        'responsible_persons_id_ref_type': {  # PersonReferenceType Enum
+        RiskAssessmentKey.RESPONSIBLE_PERSONS_ID_REF_TYPE.value: {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
-            'allowed': _PERSON_REF_TYPES,
+            'allowed': person_ref_types,
         },
-        'responsible_persons_id': {  # public_id of CmdbPerson or CmdbPersonGroup
+        RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup
             'type': 'integer',
             'min': 1,
             'required': True,
             'nullable': True,
         },
-        'risk_treatment_description': {  # Additional information text area field
+        RiskAssessmentKey.RISK_TREATMENT_DESCRIPTION.value: {  # Additional information text area field
             'type': 'string',
             'required': True,
             'nullable': True,
         },
-        'planned_implementation_date': {  # Date of planned implementation
-            'type': 'dict',
-            'required': True,
-            'nullable': True
-        },
-        'implementation_status': {  # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
+        # Date of planned implementation
+        RiskAssessmentKey.PLANNED_IMPLEMENTATION_DATE.value: _get_date_schema(nullable=True),
+        # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
+        RiskAssessmentKey.IMPLEMENTATION_STATUS.value: {
             'type': 'integer',
             'required': True,
             'nullable': True,
         },
-        'finished_implementation_date': {  # Date of finished implementation
-            'type': 'dict',
-            'required': True,
-            'nullable': True
-        },
-        'required_resources': {  # Required resources text area field
+        # Date of finished implementation
+        RiskAssessmentKey.FINISHED_IMPLEMENTATION_DATE.value: _get_date_schema(nullable=True),
+        RiskAssessmentKey.REQUIRED_RESOURCES.value: {  # Required resources text area field
             'type': 'string',
             'required': True,
             'nullable': True,
         },
-        'costs_for_implementation': {  # Costs for implementation
+        RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value: {  # Costs for implementation
             'type': 'float',
             'required': True,
             'nullable': True,
         },
-        'costs_for_implementation_currency': {  # Costs for implementation currency
+        RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION_CURRENCY.value: {  # Costs for implementation currency
             'type': 'string',
             'required': True,
             'nullable': True,
         },
-        'priority': {  # Priority enum (1 = Low, 2 = Medium, 3 = High, 4 = Very high)
+        RiskAssessmentKey.PRIORITY.value: {  # Priority enum (1 = Low, 2 = Medium, 3 = High, 4 = Very high)
             'type': 'integer',
             'required': True,
             'nullable': True,
+            'allowed': priorities,
         },
         # Risk calculation after treatment (impacts optional: an untreated assessment has no
         # after-treatment sliders yet, unlike the mandatory before-treatment matrix)
-        'risk_calculation_after': _get_risk_calculation_schema(required_impacts=False),
+        RiskAssessmentKey.RISK_CALCULATION_AFTER.value: _get_risk_calculation_schema(required_impacts=False),
         # Checking the effectiveness of the measures
-        'audit_done_date': {  # Audit done date
-            'type': 'dict',
-            'required': True,
-            'nullable': True
-        },
-        'auditor_id_ref_type': {  # PersonReferenceType Enum
+        RiskAssessmentKey.AUDIT_DONE_DATE.value: _get_date_schema(nullable=True),  # Audit done date
+        RiskAssessmentKey.AUDITOR_ID_REF_TYPE.value: {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
-            'allowed': _PERSON_REF_TYPES,
+            'allowed': person_ref_types,
         },
-        'auditor_id': {  # public_id of CmdbPerson or CmdbPersonGroup
+        RiskAssessmentKey.AUDITOR_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup
             'type': 'integer',
             'min': 1,
             'required': True,
             'nullable': True,
         },
-        'audit_result': {  # Audit result text area field
+        RiskAssessmentKey.AUDIT_RESULT.value: {  # Audit result text area field
             'type': 'string',
             'required': True,
             'nullable': True,
         },
-        # optional control measure assignments
-        'control_measure_assignments': {  # list of control meassure assignments
+        # Transport-only: the assignments travel with the assessment but are stored in their own
+        # collection, so every write route pops this key before the assessment is written. It stays in
+        # the schema because the validator purges unknown keys, and purging it would drop the payload
+        CONTROL_MEASURE_ASSIGNMENTS_KEY: {  # list of control measure assignments
             'anyof_type': ['list', 'dict'],
         }
     }

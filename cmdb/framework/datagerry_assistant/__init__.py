@@ -28,8 +28,8 @@ Modules:
       section/field definitions and from SpecialType blueprints
   - predefined_template_provider: PredefinedTemplateProvider, loads the predefined section templates
       once and serves independent copies to the builder
-  - profile_<feature>: one module per profile (user_management, location, ipam, client_management,
-      server_management, network_infrastructure) defining that profile's types
-  - datagerry_assistant_constants: key / icon / category / type-slot constants plus the category and
-      IPAM SpecialType definition tables
+  - profile_<feature>: one module per profile (user_management, rack, location, ipam,
+      client_management, server_management, network_infrastructure) defining that profile's types
+  - datagerry_assistant_constants: key / icon / category / type-slot constants plus the category,
+      IPAM SpecialType and Rack type-identity definitions
 """

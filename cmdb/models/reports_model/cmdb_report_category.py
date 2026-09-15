@@ -17,8 +17,6 @@
 This module contains the implementation of CmdbReportCategory, which is representing
 a category of a CmdbReport in DataGarry
 """
-from logging import Logger, getLogger
-
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.class_schema.reports_model.cmdb_report_category_schema import get_cmdb_report_category_schema
@@ -30,8 +28,6 @@ from cmdb.errors.models.cmdb_report_category import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              CmdbReportCategory - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -42,7 +38,6 @@ class CmdbReportCategory(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.reportCategories'
-    MODEL = 'Report_Category'
     DEFAULT_VERSION: str = '1.0.0'
     REQUIRED_INIT_KEYS = ['name', 'predefined']
 

@@ -16,6 +16,22 @@
 """
 All constants for Document Generator
 """
+from cmdb.utils import BaseStrEnum
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+class ComponentKey(BaseStrEnum):
+    """Structural keys shared by the docgen component dicts (header, footer, cover page, toc)."""
+    ACTIVATED = "activated"
+    CONFIG = "config"
+    CONTENT = "content"
+
+
+class PageConfigKey(BaseStrEnum):
+    """Structural keys of the page-config dict."""
+    MARGIN = "margin"
+
+
 PAGE_HEIGHT = 842 # A4 maximum page height in pt
 
 PAGE_WIDTH = 595 # A4 maximum page width in pt

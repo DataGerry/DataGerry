@@ -18,10 +18,9 @@ Implementation of MediaFile
 """
 from logging import Logger, getLogger
 from typing import Any
-from datetime import date
+from datetime import datetime
 
 from cmdb.framework.media_library.base_media_file import BaseMediaFile
-from cmdb.framework.media_library.media_file_metadata import FileMetadata
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.cmdb_object import NoPublicIDError
@@ -33,7 +32,14 @@ LOGGER: Logger = getLogger(__name__)
 #                                                   MediaFile - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class MediaFile(BaseMediaFile):
-    """Media Libary File"""
+    """
+    A file of the media library, i.e. one GridFS file document
+
+    Instances are built from a stored document (`MediaFile(**grid._file)`), which is why the constructor
+    takes GridFS' own camelCase key names; `to_json` turns one back into the document the read routes
+    answer with. The metadata sub-document is passed through untouched - `build_media_file_metadata` is
+    what shapes it on the way in
+    """
 
     COLLECTION = 'media.libary'
     REQUIRED_INIT_KEYS: list[str] = ['name']
@@ -46,15 +52,23 @@ class MediaFile(BaseMediaFile):
         }
     ]
 
-    def __init__(self, filename: str, chunkSize, uploadDate, metadata, length, **kwargs) -> None:
+    def __init__(self,
+                 filename: str,
+                 chunkSize: int,
+                 uploadDate: datetime,
+                 metadata: dict[str, Any],
+                 length: int,
+                 **kwargs: Any) -> None:
         """
+        Initialises a MediaFile from a stored GridFS file document
+
         Args:
-            filename: name of this file
-            active: is job executable
-            sources: consists of multiple objects of a specific object type and a specific status
-            destination: is an external system, where you want to push the yourcmdb objects
-            variables: has a name and gets its value out of fields of the objects
-            **kwargs: optional params
+            filename (str): Name of the file, unique per metadata.parent folder
+            chunkSize (int): Size of the chunks GridFS split the content into, in bytes
+            uploadDate (datetime): When GridFS stored the content - NOT a last-modified stamp
+            metadata (dict[str, Any]): The file's metadata sub-document (see MediaFileMetadataKey)
+            length (int): Size of the content in bytes
+            **kwargs (Any): The remaining keys of the document, public_id among them
         """
         self.filename: str = filename
         self.chunk_size = chunkSize
@@ -67,7 +81,7 @@ class MediaFile(BaseMediaFile):
 
     def get_public_id(self) -> int:
         """
-        get the public id of current element
+        Get the public_id of this MediaFile
 
         Note:
             Since the models object is not initializable
@@ -88,9 +102,10 @@ class MediaFile(BaseMediaFile):
 
     def get_filename(self) -> str:
         """
-        Get the name of file
+        Get the name of the file
+
         Returns:
-            str: display filename
+            str: The filename, or an empty string when the document carries none
         """
         if self.filename is None:
             return ""
@@ -98,47 +113,50 @@ class MediaFile(BaseMediaFile):
         return self.filename
 
 
-    def get_chunk_size(self) -> bytes:
+    def get_chunk_size(self) -> int:
         """
-        Get the size of each chunk in bytes.
-        GridFS divides the document into chunks of size chunkSize,
-        except for the last, which is only as large as needed.
-        The default size is 255 kilobytes (kB).
+        Get the size of each chunk in bytes
+
+        GridFS divides the content into chunks of this size, except for the last one, which is only as
+        large as it needs to be. The default is 255 kilobytes
+
         Returns:
-            bytes: display chunkSize
+            int: Size of a chunk in bytes
         """
         return self.chunk_size
 
 
-    def get_upload_date(self) -> date:
+    def get_upload_date(self) -> datetime:
         """
-        Get the date the document was first stored by GridFS.
-        This value has the Date type.
+        Get the point in time GridFS stored the file's content
+
+        A metadata-only edit leaves this alone, so it is not a last-modified stamp
+
         Returns:
-            bytes: display upload Date
+            datetime: When the content was stored
         """
         return self.upload_date
 
 
-    def get_metadata(self) -> FileMetadata:
+    def get_metadata(self) -> dict[str, Any]:
         """
-        Get all metadata of the file
-        The metadata fields:
-            permission:   the action of officially allowing someone to do a particular thing
-            ref_to:       ObjectId of Object (CmdbType, CmdbObject etc.)
-            ref_to_type:  Strint: Type of Object (CmdbType, CmdbObject etc.)
-            mime_type:    File type
+        Get the metadata sub-document of the file
+
+        This is the sub-document as GridFS stores it, not a wrapper around it - its keys are the ones
+        `MediaFileMetadataKey` names (see `build_media_file_metadata`, which writes them)
+
         Returns:
-            list: all sources
+            dict[str, Any]: The file's metadata sub-document
         """
         return self.metadata
 
 
-    def get_size(self) -> bytes:
+    def get_size(self) -> int:
         """
-        Get the size of the document in bytes.
+        Get the size of the file's content in bytes
+
         Returns:
-            bytes: size of the document
+            int: Size of the content in bytes
         """
         return self.size
 
@@ -146,7 +164,13 @@ class MediaFile(BaseMediaFile):
     @classmethod
     def to_json(cls, instance: "MediaFile") -> dict[str, Any]:
         """
-        Convert a type instance to json conform data
+        Converts a MediaFile into the document the read routes answer with
+
+        Args:
+            instance (MediaFile): The MediaFile to convert
+
+        Returns:
+            dict[str, Any]: The file's public representation, metadata sub-document included
         """
         return {
             'public_id': instance.get_public_id(),

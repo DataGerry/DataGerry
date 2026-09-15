@@ -20,11 +20,17 @@ Covers the read-only + single-delete route contract: the list envelope, the sing
 a missing id, the delete + 404-after-delete, the delete-missing 404, and the manager-error -> HTTP
 status mapping. CmdbObjectRelationLogs have no public create route (they are written internally), so
 the docs are seeded directly via the collection.
+
+Since 2026-08-27 also: the DELETE route's own read-failure arm (it reads the log before removing it),
+the unmapped-error -> 500 tail of all three routes, and the HTTPException pass-through the list route
+was missing - none of which is reachable without patching a manager method, which is why the four
+statements-per-route tails had stayed uncovered.
 """
 from http import HTTPStatus
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectRelationLogsManager
@@ -166,3 +172,56 @@ class TestErrorMapping:
         )
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """
+        An ObjectRelationLogsManagerGetError on the DELETE route surfaces as 400
+
+        The delete route reads the log before removing it, so the read can fail on this route too -
+        its own arm, distinct from the DeleteError one, and reachable over HTTP.
+        """
+        monkeypatch.setattr(
+            ObjectRelationLogsManager, 'get_object_relation_log',
+            _raise(ObjectRelationLogsManagerGetError('boom')),
+        )
+
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestUnexpectedErrorMapping:
+    """An error the routes do not map is reported as a 500 rather than escaping the route."""
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while iterating."""
+        monkeypatch.setattr(ObjectRelationLogsManager, 'iterate', _raise(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while reading one log."""
+        monkeypatch.setattr(
+            ObjectRelationLogsManager, 'get_object_relation_log', _raise(RuntimeError('boom')),
+        )
+
+        assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unmapped failure while deleting a log that was found."""
+        monkeypatch.setattr(
+            ObjectRelationLogsManager, 'get_object_relation_log', lambda _self, _pid: _log_doc(MISSING_LOG_ID),
+        )
+        monkeypatch.setattr(
+            ObjectRelationLogsManager, 'delete_object_relation_log', _raise(RuntimeError('boom')),
+        )
+
+        assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestHttpExceptionPassThrough:
+    """An HTTPException raised inside a route keeps its own status instead of becoming a 500."""
+
+    def test_list_keeps_the_status(self, rest_api, monkeypatch) -> None:
+        """The list route had no re-raise arm, so an abort inside it would have become a 500."""
+        monkeypatch.setattr(ObjectRelationLogsManager, 'iterate', _raise(NotFound()))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.NOT_FOUND

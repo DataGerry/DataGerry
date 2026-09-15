@@ -30,7 +30,16 @@ class TypeSummary:
     Contains the summary fields of CmdbType
     """
     def __init__(self, fields: list[str] | None = None) -> None:
-        """TODO: document"""
+        """
+        Initialises a TypeSummary
+
+        Args:
+            fields (list[str] | None): Names of the CmdbType fields whose values make up an object's
+                summary line - the one-line label the frontend shows wherever an object is referenced
+                rather than opened. Order is the order they are rendered in. Defaults to no fields,
+                which is what `has_fields` answers False for and what makes the renderer fall back to
+                the object's public_id
+        """
         self.fields: list[str] = fields or []
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
@@ -74,13 +83,3 @@ class TypeSummary:
             (bool): True if at least one field is set else False
         """
         return len(self.fields) > 0
-
-
-    def set_fields(self, fields: list[str]) -> None:
-        """
-        Sets the 'fields' attribute of the TypeSummary
-
-        Args:
-            fields (list[str]): List of field names which are used for the TypeSummary
-        """
-        self.fields = fields

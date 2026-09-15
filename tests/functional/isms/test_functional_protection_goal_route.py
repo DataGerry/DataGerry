@@ -289,3 +289,71 @@ class TestErrorMapping:
                             _raiser(ProtectionGoalManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{PG_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created item cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(ProtectionGoalManager, 'insert_item', lambda *_a, **_k: PG_ID_FOR_GET)
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', lambda *_a, **_k: None)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_pg_payload(PG_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(ProtectionGoalManager, 'insert_item', lambda *_a, **_k: PG_ID_FOR_GET)
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', _raiser(ProtectionGoalManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_pg_payload(PG_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_pg_payload(PG_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{PG_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', _raiser(ProtectionGoalManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}', json=_pg_payload(PG_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', lambda *_a, **_k: {'public_id': PG_ID_FOR_UPDATE})
+        monkeypatch.setattr(ProtectionGoalManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}', json=_pg_payload(PG_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', _raiser(ProtectionGoalManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{PG_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ProtectionGoalManager, 'get_item', lambda *_a, **_k: {'public_id': PG_ID_FOR_DELETE})
+        monkeypatch.setattr(ProtectionGoalManager, 'delete_with_follow_up', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{PG_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

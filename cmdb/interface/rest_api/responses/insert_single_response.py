@@ -22,6 +22,7 @@ from werkzeug.wrappers import Response
 
 from cmdb.interface.rest_api.responses.base_api_response import BaseAPIResponse
 from cmdb.interface.rest_api.responses.helpers.operation_type_enum import OperationType
+from cmdb.interface.rest_api.responses.response_constants import ResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -38,8 +39,11 @@ class InsertSingleResponse(BaseAPIResponse):
         Constructor of InsertSingleResponse
 
         Args:
-            raw: The raw document
-            result_id: The new public id or a identifier of the inserted resource
+            raw (dict[str, Any]): The raw document as it was stored
+            result_id (str | int | None): The new public_id of the inserted resource. Coerced with
+                `int()`, so omitting it - which this signature still allows - raises inside the
+                constructor; all 28 call sites pass one, and whether the parameter should simply
+                become a required int is discussion-backlog #217
         """
         self.raw: dict[str, Any] = raw
         self.result_id: int = int(result_id)
@@ -48,27 +52,32 @@ class InsertSingleResponse(BaseAPIResponse):
 
     def make_response(self, *args: Any, **kwargs: Any) -> Response:
         """
-        Make a vaid http response.
+        Builds the http response for the insert
 
         Args:
-            prefix: URL route prefix for header location settings.
-            *args:
-            **kwargs:
+            *args (Any): Unused; kept so every response answers to the same call
+            **kwargs (Any): Unused; kept so every response answers to the same call
 
         Returns:
-            Instance of Response with http status code 201.
+            Response: The http response with a HTTP 201 status code
         """
         return self.make_api_response(self.export(), 201)
 
 
     def export(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
-        Get the data response payload as dict
+        Returns the response payload as a dict
+
+        Args:
+            *args (Any): Forwarded to the base envelope
+            **kwargs (Any): Forwarded to the base envelope
+
+        Returns:
+            dict[str, Any]: The new id under `result_id` and the stored document under `raw`, plus
+                the envelope keys
         """
         return {
-            **{
-                'result_id': self.result_id,
-                'raw': self.raw,
-            },
-            **super().export(*args, **kwargs)
+            ResponseKey.RESULT_ID.value: self.result_id,
+            ResponseKey.RAW.value: self.raw,
+            **super().export(*args, **kwargs),
         }

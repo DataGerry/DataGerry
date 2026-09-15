@@ -20,10 +20,14 @@ Covers, without a database:
   * field classification in __init__ (which also guards the FieldType-enum lookup),
   * value coercion (_coerce_value): datetime for date fields, int for number / reference fields,
     per-element for list-valued operators, unchanged otherwise,
-  * the rule-assembly helpers (_create_rule / _get_operator_fragment) and the value fragments
+  * the rule-assembly helpers (_create_rule / _build_elem_match) and the value fragments
     (_get_value_fragment) for every supported operator, including the regex-escaped contains / like,
+    the day-granular date comparisons and the missing-entry half of 'is null',
   * build(): the type-only query, the single top-level type_id scoping and the and / or / nested
-    group shapes.
+    group shapes,
+  * the error paths: an unknown condition, a rule missing a required key, an unsupported operator
+    and an uncoercible value - each raising its own error type, all of them MongoDBQueryBuilderError
+    subclasses so the report routes can answer 400.
 """
 from datetime import datetime
 from typing import Any
@@ -39,8 +43,12 @@ from cmdb.database.mongo_query_builder import (
     TYPE_ID_KEY,
 )
 from cmdb.errors.mongo_query_builder import (
+    MongoDBQueryBuilderError,
     MongoQueryBuilderInitError,
     MongoQueryBuilderInvalidOperatorError,
+    MongoQueryBuilderBuildError,
+    MongoQueryBuilderBuildRuleError,
+    MongoQueryBuilderBuildRulesetError,
 )
 # pylint: disable=protected-access
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -150,12 +158,12 @@ def test_coerce_value_returns_falsy_untouched(builder: MongoDBQueryBuilder) -> N
     assert builder._coerce_value("date1", ReportQueryOperator.IS_NULL, "") == ""
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                      _create_rule / _get_operator_fragment                                          #
+#                                        _create_rule / _build_elem_match                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_get_operator_fragment_builds_elem_match(builder: MongoDBQueryBuilder) -> None:
-    """_get_operator_fragment wraps the value fragment in an $elemMatch on name + value"""
-    assert builder._get_operator_fragment(ReportQueryOperator.EQ, "f1", 5) == {
+def test_build_elem_match_wraps_name_and_value(builder: MongoDBQueryBuilder) -> None:
+    """_build_elem_match selects the named field entry and applies the value fragment to it"""
+    assert builder._build_elem_match("f1", {"$eq": 5}) == {
         "$elemMatch": {"name": "f1", "value": {"$eq": 5}},
     }
 
@@ -169,7 +177,6 @@ def test_get_operator_fragment_builds_elem_match(builder: MongoDBQueryBuilder) -
     (ReportQueryOperator.GT, 5, {"$gt": 5}),
     (ReportQueryOperator.IN, [1, 2], {"$in": [1, 2]}),
     (ReportQueryOperator.NOT_IN, [1, 2], {"$nin": [1, 2]}),
-    (ReportQueryOperator.IS_NULL, None, {"$in": [None, ""]}),
     (ReportQueryOperator.IS_NOT_NULL, None, {"$nin": [None, ""]}),
 ])
 def test_create_rule_for_valid_operators(
@@ -181,6 +188,17 @@ def test_create_rule_for_valid_operators(
     """_create_rule nests the operator fragment under the target field via $elemMatch"""
     assert builder._create_rule(FIELDS_PATH, operator, "f1", value) == {
         FIELDS_PATH: {"$elemMatch": {"name": "f1", "value": expected_value_fragment}},
+    }
+
+
+def test_create_rule_for_is_null_also_matches_a_missing_entry(builder: MongoDBQueryBuilder) -> None:
+    """'is null' ORs "entry exists and is empty" with "no such entry", because an object created
+    before the field was added to its type carries no entry at all and $elemMatch cannot match it"""
+    assert builder._create_rule(FIELDS_PATH, ReportQueryOperator.IS_NULL, "f1", None) == {
+        "$or": [
+            {FIELDS_PATH: {"$elemMatch": {"name": "f1", "value": {"$in": [None, ""]}}}},
+            {FIELDS_PATH: {"$not": {"$elemMatch": {"name": "f1"}}}},
+        ],
     }
 
 
@@ -257,3 +275,127 @@ def test_build_coerces_multi_value_number_rule() -> None:
 
     elem = query["$and"][0]["$and"][0][FIELDS_PATH]["$elemMatch"]
     assert elem == {"name": "num1", "value": {"$in": [1, 2, 3]}}
+
+
+class _RaisingType:
+    """A CmdbType stand-in whose public_id access fails, to reach the generic build() fallback."""
+
+    @property
+    def public_id(self) -> int:
+        """Always raises, standing in for an unforeseen failure inside build()."""
+        raise RuntimeError('type is unusable')
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            date comparisons (day-granular)                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+DAY_START: datetime = datetime(2026, 8, 6)
+DAY_END: datetime = datetime(2026, 8, 6, 23, 59, 59, 999999)
+DAY: str = '2026-08-06'
+
+
+def _date_value_fragment(operator: str) -> dict[str, Any]:
+    """The value fragment a date rule with the given operator produces for DAY."""
+    query = _builder_with([{"field": "date1", "operator": operator, "value": DAY}], condition="and").build()
+
+    return query["$and"][0]["$and"][0][FIELDS_PATH]["$elemMatch"]["value"]
+
+
+class TestDateValueFragments:
+    """A date rule carries only a day, so its comparison spans that whole day."""
+
+    def test_end_of_day_is_the_last_instant(self, builder: MongoDBQueryBuilder) -> None:
+        """The upper bound keeps the date and maxes out the time."""
+        assert builder._end_of_day(DAY_START) == DAY_END
+
+    def test_equals_spans_the_whole_day(self) -> None:
+        """Regression: '=' used to match only objects stamped exactly at midnight."""
+        assert _date_value_fragment(ReportQueryOperator.EQ) == {"$gte": DAY_START, "$lte": DAY_END}
+
+    def test_not_equals_excludes_the_whole_day(self) -> None:
+        """'!=' is the negation of the day range, not of its first instant."""
+        assert _date_value_fragment(ReportQueryOperator.NE) == {"$not": {"$gte": DAY_START, "$lte": DAY_END}}
+
+    def test_less_than_or_equal_includes_the_whole_day(self) -> None:
+        """Regression: '<=' used to exclude everything after 00:00:00 on the given date."""
+        assert _date_value_fragment(ReportQueryOperator.LTE) == {"$lte": DAY_END}
+
+    def test_greater_than_excludes_the_whole_day(self) -> None:
+        """Regression: '>' used to include the rest of the given date."""
+        assert _date_value_fragment(ReportQueryOperator.GT) == {"$gt": DAY_END}
+
+    def test_greater_than_or_equal_starts_at_midnight(self) -> None:
+        """'>=' already meant 'from the start of that day' and is unchanged."""
+        assert _date_value_fragment(ReportQueryOperator.GTE) == {"$gte": DAY_START}
+
+    def test_less_than_starts_at_midnight(self) -> None:
+        """'<' already meant 'before that day started' and is unchanged."""
+        assert _date_value_fragment(ReportQueryOperator.LT) == {"$lt": DAY_START}
+
+    def test_non_date_values_are_untouched(self, builder: MongoDBQueryBuilder) -> None:
+        """The widening applies to datetime values only, never to numbers or text."""
+        assert builder._get_value_fragment(ReportQueryOperator.LTE, 5) == {"$lte": 5}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    error paths                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestErrorPaths:
+    """A malformed condition tree raises a precise builder error, not a generic one."""
+
+    def test_unknown_condition_operator(self) -> None:
+        """A group whose 'condition' is not and / or is rejected by name."""
+        with pytest.raises(MongoQueryBuilderBuildRulesetError, match="Unknown condition operator"):
+            _builder_with([{"field": "txt1", "operator": "=", "value": "x"}], condition="xor").build()
+
+    @pytest.mark.parametrize('missing_key, rule', [
+        ('field', {"operator": "=", "value": "x"}),
+        ('operator', {"field": "txt1", "value": "x"}),
+    ])
+    def test_rule_missing_a_required_key_names_that_key(self, missing_key: str, rule: dict[str, Any]) -> None:
+        """Regression: every KeyError used to be reported as 'Unknown condition operator'."""
+        with pytest.raises(MongoQueryBuilderBuildRulesetError, match=f"missing the '{missing_key}' key"):
+            _builder_with([rule], condition="and").build()
+
+    def test_nested_group_missing_its_rules(self) -> None:
+        """A group node without 'rules' is reported against the group, not the leaf."""
+        with pytest.raises(MongoQueryBuilderBuildRulesetError, match="missing the 'rules' key"):
+            _builder_with([{"condition": "or"}], condition="and").build()
+
+    def test_unsupported_operator_survives_to_the_caller(self) -> None:
+        """build() re-raises the precise error instead of flattening it to a build error."""
+        with pytest.raises(MongoQueryBuilderInvalidOperatorError):
+            _builder_with([{"field": "txt1", "operator": "between", "value": "x"}], condition="and").build()
+
+    def test_unparsable_date_raises_a_build_rule_error(self) -> None:
+        """A date that is not YYYY-MM-DD is a rule failure, not an internal error."""
+        with pytest.raises(MongoQueryBuilderBuildRuleError):
+            _builder_with([{"field": "date1", "operator": "=", "value": "06.08.2026"}], condition="and").build()
+
+    def test_non_numeric_value_on_a_number_field_raises_a_build_rule_error(self) -> None:
+        """The same for a number field that cannot take the value."""
+        with pytest.raises(MongoQueryBuilderBuildRuleError):
+            _builder_with([{"field": "num1", "operator": "=", "value": "abc"}], condition="and").build()
+
+    def test_every_builder_error_is_a_mongodb_query_builder_error(self) -> None:
+        """The routes catch the base class, so every raise must inherit from it."""
+        with pytest.raises(MongoDBQueryBuilderError):
+            _builder_with([{"field": "num1", "operator": "=", "value": "abc"}], condition="and").build()
+
+    def test_non_iterable_rules_raise_a_ruleset_error(self) -> None:
+        """A stored report whose 'rules' is not a list is a ruleset failure, not a crash."""
+        builder = MongoDBQueryBuilder({"condition": "and", "rules": 5}, _build_type())
+
+        with pytest.raises(MongoQueryBuilderBuildRulesetError, match="Error building MongoDB ruleset"):
+            builder.build()
+
+    def test_unexpected_failure_becomes_a_build_error(self) -> None:
+        """Anything that is not already a builder error is wrapped as MongoQueryBuilderBuildError."""
+        builder = _builder_with([{"field": "txt1", "operator": "=", "value": "x"}], condition="and")
+        # The type is only read for its public_id at build time, so this is the last thing that can
+        # fail outside the rule tree
+        builder.report_type = _RaisingType()
+
+        with pytest.raises(MongoQueryBuilderBuildError, match="Failed to build MongoDB query"):
+            builder.build()

@@ -71,6 +71,7 @@ from cmdb.errors.manager.categories_manager import (
     CategoriesManagerIterationError,
     CategoriesManagerTreeInitError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -186,7 +187,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
             request_user
         )
 
-        body: bool = request.method == 'HEAD'
+        body: bool = request_wants_body()
 
         if params.optional[CATEGORY_VIEW_PARAM] == CategoryListView.TREE:
             tree: CategoryTree = categories_manager.tree
@@ -235,7 +236,8 @@ def get_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
     GET/HEAD ``/rest/categories/<public_id>`` - retrieve a single CmdbCategory
 
     Returns the raw category document (not the model instance). HEAD requests share the
-    same handler; the body is suppressed downstream by ``GetSingleResponse(body=...)``.
+    same handler and answer without a payload: ``request_wants_body()`` is False for them, so
+    ``GetSingleResponse`` sends the status and the headers only (and builds no payload at all).
 
     Required right: ``base.framework.category.view``. Required API level: ``ApiLevel.ADMIN``.
 
@@ -262,7 +264,7 @@ def get_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
         if not requested_category:
             abort(404, f"The Category with ID:{public_id} was not found!")
 
-        body: bool = request.method == 'HEAD'
+        body: bool = request_wants_body()
 
         return GetSingleResponse(requested_category, body=body).make_response()
     except HTTPException as http_err:

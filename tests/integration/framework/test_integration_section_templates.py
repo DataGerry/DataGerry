@@ -20,7 +20,9 @@ Seeds a CmdbType that uses a global section template plus a CmdbObject of that t
 the manager's real propagation (handle_section_template_changes / cleanup_global_section_templates)
 through TypesManager / ObjectsManager and asserts the persisted type and object documents. Covers
 the flat-section diff, the MDS dual-write (a new MDS field lands in both the object's flat fields
-and its MDS rows), and the global teardown
+and its MDS rows), and the global teardown - including that the teardown also strips the removed
+fields out of the type's CmdbReports, which this path has to do itself because it rewrites the type
+through types_manager.update_type and so never reaches the type-update route's realignment
 """
 from typing import Any
 
@@ -29,6 +31,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
 
@@ -38,6 +41,7 @@ from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type
 TYPE_ID: int = 90100
 OBJECT_ID: int = 90101
 TEMPLATE_PUBLIC_ID: int = 90102
+REPORT_ID: int = 90103
 
 FLAT_TEMPLATE: str = 'it-sectpl-flat'
 MDS_TEMPLATE: str = 'it-sectpl-mds'
@@ -59,6 +63,37 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
     types.delete_many({'public_id': TYPE_ID})
     objects.delete_many({'public_id': OBJECT_ID})
+
+
+@pytest.fixture(name='reports')
+def fixture_reports(database_manager: MongoDatabaseManager, database_name: str) -> Any:
+    """Yields the report collection and removes the seeded report afterwards."""
+    reports = database_manager.get_collection(CmdbReport.COLLECTION, database_name)
+
+    yield reports
+
+    reports.delete_many({'public_id': REPORT_ID})
+
+
+def _seed_report(reports: Any) -> None:
+    """Seeds a CmdbReport of the type that selects AND filters on a template field ('f-a')."""
+    reports.insert_one({
+        'public_id': REPORT_ID,
+        'report_category_id': 1,
+        'name': 'it-sectpl-report',
+        'type_id': TYPE_ID,
+        'selected_fields': ['dg-name', 'f-a'],
+        'conditions': {
+            'condition': 'and',
+            'rules': [
+                {'field': 'dg-name', 'operator': '=', 'value': 'keep'},
+                {'field': 'f-a', 'operator': '=', 'value': 'gone'},
+            ],
+        },
+        'report_query': {'data': "{'fields': {'$elemMatch': {'name': 'f-a'}}}"},
+        'predefined': False,
+        'mds_mode': 'ROWS',
+    })
 
 
 def _seed_flat_type(types: Any, objects: Any) -> None:
@@ -199,3 +234,42 @@ def test_cleanup_global_template_strips_type_and_objects(
 
     persisted_object = objects.find_one({'public_id': OBJECT_ID})
     assert _names(persisted_object['fields']) == {'dg-name'}
+
+
+def test_cleanup_global_template_strips_the_types_reports(
+    manager: SectionTemplatesManager, collections: Any, reports: Any,
+) -> None:
+    """The teardown also cleans the reports, which used to be left pointing at deleted fields
+
+    Deleting a global template rewrites the consuming type directly through
+    types_manager.update_type, so the type-update route's realignment never runs. Without the
+    cleanup here every report of the type kept selecting and filtering on field names that no longer
+    existed, with a stale report_query nothing would rebuild.
+    """
+    types, objects = collections
+    _seed_flat_type(types, objects)
+    _seed_report(reports)
+
+    manager.cleanup_global_section_templates(FLAT_TEMPLATE, delete_mode=True)
+
+    persisted_report = reports.find_one({'public_id': REPORT_ID})
+
+    assert persisted_report['selected_fields'] == ['dg-name']
+    assert [rule['field'] for rule in persisted_report['conditions']['rules']] == ['dg-name']
+    assert 'f-a' not in persisted_report['report_query']['data']
+
+
+def test_cleanup_global_template_leaves_an_unrelated_types_reports_alone(
+    manager: SectionTemplatesManager, collections: Any, reports: Any,
+) -> None:
+    """Only the consuming type's reports are touched - the lookup is scoped by type_id"""
+    types, objects = collections
+    _seed_flat_type(types, objects)
+    _seed_report(reports)
+    reports.update_one({'public_id': REPORT_ID}, {'$set': {'type_id': TYPE_ID + 999}})
+
+    manager.cleanup_global_section_templates(FLAT_TEMPLATE, delete_mode=True)
+
+    persisted_report = reports.find_one({'public_id': REPORT_ID})
+
+    assert persisted_report['selected_fields'] == ['dg-name', 'f-a']

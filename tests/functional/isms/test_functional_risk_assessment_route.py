@@ -20,8 +20,13 @@ Covers CRUD, the ``/duplicate`` route, the enriched GET-list, the delete cascade
 mapping, and two regression guards from the audit: omitting ``control_measure_assignments`` must not
 500 (insert AND update), and a null ``costs_for_implementation`` is accepted (it is nullable). The
 routes are ISMS-license gated, so the check is stubbed.
+
+TestStoredDateShape covers what the routes do to a date on its way through: the document ends up with
+a real BSON date while the response keeps the ``{'$date': ...}`` wrapper the frontend sends, which is
+what made that storage change invisible to the frontend.
 """
 import json
+from datetime import datetime
 from http import HTTPStatus
 from typing import Any
 
@@ -41,6 +46,8 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
 from cmdb.models.person_model.cmdb_person import CmdbPerson
 from cmdb.models.person_group_model.cmdb_person_group import CmdbPersonGroup
+from cmdb.models.isms_model.priority_enum import Priority
+from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.security.license.license_constants import LicenseFeature
@@ -110,7 +117,12 @@ PERSON_REF: str = PersonReferenceType.PERSON
 
 
 def _ra_body(public_id: int, **overrides: Any) -> dict[str, Any]:
-    """Builds a schema-valid IsmsRiskAssessment body (all 26 required fields; nullable ones as None)."""
+    """Builds a complete IsmsRiskAssessment body: every mandatory field filled, the optional ones None.
+
+    'risk_owner_id' carries a real person on purpose - it is one of the fields
+    guard_required_risk_assessment_fields refuses as None, so a null here would make every happy-path
+    test a 400.
+    """
     body: dict[str, Any] = {
         'public_id': public_id,
         'risk_id': RISK_ID,
@@ -122,7 +134,7 @@ def _ra_body(public_id: int, **overrides: Any) -> dict[str, Any]:
         },
         'risk_assessor_id': None,
         'risk_owner_id_ref_type': PERSON_REF,
-        'risk_owner_id': None,
+        'risk_owner_id': PERSON_ID,
         'interviewed_persons': [],
         'risk_assessment_date': {'$date': 1600000000000},
         'additional_info': None,
@@ -273,6 +285,47 @@ class TestPostRiskAssessment:
         created = cma_collection.find_one({'public_id': CMA_ID_TO_CREATE})
         assert created is not None
         assert created['risk_assessment_id'] == RA_ID_FOR_GET
+
+
+class TestRequiredFieldsGuard:
+    """Every write path refuses an assessment whose mandatory fields are not all supplied."""
+
+    def test_create_without_a_risk_owner_returns_400(self, rest_api) -> None:
+        """A null risk_owner_id is refused on create (the Cerberus schema still allows it)."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, risk_owner_id=None))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'risk_owner_id' in json.dumps(response.get_json())
+
+    def test_update_without_a_risk_owner_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The same rule applies to an update - an assessment cannot be saved back incomplete."""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}',
+            json=_ra_body(RA_ID_FOR_UPDATE, risk_owner_id=None),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'risk_owner_id' in json.dumps(response.get_json())
+
+    def test_duplicate_without_a_risk_owner_returns_400(self, rest_api) -> None:
+        """The duplicate source payload has to be complete too, or every copy would be incomplete."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/duplicate/risk/{RISK_ID}',
+            json=_ra_body(RA_ID_FOR_GET, risk_owner_id=None),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'risk_owner_id' in json.dumps(response.get_json())
+
+    def test_a_complete_assessment_is_still_accepted(self, rest_api) -> None:
+        """The guard does not reject a payload whose optional lifecycle blocks are empty."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.CREATED
 
 
 class TestGetRiskAssessment:
@@ -514,8 +567,10 @@ class TestDuplicateRiskAssessment:
         payload = _ra_body(RA_ID_FOR_DUPLICATE)
         payload.pop('public_id')
 
-        assert rest_api.post(f'{ROUTE_URL}/duplicate/risk/{RISK_ID}', json=payload).status_code \
-            == HTTPStatus.BAD_REQUEST
+        response = rest_api.post(
+            f'{ROUTE_URL}/duplicate/risk/{RISK_ID}', json=payload,
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_duplicate_no_valid_target_ids_returns_400(self, rest_api) -> None:
         """A target-id segment with no valid integers is rejected with 400."""
@@ -701,8 +756,10 @@ class TestErrorMapping:
         """An unexpected error on create surfaces as 500."""
         monkeypatch.setattr(RiskAssessmentManager, 'insert_item', _raiser(RuntimeError('boom')))
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET)).status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on list surfaces as 500."""
@@ -722,8 +779,10 @@ class TestErrorMapping:
         _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
         monkeypatch.setattr(RiskAssessmentManager, 'update_item', _raiser(RuntimeError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(RA_ID_FOR_UPDATE)).status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
+        response = rest_api.put(
+            f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(RA_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch,
                                                database_manager: MongoDatabaseManager, database_name: str) -> None:
@@ -748,3 +807,195 @@ class TestErrorMapping:
                             _raiser(RiskAssessmentManagerGetError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{RA_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestStoredDateShape:
+    """A date is stored as a real date and answered as the wrapper it arrived in."""
+
+    def test_a_created_assessment_stores_a_real_date(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The route stores what MongoDB can sort, not the sub-document the frontend sends.
+
+        Read straight from the collection on purpose: the response would look identical either way,
+        which is exactly why this went unnoticed.
+        """
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+        created_id = response.get_json()['raw']['public_id']
+
+        stored = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+            .find_one({'public_id': created_id})
+
+        assert isinstance(stored['risk_assessment_date'], datetime)
+
+    def test_a_created_assessment_is_found_by_a_date_range_query(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Which is the whole point: before this, such a query matched nothing at all."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+        created_id = response.get_json()['raw']['public_id']
+
+        matched = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+            .count_documents({
+                'public_id': created_id,
+                'risk_assessment_date': {'$gte': datetime(2020, 1, 1), '$lt': datetime(2021, 1, 1)},
+            })
+
+        assert matched == 1
+
+    def test_the_response_carries_the_wrapper_the_frontend_expects(self, rest_api) -> None:
+        """The response encoder serialises the stored date back into the shape it arrived in."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+        created_id = response.get_json()['raw']['public_id']
+
+        result = rest_api.get(f'{ROUTE_URL}/{created_id}').get_json()['result']
+
+        assert result['risk_assessment_date'] == {'$date': 1600000000000}
+
+    def test_an_updated_assessment_stores_a_real_date(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The update path goes through the model rather than the manager, and must agree with it."""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
+
+        response = rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(RA_ID_FOR_UPDATE))
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        stored = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
+            .find_one({'public_id': RA_ID_FOR_UPDATE})
+        assert isinstance(stored['risk_assessment_date'], datetime)
+
+    def test_a_legacy_wrapped_document_still_reads(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        A database that has not run the migration yet is still served correctly.
+
+        The model reads both shapes, so the fix does not depend on the migration having run first.
+        """
+        _insert_ra(database_manager, database_name, RA_ID_FOR_GET)
+
+        result = rest_api.get(f'{ROUTE_URL}/{RA_ID_FOR_GET}').get_json()['result']
+
+        assert result['risk_assessment_date'] == {'$date': 1600000000000}
+
+    def test_an_unreadable_date_is_refused(self, rest_api) -> None:
+        """
+        A date nothing can read is a 400, not a guess.
+
+        With fuzzy parsing this stored a date assembled from today's values, which then looked like a
+        deliberate entry.
+        """
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, audit_done_date='planned for Q3'),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_timestamp_string_is_accepted(self, rest_api) -> None:
+        """An API client may send a plain timestamp; only unreadable values are refused."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, audit_done_date='2026-09-07T10:00:00Z'),
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+    def test_an_assignment_created_with_the_assessment_stores_a_real_date(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The assignments travel in the assessment's payload, through their own manager."""
+        database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
+            .insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
+
+        payload = _ra_body(RA_ID_FOR_GET, control_measure_assignments=[{
+            'public_id': CMA_ID_TO_CREATE,
+            'control_measure_id': CONTROL_MEASURE_ID,
+            'planned_implementation_date': {'$date': 1600000000000},
+        }])
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        stored = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
+            .find_one({'public_id': CMA_ID_TO_CREATE})
+        assert isinstance(stored['planned_implementation_date'], datetime)
+
+
+class TestPinnedEnumValues:
+    """The two fields whose values were previously unconstrained."""
+
+    def test_an_unknown_treatment_option_returns_400(self, rest_api) -> None:
+        """
+        A treatment option outside TreatmentOption is refused by validation.
+
+        It used to be stored: the reports group by this field, so an unknown value became a group
+        nothing could name.
+        """
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, risk_treatment_option='MAYBE'))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_known_treatment_option_is_accepted(self, rest_api) -> None:
+        """The four real options still pass, so the tightening does not break the form."""
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, risk_treatment_option=TreatmentOption.REDUCE.value),
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+    def test_an_out_of_range_priority_returns_400(self, rest_api) -> None:
+        """Priority is a four-value scale; 7 has no meaning anywhere in the UI or the reports."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, priority=7))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_valid_priority_is_accepted(self, rest_api) -> None:
+        """Each of the four scale values passes."""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, priority=Priority.HIGH.value))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+
+class TestDuplicateDoesNotStoreTheTransportKey:
+    """The assignments list belongs to its own collection, never to the assessment document."""
+
+    def test_a_duplicate_does_not_persist_control_measure_assignments(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The insert route popped the key and the duplicate route did not.
+
+        A stored copy was then invisible in every response - the read routes answer through the model,
+        which only emits the keys it declares - while still sitting in the document.
+        """
+        _insert_ra(database_manager, database_name, RA_ID_FOR_DUPLICATE)
+        payload = _ra_body(RA_ID_FOR_DUPLICATE, control_measure_assignments=[
+            {'public_id': CMA_ID_TO_CREATE, 'control_measure_id': CONTROL_MEASURE_ID},
+        ])
+
+        response = rest_api.post(f'{ROUTE_URL}/duplicate/risk/{RISK_ID}?copy_cma=false', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        created_ids = response.get_json()
+        collection = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
+        stored = collection.find_one({'public_id': created_ids[0]})
+        collection.delete_many({'public_id': {'$in': created_ids}})
+
+        assert 'control_measure_assignments' not in stored
+
+    def test_a_duplicate_stores_a_real_date(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The duplicate route inserts raw dicts of its own, so it needs the same normalisation."""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_DUPLICATE)
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/duplicate/risk/{RISK_ID}?copy_cma=false', json=_ra_body(RA_ID_FOR_DUPLICATE),
+        )
+
+        created_ids = response.get_json()
+        collection = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
+        stored = collection.find_one({'public_id': created_ids[0]})
+        collection.delete_many({'public_id': {'$in': created_ids}})
+
+        assert isinstance(stored['risk_assessment_date'], datetime)

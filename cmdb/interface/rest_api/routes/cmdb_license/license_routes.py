@@ -24,7 +24,7 @@ only, so every route is hidden (404) in cloud or local mode
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import request, abort, current_app
+from flask import abort, current_app
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import LicenseService
@@ -47,6 +47,7 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
     CurrentLicenseResponseKey,
     LicenseUploadKey,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -108,7 +109,7 @@ def get_current_license(request_user: CmdbUser):
         license_service: LicenseService = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
 
         return GetSingleResponse(_current_license_payload(license_service),
-                                 body=request.method == 'HEAD').make_response()
+                                 body=request_wants_body()).make_response()
     except Exception as err:
         LOGGER.error("[get_current_license] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving the current license!")
@@ -143,7 +144,7 @@ def activate_license(data: dict, request_user: CmdbUser):
         if not result.is_valid:
             abort(400, f"The license could not be activated (status: {result.status.value})!")
 
-        return GetSingleResponse(_current_license_payload(license_service), body=False).make_response()
+        return GetSingleResponse(_current_license_payload(license_service)).make_response()
     except HTTPException:
         raise
     except Exception as err:
@@ -174,7 +175,7 @@ def delete_current_license(request_user: CmdbUser):
 
         license_service.deactivate()
 
-        return GetSingleResponse(_current_license_payload(license_service), body=False).make_response()
+        return GetSingleResponse(_current_license_payload(license_service)).make_response()
     except Exception as err:
         LOGGER.error("[delete_current_license] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while removing the license!")

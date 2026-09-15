@@ -52,6 +52,7 @@ from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerDeleteError,
     LikelihoodManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -143,7 +144,7 @@ def get_isms_likelihoods(params: CollectionParameters, request_user: CmdbUser) -
         GetMultiResponse: All the IsmsLikelihoods matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body = request_wants_body()
 
         likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
@@ -188,7 +189,7 @@ def get_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
         requested_likelihood = get_item_or_404(likelihood_manager, public_id,
                                                f"The Likelihood with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_likelihood, body = request.method == 'HEAD').make_response()
+        return GetSingleResponse(requested_likelihood, body=request_wants_body()).make_response()
     except HTTPException as http_err:
         raise http_err
     except LikelihoodManagerGetError as err:

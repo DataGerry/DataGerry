@@ -31,11 +31,18 @@ from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    insert_request_user,
+    verify_api_access,
+    parse_assistant_parameters,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.blueprints import RootBlueprint
+from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
-from cmdb.interface.rest_api.routes.framework_routes.special_helper import has_framework_data
+from cmdb.interface.rest_api.routes.framework_routes.special_helper import (
+    drop_locked_profiles,
+    has_framework_data,
+)
 from cmdb.framework.datagerry_assistant.profile_assistant import ProfileAssistant
 
 from cmdb.errors.manager.categories_manager import CategoriesManagerGetError
@@ -46,7 +53,7 @@ from cmdb.errors.dg_assistant.dg_assistant_errors import ProfileCreationError
 
 LOGGER: Logger = getLogger(__name__)
 
-special_blueprint = RootBlueprint('special_rest', __name__, url_prefix='/special')
+special_blueprint = APIBlueprint('special_rest', __name__, url_prefix='/special')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -82,11 +89,14 @@ def show_datagerry_assistant(request_user: CmdbUser) -> Response:
 
 @special_blueprint.route('/profiles', methods=['POST'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@special_blueprint.parse_assistant_parameters()
+@parse_assistant_parameters()
 @insert_request_user
 def create_initial_profiles(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Creates all profiles selected in the assistant
+
+    A selected profile whose license feature is not unlocked is silently skipped, so the remaining
+    profiles are still seeded; the response therefore lists only the types actually created
 
     Args:
         data (dict[str, Any]): Parsed query parameters; the 'data' key holds the profile names as a
@@ -114,6 +124,10 @@ def create_initial_profiles(data: dict[str, Any], request_user: CmdbUser) -> Res
         # Only execute if there are no categories, types and objects in the database
         if has_framework_data(categories_manager, types_manager, objects_manager):
             abort(400, "There are objects, types, or categories in the database which prevents this action!")
+
+        # A profile whose license feature is locked is skipped rather than failing the whole run - the
+        # assistant bypasses the route guards that would otherwise gate it (see drop_locked_profiles)
+        profiles = drop_locked_profiles(profiles, request_user)
 
         profile_assistant = ProfileAssistant(categories_manager, types_manager, section_templates_manager)
         created_ids = profile_assistant.create_profiles(profiles)

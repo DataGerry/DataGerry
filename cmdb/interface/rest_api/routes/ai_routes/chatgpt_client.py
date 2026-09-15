@@ -58,16 +58,6 @@ class ChatGptClient:
             self.client: OpenAI = OpenAI(api_key=scr.get_value(ChatGptKeys.CONFIG_API_KEY, ChatGptKeys.CONFIG_SECTION))
 
 
-    def get_client(self) -> OpenAI:
-        """
-        Returns the underlying ``OpenAI`` client instance
-
-        Returns:
-            OpenAI: The wrapped OpenAI SDK client
-        """
-        return self.client
-
-
     def send_template_request(self, user_message: str) -> str:
         """
         Sends a document-template generation request to ChatGPT and returns the model's reply

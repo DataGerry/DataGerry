@@ -136,6 +136,27 @@ class TestInit:
             with pytest.raises(RightsManagerInitError):
                 RightsManager()
 
+    @pytest.mark.parametrize('right_name', [
+        'base.framework.report.view',
+        'base.framework.report.add',
+        'base.framework.report.edit',
+        'base.framework.report.delete',
+        'base.framework.ipam.view',
+        'base.framework.ipam.add',
+        'base.framework.ipam.edit',
+        'base.framework.ipam.delete',
+        'base.framework.location.view',
+        'base.framework.location.add',
+        'base.framework.location.edit',
+        'base.framework.location.delete',
+        'base.isms.import.add',
+    ])
+    def test_new_rights_are_registered(self, right_name: str) -> None:
+        """The Report / IPAM / Location / ISMS-import rights created for the permissions sweep resolve."""
+        manager = RightsManager()
+
+        assert manager.get_right(right_name) is not None
+
 
 # --------------------------------------------------------------- get_right ------------------------------------------ #
 

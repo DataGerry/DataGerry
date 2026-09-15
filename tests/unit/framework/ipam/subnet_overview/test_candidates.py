@@ -823,3 +823,51 @@ def test_resolve_candidate_ips_ipv6_status_free_yields_empty() -> None:
     )
 
     assert result == []
+
+
+def test_resolve_candidate_ips_ipv6_applies_an_explicit_sort() -> None:
+    """
+    An IPv6 listing sorted by a column other than the natural order goes through the sorter
+
+    IPv4 can stay lazy - the addresses are already in numeric order - but IPv6 lists only the
+    assigned set, so any requested sort has to be applied to that materialized list.
+    """
+    assigned = {
+        '2001:db8::5': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+        '2001:db8::2': _make_assigned_entry(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, is_valid=True),
+    }
+
+    result = resolve_candidate_ips(
+        IPv6Network(SUBNET_RANGE_V6), search='', sort_col=IpamSortColumn.IP,
+        sort_dir=IpamSortDirection.DESC,
+        status_filter=None, type_filter=[], assigned=assigned, type_meta={},
+        objects_manager=MagicMock(), is_ipv6=True,
+    )
+
+    assert result == ['2001:db8::5', '2001:db8::2']
+
+
+def test_compute_sort_key_returns_none_for_a_mac_of_an_unassigned_ip() -> None:
+    """
+    The MAC column has nothing to sort a free address by
+
+    None is what the sort treats as "no value", which is how free rows group together instead of
+    being ordered by a MAC they do not have.
+    """
+    result = _compute_sort_key('10.0.0.1', IpamSortColumn.MAC_ADDRESS,
+                               assigned={}, type_meta={}, summary_lines={})
+
+    assert result is None
+
+
+def test_compute_sort_key_returns_none_for_an_unhandled_column() -> None:
+    """
+    A sort column with no branch sorts on nothing rather than raising
+
+    The column arrives from a query string, and the caller validates it - this is the fall-through
+    that keeps an unvalidated one from taking the whole listing down.
+    """
+    result = _compute_sort_key('10.0.0.1', 'dg-not-a-sort-column',
+                               assigned={}, type_meta={}, summary_lines={})
+
+    assert result is None
