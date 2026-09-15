@@ -57,18 +57,21 @@ class PortNameSyntaxError(BaseStrEnum):
     Messages reported when a name syntax or its numbering is refused
 
     Members with a `{...}` placeholder are filled via `format()`. Every one is a business-rule
-    rejection surfaced as an HTTP 400 by the preview and the bulk-create routes
+    rejection surfaced as an HTTP 400 by the preview and the bulk-create routes.
+
+    Note what is NOT here: duplicate names, names already taken on a face, and an unequal
+    front/rear port count are all real rules, but the preview reports them as **structured data**
+    rather than prose - `duplicate_names` / `colliding_names` answer lists, which `build_name_preview`
+    returns under `PortCollisionKey.DUPLICATES` / `EXISTING` so the frontend can highlight the
+    offending names rather than parse a sentence. Three message templates written for those rules
+    (`DUPLICATE_NAMES`, `COLLIDING_NAMES`, `UNEQUAL_PANEL_COUNTS`) were never emitted by anything and
+    were removed on 2026-09-14
     """
     EMPTY_SYNTAX = 'A name syntax is required - it is what the port names are generated from!'
     UNKNOWN_TOKEN = "'{{{token}}}' is not a known syntax token. Allowed: {allowed}"
     PAD_WIDTH_TOO_LARGE = "The padding of '{{{token}}}' is too wide - at most {maximum} digits!"
     INVALID_COUNT = 'The number of ports to create must be a whole number of at least 1, but was {value}!'
     INVALID_START_INDEX = 'The start index must be a whole number of at least 0, but was {value}!'
-    DUPLICATE_NAMES = 'This syntax generates the same name more than once: {names}. Add {{n}} to it!'
-    COLLIDING_NAMES = 'These names are already taken on the {side} side of this CmdbObject: {names}'
-    UNEQUAL_PANEL_COUNTS = (
-        'A patch panel needs the same number of front and rear ports, but got {front} and {rear}!'
-    )
 
 
 # Prefix of the aggregated 400 the preview and creation routes build from the reasons above

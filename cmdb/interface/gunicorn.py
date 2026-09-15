@@ -70,7 +70,6 @@ class WebCmdbService(AbstractCmdbService):
         super().__init__()
         self._name = "webapp"
         self._threaded_service = False
-        self._multiprocessing = True
         self._webserver_proc: multiprocessing.Process | None = None
 
 

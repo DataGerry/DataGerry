@@ -35,6 +35,13 @@ involved, so a degraded graph can be recognised as one instead of being read as 
 object's own type is the exception: without it there is no node to draw the neighbours around, so that
 is a ``CiExplorerGraphBuildError``.
 
+**Nothing the requesting user may not read is in the payload.** Every source is filtered against the
+object ACL - which lives on the CmdbType, so the check is a pure pass over the types the pipeline has
+already loaded (see ``access.py``). A denied neighbour is omitted silently, and a denied focal object
+raises the same ``CiExplorerTargetNotFoundError`` as a missing one, because a 403 or a placeholder node
+would confirm the existence of exactly what the ACL hides. Passing no user disables the filter, the
+convention every manager here follows.
+
 **The neighbour cap is deterministic.** The linked-object read is sorted by public_id before the limit
 is applied, so the same request returns the same subgraph twice; an unsorted ``limit`` returns natural
 order, which MongoDB does not guarantee and which changes as documents are rewritten. Truncation is
@@ -51,13 +58,21 @@ Pipeline:
      second branch reflects the slots the first one spent
   5. When ``with_ipam_relations``, walk one hop in each direction of the IPAM SpecialType hierarchy
      (SUPERNET <-> SUBNET <-> VLAN/Interface) and collect the raw neighbour CmdbObjects
+  5a. When ``with_port_connections``, walk the physical chain out of every cabled port of the focal
+     object and collect the CIs it ends at, collapsing patch panels away (see ``connections.py``)
   6. Bulk-fetch the CmdbType documents for every object in scope (single $in)
+  6a. Resolve which of those types the user may not read, drop every object of one from all four
+     sources, and refuse the whole request when the focal object itself is denied
   7. Run the batched enrichment once across the whole union: collect ref-field + dg_location ids, one
      $in lookup each, then flatten every object's fields
   8. Compose nodes (one builder for root, relation-linked, location-grafted and IPAM-grafted alike) and
      edges (relation / IPAM / location shapes). IPAM and location neighbours fold into the same
      parent/child buckets as relation neighbours, with ``metadata.source`` distinguishing them
   9. Assemble the response according to ``target_type`` (CHILD / PARENT / BOTH)
+
+**Port connections are undirected**, so they have no parent side to fold into: every collapsed edge
+lands in the children bucket carrying ``metadata.undirected: true``, and a request for parents only
+gets none of them. A cable between two CIs is a fact about both, not a hierarchy.
 
 **The location directions are inverted on purpose**: an object's location *parent* appears in the
 children bucket and its location *children* in the parent bucket, because the graph reads
@@ -67,10 +82,21 @@ from dataclasses import dataclass, field
 from logging import Logger, getLogger
 from typing import Any
 
+from cmdb.framework.ci_explorer.access import (
+    collect_denied_type_ids,
+    filter_accessible_objects,
+    is_denied,
+)
 from cmdb.framework.ci_explorer.context import CiExplorerGraphRequest, CiExplorerManagers
+from cmdb.framework.ci_explorer.connections import (
+    ConnectionNeighbour,
+    ConnectionSourceManagers,
+    collect_connection_neighbours,
+)
 from cmdb.framework.ci_explorer.edges import (
     compose_ipam_edge,
     compose_location_edge,
+    compose_port_connection_edge,
     compose_relation_edge,
 )
 from cmdb.framework.ci_explorer.enrichment import (
@@ -90,7 +116,9 @@ from cmdb.framework.ci_explorer.locations import (
     collect_location_children_objects,
     collect_location_parent_object,
 )
+from cmdb.framework.ci_explorer.connections import PORT_CONNECTION_RELATION_COLOR
 from cmdb.framework.ci_explorer.nodes import compose_node
+from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ci_explorer.relations import (
     build_relation_criteria,
     collect_linked_object_ids,
@@ -159,6 +187,19 @@ class LocationNeighbourhood:
     parent_object: dict[str, Any] | None = None
     children_objects: list[dict[str, Any]] = field(default_factory=list)
     remaining: int = 0
+
+
+@dataclass
+class ConnectionNeighbourhood:
+    """
+    Everything the port-connectivity branch produced
+
+    Attributes:
+        neighbours: The CIs the physical walk reached, each with the path it collapsed
+        objects: Those CmdbObjects by public_id, already type-filtered
+    """
+    neighbours: list[ConnectionNeighbour] = field(default_factory=list)
+    objects: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
 def index_by_public_id(docs: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
@@ -394,6 +435,154 @@ def resolve_composable(
     return public_id, type_doc, enriched
 
 
+def load_connection_neighbourhood(
+        request: CiExplorerGraphRequest,
+        managers: CiExplorerManagers,
+        remaining: int) -> ConnectionNeighbourhood:
+    """
+    Loads the port-connectivity branch: the CIs the focal object is physically cabled to
+
+    A no-op unless the caller asked for it AND the direction it belongs to was requested. Port
+    connections are undirected and ride in the children bucket, so a parents-only request skips the
+    source entirely rather than returning edges the response has nowhere to put.
+
+    The three managers it needs are optional on the bundle, because the route resolves them only for
+    this flag - a bundle missing them is treated as the flag being off rather than as an error, so an
+    internal caller cannot get a 500 out of not knowing about a licensed source
+
+    Args:
+        request (CiExplorerGraphRequest): What the caller asked for
+        managers (CiExplorerManagers): The managers to read through
+        remaining (int): Slots left after the relation, location and IPAM branches
+
+    Returns:
+        ConnectionNeighbourhood: The neighbours with their collapsed physical paths, and the
+            far-side CmdbObjects by public_id
+    """
+    if not request.with_port_connections or not request.include_children:
+        return ConnectionNeighbourhood()
+
+    if managers.ports is None or managers.port_connections is None or managers.extendable_options is None:
+        LOGGER.warning(
+            "[ci_explorer] with_port_connections was requested without the managers it reads through",
+        )
+        return ConnectionNeighbourhood()
+
+    neighbours, neighbour_objects = collect_connection_neighbours(
+        target_id=request.target_id,
+        types_filter=request.types_filter,
+        remaining=remaining,
+        item_limit_active=request.item_limit_active,
+        managers=ConnectionSourceManagers(
+            ports=managers.ports,
+            connections=managers.port_connections,
+            objects=managers.objects,
+            extendable_options=managers.extendable_options,
+        ),
+    )
+
+    return ConnectionNeighbourhood(neighbours=neighbours, objects=neighbour_objects)
+
+
+def compose_connection_buckets(
+        request: CiExplorerGraphRequest,
+        neighbourhood: ConnectionNeighbourhood,
+        types_by_id: dict[int, dict[str, Any]],
+        enriched_by_id: dict[int, dict[str, Any]],
+        buckets: GraphBuckets) -> None:
+    """
+    Composes the physically connected CIs into the children bucket, in place
+
+    Their edges carry ``metadata.source='port_connection'`` and ``metadata.undirected=true``, so the
+    frontend renders them without an arrowhead while every existing client keeps reading the same two
+    buckets. One connection is one edge: two objects cabled twice appear as one node and two edges
+
+    Args:
+        request (CiExplorerGraphRequest): What the caller asked for
+        neighbourhood (ConnectionNeighbourhood): What the physical walk resolved
+        types_by_id (dict[int, dict[str, Any]]): The CmdbTypes of the in-scope objects
+        enriched_by_id (dict[int, dict[str, Any]]): The enriched objects by public_id
+        buckets (GraphBuckets): The buckets to fill
+    """
+    for neighbour in neighbourhood.neighbours:
+        neighbour_object: dict[str, Any] | None = neighbourhood.objects.get(neighbour.neighbour_object_id)
+
+        if neighbour_object is None:
+            continue
+
+        composable = resolve_composable(
+            neighbour_object, types_by_id, enriched_by_id, 'Port-connection neighbour',
+        )
+
+        if composable is None:
+            continue
+
+        neighbour_id, type_doc, enriched_obj = composable
+        buckets.child_nodes_by_id[neighbour_id] = compose_node(
+            enriched_obj, type_doc, PORT_CONNECTION_RELATION_COLOR,
+        )
+        buckets.child_edges.append(compose_port_connection_edge(
+            request.target_id, neighbour_id, neighbour.path,
+        ))
+
+
+def drop_denied_neighbours(
+        relation_neighbourhood: RelationNeighbourhood,
+        location_neighbourhood: LocationNeighbourhood,
+        ipam_neighbours: list[IpamNeighbour],
+        denied_type_ids: set[int]) -> list[IpamNeighbour]:
+    """
+    Removes every neighbour of an ACL-denied CmdbType from all three sources
+
+    Runs after the bulk type load, which is the earliest point at which the ACL is known, and before
+    the enrichment - so a denied neighbour costs no summary lookup and never reaches a composer. The
+    relation edges are dropped alongside their objects: an edge whose far end is not in the payload
+    would draw a line to nothing.
+
+    The two neighbourhoods are dataclasses owned by this module and are filtered **in place**, while
+    the IPAM neighbours arrive as a plain list and are returned filtered - hence the asymmetry in the
+    signature.
+
+    **The item_limit budget is spent before this runs**, because the cap is applied inside each
+    source's Mongo read and the ACL is only knowable afterwards. A user denied most of a large
+    neighbourhood can therefore receive fewer nodes than ``item_limit`` - the cap protects the
+    database, and re-applying it after filtering would need a second round of reads
+
+    Args:
+        relation_neighbourhood (RelationNeighbourhood): The object-relation branch, filtered in place
+        location_neighbourhood (LocationNeighbourhood): The dg_location branch, filtered in place
+        ipam_neighbours (list[IpamNeighbour]): The IPAM branch
+        denied_type_ids (set[int]): public_ids of the CmdbTypes the user may not read
+
+    Returns:
+        list[IpamNeighbour]: The IPAM neighbours that survived the filter
+    """
+    relation_neighbourhood.directional_edges = [
+        (directional_edge, relation_doc)
+        for directional_edge, relation_doc in relation_neighbourhood.directional_edges
+        if not is_denied(relation_neighbourhood.linked_objects[directional_edge.linked_id], denied_type_ids)
+    ]
+    relation_neighbourhood.linked_objects = {
+        linked_id: linked_object
+        for linked_id, linked_object in relation_neighbourhood.linked_objects.items()
+        if not is_denied(linked_object, denied_type_ids)
+    }
+
+    if location_neighbourhood.parent_object is not None and is_denied(
+            location_neighbourhood.parent_object, denied_type_ids):
+        location_neighbourhood.parent_object = None
+
+    location_neighbourhood.children_objects = [
+        child_object for child_object in location_neighbourhood.children_objects
+        if not is_denied(child_object, denied_type_ids)
+    ]
+
+    return [
+        ipam_neighbour for ipam_neighbour in ipam_neighbours
+        if not is_denied(ipam_neighbour.neighbour_object, denied_type_ids)
+    ]
+
+
 def compose_relation_buckets(
         neighbourhood: RelationNeighbourhood,
         types_by_id: dict[int, dict[str, Any]],
@@ -516,20 +705,87 @@ def compose_ipam_buckets(
             ))
 
 
+def load_types_in_scope(
+        in_scope_objects: list[dict[str, Any]],
+        managers: CiExplorerManagers) -> dict[int, dict[str, Any]]:
+    """
+    Bulk-fetches the CmdbType of every object in scope in a single ``$in``
+
+    One read for root, relation, location, IPAM and port-connection objects together - which is what
+    keeps the graph at a fixed number of round trips however many neighbours it draws
+
+    Args:
+        in_scope_objects (list[dict[str, Any]]): Every CmdbObject the response may contain
+        managers (CiExplorerManagers): The managers to read through
+
+    Returns:
+        dict[int, dict[str, Any]]: {public_id: CmdbType document}
+    """
+    type_ids: set[int] = {
+        obj[TYPE_ID_KEY] for obj in in_scope_objects if isinstance(obj.get(TYPE_ID_KEY), int)
+    }
+
+    if not type_ids:
+        return {}
+
+    return index_by_public_id(list(
+        managers.types.find(criteria={PUBLIC_ID_KEY: {'$in': sorted(type_ids)}})
+    ))
+
+
+def compose_root_node(
+        request: CiExplorerGraphRequest,
+        root_object: dict[str, Any],
+        types_by_id: dict[int, dict[str, Any]],
+        enriched_by_id: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """
+    Composes the ``root_node`` block for the focal object
+
+    The one place where a missing piece is fatal rather than skipped: every other node can be left
+    out and still leave a useful graph, but a graph asked for ``with_root`` and answered without one
+    is not the graph that was requested
+
+    Args:
+        request (CiExplorerGraphRequest): What the caller asked for
+        root_object (dict[str, Any]): The focal CmdbObject document
+        types_by_id (dict[int, dict[str, Any]]): The CmdbTypes of the in-scope objects
+        enriched_by_id (dict[int, dict[str, Any]]): The enriched objects by public_id
+
+    Raises:
+        CiExplorerGraphBuildError: If the focal object's CmdbType or enriched form is missing
+
+    Returns:
+        dict[str, Any]: The composed root node
+    """
+    root_type_doc: dict[str, Any] | None = types_by_id.get(root_object.get(TYPE_ID_KEY))
+    enriched_root: dict[str, Any] | None = enriched_by_id.get(request.target_id)
+
+    if root_type_doc is None or enriched_root is None:
+        raise CiExplorerGraphBuildError(
+            f"The CmdbType of object ID:{request.target_id} is missing, so the graph has no root node!"
+        )
+
+    return compose_node(enriched_root, root_type_doc, None)
+
+
 def build_ci_explorer_graph(
         request: CiExplorerGraphRequest,
-        managers: CiExplorerManagers) -> dict[str, Any]:
+        managers: CiExplorerManagers,
+        user: CmdbUser | None = None) -> dict[str, Any]:
     """
     Builds the full node/edge payload for the CI Explorer graph view
 
-    See the module docstring for the pipeline and the three rules that govern the output
+    See the module docstring for the pipeline and the four rules that govern the output
 
     Args:
         request (CiExplorerGraphRequest): What the caller asked for
         managers (CiExplorerManagers): The managers to read through
+        user (CmdbUser | None): The CmdbUser the graph is built for, whose group's ACL decides which
+            objects may appear. None disables access control, matching ``acl/helpers.verify_access``
 
     Raises:
-        CiExplorerTargetNotFoundError: If no CmdbObject carries the requested target_id
+        CiExplorerTargetNotFoundError: If no CmdbObject carries the requested target_id, or if the
+            user's ACL denies the focal object - the two are deliberately indistinguishable
         CiExplorerGraphBuildError: If the focal object's CmdbType is missing, leaving no root node
 
     Returns:
@@ -566,6 +822,14 @@ def build_ci_explorer_graph(
             types_manager=managers.types,
         )
 
+    remaining = (
+        max(0, location_neighbourhood.remaining - len(ipam_neighbours))
+        if request.item_limit_active else 0
+    )
+    connection_neighbourhood: ConnectionNeighbourhood = load_connection_neighbourhood(
+        request, managers, remaining,
+    )
+
     in_scope_objects: list[dict[str, Any]] = [root_object]
     in_scope_objects.extend(relation_neighbourhood.linked_objects.values())
 
@@ -574,17 +838,28 @@ def build_ci_explorer_graph(
 
     in_scope_objects.extend(location_neighbourhood.children_objects)
     in_scope_objects.extend(neighbour.neighbour_object for neighbour in ipam_neighbours)
+    in_scope_objects.extend(connection_neighbourhood.objects.values())
 
-    type_ids: set[int] = {
-        obj[TYPE_ID_KEY] for obj in in_scope_objects if isinstance(obj.get(TYPE_ID_KEY), int)
-    }
+    types_by_id: dict[int, dict[str, Any]] = load_types_in_scope(in_scope_objects, managers)
 
-    types_by_id: dict[int, dict[str, Any]] = {}
+    denied_type_ids: set[int] = collect_denied_type_ids(types_by_id, user)
 
-    if type_ids:
-        types_by_id = index_by_public_id(list(
-            managers.types.find(criteria={PUBLIC_ID_KEY: {'$in': sorted(type_ids)}})
-        ))
+    if denied_type_ids:
+        if is_denied(root_object, denied_type_ids):
+            # Deliberately the same error a missing object raises: a 403 would confirm it exists
+            raise CiExplorerTargetNotFoundError(
+                f"The ACL denies read access to the CmdbObject with ID:{request.target_id}!"
+            )
+
+        ipam_neighbours = drop_denied_neighbours(
+            relation_neighbourhood, location_neighbourhood, ipam_neighbours, denied_type_ids,
+        )
+        connection_neighbourhood.objects = {
+            neighbour_id: neighbour_object
+            for neighbour_id, neighbour_object in connection_neighbourhood.objects.items()
+            if not is_denied(neighbour_object, denied_type_ids)
+        }
+        in_scope_objects = filter_accessible_objects(in_scope_objects, denied_type_ids)
 
     enriched_by_id: dict[int, dict[str, Any]] = enrich_in_scope_objects(
         in_scope_objects, types_by_id, managers,
@@ -593,21 +868,14 @@ def build_ci_explorer_graph(
     response: dict[str, Any] = {}
 
     if request.with_root:
-        root_type_doc: dict[str, Any] | None = types_by_id.get(root_object.get(TYPE_ID_KEY))
-        enriched_root: dict[str, Any] | None = enriched_by_id.get(request.target_id)
-
-        if root_type_doc is None or enriched_root is None:
-            raise CiExplorerGraphBuildError(
-                f"The CmdbType of object ID:{request.target_id} is missing, so the graph has no root node!"
-            )
-
-        response[ROOT_NODE_KEY] = compose_node(enriched_root, root_type_doc, None)
+        response[ROOT_NODE_KEY] = compose_root_node(request, root_object, types_by_id, enriched_by_id)
 
     buckets = GraphBuckets()
 
     compose_relation_buckets(relation_neighbourhood, types_by_id, enriched_by_id, buckets)
     compose_location_buckets(request, location_neighbourhood, types_by_id, enriched_by_id, buckets)
     compose_ipam_buckets(request, ipam_neighbours, types_by_id, enriched_by_id, buckets)
+    compose_connection_buckets(request, connection_neighbourhood, types_by_id, enriched_by_id, buckets)
 
     if request.include_children:
         response[CHILDREN_NODES_KEY] = list(buckets.child_nodes_by_id.values())

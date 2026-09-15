@@ -15,12 +15,23 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Access Control helper functions
+
+An ACL lives on the **CmdbType**, never on the CmdbObject, so "may this user read this object" is
+always "may this user's group read objects of this object's type". Access control is opt-in: an ACL
+that is absent or switched off permits everything, and an activated one fails closed.
+
+The one decision is ``acl_grants_access``; the three functions around it differ only in what they are
+handed - a CmdbType model, a raw CmdbType document as it comes out of Mongo, or nothing to check
+against at all - so a caller never re-implements the "absent or deactivated permits everything" rule
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.security.acl.access_control_list import AccessControlList
+from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.errors.security import AccessDeniedError
@@ -30,14 +41,57 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def has_access_control(target_type: CmdbType, user: CmdbUser, permission: AccessControlPermission) -> bool:
-    """Check if a user has access to object/objects for a given permission"""
-    acl: AccessControlList = target_type.acl
+def acl_grants_access(
+        acl: AccessControlList | None,
+        group_id: int,
+        permission: AccessControlPermission) -> bool:
+    """
+    Decides whether one AccessControlList grants a group a permission
 
+    The single expression of the opt-in rule: an ACL that is absent, or present but not activated,
+    grants everything. Only an activated ACL is consulted, and that decision fails closed
+
+    Args:
+        acl (AccessControlList | None): The ACL of the CmdbType being accessed, or None when it has none
+        group_id (int): public_id of the CmdbUserGroup the requesting user belongs to
+        permission (AccessControlPermission): The permission the group must hold
+
+    Returns:
+        bool: True when access is granted
+    """
     if acl and acl.activated:
-        return acl.verify_access(user.group_id, permission)
+        return acl.verify_access(group_id, permission)
 
     return True
+
+
+def has_access_control(target_type: CmdbType, user: CmdbUser, permission: AccessControlPermission) -> bool:
+    """Check if a user has access to object/objects for a given permission"""
+    return acl_grants_access(target_type.acl, user.group_id, permission)
+
+
+def has_type_document_access(
+        type_document: dict[str, Any],
+        user: CmdbUser,
+        permission: AccessControlPermission) -> bool:
+    """
+    Checks a raw CmdbType **document** against a user, without building the CmdbType model
+
+    Same decision as ``has_access_control``, for the callers that already hold the type as it came
+    out of Mongo - a bulk reader that has loaded every type in scope in one ``$in`` should not pay a
+    full ``CmdbType.from_data`` per type just to look at ``acl``
+
+    Args:
+        type_document (dict[str, Any]): A CmdbType document; a missing ``acl`` key grants access
+        user (CmdbUser): The CmdbUser requesting access
+        permission (AccessControlPermission): The permission the user's group must hold
+
+    Returns:
+        bool: True when access is granted
+    """
+    acl_data: Any = type_document.get(TypeSchemaKey.ACL.value) or {AclKey.ACTIVATED.value: False}
+
+    return acl_grants_access(AccessControlList.from_data(acl_data), user.group_id, permission)
 
 
 def verify_access(

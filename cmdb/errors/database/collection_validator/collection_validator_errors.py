@@ -36,12 +36,6 @@ class CollectionValidatorError(Exception):
 
 # ------------------------------------------- CollectionValidator - ERRORS ------------------------------------------- #
 
-class CollectionValidatorInitError(CollectionValidatorError):
-    """
-    Raised when the CollectionValidator could not be initialised
-    """
-
-
 class CollectionInitError(CollectionValidatorError):
     """
     Raised when the initialisation of a Collection failed

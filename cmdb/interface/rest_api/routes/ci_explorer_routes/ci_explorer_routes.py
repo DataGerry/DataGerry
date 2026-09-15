@@ -37,6 +37,7 @@ from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
+    ExtendableOptionsManager,
     ObjectsManager,
     TypesManager,
     RelationsManager,
@@ -45,6 +46,8 @@ from cmdb.manager import (
     LocationsManager,
     LogsManager,
 )
+from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -99,7 +102,9 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import
     load_ci_explorer_entity,
     record_tooltip_edit_log,
 )
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -235,6 +240,11 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
     actual payload construction to ``cmdb.framework.ci_explorer.graph.build_ci_explorer_graph``.
     See that function's docstring for the full response shape
 
+    The right is not the only check: the graph is filtered against the requesting user's **object
+    ACL** as well, so a neighbour of a CmdbType the user's group may not read is omitted from the
+    payload without any trace, and a focal object they may not read answers **404** - the same answer
+    a target that does not exist gets, because a 403 would confirm that it does
+
     Query args:
         target_id (int, required): public_id of the focal CmdbObject. 400 when missing
         target_type (str, default 'BOTH'): one of NodeType values (CHILD / PARENT / BOTH)
@@ -243,12 +253,19 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         with_ipam_relations (bool, default false): include IPAM-hierarchy neighbours
             (SUPERNET / SUBNET / VLAN / interface carriers) folded into the standard
             parent/child buckets with metadata.source='ipam' on each edge
+        with_port_connections (bool, default false): include the CIs the focal object is
+            physically cabled to, with patch panels collapsed away. The edges land in the
+            children bucket carrying metadata.source='port_connection' and
+            metadata.undirected=true, plus the collapsed physical path in metadata.path.
+            Requires the licensed IPAM feature: without it the flag yields nothing rather
+            than refusing the request, since the rest of the graph is not IPAM surface
         item_limit (int, default 0=unlimited): cap on neighbour nodes
         types_filter (JSON list of int, optional): allowed neighbour type_ids
         relations_filter (JSON list of int, optional): allowed CmdbRelation public_ids
 
     Args:
-        request_user (CmdbUser): User requesting this data
+        request_user (CmdbUser): User requesting this data; their group's ACL decides which objects
+            the graph may contain
 
     Returns:
         DefaultResponse: The CI Explorer node/edge payload
@@ -263,6 +280,11 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         with_ipam_relations: bool = parse_bool_arg(
             request.args.get(CiExplorerParam.WITH_IPAM_RELATIONS), default=False,
         )
+        # Q40: an unlicensed instance gets an empty source, not a 403 - the graph is a shared read
+        # surface and a refusal would break a request that is valid for every other source
+        with_port_connections: bool = parse_bool_arg(
+            request.args.get(CiExplorerParam.WITH_PORT_CONNECTIONS), default=False,
+        ) and not feature_locked(LicenseFeature.IPAM, request_user)
         item_limit: int = clamp_item_limit(request.args.get(CiExplorerParam.ITEM_LIMIT, type=int))
         types_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.TYPES_FILTER))
         relations_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.RELATIONS_FILTER))
@@ -277,6 +299,20 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
             ManagerType.LOCATIONS, request_user,
         )
 
+        # Resolved only for the opt-in source, so an ordinary graph request builds five managers
+        ports_manager: PortsManager | None = None
+        port_connections_manager: PortConnectionsManager | None = None
+        extendable_options_manager: ExtendableOptionsManager | None = None
+
+        if with_port_connections:
+            ports_manager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+            port_connections_manager = ManagerProvider.get_manager(
+                ManagerType.PORT_CONNECTIONS, request_user,
+            )
+            extendable_options_manager = ManagerProvider.get_manager(
+                ManagerType.EXTENDABLE_OPTIONS, request_user,
+            )
+
         response: dict[str, Any] = build_ci_explorer_graph(
             CiExplorerGraphRequest(
                 target_id=target_id,
@@ -284,6 +320,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
                 with_root=with_root,
                 with_locations=with_locations,
                 with_ipam_relations=with_ipam_relations,
+                with_port_connections=with_port_connections,
                 item_limit=item_limit,
                 types_filter=types_filter,
                 relations_filter=relations_filter,
@@ -294,7 +331,11 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
                 relations=relations_manager,
                 object_relations=object_relations_manager,
                 locations=locations_manager,
+                ports=ports_manager,
+                port_connections=port_connections_manager,
+                extendable_options=extendable_options_manager,
             ),
+            request_user,
         )
 
         return DefaultResponse(response).make_response()

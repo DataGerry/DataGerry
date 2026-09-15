@@ -27,12 +27,15 @@ so the direction and budget rules are stated once instead of being recomputed in
 from dataclasses import dataclass
 
 from cmdb.manager import (
+    ExtendableOptionsManager,
     LocationsManager,
     ObjectRelationsManager,
     ObjectsManager,
     RelationsManager,
     TypesManager,
 )
+from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.ports_manager import PortsManager
 from cmdb.models.ci_explorer_model import NodeType
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -53,6 +56,9 @@ class CiExplorerGraphRequest:
         with_root (bool): Whether the response carries a 'root_node' block
         with_locations (bool): Whether dg_location neighbours are grafted in
         with_ipam_relations (bool): Whether IPAM-hierarchy neighbours are grafted in
+        with_port_connections (bool): Whether physically connected CIs are grafted in. The route
+            clears it when the IPAM feature is unlicensed, so the source yields nothing rather than
+            refusing an otherwise valid request
         item_limit (int): Upper bound on neighbour nodes; 0 means unlimited
         types_filter (frozenset[int]): Allowed neighbour type_ids; empty disables filtering
         relations_filter (frozenset[int]): Allowed CmdbRelation public_ids; empty disables filtering
@@ -62,6 +68,7 @@ class CiExplorerGraphRequest:
     with_root: bool = False
     with_locations: bool = False
     with_ipam_relations: bool = False
+    with_port_connections: bool = False
     item_limit: int = 0
     types_filter: frozenset[int] = frozenset()
     relations_filter: frozenset[int] = frozenset()
@@ -100,10 +107,14 @@ class CiExplorerGraphRequest:
 @dataclass(frozen=True)
 class CiExplorerManagers:
     """
-    The five managers the graph builder reads through
+    The managers the graph builder reads through
 
     Bundled so the builder and its helpers pass one argument instead of five, and so a test states
     only the managers its scenario touches
+
+    The last three are optional because they serve one opt-in source: the route resolves them only
+    when ``with_port_connections`` is set, so an ordinary graph request constructs five managers
+    rather than eight
 
     Attributes:
         objects (ObjectsManager): db interface for CmdbObjects
@@ -111,9 +122,15 @@ class CiExplorerManagers:
         relations (RelationsManager): db interface for CmdbRelations
         object_relations (ObjectRelationsManager): db interface for CmdbObjectRelations
         locations (LocationsManager): db interface for CmdbLocations
+        ports (PortsManager | None): db interface for CmdbPorts
+        port_connections (PortConnectionsManager | None): db interface for CmdbPortConnections
+        extendable_options (ExtendableOptionsManager | None): db interface for the CABLE_TYPE labels
     """
     objects: ObjectsManager
     types: TypesManager
     relations: RelationsManager
     object_relations: ObjectRelationsManager
     locations: LocationsManager
+    ports: PortsManager | None = None
+    port_connections: PortConnectionsManager | None = None
+    extendable_options: ExtendableOptionsManager | None = None

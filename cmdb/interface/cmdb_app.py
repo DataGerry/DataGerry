@@ -53,7 +53,6 @@ class BaseCmdbApp(Flask):
         database_manager (MongoDatabaseManager | None): Mongo handle the REST routes pull
             from `current_app.database_manager`. `None` on the SPA host since it has no
             database-backed routes; required on the REST app
-        temp_folder (str): Scratch directory used by the importer for staged files
         cloud_mode (bool): Snapshot of `cmdb.__CLOUD_MODE__` taken at instance construction.
             Many `current_app.cloud_mode` branches across the codebase (auth, secrets,
             user management) read this
@@ -93,7 +92,6 @@ class BaseCmdbApp(Flask):
                 such a directory, so both pass `None` and the dead rule is never created
         """
         self.database_manager: MongoDatabaseManager | None = database_manager
-        self.temp_folder = '/tmp/'
         self.cloud_mode: bool = __CLOUD_MODE__
         self.local_mode: bool = __LOCAL_MODE__
 

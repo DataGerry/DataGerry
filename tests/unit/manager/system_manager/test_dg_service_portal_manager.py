@@ -391,11 +391,18 @@ class TestConnectionAndSchedulerDelegation:
         mocked.assert_called_once_with(url_const, 5, 'a@b.c', 'db')
 
     @pytest.mark.parametrize('method, list_url', [
-        ('get_connection_ids', GET_CONNECTION_IDS),
+        ('get_connector_ids', GET_CONNECTOR_IDS),
         ('get_scheduler_ids', GET_SCHEDULER_IDS),
     ])
     def test_get_ids_delegate_with_list_url(self, method: str, list_url: str) -> None:
-        """get_*_ids pass their list URL plus email/db to _get_entity_ids."""
+        """
+        get_*_ids pass their list URL plus email/db to _get_entity_ids
+
+        Only two of the three entity kinds have this listing method: `get_connection_ids` was removed
+        on 2026-09-14 as the unused third of the triple. The connector and scheduler halves are each
+        read by a route helper (`oc_connector_helper` / `oc_scheduler_helper`); the connection half is
+        only ever asked the membership question, through `check_connection_in_sub`.
+        """
         manager = _manager()
         with patch.object(manager, '_get_entity_ids', return_value=[1]) as mocked:
             assert getattr(manager, method)('a@b.c', 'db') == [1]

@@ -30,6 +30,8 @@ Modules:
   - edges: edge composers for relation edges (with metadata) and location edges (bare)
   - locations: dg_location grafting (one hop up + one hop down), with consistent
       item_limit and types_filter accounting
+  - ipam: IPAM-hierarchy grafting (SUPERNET <-> SUBNET <-> VLAN / interface carriers)
+  - access: object-ACL filtering of every source, and of the focal object itself
   - context: the CiExplorerGraphRequest / CiExplorerManagers pair the builder takes, so the
       pipeline passes two arguments instead of thirteen
   - graph: top-level build_ci_explorer_graph orchestrator (single entry point used by

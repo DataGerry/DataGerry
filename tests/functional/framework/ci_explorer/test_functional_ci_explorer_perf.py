@@ -16,6 +16,11 @@
 """
 Post-refactor perf sanity check for /ci_explorer/items
 
+**This file was named `perf_check.py` until 2026-09-14 and pytest therefore never collected it** -
+`python_files` defaults to `test_*.py` / `*_test.py`, so the test below had never run since it was
+written. It passes against the current route; the rename is the whole fix. Keep the `test_` prefix
+on any file that is meant to run.
+
 Seeds a moderately sized fixture (N linked objects, each with a ref-typed field) and
 times five invocations of the route. Reports the median wall-clock so the post-refactor
 numbers can be eyeballed against expectations - this is a sanity test, not a benchmark

@@ -16,7 +16,6 @@
 """
 This module provides all errors for the SectionTemplatesManager
 """
-from typing import Any
 from .section_templates_manager_errors import (
     SectionTemplatesManagerError,
     SectionTemplatesManagerInitError,
@@ -38,12 +37,3 @@ __all__: list[str] = [
     'SectionTemplatesManagerIterationError',
 ]
 
-
-SECTION_TEMPLATES_MANAGER_ERRORS: dict[str, Any] = {
-    "init": SectionTemplatesManagerInitError,
-    "insert": SectionTemplatesManagerInsertError,
-    "get": SectionTemplatesManagerGetError,
-    "update": SectionTemplatesManagerUpdateError,
-    "delete": SectionTemplatesManagerDeleteError,
-    "iterate": SectionTemplatesManagerIterationError,
-}

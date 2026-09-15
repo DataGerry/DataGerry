@@ -19,11 +19,9 @@ This package provides all errors for the database
 from .database_errors import (
     DataBaseError,
     DatabaseConnectionError,
-    ServerTimeoutError,
     DatabaseAlreadyExistsError,
     DatabaseNotFoundError,
     CollectionAlreadyExistsError,
-    NoDocumentFoundError,
     DocumentDeleteError,
     SetDatabaseError,
     GetCollectionError,
@@ -45,11 +43,9 @@ from .database_errors import (
 __all__: list[str] = [
     'DataBaseError',
     'DatabaseConnectionError',
-    'ServerTimeoutError',
     'DatabaseAlreadyExistsError',
     'DatabaseNotFoundError',
     'CollectionAlreadyExistsError',
-    'NoDocumentFoundError',
     'DocumentDeleteError',
     'SetDatabaseError',
     'GetCollectionError',

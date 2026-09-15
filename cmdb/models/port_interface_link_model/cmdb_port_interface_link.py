@@ -49,11 +49,19 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbPortInterfaceLink(CmdbDAO):
     """
-    A CmdbPortInterfaceLink associates one CmdbPort with one IPAM interface row
+    A CmdbPortInterfaceLink associates one CmdbPort with one IPAM interface row of its OWN object
 
-    The relationship is N:M - one port may carry several interfaces (a bond member, a stack of VLAN
-    sub-interfaces) and one interface may be reachable over several ports - so it is its own document
-    rather than a field on either side.
+    **Both sides live on the same CmdbObject.** A port and the interface running on it are two
+    descriptions of the same physical device, so an interface on another object belongs to that
+    device's ports. `interface_object_id` is therefore always the port's owner - it is still stored,
+    because it is what addresses the MDS row and what the dangling report groups by, and a port's
+    `object_id` is immutable so the two can never drift apart. The rule is enforced by the create
+    route; nothing in this document can express it on its own.
+
+    Within that object the relationship is N:M - one port may carry several interfaces (a bond member,
+    a stack of VLAN sub-interfaces) and one interface may be reached over several of the object's
+    ports (a bonded interface over two physical ports) - so it is its own document rather than a field
+    on either side.
 
     **The reference to the interface row is SOFT, by decision.** It addresses an MDS row by
     (object, section, multi_data_id), and that row id is the non-durable part: the full object PUT does

@@ -34,16 +34,14 @@ from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
 
 from cmdb.models.port_interface_link_model import InterfaceRelationType, PortInterfaceLinkKey
-from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey, CmdbObjectMdsKey
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.special_type_model.ipam_constants import IpamSection
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.security.acl.builder import resolve_denied_type_ids
 
 from cmdb.utils import coerce_whole_number
 
-from cmdb.framework.ipam.assignable_objects import find_ipam_capable_type_ids
 from cmdb.framework.port.assignable_interfaces import (
     build_assignable_interface_rows,
     build_subnet_lookup,
@@ -56,6 +54,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants im
     LINK_ALREADY_EXISTS_MESSAGE,
     LINK_FIELD_IMMUTABLE_MESSAGE,
     LINK_INTERFACE_OBJECT_NOT_FOUND_MESSAGE,
+    LINK_FOREIGN_INTERFACE_MESSAGE,
     LINK_INTERFACE_ROW_NOT_FOUND_MESSAGE,
     LINK_MISSING_MULTI_DATA_ID_MESSAGE,
     LINK_NOT_FOUND_MESSAGE,
@@ -333,6 +332,38 @@ def build_link_candidate(port_id: int, payload: dict[str, Any], multi_data_id: i
     }
 
 
+def enforce_interface_on_port_object(port: dict[str, Any], candidate: dict[str, Any]) -> None:
+    """
+    Refuses a link whose interface row lives on a CmdbObject other than the port's own
+
+    **A port may only be linked to its own object's interfaces.** A port and the interface running on
+    it are two descriptions of the same physical device, so an interface on another object belongs to
+    that device's ports. The picker only ever offers the port's own object, but the picker is a
+    convenience - this is the rule, and it is enforced where the write happens.
+
+    The check is identity, not containment: the payload still carries ``interface_object_id`` (the
+    picker hands the whole triple back under the create route's key names), and a body naming a
+    different object is **refused rather than silently corrected**, exactly as a port update naming a
+    different ``object_id`` is refused
+
+    Args:
+        port (dict[str, Any]): The CmdbPort the link is being created on
+        candidate (dict[str, Any]): The link document being built
+
+    Raises:
+        HTTPException: 400 when the interface object is not the port's owner
+    """
+    owner_object_id: Any = port.get(PortKey.OBJECT_ID.value)
+    interface_object_id: Any = candidate.get(PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value)
+
+    if interface_object_id != owner_object_id:
+        abort(400, LINK_FOREIGN_INTERFACE_MESSAGE.format(
+            port_id=port.get(PortKey.PUBLIC_ID.value),
+            owner_object_id=owner_object_id,
+            interface_object_id=interface_object_id,
+        ))
+
+
 def with_interface_rows(
         objects_manager: ObjectsManager,
         links: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -411,50 +442,28 @@ def read_interface_objects(
 
 def read_assignable_candidate_objects(
         objects_manager: ObjectsManager,
-        types_manager: TypesManager,
-        owner_object_id: Any,
-        request_user: CmdbUser,
-        all_objects: bool) -> list[dict[str, Any]]:
+        owner_object_id: Any) -> list[dict[str, Any]]:
     """
-    Reads the CmdbObjects whose interface rows the picker may offer
+    Reads the CmdbObject whose interface rows the picker may offer
 
-    Two shapes, one per scope. The narrow one is a single document read - the port's own object, whose
-    ACL the caller already passed to reach this route at all. The wide one asks the types collection
-    which types declare the interface section and which the caller may NOT read, then issues ONE object
-    query filtered on both plus the presence of an interface section: an object with no rows to offer
-    never enters the result. The ACL is applied as a `type_id $nin`, the same shape the object pipeline
-    uses, rather than as a per-object check
+    **Exactly one document: the port's own object.** A port may only be linked to its own object's
+    interfaces, so there is no scope to widen and no candidate set to filter - the caller already
+    passed that object's ACL to reach this route at all, and an object with no interface rows simply
+    contributes none.
+
+    It still returns a LIST because the row builder shapes rows per object and orders by
+    ``(object public_id, multi_data_id)``; one object is a list of one rather than a special case
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
         owner_object_id (Any): public_id of the CmdbObject owning the port
-        request_user (CmdbUser): The user performing the request, whose ACL filters the candidates
-        all_objects (bool): Widen from the port's own object to every interface-bearing object
 
     Returns:
-        list[dict[str, Any]]: The candidate CmdbObject documents, empty when none qualifies
+        list[dict[str, Any]]: The owner document, or an empty list when it cannot be read
     """
-    if not all_objects:
-        owner: dict[str, Any] | None = objects_manager.get_object(owner_object_id, as_dict=True)
+    owner: dict[str, Any] | None = objects_manager.get_object(owner_object_id, as_dict=True)
 
-        return [owner] if owner else []
-
-    capable_type_ids: list[int] = find_ipam_capable_type_ids(types_manager)
-    denied_type_ids: set[int] = set(resolve_denied_type_ids(request_user, AccessControlPermission.READ))
-    allowed_type_ids: list[int] = [type_id for type_id in capable_type_ids if type_id not in denied_type_ids]
-
-    if not allowed_type_ids:
-        return []
-
-    return objects_manager.find_objects(
-        {
-            CmdbObjectKey.TYPE_ID.value: {'$in': allowed_type_ids},
-            f'{CmdbObjectKey.MULTI_DATA_SECTIONS.value}.{CmdbObjectMdsKey.SECTION_ID.value}':
-                IpamSection.INTERFACE.value,
-        },
-        as_dict=True,
-    )
+    return [owner] if owner else []
 
 
 def read_assignable_lookups(
@@ -501,9 +510,7 @@ def read_assignable_interface_rows(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
         port_interface_links_manager: PortInterfaceLinksManager,
-        port: dict[str, Any],
-        request_user: CmdbUser,
-        all_objects: bool) -> list[dict[str, Any]]:
+        port: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Reads and shapes every interface row the picker may offer for one CmdbPort
 
@@ -516,14 +523,12 @@ def read_assignable_interface_rows(
         types_manager (TypesManager): db interface for CmdbTypes
         port_interface_links_manager (PortInterfaceLinksManager): db interface for the links
         port (dict[str, Any]): The CmdbPort the interface would be linked to
-        request_user (CmdbUser): The user performing the request, whose ACL filters the candidates
-        all_objects (bool): Widen from the port's own object to every interface-bearing object
 
     Returns:
         list[dict[str, Any]]: The offerable rows, shaped and ordered, before search and pagination
     """
     candidate_objects: list[dict[str, Any]] = read_assignable_candidate_objects(
-        objects_manager, types_manager, port.get(PortKey.OBJECT_ID.value), request_user, all_objects,
+        objects_manager, port.get(PortKey.OBJECT_ID.value),
     )
 
     linked_rows: set[tuple[Any, Any]] = {

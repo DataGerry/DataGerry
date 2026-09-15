@@ -24,6 +24,10 @@ already do everything a link right would have granted
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# The picker takes no scope argument: an interface is always read from the port's OWN object, so there
+# is nothing to widen. `page` / `page_size` / `search` are read with the shared IPAM paging helpers,
+# whose names belong to that convention rather than to this route
+
 class InterfaceLinkRequestKey(BaseStrEnum):
     """
     Body keys a port <-> interface link request may carry
@@ -71,6 +75,14 @@ LINK_RELATION_TYPE_INVALID_MESSAGE: str = (
     "'{relation_type}' is not a valid interface relation type. Allowed: {allowed}"
 )
 
+# Refusal (HTTP 400) when the request names an interface row on a DIFFERENT CmdbObject than the one
+# owning the port. A port may only be linked to its own object's interfaces: the two describe the same
+# physical device, and an interface on another object belongs to another device's ports
+LINK_FOREIGN_INTERFACE_MESSAGE: str = (
+    'Port ID:{port_id} belongs to CmdbObject ID:{owner_object_id} and can only be linked to that '
+    "object's own interfaces - CmdbObject ID:{interface_object_id} is a different one!"
+)
+
 # Refusal (HTTP 400) when this port is already linked to this interface row. The unique index is what
 # guarantees it; this message is what makes the common case readable
 LINK_ALREADY_EXISTS_MESSAGE: str = (
@@ -81,13 +93,3 @@ LINK_ALREADY_EXISTS_MESSAGE: str = (
 LINK_FIELD_IMMUTABLE_MESSAGE: str = (
     "The '{field}' of a Port interface link can not be changed - delete it and create the new one!"
 )
-
-
-class AssignableInterfaceParam(BaseStrEnum):
-    """
-    Query-parameter names of the assignable-interfaces picker
-
-    Only the widening flag lives here: `page` / `page_size` / `search` are read with the shared IPAM
-    paging helpers, so their names belong to that convention rather than to this route
-    """
-    ALL_OBJECTS = 'all_objects'

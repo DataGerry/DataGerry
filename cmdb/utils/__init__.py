@@ -18,14 +18,18 @@ Project-wide, domain-unspecific Python helpers and definitions
 
 Domain helpers (CmdbObject-document helpers, IPAM CIDR helpers, etc.) live next to their
 domain. This package is the explicit home for cross-feature, language-level utilities such
-as the shared BaseStrEnum, cast helpers, logging configuration, and decorator wrappers
+as the shared BaseStrEnum, cast helpers and logging configuration
 
 Everything listed in `__all__` is imported from the package path (`from cmdb.utils import ...`),
 not from the module inside it - with one exception: a module *inside* this package imports its
-siblings by module path, since going through the package here would be a cyclic import. Two names
+siblings by module path, since going through the package here would be a cyclic import. Three names
 are deliberately left out of `__all__`: `boolify` and `noneify` are `auto_cast`'s individual casters
-rather than an API of their own, and `cmdb.utils.logger` / `cmdb.utils.wraps` are process bootstrap
-and decorator plumbing that callers import by module path
+rather than an API of their own, and `cmdb.utils.logger` is process bootstrap that callers import by
+module path.
+
+`cmdb.utils.wraps` used to sit beside it, holding a `@deprecated` decorator that was applied to
+nothing in the whole repository - the only `@deprecated` uses were the examples inside its own
+docstring. Removed 2026-09-14
 """
 from .base_str_enum import BaseStrEnum
 from .cast import auto_cast
