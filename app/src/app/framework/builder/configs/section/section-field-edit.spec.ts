@@ -21,7 +21,12 @@ describe('SectionFieldEditComponent', () => {
         const sectionIdentifierSpy = jasmine.createSpyObj('SectionIdentifierService', {
             getActiveIndex: activeIndexSubject.asObservable(),
             updateSection: true,
+            hasSectionAtIndex: true,
         });
+        // Mirrors the real registry: only an index it actually holds may be renamed.
+        sectionIdentifierSpy.hasSectionAtIndex.and.callFake(
+            (index: number | null | undefined) => index !== null && index !== undefined
+        );
 
         await TestBed.configureTestingModule({
             declarations: [SectionFieldEditComponent],
@@ -153,6 +158,24 @@ describe('SectionFieldEditComponent', () => {
             expect(component.isIdentifierValid)
                 .withContext('a section that was never registered must not be reported as a conflict')
                 .toBeTrue();
+        }));
+
+
+        it('ignores an active index the registry no longer holds', fakeAsync(() => {
+            // A type builder visited earlier in the same session leaves its focused index behind in
+            // the app-wide registry. Renaming against it reported a false "identifier must be
+            // unique" on the section template page until a full page reload cleared the index.
+            sectionIdentifier.hasSectionAtIndex.and.returnValue(false);
+            component.data = { type: 'multi-data-section', name: 'section_template-a', label: 'clone ports' };
+
+            component.nameControl.setValue('section_template-b', { emitEvent: false });
+            component.onInputChange('section_template-b', 'name');
+            activeIndexSubject.next(0);
+            tick(300);
+            flush();
+
+            expect(sectionIdentifier.updateSection).not.toHaveBeenCalled();
+            expect(component.isIdentifierValid).toBeTrue();
         }));
 
 

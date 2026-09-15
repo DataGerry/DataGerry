@@ -22,6 +22,8 @@ export class SectionIdentifierService {
     */
     public resetIdentifiers() {
         this.sections = {};
+        // The focused section belongs to the builder that is going away.
+        this.activeIndexSubject.next(null);
         this.setIsIdentifierValid(true);
         this.checkGlobalValidity();
     }
@@ -78,6 +80,21 @@ export class SectionIdentifierService {
      */
     getActiveIndex(): Observable<number> {
         return this.activeIndexSubject.asObservable();
+    }
+
+
+    /**
+     * Whether a section is registered at the given index.
+     *
+     * @param index - The index to look up.
+     * @returns Whether the registry holds a section at that index.
+     */
+    hasSectionAtIndex(index: number | null | undefined): boolean {
+        if (index === null || index === undefined) {
+            return false;
+        }
+
+        return Object.values(this.sections).some(section => section.index === index);
     }
 
 
