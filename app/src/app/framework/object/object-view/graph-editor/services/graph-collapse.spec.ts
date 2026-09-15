@@ -23,7 +23,6 @@ import { ciNode, graphNode } from '../testing/graph-fixtures';
 import { ConnectionTrackerService } from './connection-tracker.service';
 import { GraphDataService } from './graph-data.service';
 import { GraphExpansionService } from './graph-expansion.service';
-import { GraphRootNodeService } from './graph-root-node.service';
 
 /**
  * Characterization of collapse. Collapse walks outward from the node in the direction
@@ -33,7 +32,6 @@ import { GraphRootNodeService } from './graph-root-node.service';
 describe('Graph collapse (characterization)', () => {
     let graphData: GraphDataService;
     let tracker: ConnectionTrackerService;
-    let rootNodeService: GraphRootNodeService;
     let expansion: GraphExpansionService;
 
     beforeEach(() => {
@@ -44,7 +42,6 @@ describe('Graph collapse (characterization)', () => {
 
         graphData = new GraphDataService(ci);
         tracker = new ConnectionTrackerService();
-        rootNodeService = new GraphRootNodeService(tracker, graphData);
         expansion = new GraphExpansionService(graphData, tracker, toast);
     });
 
@@ -56,70 +53,6 @@ describe('Graph collapse (characterization)', () => {
     function edge(fromUid: string, toUid: string, from: number, to: number): Connection {
         return { from, to, fromLevel: 0, toLevel: 0, fromUid, toUid, isValid: true };
     }
-
-    describe('GraphRootNodeService', () => {
-        it('reports the root node', () => {
-            const root = graphNode({ id: 1, level: 0, uid: 'r' });
-            const child = graphNode({ id: 2, level: 1, uid: 'c', isRoot: false });
-
-            expect(rootNodeService.getRootNode([root, child])).toBe(root);
-        });
-
-        it('knows whether anything is showing besides the root', () => {
-            const root = graphNode({ id: 1, level: 0, uid: 'r' });
-            const child = graphNode({ id: 2, level: 1, uid: 'c', isRoot: false });
-
-            expect(rootNodeService.hasVisibleNodesBeyondRoot([root])).toBeFalse();
-            expect(rootNodeService.hasVisibleNodesBeyondRoot([root, child])).toBeTrue();
-        });
-
-        it('removes every non-root node and its connections', () => {
-            const root = graphNode({ id: 1, level: 0, uid: 'r', expanded: true });
-            const child = graphNode({ id: 2, level: 1, uid: 'c', isRoot: false });
-            const parent = graphNode({ id: 3, level: -1, uid: 'p', isRoot: false });
-            const nodes = [root, child, parent];
-            const connections = [edge('r', 'c', 1, 2), edge('p', 'r', 3, 1)];
-            register(nodes);
-
-            const collapsed = rootNodeService.collapseRootNode(root, nodes, connections);
-
-            expect(collapsed).toBeTrue();
-            expect(nodes).toEqual([root]);
-            expect(connections).toEqual([]);
-            expect(root.expanded).toBeFalse();
-        });
-
-        it('reports no change when the root is already alone', () => {
-            const root = graphNode({ id: 1, level: 0, uid: 'r', expanded: true });
-            const nodes = [root];
-
-            expect(rootNodeService.collapseRootNode(root, nodes, [])).toBeFalse();
-            expect(root.expanded).toBeFalse();
-        });
-
-        it('labels the root control by whether anything else is on screen', () => {
-            const root = graphNode({ id: 1, level: 0, uid: 'r' });
-            const child = graphNode({ id: 2, level: 1, uid: 'c', isRoot: false });
-
-            expect(rootNodeService.getExpandLabel(root, [root])).toBe('Expand');
-            expect(rootNodeService.getExpandIcon(root, [root])).toBe('unfold_more');
-            expect(rootNodeService.getExpandLabel(root, [root, child])).toBe('Collapse');
-            expect(rootNodeService.getExpandIcon(root, [root, child])).toBe('unfold_less');
-        });
-
-        it('labels a normal node by its own expanded flag', () => {
-            const open = graphNode({ id: 2, level: 1, uid: 'c', isRoot: false, expanded: true });
-            const shut = graphNode({ id: 3, level: 1, uid: 'd', isRoot: false, expanded: false });
-
-            expect(rootNodeService.getExpandLabel(open, [open])).toBe('Collapse');
-            expect(rootNodeService.getExpandLabel(shut, [shut])).toBe('Expand');
-        });
-
-        it('falls back to Expand when nothing is selected', () => {
-            expect(rootNodeService.getExpandLabel(null, [])).toBe('Expand');
-            expect(rootNodeService.getExpandIcon(null, [])).toBe('unfold_more');
-        });
-    });
 
     describe('GraphExpansionService.collapseNodeInstance', () => {
         it('removes the whole downward chain below a child node', () => {

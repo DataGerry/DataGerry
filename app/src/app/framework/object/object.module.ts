@@ -106,6 +106,12 @@ import { RelationLogListComponent } from './components/object-relation-log-list/
 import { ChangesModalComponent } from './modals/object-relation-changes-modal/changes-modal.component';
 import { RiskAssessmentModule } from 'src/app/toolbox/isms/risk-assessment/risk-assesment.module';
 import { GraphEditorComponent } from './object-view/graph-editor/graph-editor.component';
+import { GraphCanvasComponent } from './object-view/graph-editor/components/graph-canvas/graph-canvas.component';
+import { GraphToolbarComponent } from './object-view/graph-editor/components/graph-toolbar/graph-toolbar.component';
+import { GraphFilterPanelComponent } from './object-view/graph-editor/components/graph-filter-panel/graph-filter-panel.component';
+import { GraphNodeComponent } from './object-view/graph-editor/components/graph-node/graph-node.component';
+import { GraphMinimapComponent } from './object-view/graph-editor/components/graph-minimap/graph-minimap.component';
+import { GraphContextMenuComponent } from './object-view/graph-editor/components/graph-context-menu/graph-context-menu.component';
 import { NodeDetailsModalComponent } from './object-view/graph-editor/modals/node-details/node-details-modal.component';
 import { ProfileManagerModalComponent } from './object-view/graph-editor/modals/profile-manager/profile-manager-modal.component';
 import { ProfileDeleteModalComponent } from './object-view/graph-editor/modals/profile-delete/profile-delete-modal.component';
@@ -178,6 +184,12 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         RelationLogListComponent,
         ChangesModalComponent,
         GraphEditorComponent,
+        GraphCanvasComponent,
+        GraphToolbarComponent,
+        GraphFilterPanelComponent,
+        GraphNodeComponent,
+        GraphMinimapComponent,
+        GraphContextMenuComponent,
         NodeDetailsModalComponent,
         ProfileManagerModalComponent,
         ProfileDeleteModalComponent,

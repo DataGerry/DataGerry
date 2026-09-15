@@ -19,6 +19,13 @@ import { Injectable, ElementRef } from '@angular/core';
 import { GraphNode } from '../interfaces/graph.interfaces';
 import { LAYOUT_CONFIG } from '../constants/graph.constants';
 
+export interface MinimapViewportRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 @Injectable()
 export class GraphViewportService {
     private viewportX = 0;
@@ -241,7 +248,7 @@ export class GraphViewportService {
      * @param graphContainer  The container element for the graph, used to get its dimensions.
      * @returns  An object representing the viewport rectangle with x, y, width, and height properties.
      */
-    getMinimapViewportRect(graphContainer?: ElementRef): any {
+    getMinimapViewportRect(graphContainer?: ElementRef): MinimapViewportRect | null {
         if (!graphContainer) return null;
         const container = graphContainer?.nativeElement;
         const rect = container?.getBoundingClientRect();
