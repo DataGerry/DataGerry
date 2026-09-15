@@ -21,9 +21,20 @@ import { UidBasedConnection } from '../interfaces/graph.interfaces';
 
 
 
-@Injectable({
-    providedIn: 'root'
-})
+/** One CI can be rendered as several instances, so an edge endpoint maps to several UIDs. */
+function indexUidsByNodeId(nodeInstanceMap: Map<string, any>): Map<number, string[]> {
+    const uidsById = new Map<number, string[]>();
+
+    nodeInstanceMap.forEach((node, uid) => {
+        const uids = uidsById.get(node.id);
+        uids ? uids.push(uid) : uidsById.set(node.id, [uid]);
+    });
+
+    return uidsById;
+}
+
+/** Component-provided: the edge maps belong to one graph, not to the whole app. */
+@Injectable()
 export class ConnectionTrackerService {
 
     // Main storage: connections by UID pair (fromUid -> toUid)
@@ -48,9 +59,10 @@ export class ConnectionTrackerService {
     ): void {
 
         this.clear();
+        const uidsById = indexUidsByNodeId(nodeInstanceMap);
 
         edges.forEach(edge => {
-            this.processAndStoreEdgeByUid(edge, nodeInstanceMap, 'initial');
+            this.processAndStoreEdgeByUid(edge, nodeInstanceMap, uidsById, 'initial');
         });
 
     }
@@ -63,8 +75,10 @@ export class ConnectionTrackerService {
         nodeInstanceMap: Map<string, any>
     ): void {
 
+        const uidsById = indexUidsByNodeId(nodeInstanceMap);
+
         edges.forEach(edge => {
-            this.processAndStoreEdgeByUid(edge, nodeInstanceMap, 'expansion');
+            this.processAndStoreEdgeByUid(edge, nodeInstanceMap, uidsById, 'expansion');
         });
 
     }
@@ -134,6 +148,7 @@ export class ConnectionTrackerService {
     private processAndStoreEdgeByUid(
         edge: CIEdge,
         nodeInstanceMap: Map<string, any>,
+        uidsById: Map<number, string[]>,
         source: 'initial' | 'expansion'
     ): void {
         const metadata = this.extractMetadata(edge);
@@ -142,8 +157,8 @@ export class ConnectionTrackerService {
         this.edgeInstanceCounter++;
 
         // Find all UID combinations for this edge
-        const fromUids = this.findUidsForNodeId(edge.from, nodeInstanceMap);
-        const toUids = this.findUidsForNodeId(edge.to, nodeInstanceMap);
+        const fromUids = uidsById.get(edge.from) ?? [];
+        const toUids = uidsById.get(edge.to) ?? [];
 
         if (fromUids.length === 0 || toUids.length === 0) {
             return;
@@ -233,19 +248,6 @@ export class ConnectionTrackerService {
         return `${fromUid}->${toUid}`;
     }
 
-
-    /**
-     * Find all UIDs for a given node ID in the nodeInstanceMap
-     */
-    private findUidsForNodeId(nodeId: number, nodeInstanceMap: Map<string, any>): string[] {
-        const uids: string[] = [];
-        nodeInstanceMap.forEach((node, uid) => {
-            if (node.id === nodeId) {
-                uids.push(uid);
-            }
-        });
-        return uids;
-    }
 
     /**
      * Utility methods

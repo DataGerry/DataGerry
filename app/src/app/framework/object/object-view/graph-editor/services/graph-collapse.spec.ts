@@ -15,6 +15,8 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { of, throwError } from 'rxjs';
+
 import { CiExplorerService } from 'src/app/framework/services/ci-explorer.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
@@ -33,12 +35,14 @@ describe('Graph collapse (characterization)', () => {
     let graphData: GraphDataService;
     let tracker: ConnectionTrackerService;
     let expansion: GraphExpansionService;
+    let ci: jasmine.SpyObj<CiExplorerService>;
+    let toast: jasmine.SpyObj<ToastService>;
 
     beforeEach(() => {
-        const ci = jasmine.createSpyObj<CiExplorerService>('CiExplorerService', [
+        ci = jasmine.createSpyObj<CiExplorerService>('CiExplorerService', [
             'loadWithRoot', 'expandChild', 'expandParent'
         ]);
-        const toast = jasmine.createSpyObj<ToastService>('ToastService', ['info', 'error', 'success']);
+        toast = jasmine.createSpyObj<ToastService>('ToastService', ['info', 'error', 'success']);
 
         graphData = new GraphDataService(ci);
         tracker = new ConnectionTrackerService();
@@ -113,6 +117,67 @@ describe('Graph collapse (characterization)', () => {
             expansion.collapseNodeInstance(child, nodes, connections);
 
             expect(nodes.map(n => n.uid)).toEqual(['r', 'c', 'peer']);
+        });
+    });
+
+    describe('expand after collapse', () => {
+        /** A node is rendered under a fresh uid each time, so the edge suppression set never hides it. */
+        it('brings the children back when a collapsed node is expanded again', async () => {
+            const root = graphNode({ id: 1, level: 0, uid: 'r' });
+            (root as any).ciNode = ciNode(1, 0);
+            const nodes = [root];
+            const connections: Connection[] = [];
+            register(nodes);
+
+            const child = ciNode(2, 0);
+            (root.ciNode as any).direction = 'child';
+            ci.expandChild.and.returnValue(of({ child_nodes: [child], child_edges: [] } as any));
+
+            await expansion.expandNodeInstance(root, root.ciNode!, nodes, connections, [], [],
+                new Map<string, { icon: string; gradient: string }>());
+            expect(nodes.length).toBe(2);
+            register(nodes);
+
+            expansion.collapseNodeInstance(root, nodes, connections);
+            expect(nodes.map(n => n.uid)).toEqual(['r']);
+
+            await expansion.expandNodeInstance(root, root.ciNode!, nodes, connections, [], [],
+                new Map<string, { icon: string; gradient: string }>());
+
+            expect(nodes.length).toBe(2);
+            expect(connections.length).toBe(1);
+        });
+
+        it('names both endpoints of the edge it adds', async () => {
+            const root = graphNode({ id: 1, level: 0, uid: 'r' });
+            (root as any).ciNode = ciNode(1, 0);
+            (root.ciNode as any).direction = 'child';
+            const nodes = [root];
+            const connections: Connection[] = [];
+            register(nodes);
+
+            ci.expandChild.and.returnValue(of({ child_nodes: [ciNode(2, 0)], child_edges: [] } as any));
+
+            await expansion.expandNodeInstance(root, root.ciNode!, nodes, connections, [], [],
+                new Map<string, { icon: string; gradient: string }>());
+
+            expect(connections[0].from).toBe(1);
+            expect(connections[0].to).toBe(2);
+        });
+
+        it('tells the user when an expansion fails instead of silently closing', async () => {
+            const root = graphNode({ id: 1, level: 0, uid: 'r' });
+            (root as any).ciNode = ciNode(1, 0);
+            (root.ciNode as any).direction = 'child';
+            register([root]);
+
+            ci.expandChild.and.returnValue(throwError(() => ({ error: { message: 'Backend is down' } })));
+
+            await expansion.expandNodeInstance(root, root.ciNode!, [root], [], [], [],
+                new Map<string, { icon: string; gradient: string }>());
+
+            expect(toast.error).toHaveBeenCalledWith('Backend is down');
+            expect(root.expanded).toBeFalse();
         });
     });
 

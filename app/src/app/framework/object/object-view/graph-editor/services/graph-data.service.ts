@@ -33,14 +33,11 @@ export class GraphDataService {
   private nodeInstanceMap = new Map<string, GraphNode>();
   private edgeKeySet = new Set<string>();
   private nodesMap = new Map<number, CINode>();
-  private edgesMap = new Map<string, CIEdge>();
-  private nodesByLevelMap = new Map<string, CINode>();
   private expandedNodes = new Set<number>();
   private nodeCounter = 0;
   private skipBackendEdgesDuringExpansion = false;
 
   private edgeIndex = new Map<string, CIEdge[]>();
-  private processedEdgeIds = new Set<string>();
 
   constructor(private ci: CiExplorerService) { }
 
@@ -51,35 +48,26 @@ export class GraphDataService {
     this.nodeInstanceMap?.clear();
     this.edgeKeySet?.clear();
     this.nodesMap?.clear();
-    this.edgesMap?.clear();
-    this.nodesByLevelMap?.clear();
     this.expandedNodes?.clear();
-    this.edgeIndex.clear();          // <<< FIX
-    this.processedEdgeIds.clear();
+    this.edgeIndex.clear();
     this.nodeCounter = 0;
   }
 
 
-  indexEdge(edge: CIEdge): void {
+  /** Parallel edges between one pair are all kept, so the details modal can list them. */
+  storeAndIndexEdge(edge: CIEdge): void {
     const key = this.edgeKey(edge.from, edge.to);
-    if (!this.edgeIndex.has(key)) {
-      this.edgeIndex.set(key, []);
+    const edges = this.edgeIndex.get(key);
+
+    if (edges) {
+      edges.push(edge);
+      return;
     }
-
-    // Simply add the edge - no duplicate checking
-    this.edgeIndex.get(key)!.push(edge);
-
+    this.edgeIndex.set(key, [edge]);
   }
 
   private edgeKey(from: number, to: number): string {
     return `${from}-${to}`;
-  }
-
-  private extractEdgeMetadata(edge: CIEdge): any {
-    if (Array.isArray(edge.metadata)) {
-      return edge.metadata[0] || {};
-    }
-    return edge.metadata || {};
   }
 
   getAllEdgesBetween(from: number, to: number): CIEdge[] {
@@ -88,38 +76,6 @@ export class GraphDataService {
   }
 
 
-
-  storeAndIndexEdge(edge: CIEdge): void {
-    const meta = this.extractEdgeMetadata(edge);
-
-    // FIX: Create unique edge keys for each instance
-    const timestamp = Date.now();
-    const randomSuffix = Math.random().toString(36).substr(2, 5);
-    const edgeKey = `${edge.from}-${edge.to}-${meta.relation_id || 'unknown'}-${timestamp}-${randomSuffix}`;
-
-    // Store in edges map with unique key
-    this.edgesMap.set(edgeKey, edge);
-
-    // Index the edge (this will now store all instances)
-    this.indexEdge(edge);
-  }
-
-  rebuildEdgeIndex(): void {
-    this.edgeIndex.clear();
-    this.processedEdgeIds.clear();
-
-    // Re-index all existing edges
-    this.edgesMap.forEach(edge => {
-      this.indexEdge(edge);
-    });
-
-  }
-
-
-  clearEdgeIndex(): void {
-    this.edgeIndex.clear();
-    this.processedEdgeIds.clear();
-  }
 
   /*
   * Get the map of node instances.

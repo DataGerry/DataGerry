@@ -33,6 +33,9 @@ import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.s
 @Injectable()
 export class GraphExpansionService {
 
+    /** Edges of the expansion in flight, handed to the tracker once the nodes are attached. */
+    private lastExpansionEdges: CIEdge[] = [];
+
     constructor(
         private graphData: GraphDataService,
         private connectionTracker: ConnectionTrackerService,
@@ -52,11 +55,10 @@ export class GraphExpansionService {
     ): Promise<void> {
         ui.isLoading = true;
         ui.expanded = true;
-        const nodeCountBefore = nodes.length;
 
         try {
             await this.fetchAndAttach(cn, ui, nodes, connections, typesFilter, relationsFilter, nodeTypeConfigs, withLocations, withIpamRelations);
-            this.trackExpansionConnections(ui, nodeCountBefore, nodes);
+            this.trackExpansionConnections(nodes);
 
         } finally {
             ui.isLoading = false;
@@ -96,16 +98,9 @@ export class GraphExpansionService {
         try {
             let limitHit = false;
             const allExpansionEdges: CIEdge[] = [];
-            const newUIDs: string[] = [];
 
             // PARENTS (level -1, -2, …)
             if ((cn as any)?.direction === 'parent' || (cn as any)?.direction === 'root') {
-                // const res: GraphRespParents = await this.graphData.expandParent(
-                //   id,
-                //   typesFilter,
-                //   relationsFilter
-                // ).toPromise();
-
                 const res: GraphRespParents = await firstValueFrom(
                     this.graphData?.expandParent(id, typesFilter, relationsFilter, withLocations, withIpamRelations)
                 );
@@ -128,25 +123,18 @@ export class GraphExpansionService {
 
                 added?.forEach(p => {
                     connections.push({
-                        from: id, to: id,
+                        from: p?.id, to: id,
                         fromLevel: p?.level, toLevel: ui?.level,
                         fromUid: p?.uid, toUid: ui?.uid,
                         relationLabel: 'parent',
                         relationColor: cn?.relation_color,
                         isValid: true, strength: 1
                     });
-                    newUIDs.push(p?.uid);
                 });
             }
 
             // CHILDREN (level +1, +2, …)
             if ((cn as any).direction === 'child' || (cn as any).direction === 'root') {
-                // const res: GraphRespChildren = await this.graphData.expandChild(
-                //   id,
-                //   typesFilter,
-                //   relationsFilter
-                // ).toPromise();
-
                 const res: GraphRespChildren = await firstValueFrom(
                     this.graphData?.expandChild(id, typesFilter, relationsFilter, withLocations, withIpamRelations)
                 );
@@ -170,18 +158,17 @@ export class GraphExpansionService {
 
                 added?.forEach(k => {
                     connections.push({
-                        from: id, to: id,
+                        from: id, to: k?.id,
                         fromLevel: ui?.level, toLevel: k?.level,
                         fromUid: ui?.uid, toUid: k?.uid,
                         relationLabel: 'child',
                         relationColor: cn?.relation_color,
                         isValid: true, strength: 1
                     });
-                    newUIDs.push(k?.uid);
                 });
             }
 
-            (this as any).lastExpansionEdges = allExpansionEdges;
+            this.lastExpansionEdges = allExpansionEdges;
             if (limitHit) {
                 this.toastService.info(
                     `Showing only the first ${CI_EXPLORER_ITEM_LIMIT} nodes for this level. We can't show all results.`
@@ -190,6 +177,7 @@ export class GraphExpansionService {
 
         } catch (err) {
             ui.expanded = false;
+            this.toastService.error(err?.error?.message || 'Could not load the connected objects.');
         } finally {
             this.graphData?.setSkipBackendEdges(false);
         }
@@ -241,12 +229,9 @@ export class GraphExpansionService {
         return out;
     }
 
-    private trackExpansionConnections(
-        expandedNode: GraphNode,
-        nodeCountBefore: number,
-        allNodes: GraphNode[]
-    ): void {
-        const expansionEdges: CIEdge[] = (this as any).lastExpansionEdges || [];
+    private trackExpansionConnections(allNodes: GraphNode[]): void {
+        const expansionEdges = this.lastExpansionEdges;
+        this.lastExpansionEdges = [];
 
         if (expansionEdges.length === 0) {
             return;
@@ -257,16 +242,7 @@ export class GraphExpansionService {
             nodeInstanceMap.set(node.uid, node);
         });
 
-        expansionEdges.forEach(edge => {
-            const meta = Array.isArray(edge.metadata) ? edge.metadata[0] : edge.metadata;
-        });
-
-        this.connectionTracker.addConnectionsFromExpansion(
-            expansionEdges,
-            nodeInstanceMap
-        );
-
-        delete (this as any).lastExpansionEdges;
+        this.connectionTracker.addConnectionsFromExpansion(expansionEdges, nodeInstanceMap);
     }
 
 }

@@ -358,8 +358,10 @@ export class GraphEditorStore {
         }
 
         const doomed = new Set(this.selectedNodes);
-        this.nodes = this.nodes.filter(node => !doomed.has(node.id));
-        this.connections = this.connections.filter(conn => !doomed.has(conn.from) && !doomed.has(conn.to));
+        const uids = this.nodes.filter(node => doomed.has(node.id)).map(node => node.uid);
+
+        this.connectionTracker.removeConnectionsForCollapsedNodes(uids);
+        this.graphData.removeNodeInstancesByUID(this.nodes, this.connections, uids);
         this.clearSelection();
         this.relayout();
     }
@@ -413,6 +415,7 @@ export class GraphEditorStore {
      * what the component did before; wiring it to the toast is a behaviour change and is
      * being handled separately.
      */
-    private reportError(_message?: string): void {
+    private reportError(message?: string): void {
+        this.toastService.error(message || 'Something went wrong. Please try again.');
     }
 }

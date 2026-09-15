@@ -11,7 +11,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CiExplorerService } from 'src/app/framework/services/ci-explorer.service';
@@ -32,9 +32,10 @@ describe('GraphEditorStore (characterization)', () => {
     let store: GraphEditorStore;
     let graphData: GraphDataService;
     let toast: jasmine.SpyObj<ToastService>;
+    let ci: jasmine.SpyObj<CiExplorerService>;
 
     beforeEach(() => {
-        const ci = jasmine.createSpyObj<CiExplorerService>('CiExplorerService', [
+        ci = jasmine.createSpyObj<CiExplorerService>('CiExplorerService', [
             'loadWithRoot', 'expandChild', 'expandParent'
         ]);
         ci.loadWithRoot.and.returnValue(of(graphResponse()));
@@ -298,6 +299,50 @@ describe('GraphEditorStore (characterization)', () => {
         it('falls back to Expand when nothing is selected', () => {
             expect(store.expandLabel(null)).toBe('Expand');
             expect(store.expandIcon(null)).toBe('unfold_more');
+        });
+    });
+
+    describe('error reporting', () => {
+        it('tells the user when the graph cannot be loaded', () => {
+            ci.loadWithRoot.and.returnValue(throwError(() => ({ error: { message: 'Root not found' } })));
+
+            store.load();
+
+            expect(toast.error).toHaveBeenCalledWith('Root not found');
+        });
+
+        it('falls back to a generic message when the backend sends none', () => {
+            ci.loadWithRoot.and.returnValue(throwError(() => ({})));
+
+            store.load();
+
+            expect(toast.error).toHaveBeenCalledWith('Something went wrong. Please try again.');
+        });
+    });
+
+    describe('removeSelected', () => {
+        it('drops the removed nodes from the instance map, not just from the array', () => {
+            store.paint(graphResponse({
+                root_node: ciNode(1, 0),
+                child_nodes: [ciNode(2, 0)],
+                child_edges: [ciEdge(1, 2)]
+            }));
+
+            const child = store.nodes.find(node => node.id === 2)!;
+            store.selectedNodes = new Set([2]);
+            store.removeSelected();
+
+            expect(store.nodes.map(node => node.id)).toEqual([1]);
+            expect(graphData.getNodeInstanceMap().has(child.uid)).toBeFalse();
+            expect(store.connections.length).toBe(0);
+        });
+
+        it('does nothing without a selection', () => {
+            store.paint(graphResponse({ root_node: ciNode(1, 0) }));
+
+            store.removeSelected();
+
+            expect(store.nodes.length).toBe(1);
         });
     });
 
