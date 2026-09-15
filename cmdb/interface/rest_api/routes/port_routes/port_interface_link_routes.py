@@ -16,21 +16,27 @@
 """
 Implementation of all API routes for handling CmdbPortInterfaceLinks
 
-These routes are the only way a port <-> interface link is written. Four invariants hold across them:
+These routes are the only way a port <-> interface link is written. Five invariants hold across them:
 
-1. **They are guarded by the PORT rights, and by the port owner's ACL.** A link is an attribute of a
+1. **A port may only be linked to its OWN object's interfaces.** A port and the interface running on
+   it describe the same physical device; an interface on another object belongs to that device's
+   ports. Enforced on create, because the picker - which only ever offers the port's own object - is a
+   convenience rather than the rule. Several ports of that object may share one interface row: the
+   relation stays N:M on the interface side, which is what a bonded interface reached over two
+   physical ports needs.
+2. **They are guarded by the PORT rights, and by the port owner's ACL.** A link is an attribute of a
    port rather than an entity managed on its own, and the design added no fifth right family for it.
-   The INTERFACE object's own ACL is deliberately not checked, following the connection routes' Q13
-   decision for a row that spans two objects - recorded on `get_accessible_port_or_abort` rather than
-   hidden.
-2. **The interface triple is immutable; only the relation type is editable.** The triple is the link's
+   Since the interface object IS the port's owner, that one ACL check now covers both ends - the
+   earlier note that the interface object's ACL was deliberately unchecked (the connection routes' Q13
+   shape) no longer applies, because there is no second object.
+3. **The interface triple is immutable; only the relation type is editable.** The triple is the link's
    identity, so changing one of its keys is creating a different link.
-3. **Creating an already-dangling link is refused; an existing link going dangling is not.** The first
+4. **Creating an already-dangling link is refused; an existing link going dangling is not.** The first
    is a mistake the write path can see. The second happens because an MDS row id is not durable - the
    full object PUT does not preserve row ids and the CSV import overwrite renumbers them - so the link
    is kept and REPORTED instead, because deleting it would destroy the only record of what the customer
    meant.
-4. **A read returns the live interface row beside its link where it still resolves.** A dangling link
+5. **A read returns the live interface row beside its link where it still resolves.** A dangling link
    comes back without that key rather than as an error, so the frontend can show what is broken.
 
 The blueprint mounts under `/ports` beside the port CRUD, the way the two rack blueprints share
@@ -78,10 +84,10 @@ from cmdb.interface.rest_api.responses import (
 
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRight
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
-    AssignableInterfaceParam,
     LINK_ALREADY_EXISTS_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import (
+    enforce_interface_on_port_object,
     build_link_candidate,
     read_assignable_interface_rows,
     enforce_link_is_new,
@@ -99,7 +105,6 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_search_param,
 )
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
-from cmdb.utils import is_truthy_query_arg
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -118,18 +123,23 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
     """
     HTTP `POST` route to link a CmdbPort to one IPAM interface row
 
-    The port comes from the URL, so a body can not disagree with it. The addressed interface row has to
-    exist: a link that is dangling from the moment it is created is a mistake, unlike one that goes
-    dangling later
+    The port comes from the URL, so a body can not disagree with it. The addressed interface row must
+    live on the port's **own** CmdbObject - a body naming a different one is refused rather than
+    silently corrected - and it has to exist: a link that is dangling from the moment it is created is
+    a mistake, unlike one that goes dangling later.
+
+    Several ports of the same object may link the same interface row; only the same port twice is
+    refused, by the unique index on (port + interface triple)
 
     Args:
         port_id (int): public_id of the CmdbPort to link
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
-        HTTPException: 400 when the row id, the relation type or the row itself is unusable, or the
-                       link already exists; 403 when the port owner's ACL denies it; 404 when the port
-                       or the interface object does not exist; 500 on an unexpected error
+        HTTPException: 400 when the row id, the relation type or the row itself is unusable, when the
+                       interface belongs to another CmdbObject, or when the link already exists; 403
+                       when the port owner's ACL denies it; 404 when the port or the interface object
+                       does not exist; 500 on an unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbPortInterfaceLink and its public_id
@@ -142,7 +152,7 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
 
         payload: dict[str, Any] = request.get_json(silent=True) or {}
 
-        get_accessible_port_or_abort(
+        port: dict[str, Any] = get_accessible_port_or_abort(
             ports_manager, objects_manager, port_id, request_user, AccessControlPermission.UPDATE,
         )
 
@@ -152,6 +162,9 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
         candidate: dict[str, Any] = build_link_candidate(
             port_id, payload, multi_data_id, relation_type,
         )
+
+        # Before the row is read: a foreign object is refused for being foreign, not for its contents
+        enforce_interface_on_port_object(port, candidate)
 
         get_interface_row_or_abort(
             objects_manager,
@@ -351,21 +364,17 @@ def get_assignable_interfaces(port_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route listing the IPAM interface rows this CmdbPort may still be linked to
 
-    **The port's own object by default, the tenant on request.** A port and the interface it carries
-    normally live on the same device, so that is what the picker opens on; `?all_objects=true` widens
-    it to every object holding an interface row, for the case the N:M relation exists for - an
-    interface reached over a port of another device.
+    **The port's own object, always.** A port may only be linked to its own object's interfaces, so
+    the picker has no scope argument and nothing to widen - the one candidate is the object the caller
+    already passed the ACL of to reach this route at all.
 
     Each row carries the create route's triple under its own key names plus the resolved interface
     values, so selecting one and posting it is a copy. Rows without a `multi_data_id` and rows this
     port already links are not offered: the first the create route refuses, the second the unique
-    index does.
-
-    Unlike the Rack and Cable pickers this one hands out addresses rather than names, so the caller's
-    READ ACL filters the candidate objects - a row of an object they cannot open is not offered
+    index does. A row **another port of the same object** links IS still offered - several ports may
+    share one interface, which is what a bonded interface reached over two physical ports needs
 
     Query params:
-        all_objects (bool, default=false): Widen from the port's own object to every object
         page (int, default=1): 1-based page number; clamped server-side
         page_size (int, default=50): Page size; clamped server-side
         search (str, optional): Case-insensitive substring over the addresses, the subnet name and the
@@ -399,8 +408,6 @@ def get_assignable_interfaces(port_id: int, request_user: CmdbUser) -> Response:
             types_manager,
             port_interface_links_manager,
             port,
-            request_user,
-            is_truthy_query_arg(request.args.get(AssignableInterfaceParam.ALL_OBJECTS.value)),
         )
 
         page, page_size = read_pagination_params()

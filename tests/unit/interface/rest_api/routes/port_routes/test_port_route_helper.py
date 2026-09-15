@@ -30,6 +30,7 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.extendable_option_model import OptionType
+from cmdb.models.port_interface_link_model import PortInterfaceLinkKey
 from cmdb.models.port_model import PortKey, PortSide
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.permission import AccessControlPermission
@@ -37,6 +38,7 @@ from cmdb.interface.rest_api.routes.port_routes import port_interface_link_helpe
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRequestKey
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import (
+    enforce_interface_on_port_object,
     read_assignable_candidate_objects,
     read_assignable_lookups,
     get_interface_row_or_abort,
@@ -615,74 +617,110 @@ class TestGetInterfaceRowOrAbort:
 #                                            the picker's candidate reads                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 CAPABLE_TYPE_ID: int = 7701
-DENIED_TYPE_ID: int = 7702
 OWNER_OBJECT_ID: int = 7801
+FOREIGN_OBJECT_ID: int = 7802
+GUARDED_PORT_ID: int = 7901
 
 
 class TestReadAssignableCandidateObjects:
-    """Which CmdbObjects the picker is allowed to offer rows from."""
+    """
+    Which CmdbObjects the picker is allowed to offer rows from
 
-    def test_the_narrow_scope_reads_only_the_ports_own_object(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    Exactly one, always: a port may only be linked to its own object's interfaces, so the earlier wide
+    scope (every interface-bearing object, ACL-filtered by type) is gone rather than defaulted off.
+    """
+
+    def test_it_reads_only_the_ports_own_object(self) -> None:
         """One document read - the object whose ACL the caller already passed to reach the route"""
         owner = {'public_id': OWNER_OBJECT_ID}
         objects_manager = MagicMock(name='objects_manager')
         objects_manager.get_object.return_value = owner
-        types_manager = MagicMock(name='types_manager')
 
-        candidates = read_assignable_candidate_objects(
-            objects_manager, types_manager, OWNER_OBJECT_ID, None, False,
-        )
+        candidates = read_assignable_candidate_objects(objects_manager, OWNER_OBJECT_ID)
 
         assert candidates == [owner]
+        objects_manager.get_object.assert_called_once_with(OWNER_OBJECT_ID, as_dict=True)
+
+    def test_it_never_queries_the_object_collection(self) -> None:
+        """
+        There is no candidate SET any more, so there is nothing to filter
+
+        A find_objects call here would mean some other object could still be reached.
+        """
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = {'public_id': OWNER_OBJECT_ID}
+
+        read_assignable_candidate_objects(objects_manager, OWNER_OBJECT_ID)
+
         objects_manager.find_objects.assert_not_called()
-        types_manager.get_types_lookup.assert_not_called()
 
     def test_a_missing_owner_offers_nothing(self) -> None:
         """A port whose object is gone has nothing to offer, which is not an error here"""
         objects_manager = MagicMock(name='objects_manager')
         objects_manager.get_object.return_value = None
 
-        assert read_assignable_candidate_objects(
-            objects_manager, MagicMock(name='types_manager'), OWNER_OBJECT_ID, None, False,
-        ) == []
+        assert read_assignable_candidate_objects(objects_manager, OWNER_OBJECT_ID) == []
 
-    def test_the_wide_scope_excludes_the_denied_types(self, monkeypatch: pytest.MonkeyPatch) -> None:
+
+class TestEnforceInterfaceOnPortObject:
+    """
+    A port may only be linked to its own object's interfaces
+
+    The picker only ever offers that object, but the picker is a convenience - this is the rule, and
+    it is what a hand-written POST meets.
+    """
+
+    @staticmethod
+    def _port() -> dict:
+        """The CmdbPort the link is being created on."""
+        return {PortKey.PUBLIC_ID.value: GUARDED_PORT_ID, PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}
+
+    @staticmethod
+    def _candidate(interface_object_id) -> dict:
+        """The link document being built."""
+        return {PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value: interface_object_id}
+
+    def test_the_ports_own_object_passes(self, ctx) -> None:
+        """The only shape the picker can produce."""
+        del ctx
+
+        assert enforce_interface_on_port_object(
+            self._port(), self._candidate(OWNER_OBJECT_ID),
+        ) is None
+
+    def test_another_object_is_refused(self, ctx) -> None:
+        """Refused for being a different device, whether or not the row exists on it."""
+        del ctx
+
+        with pytest.raises(HTTPException) as caught:
+            enforce_interface_on_port_object(self._port(), self._candidate(FOREIGN_OBJECT_ID))
+
+        assert caught.value.code == 400
+
+    def test_the_refusal_names_both_objects(self, ctx) -> None:
+        """A client has to see which object it should have asked for."""
+        del ctx
+
+        with pytest.raises(HTTPException) as caught:
+            enforce_interface_on_port_object(self._port(), self._candidate(FOREIGN_OBJECT_ID))
+
+        assert str(OWNER_OBJECT_ID) in caught.value.description
+        assert str(FOREIGN_OBJECT_ID) in caught.value.description
+
+    @pytest.mark.parametrize('interface_object_id', [None, 'not-an-id'])
+    def test_an_unusable_object_id_is_refused(self, ctx, interface_object_id) -> None:
         """
-        The ACL is applied as a type filter on the one object query, not per document
+        A missing or malformed id is not the port's object either
 
-        The denied types come from the same resolver the object pipeline uses, so a caller sees the
-        same set of types here as everywhere else.
+        It is refused here rather than reaching the row read, so the message says which object was
+        expected instead of reporting a missing one.
         """
-        objects_manager = MagicMock(name='objects_manager')
-        objects_manager.find_objects.return_value = []
-        monkeypatch.setattr(link_helper_module, 'find_ipam_capable_type_ids',
-                            lambda _types_manager: [CAPABLE_TYPE_ID, DENIED_TYPE_ID])
-        monkeypatch.setattr(link_helper_module, 'resolve_denied_type_ids',
-                            lambda _user, _permission: [DENIED_TYPE_ID])
+        del ctx
 
-        read_assignable_candidate_objects(
-            objects_manager, MagicMock(name='types_manager'), OWNER_OBJECT_ID, None, True,
-        )
+        with pytest.raises(HTTPException) as caught:
+            enforce_interface_on_port_object(self._port(), self._candidate(interface_object_id))
 
-        criteria = objects_manager.find_objects.call_args.args[0]
-
-        assert criteria['type_id'] == {'$in': [CAPABLE_TYPE_ID]}
-        assert criteria['multi_data_sections.section_id'] == 'dg-ipam-interface'
-
-    def test_every_capable_type_denied_skips_the_object_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Nothing to ask for - the query would match every object of no type at all"""
-        objects_manager = MagicMock(name='objects_manager')
-        monkeypatch.setattr(link_helper_module, 'find_ipam_capable_type_ids',
-                            lambda _types_manager: [DENIED_TYPE_ID])
-        monkeypatch.setattr(link_helper_module, 'resolve_denied_type_ids',
-                            lambda _user, _permission: [DENIED_TYPE_ID])
-
-        candidates = read_assignable_candidate_objects(
-            objects_manager, MagicMock(name='types_manager'), OWNER_OBJECT_ID, None, True,
-        )
-
-        assert candidates == []
-        objects_manager.find_objects.assert_not_called()
+        assert caught.value.code == 400
 
 
 class TestReadAssignableLookups:

@@ -100,24 +100,6 @@ class RequestError(SecurityError):
     """
 
 
-class DisallowedActionError(SecurityError):
-    """
-    Raised when an illegal action is requested
-    """
-
-
-class WrongPasswordError(SecurityError):
-    """
-    Raised when the password is not matching
-    """
-
-
-class NoValidSubscriptionError(SecurityError):
-    """
-    Raised when no subscription matches the given API-KEY
-    """
-
-
 class LicenseDecryptionError(SecurityError):
     """
     Raised when a license blob cannot be decrypted or parsed (bad Base64, wrong ciphertext length,

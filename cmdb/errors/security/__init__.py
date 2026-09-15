@@ -29,9 +29,6 @@ from .security_errors import (
     InvalidCloudUserError,
     RequestTimeoutError,
     RequestError,
-    DisallowedActionError,
-    WrongPasswordError,
-    NoValidSubscriptionError,
     LicenseDecryptionError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -49,8 +46,5 @@ __all__: list[str] = [
     'InvalidCloudUserError',
     'RequestTimeoutError',
     'RequestError',
-    'DisallowedActionError',
-    'WrongPasswordError',
-    'NoValidSubscriptionError',
     'LicenseDecryptionError',
 ]

@@ -187,7 +187,7 @@ def _port_doc(public_id: int, object_id: int, name: str) -> dict[str, Any]:
 
 
 def _payload(
-        object_id: int = HOST_OBJECT_ID,
+        object_id: int = SWITCH_OBJECT_ID,
         multi_data_id: int = ROW_ID,
         relation_type: str = InterfaceRelationType.PHYSICAL.value,
         **overrides: Any) -> dict[str, Any]:
@@ -204,7 +204,13 @@ def _payload(
 
 @pytest.fixture(name='seeded', autouse=True)
 def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds the types, the switch with its ports and the host with two interface rows."""
+    """
+    Seeds the types, the switch with its ports AND its interface rows, and a foreign host
+
+    A port may only be linked to its own object's interfaces, so the switch has to carry the rows the
+    links point at. The host keeps interface rows of its own precisely because it is the FOREIGN
+    object: it is what the same-object guard is tested against.
+    """
     types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
     ports = database_manager.get_collection(CmdbPort.COLLECTION, database_name)
@@ -220,7 +226,10 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
 
     types.insert_many([_type_doc(PORT_TYPE_ID, uses_ports=True), _type_doc(HOST_TYPE_ID)])
     objects.insert_many([
-        _object_doc(SWITCH_OBJECT_ID, PORT_TYPE_ID),
+        _object_doc(SWITCH_OBJECT_ID, PORT_TYPE_ID, [
+            _interface_row(ROW_ID, ROW_IP),
+            _interface_row(OTHER_ROW_ID, OTHER_ROW_IP, OTHER_ROW_MAC),
+        ]),
         _object_doc(HOST_OBJECT_ID, HOST_TYPE_ID, [
             _interface_row(ROW_ID, ROW_IP),
             _interface_row(OTHER_ROW_ID, OTHER_ROW_IP, OTHER_ROW_MAC),
@@ -254,7 +263,7 @@ def _break_the_row(objects, multi_data_id: int = ROW_ID) -> None:
     import overwrite renumbers or drops it without ever touching a port.
     """
     objects.update_one(
-        {'public_id': HOST_OBJECT_ID},
+        {'public_id': SWITCH_OBJECT_ID},
         {'$pull': {'multi_data_sections.$[section].values': {'multi_data_id': multi_data_id}}},
         array_filters=[{'section.section_id': IpamSection.INTERFACE.value}],
     )
@@ -365,7 +374,7 @@ class TestCreateLink:
     def test_a_missing_relation_type_is_refused(self, rest_api) -> None:
         """It is required - a link with no relation type describes nothing"""
         response = rest_api.post(f'{PORTS_URL}/{PORT_ID}/interface_links/', json={
-            'interface_object_id': HOST_OBJECT_ID, 'interface_multi_data_id': ROW_ID,
+            'interface_object_id': SWITCH_OBJECT_ID, 'interface_multi_data_id': ROW_ID,
         })
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
@@ -374,9 +383,47 @@ class TestCreateLink:
         """The port is the link's hard reference"""
         assert _create(rest_api, port_id=MISSING_PORT_ID).status_code == HTTPStatus.NOT_FOUND
 
-    def test_a_missing_interface_object_is_a_404(self, rest_api) -> None:
-        """Nothing to link to"""
-        assert _create(rest_api, object_id=MISSING_OBJECT_ID).status_code == HTTPStatus.NOT_FOUND
+    def test_an_interface_on_another_object_is_refused(self, rest_api) -> None:
+        """
+        A port may only be linked to its OWN object's interfaces
+
+        The host carries a perfectly valid interface row with the same multi_data_id - the refusal is
+        about which device it belongs to, not about whether it exists.
+        """
+        response = _create(rest_api, object_id=HOST_OBJECT_ID)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'different one' in response.get_json()['message']
+
+    def test_the_refusal_names_both_objects(self, rest_api) -> None:
+        """A client has to be able to see which object it should have asked for."""
+        message = _create(rest_api, object_id=HOST_OBJECT_ID).get_json()['message']
+
+        assert str(SWITCH_OBJECT_ID) in message
+        assert str(HOST_OBJECT_ID) in message
+
+    def test_an_unknown_object_is_refused_as_foreign(self, rest_api) -> None:
+        """
+        An id naming nothing is not the port's object either
+
+        The same-object guard runs before the row is read, so an object that does not exist is refused
+        for being a different object (400) rather than for being missing (404) - the 404 arm survives
+        only for the owner vanishing mid-request, which `get_interface_row_or_abort` still covers.
+        """
+        assert _create(rest_api, object_id=MISSING_OBJECT_ID).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_several_ports_may_share_one_interface(self, rest_api) -> None:
+        """
+        The M side of N:M, and the case Change 1 must not take away
+
+        A bonded interface reached over two physical ports of the same device - both links name the
+        same row, and only the same PORT twice is refused.
+        """
+        assert _create(rest_api).status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+        response = _create(rest_api, port_id=OTHER_PORT_ID, relation_type=InterfaceRelationType.BOND.value)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -512,11 +559,16 @@ class TestDanglingLinks:
 
         Even the whole object going away leaves the link in place to be reported - the link is the only
         record of what the customer meant, and removing it silently would destroy that.
-        """
-        new_id: int = _created_id(_create(rest_api))
-        seeded.delete_one({'public_id': HOST_OBJECT_ID})
 
-        assert rest_api.get(f'{LINKS_URL}/{new_id}').status_code == HTTPStatus.OK
+        Asserted through the dangling REPORT rather than through the link's own read: since a port may
+        only link its own object's interfaces, that object is also the port's owner, and every link
+        route resolves the owner to check its ACL. So the link survives the object; reading it one by
+        one does not. The report is what the survival is for.
+        """
+        _create(rest_api)
+        # A raw collection delete, so no route cascade runs - the link survives its object entirely
+        seeded.delete_one({'public_id': SWITCH_OBJECT_ID})
+
         assert len(rest_api.get(f'{LINKS_URL}/dangling').get_json()) == 1
 
 
@@ -560,7 +612,7 @@ class TestUpdateLink:
         new_id: int = _created_id(_create(rest_api))
 
         response = rest_api.put(f'{LINKS_URL}/{new_id}', json={
-            'interface_object_id': SWITCH_OBJECT_ID,
+            'interface_object_id': HOST_OBJECT_ID,
             'relation_type': InterfaceRelationType.PHYSICAL.value,
         })
 
@@ -871,19 +923,19 @@ class TestAssignableInterfaces:
     """
     The picker a client uses to choose what to link, which is the only way to discover an MDS row
 
-    Two scopes: the port's own object by default - a port and its interface normally live on the same
-    device - and every interface-bearing object behind ?all_objects=true, which is what the N:M
-    relation exists for.
+    One scope, always: the port's own object. A port may only be linked to its own object's
+    interfaces, so there is nothing to widen and the picker takes no scope argument - the host's rows
+    exist in the fixture precisely so their ABSENCE from every answer can be asserted.
     """
 
     @pytest.fixture(autouse=True)
     def _picker_state(self, database_manager: MongoDatabaseManager, database_name: str, seeded):
         """
-        Makes the host type IPAM-capable and gives the switch an interface row of its own
+        Makes both types IPAM-capable and gives the switch two known interface rows
 
-        The shared fixture seeds a switch carrying the ports and a host carrying the interface rows,
-        which is exactly the cross-device case; the switch needs a row of its own for the default
-        scope to have anything to answer with.
+        The rows are replaced rather than added to, so the picker assertions can count exactly. The
+        host stays interface-bearing on purpose: it is the foreign object whose rows must never be
+        offered.
         """
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
         objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
@@ -899,8 +951,11 @@ class TestAssignableInterfaces:
             {'public_id': SWITCH_OBJECT_ID},
             {'$set': {'multi_data_sections': [{
                 'section_id': IpamSection.INTERFACE.value,
-                'highest_id': ROW_ID,
-                'values': [_interface_row(ROW_ID, '10.9.9.9', '00:11:22:33:44:55')],
+                'highest_id': OTHER_ROW_ID,
+                'values': [
+                    _interface_row(ROW_ID, '10.9.9.9', '00:11:22:33:44:55'),
+                    _interface_row(OTHER_ROW_ID, '10.9.9.10', '00:11:22:33:44:56'),
+                ],
             }]}},
         )
 
@@ -914,18 +969,31 @@ class TestAssignableInterfaces:
         """GETs the picker and returns its rows"""
         return rest_api.get(f'{ASSIGNABLE_URL}{query}').get_json()['rows']
 
-    def test_the_default_scope_is_the_ports_own_object(self, rest_api) -> None:
-        """The 95% case: a port and the interface it carries live on the same device"""
-        rows = self._rows(rest_api)
-
-        assert [row[AssignableInterfaceKey.INTERFACE_OBJECT_ID.value] for row in rows] == [SWITCH_OBJECT_ID]
-
-    def test_all_objects_widens_to_every_interface_bearing_object(self, rest_api) -> None:
-        """What the N:M relation exists for - an interface reached over a port of another device"""
+    def test_only_the_ports_own_object_is_offered(self, rest_api) -> None:
+        """A port and the interface it carries are two descriptions of the same device"""
         object_ids = {row[AssignableInterfaceKey.INTERFACE_OBJECT_ID.value]
-                      for row in self._rows(rest_api, '?all_objects=true')}
+                      for row in self._rows(rest_api)}
 
-        assert object_ids == {SWITCH_OBJECT_ID, HOST_OBJECT_ID}
+        assert object_ids == {SWITCH_OBJECT_ID}
+
+    def test_a_foreign_objects_rows_are_never_offered(self, rest_api) -> None:
+        """
+        The host carries two perfectly good interface rows and none of them may appear
+
+        Offering one would promise the 400 the create route now answers with.
+        """
+        object_ids = {row[AssignableInterfaceKey.INTERFACE_OBJECT_ID.value]
+                      for row in self._rows(rest_api)}
+
+        assert HOST_OBJECT_ID not in object_ids
+
+    def test_a_scope_argument_cannot_widen_it(self, rest_api) -> None:
+        """
+        The `?all_objects=true` argument is gone, not ignored-but-honoured
+
+        A client that still sends it gets the port's own object, the same as one that does not.
+        """
+        assert self._rows(rest_api, '?all_objects=true') == self._rows(rest_api)
 
     def test_a_row_carries_the_create_payload(self, rest_api) -> None:
         """The point of the picker: posting a selected row back is a copy, not a translation"""
@@ -955,16 +1023,28 @@ class TestAssignableInterfaces:
     def test_a_linked_row_drops_out(self, rest_api) -> None:
         """Offering it would promise the 400 the unique index answers with"""
         row = self._rows(rest_api)[0]
-        _create(rest_api, object_id=SWITCH_OBJECT_ID,
-                multi_data_id=row[AssignableInterfaceKey.INTERFACE_MULTI_DATA_ID.value])
+        linked_id = row[AssignableInterfaceKey.INTERFACE_MULTI_DATA_ID.value]
+        _create(rest_api, object_id=SWITCH_OBJECT_ID, multi_data_id=linked_id)
 
-        assert self._rows(rest_api) == []
+        remaining = self._rows(rest_api)
+
+        assert linked_id not in [
+            row[AssignableInterfaceKey.INTERFACE_MULTI_DATA_ID.value] for row in remaining
+        ]
 
     def test_another_ports_link_does_not_exclude_a_row(self, rest_api) -> None:
-        """The relation is N:M - a row another port reaches is still a legitimate choice here"""
+        """
+        Several ports of one object may share an interface, so another port's link excludes nothing
+
+        This is the half of the N:M relation that survives the same-object rule, and the one a bonded
+        interface reached over two physical ports depends on.
+        """
         _create(rest_api, port_id=OTHER_PORT_ID, object_id=SWITCH_OBJECT_ID, multi_data_id=ROW_ID)
 
-        assert len(self._rows(rest_api)) == 1
+        offered = [row[AssignableInterfaceKey.INTERFACE_MULTI_DATA_ID.value]
+                   for row in self._rows(rest_api)]
+
+        assert ROW_ID in offered
 
     def test_the_subnet_is_resolved(self, rest_api, _picker_state,
                                     database_manager: MongoDatabaseManager, database_name: str) -> None:
@@ -987,16 +1067,16 @@ class TestAssignableInterfaces:
 
     def test_the_search_narrows(self, rest_api) -> None:
         """?search= matches the addresses, the subnet name and the owning device"""
-        page = rest_api.get(f'{ASSIGNABLE_URL}?all_objects=true&search=10.9.9').get_json()
+        page = rest_api.get(f'{ASSIGNABLE_URL}?search=10.9.9.9').get_json()
 
         assert page['total'] == 1
         assert page['rows'][0][AssignableInterfaceKey.IP.value] == '10.9.9.9'
 
     def test_the_envelope_is_paginated(self, rest_api) -> None:
         """The shape the IPAM pickers answer with, since these are rows rather than documents"""
-        page = rest_api.get(f'{ASSIGNABLE_URL}?all_objects=true&page=1&page_size=1').get_json()
+        page = rest_api.get(f'{ASSIGNABLE_URL}?page=1&page_size=1').get_json()
 
-        assert (page['page'], page['page_size'], page['total']) == (1, 1, 3)
+        assert (page['page'], page['page_size'], page['total']) == (1, 1, 2)
         assert len(page['rows']) == 1
 
     def test_a_missing_port_is_a_404(self, rest_api) -> None:

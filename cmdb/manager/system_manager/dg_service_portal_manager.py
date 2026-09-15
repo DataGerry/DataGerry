@@ -361,20 +361,6 @@ class DgServicePortalManager:
         return self._save_entity_id(CONNECTION_ID_URL, connection_id, email, db_name)
 
 
-    def get_connection_ids(self, email: str, db_name: str) -> list[int]:
-        """
-        Retrieves all connectionIds from DG Service Portal for the user
-
-        Args:
-            email (str): email of the user
-            db_name (str): database name of the user
-
-        Returns:
-            list[int]: All connectionIds, or an empty list on an invalid response
-        """
-        return self._get_entity_ids(GET_CONNECTION_IDS, email, db_name)
-
-
     def delete_connection_id(self, connection_id: int, email: str, db_name: str) -> bool:
         """
         Delete the connectionId in DG Service Portal for the user

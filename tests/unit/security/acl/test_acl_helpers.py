@@ -28,7 +28,12 @@ import pytest
 from cmdb.errors.security import AccessDeniedError
 from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.acl_constants import AclKey
-from cmdb.security.acl.helpers import has_access_control, verify_access
+from cmdb.security.acl.helpers import (
+    acl_grants_access,
+    has_access_control,
+    has_type_document_access,
+    verify_access,
+)
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -112,3 +117,99 @@ class TestVerifyAccess:
         acl = _acl(activated=True, includes={'2': []})
 
         assert verify_access(_type_with_acl(acl), user, permission) is None
+
+
+class TestAclGrantsAccess:
+    """The single expression of the opt-in rule, which the other two helpers delegate to."""
+
+    def test_no_acl_grants(self) -> None:
+        """None is the shape a CmdbType that was never given an ACL carries."""
+        assert acl_grants_access(None, GROUP_ID, AccessControlPermission.READ) is True
+
+    def test_a_deactivated_acl_grants(self) -> None:
+        """The switch is consulted before the groups are."""
+        assert acl_grants_access(_acl(activated=False), GROUP_ID, AccessControlPermission.READ) is True
+
+    def test_an_activated_acl_decides_per_group(self) -> None:
+        """Only the requesting group's own entry is read."""
+        acl = _acl(activated=True, includes={str(GROUP_ID): ['READ']})
+
+        assert acl_grants_access(acl, GROUP_ID, AccessControlPermission.READ) is True
+        assert acl_grants_access(acl, OTHER_GROUP_ID, AccessControlPermission.READ) is False
+
+    def test_an_activated_acl_without_the_permission_denies(self) -> None:
+        """A group entry that exists but lacks the permission is still a denial."""
+        acl = _acl(activated=True, includes={str(GROUP_ID): ['READ']})
+
+        assert acl_grants_access(acl, GROUP_ID, AccessControlPermission.DELETE) is False
+
+
+class TestHasTypeDocumentAccess:
+    """The same decision taken against a raw CmdbType document instead of the model."""
+
+    @staticmethod
+    def _type_document(acl_data: dict | None) -> dict:
+        """A CmdbType document as it comes out of Mongo; None omits the acl key entirely."""
+        document: dict = {'public_id': 10, 'name': 'server'}
+
+        if acl_data is not None:
+            document['acl'] = acl_data
+
+        return document
+
+    def test_a_document_without_an_acl_key_is_open(self) -> None:
+        """A type saved before ACLs existed carries no acl key at all."""
+        assert has_type_document_access(
+            self._type_document(None), _user(), AccessControlPermission.READ,
+        ) is True
+
+    def test_a_null_acl_is_open(self) -> None:
+        """`acl: null` must not be read as an activated empty ACL, which would deny everything."""
+        assert has_type_document_access(
+            self._type_document(None) | {'acl': None}, _user(), AccessControlPermission.READ,
+        ) is True
+
+    def test_a_deactivated_acl_document_is_open(self) -> None:
+        """The stored shape the type builder writes when the switch is off."""
+        acl_data = {AclKey.ACTIVATED.value: False, AclKey.GROUPS.value: {AclKey.INCLUDES.value: None}}
+
+        assert has_type_document_access(
+            self._type_document(acl_data), _user(), AccessControlPermission.READ,
+        ) is True
+
+    def test_an_activated_acl_document_decides_per_group(self) -> None:
+        """Group keys are stored as strings, which is what the Angular ACL editor writes."""
+        acl_data = {
+            AclKey.ACTIVATED.value: True,
+            AclKey.GROUPS.value: {AclKey.INCLUDES.value: {str(GROUP_ID): ['READ']}},
+        }
+
+        assert has_type_document_access(
+            self._type_document(acl_data), _user(GROUP_ID), AccessControlPermission.READ,
+        ) is True
+        assert has_type_document_access(
+            self._type_document(acl_data), _user(OTHER_GROUP_ID), AccessControlPermission.READ,
+        ) is False
+
+    def test_an_activated_acl_with_no_groups_denies_everyone(self) -> None:
+        """Fails closed - the same rule AccessControlList.verify_access applies."""
+        acl_data = {AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: {AclKey.INCLUDES.value: {}}}
+
+        assert has_type_document_access(
+            self._type_document(acl_data), _user(), AccessControlPermission.READ,
+        ) is False
+
+    def test_it_agrees_with_the_model_based_helper(self) -> None:
+        """The document and the model path must never disagree - that is the point of the lift."""
+        acl_data = {
+            AclKey.ACTIVATED.value: True,
+            AclKey.GROUPS.value: {AclKey.INCLUDES.value: {str(GROUP_ID): ['READ']}},
+        }
+        acl = AccessControlList.from_data(acl_data)
+
+        for group_id in (GROUP_ID, OTHER_GROUP_ID):
+            assert has_type_document_access(
+                self._type_document(acl_data), _user(group_id), AccessControlPermission.READ,
+            ) is has_access_control(
+                _type_with_acl(acl), _user(group_id), AccessControlPermission.READ,
+            )

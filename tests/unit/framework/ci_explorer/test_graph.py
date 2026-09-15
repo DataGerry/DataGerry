@@ -32,16 +32,24 @@ Four rules are pinned here:
   - the neighbour cap reads in a deterministic order, so the same request truncates the same way twice
   - the dg_location directions are inverted on purpose: the location parent lands in the CHILDREN
     bucket, the location children in the PARENT bucket
+  - nothing the requesting user's object ACL denies reaches the payload, from any of the four
+    sources, and a denied focal object is answered the same way a missing one is
 """
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cmdb.framework.ci_explorer.context import CiExplorerGraphRequest, CiExplorerManagers
+from cmdb.framework.ci_explorer.connections import ConnectionNeighbour
 from cmdb.framework.ci_explorer.graph import (
+    ConnectionNeighbourhood,
     GraphBuckets,
+    LocationNeighbourhood,
+    RelationNeighbourhood,
     build_ci_explorer_graph,
+    drop_denied_neighbours,
     index_by_public_id,
     load_relation_neighbourhood,
     resolve_composable,
@@ -729,3 +737,319 @@ class TestTheLocationBranchFollowsTheRequestedDirection:
 
         mock_parent.assert_called_once()
         mock_children.assert_not_called()
+
+
+# --------------------------------------------- OBJECT ACL (backlog #146) -------------------------------------------- #
+
+DENIED_TYPE_ID: int = 77
+GROUP_ID: int = 2
+
+
+def _user(group_id: int = GROUP_ID) -> Any:
+    """A CmdbUser stand-in carrying the two attributes the access filter reads"""
+    return SimpleNamespace(group_id=group_id, public_id=1)
+
+
+def _locked_type_doc(public_id: int = DENIED_TYPE_ID) -> dict[str, Any]:
+    """A CmdbType whose activated ACL names no group, so it denies every user"""
+    return _type_doc(public_id) | {'acl': {'activated': True, 'groups': {'includes': {}}}}
+
+
+class TestTheObjectAclFiltersEverySource:
+    """
+    Backlog #146: until 2026-09-15 the graph consulted no ACL at all
+
+    A user who could open the CI Explorer learned the label, type and neighbourhood of objects they
+    could not read anywhere else in the product. Each source is pinned separately because each one
+    grafts its neighbours through a different branch.
+    """
+
+    def test_a_denied_relation_neighbour_is_omitted(self) -> None:
+        """The neighbour and its edge go together - an edge to a node that is not there draws nothing."""
+        managers = _managers(
+            object_relations=[_object_relation()],
+            relations=[_relation_doc()],
+            linked_objects=[_object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID)],
+            types=[_type_doc(), _locked_type_doc()],
+        )
+
+        response = build_ci_explorer_graph(_request(), managers, _user())
+
+        assert response['children_nodes'] == []
+        assert response['child_edges'] == []
+
+    def test_an_open_neighbour_of_the_same_request_survives(self) -> None:
+        """The filter is per type, so a mixed neighbourhood keeps the half the user may read."""
+        managers = _managers(
+            object_relations=[_object_relation(), _object_relation() | {
+                'public_id': 12, 'relation_child_id': OTHER_NEIGHBOUR_ID, 'relation_child_type_id': DENIED_TYPE_ID,
+            }],
+            relations=[_relation_doc()],
+            linked_objects=[
+                _object(NEIGHBOUR_ID),
+                _object(OTHER_NEIGHBOUR_ID, type_id=DENIED_TYPE_ID),
+            ],
+            types=[_type_doc(), _locked_type_doc()],
+        )
+
+        response = build_ci_explorer_graph(_request(), managers, _user())
+
+        assert [node['linked_object']['public_id'] for node in response['children_nodes']] == [NEIGHBOUR_ID]
+        assert len(response['child_edges']) == 1
+
+    def test_a_denied_location_neighbour_is_omitted(self) -> None:
+        """The location branch grafts raw objects, so it needs the filter as much as the relations do."""
+        managers = _managers(
+            linked_objects=[],
+            types=[_type_doc(), _locked_type_doc()],
+            location={'public_id': 60, 'parent': 61, 'object_id': TARGET_ID},
+        )
+
+        with patch(f'{MODULE_PATH}.collect_location_parent_object',
+                   return_value=_object(LOCATION_PARENT_ID, type_id=DENIED_TYPE_ID)), \
+             patch(f'{MODULE_PATH}.collect_location_children_objects',
+                   return_value=[_object(LOCATION_CHILD_ID, type_id=DENIED_TYPE_ID)]):
+            response = build_ci_explorer_graph(_request(with_locations=True), managers, _user())
+
+        assert response['children_nodes'] == []
+        assert response['parent_nodes'] == []
+        assert response['child_edges'] == []
+        assert response['parent_edges'] == []
+
+    def test_a_denied_ipam_neighbour_is_omitted(self) -> None:
+        """The IPAM walk reaches supernets and VLANs, which carry their own ACLs like anything else."""
+        managers = _managers(linked_objects=[], types=[_type_doc(), _locked_type_doc()])
+        neighbour = IpamNeighbour(
+            neighbour_object=_object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID),
+            edge_category=IpamEdgeCategory.SUBNET_SUPERNET,
+            is_child_of_target=True,
+        )
+
+        with patch(f'{MODULE_PATH}.collect_ipam_neighbours', return_value=[neighbour]):
+            response = build_ci_explorer_graph(_request(with_ipam_relations=True), managers, _user())
+
+        assert response['children_nodes'] == []
+        assert response['child_edges'] == []
+
+    def test_a_denied_focal_object_is_reported_as_missing(self) -> None:
+        """
+        A 403 would confirm the object exists, which is exactly what the ACL hides
+
+        So the denial raises what a missing target raises, and the route answers the same 404.
+        """
+        managers = _managers(
+            root=_object(TARGET_ID, type_id=DENIED_TYPE_ID),
+            types=[_locked_type_doc()],
+        )
+
+        with pytest.raises(CiExplorerTargetNotFoundError):
+            build_ci_explorer_graph(_request(with_root=True), managers, _user())
+
+    def test_a_denied_neighbour_costs_no_enrichment(self) -> None:
+        """
+        The filter runs before the enrichment pass, not after it
+
+        Otherwise a denied object still pays for its summary and dg_location lookups, and its
+        referenced ids still travel in the $in of a query built for a user who may not see it.
+        """
+        managers = _managers(
+            object_relations=[_object_relation()],
+            relations=[_relation_doc()],
+            linked_objects=[_object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID)],
+            types=[_type_doc(), _locked_type_doc()],
+        )
+
+        with patch(f'{MODULE_PATH}.enrich_in_scope_objects', return_value={}) as mock_enrich:
+            build_ci_explorer_graph(_request(), managers, _user())
+
+        in_scope_objects = mock_enrich.call_args.args[0]
+
+        assert [obj['public_id'] for obj in in_scope_objects] == [TARGET_ID]
+
+    def test_without_a_user_nothing_is_filtered(self) -> None:
+        """
+        The convention every manager here follows: an internal caller with no user is not checked
+
+        Passing None must not quietly turn the graph into an empty one.
+        """
+        managers = _managers(
+            object_relations=[_object_relation()],
+            relations=[_relation_doc()],
+            linked_objects=[_object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID)],
+            types=[_type_doc(), _locked_type_doc()],
+        )
+
+        response = build_ci_explorer_graph(_request(), managers)
+
+        assert [node['linked_object']['public_id'] for node in response['children_nodes']] == [NEIGHBOUR_ID]
+
+    def test_an_open_graph_is_untouched_by_the_filter(self) -> None:
+        """The common case - no type in scope carries an activated ACL - behaves as it always did."""
+        managers = _managers(
+            object_relations=[_object_relation()],
+            relations=[_relation_doc()],
+            linked_objects=[_object(NEIGHBOUR_ID)],
+        )
+
+        with_user = build_ci_explorer_graph(_request(with_root=True), managers, _user())
+        without_user = build_ci_explorer_graph(_request(with_root=True), managers)
+
+        assert with_user == without_user
+
+
+class TestDropDeniedNeighbours:
+    """The filter itself, driven directly - the orchestrator only decides when to call it."""
+
+    def test_the_relation_edge_goes_with_its_object(self) -> None:
+        """A surviving edge whose far end was dropped would point at nothing."""
+        directional_edge = SimpleNamespace(linked_id=NEIGHBOUR_ID)
+        relation_neighbourhood = RelationNeighbourhood(
+            directional_edges=[(directional_edge, _relation_doc())],
+            linked_objects={NEIGHBOUR_ID: _object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID)},
+        )
+
+        drop_denied_neighbours(
+            relation_neighbourhood, LocationNeighbourhood(), [], {DENIED_TYPE_ID},
+        )
+
+        assert not relation_neighbourhood.directional_edges
+        assert not relation_neighbourhood.linked_objects
+
+    def test_both_location_directions_are_filtered(self) -> None:
+        """The parent hop and the children hop are separate fields and both can be denied."""
+        location_neighbourhood = LocationNeighbourhood(
+            parent_object=_object(LOCATION_PARENT_ID, type_id=DENIED_TYPE_ID),
+            children_objects=[
+                _object(LOCATION_CHILD_ID, type_id=DENIED_TYPE_ID),
+                _object(OTHER_NEIGHBOUR_ID),
+            ],
+        )
+
+        drop_denied_neighbours(
+            RelationNeighbourhood(), location_neighbourhood, [], {DENIED_TYPE_ID},
+        )
+
+        assert location_neighbourhood.parent_object is None
+        assert [obj['public_id'] for obj in location_neighbourhood.children_objects] == [OTHER_NEIGHBOUR_ID]
+
+    def test_the_ipam_list_is_returned_rather_than_mutated(self) -> None:
+        """It arrives as a plain list, unlike the two dataclasses the function edits in place."""
+        denied = IpamNeighbour(
+            neighbour_object=_object(NEIGHBOUR_ID, type_id=DENIED_TYPE_ID),
+            edge_category=IpamEdgeCategory.SUBNET_SUPERNET,
+            is_child_of_target=True,
+        )
+        kept = IpamNeighbour(
+            neighbour_object=_object(OTHER_NEIGHBOUR_ID),
+            edge_category=IpamEdgeCategory.SUBNET_SUPERNET,
+            is_child_of_target=True,
+        )
+
+        remaining = drop_denied_neighbours(
+            RelationNeighbourhood(), LocationNeighbourhood(), [denied, kept], {DENIED_TYPE_ID},
+        )
+
+        assert remaining == [kept]
+
+
+# ------------------------------------ PORT CONNECTIVITY (step 14) ---------------------------------------------------- #
+
+CONNECTED_CI_ID: int = 55
+
+
+def _connection_neighbourhood(neighbour_id: int = CONNECTED_CI_ID, type_id: int = TYPE_ID) -> Any:
+    """What the connection source hands the orchestrator for one physically connected CI"""
+    return ConnectionNeighbourhood(
+        neighbours=[ConnectionNeighbour(neighbour_object_id=neighbour_id, path=[{'public_id': 900}])],
+        objects={neighbour_id: _object(neighbour_id, type_id=type_id)},
+    )
+
+
+class TestThePortConnectionSource:
+    """
+    Step 14: the CI-level projection of the physical layer, folded into the existing envelope
+
+    The walk itself is tested in test_connections.py; what is pinned here is the wiring - when the
+    source runs, which bucket its result lands in, and that the ACL reaches it like every other one.
+    """
+
+    def test_the_source_is_off_by_default(self) -> None:
+        """It matches with_locations and with_ipam_relations: opt-in, and free when not asked for."""
+        managers = _managers()
+
+        with patch(f'{MODULE_PATH}.collect_connection_neighbours') as mock_collect:
+            build_ci_explorer_graph(_request(), managers)
+
+        mock_collect.assert_not_called()
+
+    def test_a_connected_ci_lands_in_the_children_bucket(self) -> None:
+        """
+        Q37: an undirected edge has no parent side, so it rides in the children bucket
+
+        With metadata.undirected set, which is what tells the frontend to draw no arrowhead.
+        """
+        managers = _managers(types=[_type_doc()])
+
+        with patch(f'{MODULE_PATH}.load_connection_neighbourhood',
+                   return_value=_connection_neighbourhood()):
+            response = build_ci_explorer_graph(_request(with_port_connections=True), managers)
+
+        assert [node['linked_object']['public_id'] for node in response['children_nodes']] == [CONNECTED_CI_ID]
+        assert response['child_edges'][0]['to'] == CONNECTED_CI_ID
+        assert response['child_edges'][0]['metadata']['undirected'] is True
+        assert response['parent_nodes'] == []
+
+    def test_a_parents_only_request_gets_no_connections(self) -> None:
+        """
+        Q37 again, from the other side
+
+        A caller asking for parents must not silently receive undirected content it has nowhere to
+        put - so the source is not even consulted.
+        """
+        managers = _managers()
+
+        with patch(f'{MODULE_PATH}.collect_connection_neighbours') as mock_collect:
+            build_ci_explorer_graph(
+                _request(with_port_connections=True, target_type=NodeType.PARENT), managers,
+            )
+
+        mock_collect.assert_not_called()
+
+    def test_without_the_port_managers_the_source_is_skipped(self) -> None:
+        """
+        The three managers are optional on the bundle, because the route resolves them only for
+        this flag
+
+        An internal caller that does not know about a licensed source must get a graph, not a 500.
+        """
+        managers = _managers()
+
+        response = build_ci_explorer_graph(_request(with_port_connections=True), managers)
+
+        assert response['children_nodes'] == []
+
+    def test_a_denied_connected_ci_is_omitted(self) -> None:
+        """Backlog #146 reaches the newest source too - it was the one that sharpened the question."""
+        managers = _managers(types=[_type_doc(), _locked_type_doc()])
+
+        with patch(f'{MODULE_PATH}.load_connection_neighbourhood',
+                   return_value=_connection_neighbourhood(type_id=DENIED_TYPE_ID)):
+            response = build_ci_explorer_graph(
+                _request(with_port_connections=True), managers, _user(),
+            )
+
+        assert response['children_nodes'] == []
+        assert response['child_edges'] == []
+
+    def test_the_connected_ci_is_enriched_like_any_other_node(self) -> None:
+        """It goes through the same bulk type load and enrichment pass, not a path of its own."""
+        managers = _managers(types=[_type_doc()])
+
+        with patch(f'{MODULE_PATH}.load_connection_neighbourhood',
+                   return_value=_connection_neighbourhood()), \
+             patch(f'{MODULE_PATH}.enrich_in_scope_objects', return_value={}) as mock_enrich:
+            build_ci_explorer_graph(_request(with_port_connections=True), managers)
+
+        in_scope_ids = [obj['public_id'] for obj in mock_enrich.call_args.args[0]]
+
+        assert CONNECTED_CI_ID in in_scope_ids

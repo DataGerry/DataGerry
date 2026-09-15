@@ -47,10 +47,14 @@ class PortInterfaceLinkKey(BaseStrEnum):
     """
     Document field names of a CmdbPortInterfaceLink (collection ``framework.portInterfaceLinks``)
 
-    The link is N:M - one port may carry several interfaces and one interface may be reached over
-    several ports - so it is its own document rather than a field on either side.
+    The link is N:M *within one CmdbObject* - one port may carry several interfaces and one interface
+    may be reached over several of that object's ports - so it is its own document rather than a field
+    on either side. A port is never linked to another object's interface: the two describe the same
+    physical device.
 
-    The three INTERFACE_* keys address one MDS row. INTERFACE_SECTION_ID is stored even though it is
+    The three INTERFACE_* keys address one MDS row. INTERFACE_OBJECT_ID is consequently always the
+    port's owner; it is stored rather than derived because it is what addresses the row and what the
+    dangling report groups by. INTERFACE_SECTION_ID is stored even though it is
     constant today (`dg-ipam-interface`), so the triple is self-describing: a reader does not have to
     know which section the id belongs to, and a second interface-bearing section later would not
     invalidate every stored row.

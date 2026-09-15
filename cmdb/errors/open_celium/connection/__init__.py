@@ -21,7 +21,6 @@ from .oc_connection_errors import (
     OcConnectionCreateError,
     OcConnectionGetError,
     OcConnectionUpdateError,
-    OcConnectionDeleteError,
     OcConnectionTestError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,6 +30,5 @@ __all__: list[str] = [
     'OcConnectionCreateError',
     'OcConnectionGetError',
     'OcConnectionUpdateError',
-    'OcConnectionDeleteError',
     'OcConnectionTestError',
 ]
