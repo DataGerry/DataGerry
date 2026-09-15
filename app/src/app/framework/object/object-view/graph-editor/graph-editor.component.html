@@ -170,7 +170,7 @@
       [style.--focus-x]="focusedNodeId ? getNodeById(focusedNodeId).x + 'px' : '50%'"
       [style.--focus-y]="focusedNodeId ? getNodeById(focusedNodeId).y + 'px' : '50%'"></div>
 
-    <div class="graph-canvas" #graphCanvas [class.smooth-transition]="smoothTransitions && !isDragging && !isPanning"
+    <div class="graph-canvas" #graphCanvas [class.smooth-transition]="!isDragging && !isPanning"
       [style.transform]="'translate(' + viewportX + 'px, ' + viewportY + 'px) scale(' + zoom + ')'">
       <!--  SVG Connections Layer -->
       <svg class="connections-svg" #svgContainer>
@@ -228,7 +228,7 @@
             [class.hovered]="hoveredConnection === conn"
             [attr.stroke]="conn.isValid ? 'url(#valid-gradient)' : 'url(#invalid-gradient)'"
             [attr.stroke-width]="getConnectionStrokeWidth(conn)"
-            [attr.marker-end]="conn.isValid ? (conn.dataFlow && showDataFlow ? 'url(#arrow-data-flow)' : 'url(#arrow-valid)') : 'url(#arrow-invalid)'"
+            [attr.marker-end]="conn.isValid ? (conn.dataFlow ? 'url(#arrow-data-flow)' : 'url(#arrow-valid)') : 'url(#arrow-invalid)'"
             fill="none" (click)="onConnectionClick(conn, $event)" pointer-events="none" />
           }
 

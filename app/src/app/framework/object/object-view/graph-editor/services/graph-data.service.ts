@@ -116,22 +116,6 @@ export class GraphDataService {
   }
 
 
-  getEdgeIndexDebugInfo(): any {
-    const info = {
-      totalKeys: this.edgeIndex.size,
-      totalEdges: 0,
-      keyDetails: {} as any
-    };
-
-    this.edgeIndex.forEach((edges, key) => {
-      info.totalEdges += edges.length;
-      info.keyDetails[key] = edges.length;
-    });
-
-    return info;
-  }
-
-
   clearEdgeIndex(): void {
     this.edgeIndex.clear();
     this.processedEdgeIds.clear();
@@ -205,12 +189,6 @@ export class GraphDataService {
     return `node_${Date.now()}_${this.nodeCounter++}_${id}_L${level}`;
   }
 
-  //   extractLabel(cn: CINode): string {
-  //     // return (cn as any).ci_explorer_label ||
-  //       return cn.title || cn.title !== null ? cn.title :
-  //       'Label not Selected';
-  //   }
-
   extractLabel(cn: CINode): string {
     if (cn.title === null) {
       return 'Label not selected';
@@ -261,43 +239,6 @@ export class GraphDataService {
 
     });
   }
-
-  // mergeEdges(connections: Connection[], nodes: GraphNode[], edges: CIEdge[]): void {
-  //     if (this.skipBackendEdgesDuringExpansion) { return; }
-
-  //     edges?.forEach(raw => {
-  //         const meta = Array.isArray(raw?.metadata) ? raw?.metadata[0] : raw?.metadata;
-
-  //         const fromCopies = nodes?.filter(n => n?.id === raw?.from);
-  //         const toCopies = nodes?.filter(n => n?.id === raw?.to);
-
-  //         fromCopies?.forEach(f => {
-  //             toCopies?.forEach(t => {
-  //                 if (Math.abs(f?.level - t?.level) !== 1) { return; }
-
-  //                 const uidA = f?.uid;
-  //                 const uidB = t?.uid;
-  //                 const pairKey = uidA < uidB ? `${uidA}|${uidB}` : `${uidB}|${uidA}`;
-  //                 if (this.edgeKeySet?.has(pairKey)) { return; }
-  //                 this.edgeKeySet?.add(pairKey);
-
-  //                 connections.push({
-  //                     from: f?.id, to: t?.id,
-  //                     fromLevel: f?.level, toLevel: t?.level,
-  //                     fromUid: f?.uid, toUid: t?.uid,
-  //                     relationLabel: meta?.relation_label,
-  //                     relationColor: meta?.relation_color,
-  //                     relationIcon: meta?.relation_icon,
-  //                     metadata: meta,
-  //                     isValid: true,
-  //                     strength: 1,
-  //                     dataFlow: false
-  //                 });
-  //             });
-  //         });
-  //     });
-  // }
-
 
   mergeEdges(connections: Connection[], nodes: GraphNode[], edges: CIEdge[]): void {
     if (this.skipBackendEdgesDuringExpansion) { return; }
