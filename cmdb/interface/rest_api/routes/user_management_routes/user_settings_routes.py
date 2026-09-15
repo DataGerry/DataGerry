@@ -15,17 +15,26 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for CmdbUserSettings
+
+A setting is addressed by its **resource** under its user (`/users/<user_id>/settings/<resource>`) -
+there is no public_id in any of these paths, because `(user_id, resource)` is the identity (see
+`CmdbUserSetting`). Both write routes pin `user_id` (and PUT also `resource`) to the URL, so a
+mismatched body cannot store a setting under another id.
+
+The two reads answer slightly different shapes today: the single-resource read hands back the stored
+document (including the stamped `public_id`), the list read the four normalised keys. Which one both
+should answer is discussion-backlog #218
 """
 from logging import Logger, getLogger
 from typing import Any
-from flask import abort, request
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import UserSettingsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
-from cmdb.models.settings_model import CmdbUserSetting
+from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -45,6 +54,7 @@ from cmdb.errors.manager.user_settings_manager import (
     UserSettingsManagerDeleteError,
     UserSettingsManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -67,31 +77,30 @@ def insert_cmdb_user_setting(user_id: int, data: dict[str, Any], request_user: C
         request_user (CmdbUser): CmdbUser requesting this data
 
     Returns:
-        InsertSingleResponse: The new CmdbUserSetting and its resource
+        InsertSingleResponse: The created CmdbUserSetting with its stamped public_id
     """
     try:
         user_settings_manager: UserSettingsManager = ManagerProvider.get_manager(ManagerType.USER_SETTINGS,
                                                                                  request_user)
 
         # Pin the owning user to the URL so a mismatched body cannot store the setting under another id
-        data['user_id'] = user_id
+        data[UserSettingKey.USER_ID.value] = user_id
+
+        resource: Any = data.get(UserSettingKey.RESOURCE.value)
 
         # A setting is uniquely identified by (user_id, resource); reject a duplicate create explicitly
         # rather than relying on the unique index (business-rule rejection -> 400)
-        if user_settings_manager.get_user_setting(user_id, data.get('resource')):
-            abort(400, f"A UserSetting for resource: '{data.get('resource')}' already exists for this user!")
+        if user_settings_manager.get_user_setting(user_id, resource):
+            abort(400, f"A UserSetting for resource: '{resource}' already exists for this user!")
 
-        user_settings_manager.insert_item(data)
+        # The stamped public_id comes back from the insert, so the created setting is answered from
+        # the body that was just written instead of being read back (one query instead of two)
+        new_public_id: int = user_settings_manager.insert_item(data)
 
-        created_user_setting = user_settings_manager.get_user_setting(user_id, data.get('resource'))
-
-        if created_user_setting:
-            api_response = InsertSingleResponse(raw=created_user_setting,
-                                                result_id=created_user_setting.get('public_id'))
-
-            return api_response.make_response()
-
-        abort(404, "Could not retrieve the created UserSetting from the database!")
+        return InsertSingleResponse(
+            raw={**data, UserSettingKey.PUBLIC_ID.value: new_public_id},
+            result_id=new_public_id,
+        ).make_response()
     except HTTPException as http_err:
         raise http_err
     except UserSettingsManagerInsertError as err:
@@ -118,17 +127,18 @@ def get_cmdb_user_settings(user_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this data
 
     Returns:
-        GetMultiResponse: All the CmdbUserSettings for the target CmdbUser
+        GetListResponse: All the readable CmdbUserSettings of the target CmdbUser, with the count in
+            the X-Total-Count header. A stored document that cannot be read is left out and reported
+            in the log rather than failing the whole read
     """
     try:
         user_settings_manager: UserSettingsManager = ManagerProvider.get_manager(ManagerType.USER_SETTINGS,
                                                                                  request_user)
 
-        user_settings: list[CmdbUserSetting] = user_settings_manager.get_user_settings(user_id=user_id)
+        # Already normalised by the manager, which also skips (and reports) a document it cannot read
+        user_settings: list[dict[str, Any]] = user_settings_manager.get_user_settings(user_id=user_id)
 
-        raw_user_settings = [CmdbUserSetting.to_json(user_setting) for user_setting in user_settings]
-
-        return GetListResponse(results=raw_user_settings, body=request.method == 'HEAD').make_response()
+        return GetListResponse(results=user_settings, body=request_wants_body()).make_response()
     except UserSettingsManagerIterationError as err:
         LOGGER.error("[get_cmdb_user_settings] UserSettingsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve UserSettings from the database!")
@@ -159,7 +169,7 @@ def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -
         requested_user_setting = user_settings_manager.get_user_setting(user_id, resource)
 
         if requested_user_setting:
-            return GetSingleResponse(requested_user_setting, body=request.method == 'HEAD').make_response()
+            return GetSingleResponse(requested_user_setting, body=request_wants_body()).make_response()
 
         abort(404, f"The requested UserSetting for resource: '{resource}' was not found!")
     except HTTPException as http_err:
@@ -196,8 +206,8 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], 
                                                                                  request_user)
 
         # Pin the owning user + resource to the URL so a mismatched body cannot target another record
-        data['user_id'] = user_id
-        data['resource'] = resource
+        data[UserSettingKey.USER_ID.value] = user_id
+        data[UserSettingKey.RESOURCE.value] = resource
 
         to_update_user_setting = user_settings_manager.get_user_setting(user_id, resource)
 

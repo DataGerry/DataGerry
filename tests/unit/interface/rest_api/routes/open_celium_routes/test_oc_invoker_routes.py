@@ -22,7 +22,8 @@ HTTP, no Mongo. The app runs on-premise (cloud_mode/local_mode False). The AUTOM
 covered by the functional automations-gating suite.
 
 These pin the handler glue: the manager call (incl. the opsIncluded flag), the success payload and
-the per-error abort mapping.
+the per-error abort mapping. The flag's own rule and the manager factory live in `oc_invoker_helper`
+and are tested there, without a request context.
 """
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -32,11 +33,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from flask import Flask
+
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_invoker_routes import (
     get_all_oc_invokers,
     get_oc_invoker_by_name,
     check_oc_invoker_exists,
+    oc_invokers_blueprint,
 )
 from cmdb.errors.open_celium.invoker import OcInvokerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -77,8 +81,14 @@ def fixture_invoker_manager() -> MagicMock:
 
 @pytest.fixture(name='patched_manager')
 def fixture_patched_manager(invoker_manager: MagicMock) -> Any:
-    """Patches OcInvokerManager at the route module path."""
-    with patch(f'{ROUTE_PATH}.OcInvokerManager', return_value=invoker_manager):
+    """
+    Patches the manager factory the routes call
+
+    The construction moved into `oc_invoker_helper.build_invoker_manager` when the three identical
+    copies were extracted, so the routes' collaborator is that factory - patching `OcInvokerManager`
+    at this module path would let the real manager be built (and read the OpenCelium config).
+    """
+    with patch(f'{ROUTE_PATH}.build_invoker_manager', return_value=invoker_manager):
         yield
 
 
@@ -175,3 +185,84 @@ class TestCheckOcInvokerExists:
                 _unwrap(check_oc_invoker_exists)(name=INVOKER_NAME, request_user=REQUEST_USER)
 
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# ------------------------------------------------- the answered shapes ---------------------------------------------- #
+
+class TestTheAnsweredShapes:
+    """What a client actually receives - a frontend-visible contract on both routes."""
+
+    def test_the_list_route_answers_a_list(self, flask_app, invoker_manager, patched_manager) -> None:
+        """
+        The connector form iterates it
+
+        Answered as OpenCelium listed them: no envelope, no per-invoker rewriting.
+        """
+        del patched_manager
+        invoker_manager.get_all_invokers.return_value = [{'name': INVOKER_NAME}, {'name': 'Other'}]
+
+        with flask_app.test_request_context('/invokers'):
+            response = _unwrap(get_all_oc_invokers)(request_user=REQUEST_USER)
+
+        assert response.json == [{'name': INVOKER_NAME}, {'name': 'Other'}]
+
+    @pytest.mark.parametrize('exists', [True, False])
+    def test_the_exists_route_answers_a_bare_boolean(
+            self, flask_app, invoker_manager, patched_manager, exists: bool) -> None:
+        """
+        Not `{'result': ...}` - the same shape as the connector-exists route beside it
+
+        The manager reads OpenCelium's `result` key and answers the bool; the route passes it
+        through untouched.
+        """
+        del patched_manager
+        invoker_manager.check_invoker_exists.return_value = exists
+
+        with flask_app.test_request_context(f'/invokers/exists/{INVOKER_NAME}'):
+            response = _unwrap(check_oc_invoker_exists)(request_user=REQUEST_USER, name=INVOKER_NAME)
+
+        assert response.json is exists
+
+    def test_the_name_route_answers_the_invoker_itself(
+            self, flask_app, invoker_manager, patched_manager) -> None:
+        """One invoker, as OpenCelium answered it - no envelope either"""
+        del patched_manager
+        invoker_manager.get_invoker_by_name.return_value = {'name': INVOKER_NAME, 'operations': []}
+
+        with flask_app.test_request_context(f'/invokers/{INVOKER_NAME}'):
+            response = _unwrap(get_oc_invoker_by_name)(request_user=REQUEST_USER, name=INVOKER_NAME)
+
+        assert response.json == {'name': INVOKER_NAME, 'operations': []}
+
+
+# ------------------------------------------------ the route registration -------------------------------------------- #
+
+class TestRouteRegistration:
+    """Every route of the blueprint is registered."""
+
+    def test_every_route_is_registered(self) -> None:
+        """
+        Asserted as a map, because this package has shipped an unregistered route before
+
+        A missing '@' on the execution-log DELETE left it invisible until someone looked; the log
+        module has carried this guard since, and these three had none.
+        """
+        app = Flask(__name__)
+        app.register_blueprint(oc_invokers_blueprint)
+
+        registered = {(rule.rule, method) for rule in app.url_map.iter_rules() for method in rule.methods}
+
+        assert {
+            ('/invokers', 'GET'),
+            ('/invokers/<string:name>', 'GET'),
+            ('/invokers/exists/<string:name>', 'GET'),
+        } <= registered
+
+    def test_the_read_routes_answer_head_as_well(self) -> None:
+        """All three are declared GET/HEAD, which is what the docstrings claim"""
+        app = Flask(__name__)
+        app.register_blueprint(oc_invokers_blueprint)
+
+        for rule in app.url_map.iter_rules():
+            if rule.rule.startswith('/invokers'):
+                assert 'HEAD' in rule.methods

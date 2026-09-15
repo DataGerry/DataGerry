@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -15,18 +15,43 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of TokenValidator
+
+Accepting a DataGerry JWT takes **two steps, and both are mandatory**:
+
+1. `decode_token` verifies the RSA signature and the algorithm. It does **not** look at any claim -
+   `joserfc.jwt.decode` never does - so an expired token decodes perfectly well here.
+2. `validate_claims` enforces the registered time claims: `exp` is required, `iat` / `nbf` are
+   checked when present, all with a small clock-skew tolerance.
+
+Both run once per request, in `route_utils.parse_authorization_header` -> `_validate_bearer`, whose
+result is cached for the request; the per-route decorators read the cached claims rather than
+repeating either step. A caller that decodes a token itself and skips step 2 accepts expired
+credentials, which is why the two are documented together here.
+
+The two failure modes are deliberately different exceptions, because they are different HTTP answers:
+a `TokenValidationError` is the caller's problem (401), a `TokenKeyMaterialError` is the server's
+(500) - an unset `DG_RSA_PUBLIC_KEY` or an unreadable settings document is not a bad credential.
 """
 from logging import Logger, getLogger
 import time
+from typing import Any
 
-from authlib.jose import jwt, JsonWebToken
-from authlib.jose.errors import BadSignatureError, InvalidClaimError
+from joserfc import jwt
+from joserfc.jwk import RSAKey
+from joserfc.errors import JoseError
 
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.security.key.holder import KeyHolder
+from cmdb.security.token.token_constants import (
+    TOKEN_TIME_CLAIM_LEEWAY,
+    TokenAlgorithm,
+    TokenClaim,
+    TokenClaimWrapperKey,
+    TokenTimeClaim,
+)
 
-from cmdb.errors.security import TokenValidationError
+from cmdb.errors.security import TokenKeyMaterialError, TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -36,52 +61,117 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 class TokenValidator:
     """
-    Decodes and validates JSON Web Tokens (JWTs)
+    Verifies a DataGerry JWT's signature and enforces its time claims
+
+    Two steps, both required to accept a token - see the module docstring
     """
-    def __init__(self, dbm: MongoDatabaseManager):
+    def __init__(self, dbm: MongoDatabaseManager) -> None:
         """
         Initializes the TokenValidator with a KeyHolder instance
 
         Args:
             dbm (MongoDatabaseManager): Database operations manager
         """
-        self.key_holder = KeyHolder(dbm)
+        self.key_holder: KeyHolder = KeyHolder(dbm, with_private_key=False)
 
 
-    def decode_token(self, token: JsonWebToken | str | dict) -> dict:
+    def decode_token(self, token: str | bytes) -> dict[str, Any]:
         """
-        Decodes a given JWT token
+        Decodes a given JWT token and verifies its RSA signature
+
+        The token must be signed with the algorithm whitelisted in TokenAlgorithm; any other
+        algorithm is rejected before the signature is checked.
+
+        **This is step one of two.** No claim is inspected here, so an EXPIRED token decodes
+        successfully - `validate_claims` is what refuses it.
 
         Args:
-            token (JsonWebToken | str | dict): The JWT token to be decoded
+            token (str | bytes): The encoded JWT token to be decoded
 
         Returns:
-            dict: The decoded JWT claims
+            dict[str, Any]: The decoded JWT claims
 
         Raises:
             TokenValidationError: If the token is invalid, malformed, or has a bad signature
+            TokenKeyMaterialError: If the public key to verify against could not be obtained - a
+                server-side fault, which a route must not answer with 401
         """
         try:
-            public_key = self.key_holder.get_public_key()
-            decoded_token = jwt.decode(token, key=public_key)
+            public_key = RSAKey.import_key(self.key_holder.rsa_public)
+        except Exception as err:
+            LOGGER.error("[decode_token] The RSA public key could not be used: %s", err, exc_info=True)
+            raise TokenKeyMaterialError(err) from err
 
-            # LOGGER.debug(f"decoded_token type: {type(decoded_token)}")
-            return decoded_token
-        except (BadSignatureError, Exception) as err:
+        try:
+            decoded_token = jwt.decode(token, public_key, algorithms=[TokenAlgorithm.RS512])
+
+            return decoded_token.claims
+        except Exception as err:
             raise TokenValidationError(err) from err
 
 
-    def validate_token(self, token: JsonWebToken | str | dict):
+    def validate_claims(self, claims: dict[str, Any]) -> None:
         """
-        Validates a given token regarding its expiration
+        Validates the decoded claims regarding their expiration
 
-        Params:
-            token(JsonWebToken | str | dict): the given token
+        **This is step two of two, and the only place a token expires.** `exp` is required: a signed
+        token that carries none would otherwise be valid forever, since a claims registry only checks
+        what it is given. `iat` and `nbf` are validated when present. All three are compared with
+        `TOKEN_TIME_CLAIM_LEEWAY` seconds of tolerance, because the stamping and the validating
+        process need not share a clock.
 
-        Returns:
-            JWTClaims: decoded token
+        DataGerry's own `iss` and `DATAGERRY` claims are NOT validated here - they carry a wrapper
+        dict rather than a plain value (see `token_constants`), which a registry cannot express; the
+        issuer is checked separately by `validate_issuer`
+
+        Args:
+            claims (dict[str, Any]): The decoded JWT claims returned by decode_token
+
+        Raises:
+            TokenValidationError: If a time claim is invalid, missing (`exp`) or the token has expired
         """
         try:
-            token.validate(time.time())
-        except InvalidClaimError as err:
+            time_claims = {
+                claim.value: claims[claim.value] for claim in TokenTimeClaim if claim.value in claims
+            }
+            claims_registry = jwt.JWTClaimsRegistry(
+                now=int(time.time()),
+                leeway=TOKEN_TIME_CLAIM_LEEWAY,
+                **{TokenTimeClaim.EXPIRATION.value: {'essential': True}},
+            )
+            claims_registry.validate(time_claims)
+        except JoseError as err:
             raise TokenValidationError(err) from err
+        except Exception as err:
+            # A claim of the wrong TYPE (a string 'exp', say) raises out of the registry rather than
+            # as a JoseError; it is still nothing but an invalid token
+            raise TokenValidationError(err) from err
+
+
+    def validate_issuer(self, claims: dict[str, Any], expected_issuer: str) -> None:
+        """
+        Validates that the token was issued by this product
+
+        Kept separate from `validate_claims` because the claim cannot be checked by a claims
+        registry: DataGerry stores `iss` as `{'essential': True, 'value': <title>}` rather than as
+        the plain string the JWT spec expects, and that shape is token-compatibility contract (see
+        `token_constants`). Reading the wrapper's `value` is therefore the only way to check it
+
+        Args:
+            claims (dict[str, Any]): The decoded JWT claims returned by decode_token
+            expected_issuer (str): The issuer the token has to name - the product title
+
+        Raises:
+            TokenValidationError: If the issuer claim is absent, malformed or names something else
+        """
+        issuer_claim = claims.get(TokenClaim.ISSUER.value)
+
+        if isinstance(issuer_claim, dict):
+            issuer = issuer_claim.get(TokenClaimWrapperKey.VALUE.value)
+        else:
+            # A plain string issuer is what the JWT spec asks for; accepted so the wrapper can be
+            # dropped one day without this check having to change with it
+            issuer = issuer_claim
+
+        if issuer != expected_issuer:
+            raise TokenValidationError(f"Token was not issued by '{expected_issuer}': {issuer!r}!")

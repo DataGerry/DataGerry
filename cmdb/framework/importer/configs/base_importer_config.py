@@ -22,25 +22,41 @@ from cmdb.framework.importer.mapper.mapping import Mapping
 class BaseImporterConfig:
     """
     Base class for import configurations
+
+    Subclasses may override ``DEFAULT_MAPPING`` to supply the mapping used when no mapping list is
+    passed. The object importer configs use two shapes: the CSV/base path builds a fresh ``Mapping``,
+    while the JSON config overrides ``DEFAULT_MAPPING`` with a plain ``dict`` describing a fixed
+    property/field mapping — hence ``get_mapping()`` may return either a ``Mapping`` or a ``dict``.
     """
-    DEFAULT_MAPPING: Mapping = Mapping()
+    DEFAULT_MAPPING: dict | Mapping | None = None
     MANUALLY_MAPPING: bool = True
 
-    def __init__(self, mapping: list = None):
+    def __init__(self, mapping: list | None = None) -> None:
         """
         Initializes the BaseImporterConfig
 
+        A caller-supplied mapping list is turned into a fresh ``Mapping``. Otherwise the subclass
+        ``DEFAULT_MAPPING`` is used if set, else a fresh empty ``Mapping`` — never a shared instance.
+
         Args:
-            mapping (list | None): Optional list to generate a mapping
+            mapping (list | None): Optional list of mapping definitions used to build a Mapping
         """
-        self.mapping: Mapping = Mapping.generate_mapping_from_list(mapping) if mapping else self.DEFAULT_MAPPING
+        if mapping:
+            resolved: dict | Mapping = Mapping.generate_mapping_from_list(mapping)
+        elif self.DEFAULT_MAPPING is not None:
+            resolved = self.DEFAULT_MAPPING
+        else:
+            resolved = Mapping()
+
+        self.mapping: dict | Mapping = resolved
 
 
-    def get_mapping(self) -> Mapping:
+    def get_mapping(self) -> dict | Mapping:
         """
         Returns the current mapping configuration
 
         Returns:
-            Mapping: The mapping instance associated with this configuration
+            dict | Mapping: The mapping associated with this configuration (a ``Mapping``, or the
+            subclass's ``dict`` default as used by the JSON importer config)
         """
         return self.mapping

@@ -15,12 +15,21 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of AccessControlList
+
+An AccessControlList is the ``acl`` property of a CmdbType: an ``activated`` switch plus the sections
+that hold the permissions. ``groups`` (a GroupACL, keyed by CmdbUserGroup public_id) is the only
+section there is, which is why every section-taking method defaults to it.
+
+Access control is **opt-in**: an ACL that is absent or deactivated permits everything (see
+``acl/helpers.py``). When it is activated, the decision is ``verify_access``, and it fails **closed** -
+an ACL without groups permits nothing rather than raising.
 """
 from logging import Logger, getLogger
 from typing import TypeVar, Any
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.group_acl import GroupACL
+from cmdb.security.acl.acl_constants import AclKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -62,8 +71,8 @@ class AccessControlList:
             AccessControlList: AccessControlList with the given data
         """
         return cls(
-            activated=data.get('activated', False),
-            groups=GroupACL.from_data(data.get('groups', {}))
+            activated=data.get(AclKey.ACTIVATED.value, False),
+            groups=GroupACL.from_data(data.get(AclKey.GROUPS.value, {}))
         )
 
 
@@ -79,56 +88,61 @@ class AccessControlList:
             dict: Json compatible dict of the AccessControlList values
         """
         return {
-            'activated': acl.activated,
-            'groups': GroupACL.to_json(acl.groups)
+            AclKey.ACTIVATED.value: acl.activated,
+            AclKey.GROUPS.value: GroupACL.to_json(acl.groups or GroupACL({}))
         }
 
 
-    def grant_access(self, key: T, permission: AccessControlPermission, section: str | None = None) -> None:
+    def grant_access(
+            self,
+            key: T,
+            permission: AccessControlPermission,
+            section: str = AclKey.GROUPS.value) -> None:
         """
         Grants the specified permission to the given key in the specified section of the ACL
 
-        This method checks if the provided section is valid (e.g., 'groups'). If valid, it delegates
-        the task to the appropriate ACL section (in this case, groups). Otherwise, it raises a ValueError
+        Defaults to the only section that exists ('groups'), so the natural two-argument call works;
+        an unknown section name is a programming error and raises
 
         Args:
             key (T): The key (e.g., user, group, role) to which the permission is being granted
             permission (AccessControlPermission): The permission to be granted
-            section (str | None): The section of the ACL in which to grant the permission. Defaults to None
+            section (str): The section of the ACL in which to grant the permission. Defaults to 'groups'
 
         Raises:
-            ValueError: If the section is not recognized or if the ACL section does not support the action
+            ValueError: If the section is not recognized
         """
-        if section == 'groups':
-            self.groups.grant_access(key, permission)
-        else:
-            raise ValueError(f'No ACL section with name: {section}')
+        self._get_section(section).grant_access(key, permission)
 
 
-    def revoke_access(self, key: T, permission: AccessControlPermission, section: str = None) -> None:
+    def revoke_access(
+            self,
+            key: T,
+            permission: AccessControlPermission,
+            section: str = AclKey.GROUPS.value) -> None:
         """
         Revokes the specified permission from the given key in the specified section of the ACL
 
-        This method checks if the provided section is valid (e.g., 'groups'). If valid, it delegates
-        the task to the appropriate ACL section (in this case, groups). Otherwise, it raises a ValueError
+        Defaults to the only section that exists ('groups'); revoking a permission the key does not hold
+        is a no-op (see AccessControlListSection.revoke_access)
 
         Args:
             key (T): The key (e.g., user, group, role) from which the permission is being revoked
             permission (AccessControlPermission): The permission to be revoked
-            section (str | None): The section of the ACL in which to revoke the permission. Defaults to None
+            section (str): The section of the ACL in which to revoke the permission. Defaults to 'groups'
 
         Raises:
-            ValueError: If the section is not recognized or if the ACL section does not support the action
+            ValueError: If the section is not recognized
         """
-        if section == 'groups':
-            self.groups.revoke_access(key, permission)
-        else:
-            raise ValueError(f'No ACL section with name: {section}')
+        self._get_section(section).revoke_access(key, permission)
 
 
     def verify_access(self, key: T, permission: AccessControlPermission) -> bool:
         """
         Verifies if the specified key has the required permission in the access control groups
+
+        Fails **closed**: an ACL that carries no groups section grants nothing. Raising here would turn
+        an access check into a 500 on every read of the protected Type
 
         Args:
             key (T): Identifier for the entity (e.g., user ID, role ID) to check access for
@@ -137,4 +151,29 @@ class AccessControlList:
         Returns:
             bool: True if the key has the specified permission in the access control groups, False otherwise
         """
+        if not self.groups:
+            return False
+
         return self.groups.verify_access(key, permission)
+
+
+    def _get_section(self, section: str) -> GroupACL:
+        """
+        Resolves an ACL section by name, creating the groups section when the ACL carries none yet
+
+        Args:
+            section (str): Name of the section ('groups' is the only one today)
+
+        Raises:
+            ValueError: If the section name is not recognized
+
+        Returns:
+            GroupACL: The section to mutate
+        """
+        if section != AclKey.GROUPS.value:
+            raise ValueError(f'No ACL section with name: {section}')
+
+        if not self.groups:
+            self.groups = GroupACL({})
+
+        return self.groups

@@ -47,8 +47,11 @@ class LocationNode:
             self.public_id: int = params['public_id']
             self.name: str = params['name']
             self.parent: int = params['parent']
-            self.icon: str = params['type_icon']
+            self.type_icon: str = params['type_icon']
             self.object_id: int = params['object_id']
+            # whether this node may be chosen as a parent for others (drives drag-drop drop targets);
+            # optional with a permissive default so legacy/root docs without the key still build
+            self.type_selectable: bool = params.get('type_selectable', True)
             self.children: list[LocationNode] = []
         except KeyError as err:
             raise LocationNodeInitError(f"Missing required location key: {err}") from err
@@ -131,7 +134,7 @@ class LocationNode:
         """
         return (
             f"[LocationNode => public_id: {self.public_id}, name: {self.name}, "
-            f"parent: {self.parent}, icon: {self.icon}, object_id: {self.object_id}, "
+            f"parent: {self.parent}, type_icon: {self.type_icon}, object_id: {self.object_id}, "
             f"children: {len(self.children)}]"
         )
 
@@ -154,8 +157,9 @@ class LocationNode:
             'public_id': instance.public_id,
             'name': instance.name,
             'parent': instance.parent,
-            'icon': instance.icon,
+            'type_icon': instance.type_icon,
             'object_id': instance.object_id,
+            'type_selectable': instance.type_selectable,
         }
 
         # Only emit the children key when the node has children

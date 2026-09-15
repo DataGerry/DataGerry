@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-TODO: document
+This module contains the AggregatedFields class used to expose relation-aggregated fields to templates.
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -23,13 +23,29 @@ TODO: document
 # -------------------------------------------------------------------------------------------------------------------- #
 class AggregatedFields:
     """
-    TODO: document
+    Aggregates the same field across several objects (or relation edges) for template access.
+
+    A RelationResult may cover many objects; indexing this container by a field name returns the
+    non-empty values of that field across all of them, joined into a single comma-separated string.
     """
     def __init__(self, field_dicts: list[dict]) -> None:
+        """
+        Args:
+            field_dicts (list[dict]): One name->value field mapping per object/edge to aggregate
+        """
         self._field_dicts = field_dicts
 
 
     def __getitem__(self, field_name: str) -> str:
+        """
+        Returns the non-empty values of `field_name` across all aggregated dicts
+
+        Args:
+            field_name (str): The field to collect values for
+
+        Returns:
+            str: The values joined by ', ' (empty string when no dict carries a non-empty value)
+        """
         values = []
 
         for d in self._field_dicts:

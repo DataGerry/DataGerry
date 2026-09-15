@@ -76,6 +76,18 @@ class TestInit:
         with pytest.raises(LocationNodeInitError):
             LocationNode(incomplete)
 
+    def test_type_selectable_defaults_true_when_absent(self) -> None:
+        """A location dict without ``type_selectable`` defaults the node to selectable."""
+        node = LocationNode(_location(PARENT_ID, ROOT_PUBLIC_ID))
+
+        assert node.type_selectable is True
+
+    def test_type_selectable_is_read_from_params(self) -> None:
+        """An explicit ``type_selectable`` is copied onto the node."""
+        node = LocationNode({**_location(PARENT_ID, ROOT_PUBLIC_ID), 'type_selectable': False})
+
+        assert node.type_selectable is False
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     get_children                                                     #
@@ -143,6 +155,30 @@ class TestGetChildren:
         # The cycle-closing node is filtered out, so CHILD_A has no children
         assert children[0].children == []
 
+    def test_a_duplicated_id_in_one_level_is_expanded_once(self) -> None:
+        """
+        The ``visited`` guard's own arm: two documents claiming the same public_id
+
+        The level filter drops a child whose id is ALREADY visited, so the cycle above never reaches
+        the guard at the top of the recursion - only a duplicate does, because a whole level is
+        filtered before any of it is expanded. ``object_id`` is uniquely indexed and ``public_id``
+        cannot repeat either, so this is the belt to the tree's braces; it is pinned because it is
+        what keeps a duplicated row from being expanded twice into the same subtree.
+        """
+        parent = LocationNode(_location(PARENT_ID, ROOT_PUBLIC_ID))
+        candidates = [
+            _location(CHILD_A_ID, PARENT_ID),
+            _location(CHILD_A_ID, PARENT_ID),  # the same node again, as two documents
+            _location(CHILD_B_ID, CHILD_A_ID),
+        ]
+
+        children = parent.get_children(PARENT_ID, candidates)
+
+        assert [child.public_id for child in children] == [CHILD_A_ID, CHILD_A_ID]
+        # the first duplicate expands the subtree, the second is answered as a leaf
+        assert [child.public_id for child in children[0].children] == [CHILD_B_ID]
+        assert children[1].children == []
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       to_json                                                        #
@@ -159,6 +195,15 @@ class TestToJson:
         assert 'children' not in result
         assert result['public_id'] == PARENT_ID
         assert result['object_id'] == PARENT_ID + 100
+        # the icon is emitted under the same key as the lazy tree nodes (type_icon), not 'icon'
+        assert result['type_icon'] == TYPE_ICON
+        assert 'icon' not in result
+
+    def test_emits_type_selectable(self) -> None:
+        """``to_json`` includes ``type_selectable`` (used by the drag-drop drop-target check)."""
+        node = LocationNode({**_location(PARENT_ID, ROOT_PUBLIC_ID), 'type_selectable': False})
+
+        assert LocationNode.to_json(node)['type_selectable'] is False
 
     def test_nested_children_are_serialized_recursively(self) -> None:
         """A populated subtree is serialized with nested ``children`` arrays."""

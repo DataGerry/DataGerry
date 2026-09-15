@@ -14,7 +14,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of all API routes for CI Explorer
+Implementation of all API routes for the CI Explorer
+
+Three resources share one blueprint:
+
+- ``/ci_explorer/items``                  the node/edge graph around one CmdbObject (read)
+- ``/ci_explorer/profile``                the saved filters, a full CRUD surface
+- ``/ci_explorer/tooltip|type_label``     the two presentation fields the graph renders
+
+Every route is guarded by a ``CiExplorerRight`` on top of ``ApiLevel.LOCKED``. LOCKED is a refusal
+rather than a level: ``__check_api_level`` denies it outright, so the CI Explorer is reachable from
+the DataGerry frontend only and never from the cloud API
+
+Saved profiles are deliberately GLOBAL - they carry no owner, so a profile saved by one user is a
+preset every user sees. The two field routes write a single key of a CmdbObject / CmdbType through a
+targeted update, so an edit of any other field can not be overwritten by them
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -23,18 +37,23 @@ from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
+    ExtendableOptionsManager,
     ObjectsManager,
     TypesManager,
     RelationsManager,
     ObjectRelationsManager,
     CiExplorerProfileManager,
     LocationsManager,
+    LogsManager,
 )
+from cmdb.manager.port_connections_manager import PortConnectionsManager
+from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.ci_explorer_model import NodeType, CmdbCiExplorerProfile
 
 from cmdb.framework.ci_explorer.argparsing import (
@@ -44,6 +63,7 @@ from cmdb.framework.ci_explorer.argparsing import (
     validate_node_type,
     validate_target_id,
 )
+from cmdb.framework.ci_explorer.context import CiExplorerGraphRequest, CiExplorerManagers
 from cmdb.framework.ci_explorer.graph import build_ci_explorer_graph
 
 from cmdb.framework.results import IterationResult
@@ -59,6 +79,10 @@ from cmdb.interface.rest_api.responses import (
     DeleteSingleResponse,
 )
 
+from cmdb.errors.ci_explorer import (
+    CiExplorerGraphBuildError,
+    CiExplorerTargetNotFoundError,
+)
 from cmdb.errors.manager.ci_explorer_profile_manager import (
     CiExplorerProfileManagerInsertError,
     CiExplorerProfileManagerGetError,
@@ -70,9 +94,17 @@ from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsM
 from cmdb.errors.manager.types_manager import TypesManagerGetError, TypesManagerUpdateError
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants import (
     CiExplorerParam,
-    CiExplorerField,
+    CiExplorerRight,
 )
-from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import apply_ci_explorer_field
+from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import (
+    get_ci_explorer_label_schema,
+    get_ci_explorer_tooltip_schema,
+    load_ci_explorer_entity,
+    record_tooltip_edit_log,
+)
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -83,18 +115,23 @@ ci_explorer_blueprint = APIBlueprint('ci_explorer', __name__)
 @ci_explorer_blueprint.route('/profile', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
 @ci_explorer_blueprint.validate(CmdbCiExplorerProfile.SCHEMA)
 def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
-    HTTP `POST` route to insert an CmdbCiExplorerProfile into the database
+    HTTP `POST` route to insert a CmdbCiExplorerProfile into the database
+
+    Requires the ``base.framework.ciExplorer.edit`` right. The identity is server-owned: a public_id
+    carried by the payload is dropped, so a client can neither choose an id nor collide with an
+    existing profile
 
     Args:
         data (CmdbCiExplorerProfile.SCHEMA): Data of the CmdbCiExplorerProfile which should be inserted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the insert / re-read fails; 404 when the created profile cannot be
-                       re-read; 500 on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when the insert / re-read fails; 500
+                       when the created profile cannot be re-read, or on an unexpected failure
 
     Returns:
         InsertSingleResponse: The new CmdbCiExplorerProfile and its public_id
@@ -105,6 +142,9 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
                                                                             request_user
                                                                          )
 
+        # The public_id is assigned by the collection counter, never taken from the payload
+        data.pop(CmdbObjectKey.PUBLIC_ID.value, None)
+
         result_id = ci_explorer_profile_manager.insert_item(data)
 
         created_profile = ci_explorer_profile_manager.get_item(result_id, as_dict=True)
@@ -112,7 +152,8 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
         if created_profile:
             return InsertSingleResponse(created_profile, result_id).make_response()
 
-        abort(404, "Could not retrieve the created CiExplorer Profile from the database!")
+        # The profile WAS created, so this is a server-side problem, not a missing resource
+        abort(500, "Could not retrieve the created CiExplorer Profile from the database!")
     except HTTPException as http_err:
         raise http_err
     except CiExplorerProfileManagerInsertError as err:
@@ -131,19 +172,27 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.parse_collection_parameters()
+@ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.VIEW.value)
 def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbCiExplorerProfiles
+
+    Requires the ``base.framework.ciExplorer.view`` right. Profiles are global, so this returns every
+    saved filter rather than the requesting user's own
 
     Args:
         params (CollectionParameters): Filter for requested CmdbCiExplorerProfiles
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 403 when the user lacks the right; 400 when the iteration fails; 500 on an
+                       unexpected failure
+
     Returns:
         GetMultiResponse: All the CmdbCiExplorerProfiles matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        send_body: bool = request_wants_body()
 
         ci_explorer_profile_manager: CiExplorerProfileManager = ManagerProvider.get_manager(
                                                                             ManagerType.CI_EXPLORER_PROFILE,
@@ -162,7 +211,7 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
                                         iteration_result.total,
                                         params,
                                         request.url,
-                                        body)
+                                        send_body)
 
         return api_response.make_response()
     except HTTPException as http_err:
@@ -179,14 +228,22 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 # The locals are the 8 parsed query args + the 5 managers the framework graph builder requires
+@ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.VIEW.value)
 def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: disable=too-many-locals
     """
     HTTP `GET` route returning the CI Explorer node/edge payload
+
+    Requires the ``base.framework.ciExplorer.view`` right
 
     Thin orchestrator: parses query-string arguments via cmdb.framework.ci_explorer.argparsing
     helpers, resolves the five managers required by the framework module, and delegates the
     actual payload construction to ``cmdb.framework.ci_explorer.graph.build_ci_explorer_graph``.
     See that function's docstring for the full response shape
+
+    The right is not the only check: the graph is filtered against the requesting user's **object
+    ACL** as well, so a neighbour of a CmdbType the user's group may not read is omitted from the
+    payload without any trace, and a focal object they may not read answers **404** - the same answer
+    a target that does not exist gets, because a 403 would confirm that it does
 
     Query args:
         target_id (int, required): public_id of the focal CmdbObject. 400 when missing
@@ -196,12 +253,19 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         with_ipam_relations (bool, default false): include IPAM-hierarchy neighbours
             (SUPERNET / SUBNET / VLAN / interface carriers) folded into the standard
             parent/child buckets with metadata.source='ipam' on each edge
+        with_port_connections (bool, default false): include the CIs the focal object is
+            physically cabled to, with patch panels collapsed away. The edges land in the
+            children bucket carrying metadata.source='port_connection' and
+            metadata.undirected=true, plus the collapsed physical path in metadata.path.
+            Requires the licensed IPAM feature: without it the flag yields nothing rather
+            than refusing the request, since the rest of the graph is not IPAM surface
         item_limit (int, default 0=unlimited): cap on neighbour nodes
         types_filter (JSON list of int, optional): allowed neighbour type_ids
         relations_filter (JSON list of int, optional): allowed CmdbRelation public_ids
 
     Args:
-        request_user (CmdbUser): User requesting this data
+        request_user (CmdbUser): User requesting this data; their group's ACL decides which objects
+            the graph may contain
 
     Returns:
         DefaultResponse: The CI Explorer node/edge payload
@@ -216,6 +280,11 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         with_ipam_relations: bool = parse_bool_arg(
             request.args.get(CiExplorerParam.WITH_IPAM_RELATIONS), default=False,
         )
+        # Q40: an unlicensed instance gets an empty source, not a 403 - the graph is a shared read
+        # surface and a refusal would break a request that is valid for every other source
+        with_port_connections: bool = parse_bool_arg(
+            request.args.get(CiExplorerParam.WITH_PORT_CONNECTIONS), default=False,
+        ) and not feature_locked(LicenseFeature.IPAM, request_user)
         item_limit: int = clamp_item_limit(request.args.get(CiExplorerParam.ITEM_LIMIT, type=int))
         types_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.TYPES_FILTER))
         relations_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.RELATIONS_FILTER))
@@ -230,65 +299,105 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
             ManagerType.LOCATIONS, request_user,
         )
 
+        # Resolved only for the opt-in source, so an ordinary graph request builds five managers
+        ports_manager: PortsManager | None = None
+        port_connections_manager: PortConnectionsManager | None = None
+        extendable_options_manager: ExtendableOptionsManager | None = None
+
+        if with_port_connections:
+            ports_manager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+            port_connections_manager = ManagerProvider.get_manager(
+                ManagerType.PORT_CONNECTIONS, request_user,
+            )
+            extendable_options_manager = ManagerProvider.get_manager(
+                ManagerType.EXTENDABLE_OPTIONS, request_user,
+            )
+
         response: dict[str, Any] = build_ci_explorer_graph(
-            target_id=target_id,
-            target_type=target_type,
-            with_root=with_root,
-            with_locations=with_locations,
-            with_ipam_relations=with_ipam_relations,
-            item_limit=item_limit,
-            types_filter=types_filter,
-            relations_filter=relations_filter,
-            objects_manager=objects_manager,
-            types_manager=types_manager,
-            relations_manager=relations_manager,
-            object_relations_manager=object_relations_manager,
-            locations_manager=locations_manager,
+            CiExplorerGraphRequest(
+                target_id=target_id,
+                target_type=target_type,
+                with_root=with_root,
+                with_locations=with_locations,
+                with_ipam_relations=with_ipam_relations,
+                with_port_connections=with_port_connections,
+                item_limit=item_limit,
+                types_filter=types_filter,
+                relations_filter=relations_filter,
+            ),
+            CiExplorerManagers(
+                objects=objects_manager,
+                types=types_manager,
+                relations=relations_manager,
+                object_relations=object_relations_manager,
+                locations=locations_manager,
+                ports=ports_manager,
+                port_connections=port_connections_manager,
+                extendable_options=extendable_options_manager,
+            ),
+            request_user,
         )
 
         return DefaultResponse(response).make_response()
     except HTTPException as http_err:
         raise http_err
+    except CiExplorerTargetNotFoundError as err:
+        LOGGER.error("[get_ci_explorer_nodes_edges] %s", err)
+        abort(404, f"The Object with ID:{target_id} was not found!")
+    except CiExplorerGraphBuildError as err:
+        LOGGER.error("[get_ci_explorer_nodes_edges] %s", err, exc_info=True)
+        abort(500, f"The CI Explorer graph of the Object with ID:{target_id} could not be built!")
     except Exception as err:
         LOGGER.error("[get_ci_explorer_nodes_edges] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving CI Explorer nodes and edges!")
 
-# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
+# ----------------------------------- PRESENTATION FIELDS - CmdbObject / CmdbType ------------------------------------ #
 
 @ci_explorer_blueprint.route('/tooltip/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def update_tooltip(public_id: int, request_user: CmdbUser) -> Response:
+@ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
+@ci_explorer_blueprint.validate(get_ci_explorer_tooltip_schema())
+def update_tooltip(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to set the ci_explorer_tooltip of a CmdbObject from the CI Explorer
 
-    Reads ``{'ci_explorer_tooltip': <string>}`` from the request body, sets it on the CmdbObject and
-    returns the persisted value
+    Requires the ``base.framework.ciExplorer.edit`` right. The body is ``{'ci_explorer_tooltip':
+    <string>}``; only that one key of the CmdbObject is written, so an edit of any other field made
+    meanwhile survives. The change is recorded in the object's history like any other edit
 
     Args:
         public_id (int): public_id of the CmdbObject which should be updated
+        data (dict[str, Any]): The validated body carrying the new tooltip
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the tooltip is missing from the body or the ObjectsManager fails;
-                       404 when the Object does not exist; 500 on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when the body is invalid or the
+                       ObjectsManager fails; 404 when the Object does not exist; 500 on an
+                       unexpected failure
 
     Returns:
         DefaultResponse: The tooltip which was set for the CmdbObject
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        tooltip = apply_ci_explorer_field(
+        tooltip: Any = data[CmdbObjectKey.CI_EXPLORER_TOOLTIP.value]
+
+        stored_object, previous_tooltip = load_ci_explorer_entity(
             objects_manager.get_object,
-            objects_manager.update_object,
             public_id,
-            CiExplorerField.TOOLTIP,
-            request.get_json(silent=True),
+            CmdbObjectKey.CI_EXPLORER_TOOLTIP.value,
             "Object",
         )
 
-        return DefaultResponse({CiExplorerField.TOOLTIP.value: tooltip}).make_response()
+        # Only the tooltip key is written, so an edit of any other field meanwhile is not overwritten
+        objects_manager.update_object(public_id, {CmdbObjectKey.CI_EXPLORER_TOOLTIP.value: tooltip}, partial=True)
+
+        record_tooltip_edit_log(logs_manager, request_user, stored_object, previous_tooltip, tooltip)
+
+        return DefaultResponse({CmdbObjectKey.CI_EXPLORER_TOOLTIP.value: tooltip}).make_response()
     except HTTPException as http_err:
         raise http_err
     except (ObjectsManagerGetError, ObjectsManagerUpdateError) as err:
@@ -302,20 +411,26 @@ def update_tooltip(public_id: int, request_user: CmdbUser) -> Response:
 @ci_explorer_blueprint.route('/type_label/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def update_type_label(public_id: int, request_user: CmdbUser) -> Response:
+@ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
+@ci_explorer_blueprint.validate(get_ci_explorer_label_schema())
+def update_type_label(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to set the ci_explorer_label of a CmdbType from the CI Explorer
 
-    Reads ``{'ci_explorer_label': <string>}`` from the request body, sets it on the CmdbType and
-    returns the persisted value
+    Requires the ``base.framework.ciExplorer.edit`` right. The body is ``{'ci_explorer_label':
+    <string>}``; only that one key of the CmdbType is written, so a concurrent edit of the type's
+    fields or sections can not be overwritten. Unlike the tooltip this records no history entry -
+    DataGerry keeps a history for CmdbObjects only
 
     Args:
         public_id (int): public_id of the CmdbType which should be updated
+        data (dict[str, Any]): The validated body carrying the new label
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the label is missing from the body or the TypesManager fails;
-                       404 when the Type does not exist; 500 on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when the body is invalid or the
+                       TypesManager fails; 404 when the Type does not exist; 500 on an unexpected
+                       failure
 
     Returns:
         DefaultResponse: The label which was set for the CmdbType
@@ -323,16 +438,18 @@ def update_type_label(public_id: int, request_user: CmdbUser) -> Response:
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        label = apply_ci_explorer_field(
+        label: Any = data[TypeSchemaKey.CI_EXPLORER_LABEL.value]
+
+        load_ci_explorer_entity(
             types_manager.get_type,
-            types_manager.update_type,
             public_id,
-            CiExplorerField.LABEL,
-            request.get_json(silent=True),
+            TypeSchemaKey.CI_EXPLORER_LABEL.value,
             "Type",
         )
 
-        return DefaultResponse({CiExplorerField.LABEL.value: label}).make_response()
+        types_manager.update_type_field(public_id, TypeSchemaKey.CI_EXPLORER_LABEL.value, label)
+
+        return DefaultResponse({TypeSchemaKey.CI_EXPLORER_LABEL.value: label}).make_response()
     except HTTPException as http_err:
         raise http_err
     except (TypesManagerGetError, TypesManagerUpdateError) as err:
@@ -347,10 +464,14 @@ def update_type_label(public_id: int, request_user: CmdbUser) -> Response:
 @ci_explorer_blueprint.route('/profile/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
 @ci_explorer_blueprint.validate(CmdbCiExplorerProfile.SCHEMA)
 def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbCiExplorerProfile
+
+    Requires the ``base.framework.ciExplorer.edit`` right. The public_id is pinned to the URL before
+    the write, so a mismatched payload can not rewrite the profile's identity
 
     Args:
         public_id (int): public_id of the CmdbCiExplorerProfile which should be updated
@@ -358,8 +479,8 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the lookup / update fails; 404 when the profile does not exist;
-                       500 on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when the lookup / update fails;
+                       404 when the profile does not exist; 500 on an unexpected failure
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbCiExplorerProfile
@@ -401,17 +522,21 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
 @ci_explorer_blueprint.route('/profile/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
 def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbCiExplorerProfile
+
+    Requires the ``base.framework.ciExplorer.edit`` right - the CI Explorer right family has no
+    delete member, so deleting a saved filter takes the same right as editing one
 
     Args:
         public_id (int): public_id of the CmdbCiExplorerProfile which should be deleted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the lookup / delete fails; 404 when the profile does not exist;
-                       500 on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when the lookup / delete fails;
+                       404 when the profile does not exist; 500 on an unexpected failure
 
     Returns:
         DeleteSingleResponse: The deleted CmdbCiExplorerProfile data

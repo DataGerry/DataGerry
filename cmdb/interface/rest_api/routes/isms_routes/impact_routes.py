@@ -52,6 +52,7 @@ from cmdb.errors.manager.impact_manager import (
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -148,7 +149,7 @@ def get_isms_impacts(params: CollectionParameters, request_user: CmdbUser) -> Re
         GetMultiResponse: All the IsmsImpacts matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body = request_wants_body()
 
         impact_manager: ImpactManager = ManagerProvider.get_manager(ManagerType.IMPACT, request_user)
 
@@ -193,7 +194,7 @@ def get_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
         requested_impact = get_item_or_404(impact_manager, public_id,
                                            f"The Impact with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_impact, body = request.method == 'HEAD').make_response()
+        return GetSingleResponse(requested_impact, body=request_wants_body()).make_response()
     except HTTPException as http_err:
         raise http_err
     except ImpactManagerGetError as err:

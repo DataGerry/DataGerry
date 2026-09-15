@@ -24,7 +24,7 @@ sample BaseStrEnum subclasses for use as fixtures
 """
 from typing import Any
 
-from cmdb.utils.base_str_enum import BaseStrEnum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 

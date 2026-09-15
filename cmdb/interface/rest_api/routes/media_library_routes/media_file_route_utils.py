@@ -15,17 +15,31 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of MediaFile API Route utility methods
+
+Holds the query-filter builders the routes share, the unique-name recursion, the delete recursion, and
+the three steps the upload / update routes are otherwise made of - reading the request, resolving what
+is already stored, and building the metadata to persist
 """
 import json
+from typing import Any
 from logging import Logger, getLogger
 
-from flask import request, abort
-from werkzeug.datastructures import FileStorage
+from flask import abort, request
 from werkzeug.wrappers import Request
+from werkzeug.datastructures import FileStorage
 
 from cmdb.manager import MediaFilesManager
 from cmdb.manager.query_builder import Builder
 
+from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
+    MediaFileKey,
+    MediaFileMetadataKey,
+    MediaFileRequestKey,
+)
+from cmdb.interface.rest_api.routes.routes_helper import (
+    get_element_from_data_request,
+    get_file_in_request,
+)
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 
 from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
@@ -35,46 +49,43 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def get_file_in_request(file_name: str) -> FileStorage:
+def metadata_field(key: MediaFileMetadataKey | str) -> str:
     """
-    Retrieves a file from the Flask request based on the provided file name
+    Builds the dotted path of a key inside a MediaFile's metadata sub-document
 
     Args:
-        file_name (str): The name of the file to retrieve from the request
+        key (MediaFileMetadataKey | str): The metadata key, either declared or - when it comes from a
+            request filter - a raw one
+
+    Returns:
+        str: The path to query, e.g. 'metadata.parent'
+    """
+    return f'{MediaFileKey.METADATA.value}.{key.value if isinstance(key, MediaFileMetadataKey) else key}'
+
+
+def validate_upload_metadata(metadata: dict[str, Any]) -> None:
+    """
+    Refuses upload metadata that carries a key the media library does not declare
+
+    The metadata of an upload is client-supplied and is stored as the file's metadata sub-document, so
+    only the keys MediaFileMetadataKey names may appear in it. An undeclared key used to reach the
+    manager and fail the write there, which answered a database-flavoured 400 for what is a request
+    problem - and left the content already streamed into GridFS behind. It is refused here instead,
+    naming the key
+
+    Args:
+        metadata (dict[str, Any]): The metadata as it arrived with the request
 
     Raises:
-        HTTPException: 400 if the file is not found in the request
-
-    Returns:
-        FileStorage: The file object retrieved from the request.
+        HTTPException: 400 when the metadata is not an object, or carries an undeclared key
     """
-    # request.files.get returns None (does not raise) for a missing file, so guard explicitly
-    uploaded_file = request.files.get(file_name)
+    if not isinstance(metadata, dict):
+        abort(400, "The metadata of an upload must be an object!")
 
-    if uploaded_file is None:
-        LOGGER.error("[get_file_in_request] File with name: %s was not provided!", file_name)
-        abort(400, f"File with name: {file_name} was not provided!")
+    unknown_keys: list[str] = [str(key) for key in metadata if not MediaFileMetadataKey.is_valid(str(key))]
 
-    return uploaded_file
-
-
-def get_element_from_data_request(element: str, _request: Request) -> dict | None:
-    """
-    Retrieves and parses a specific element (field) from a form-data request into a dictionary
-
-    Args:
-        element (str): The field name to extract from the request form data
-        _request (Request): The Flask Request object
-
-    Returns:
-        dict | None: Parsed dictionary if successful; otherwise, None
-    """
-    try:
-        metadata = json.loads(_request.form.to_dict()[element])
-        return metadata
-    except Exception as err:
-        LOGGER.error("[get_element_from_data_request] Exception:'%s'. Type: %s", err, type(err), exc_info=True)
-        return None
+    if unknown_keys:
+        abort(400, f"The metadata carries unknown key(s): {', '.join(sorted(unknown_keys))}!")
 
 
 def generate_metadata_filter(element: str, _request: Request | None = None, params: dict | None = None) -> dict:
@@ -104,13 +115,13 @@ def generate_metadata_filter(element: str, _request: Request | None = None, para
                 data = get_element_from_data_request(element, _request)
 
         for key, value in data.items():
-            if 'reference' == key and value:
+            if MediaFileMetadataKey.REFERENCE.value == key and value:
                 if isinstance(value, list):
-                    filter_metadata.update({f"metadata.{key}": {'$in': value}})
+                    filter_metadata.update({metadata_field(key): {'$in': value}})
                 else:
-                    filter_metadata.update({f"metadata.{key}": {'$in': [int(value)]}})
+                    filter_metadata.update({metadata_field(key): {'$in': [int(value)]}})
             else:
-                filter_metadata.update({f"metadata.{key}": value})
+                filter_metadata.update({metadata_field(key): value})
 
         return filter_metadata
     except Exception as err:
@@ -128,26 +139,27 @@ def generate_collection_parameters(params: CollectionParameters) -> dict:
     Returns:
         dict: A MongoDB query filter based on search term or metadata
     """
-    builder = Builder()
-    search = params.optional.get('searchTerm')
-    param = json.loads(params.optional['metadata'])
+    search = params.optional.get(MediaFileRequestKey.SEARCH_TERM.value)
+    param = json.loads(params.optional[MediaFileRequestKey.METADATA.value])
 
     if search:
+        # Builder's constructors are stateless, so they are called on the class - Builder itself is
+        # abstract and cannot be instantiated
         _ = [
-            builder.regex_('filename', search)
-            , builder.regex_('metadata.reference_type', search)
-            , builder.regex_('metadata.mime_type', search)
+            Builder.regex_(MediaFileKey.FILENAME.value, search)
+            , Builder.regex_(metadata_field(MediaFileMetadataKey.REFERENCE_TYPE), search)
+            , Builder.regex_(metadata_field(MediaFileMetadataKey.MIME_TYPE), search)
         ]
 
         if search.isdigit():
-            _.append({'public_id': int(search)})
-            _.append({'metadata.reference': int(search)})
-            _.append(builder.in_('metadata.reference', [int(search)]))
-            _.append({'metadata.parent': int(search)})
+            _.append({MediaFileKey.PUBLIC_ID.value: int(search)})
+            _.append({metadata_field(MediaFileMetadataKey.REFERENCE): int(search)})
+            _.append(Builder.in_(metadata_field(MediaFileMetadataKey.REFERENCE), [int(search)]))
+            _.append({metadata_field(MediaFileMetadataKey.PARENT): int(search)})
 
-        return builder.and_([{'metadata.folder': False}, builder.or_(_)])
+        return Builder.and_([{metadata_field(MediaFileMetadataKey.FOLDER): False}, Builder.or_(_)])
 
-    return generate_metadata_filter('metadata', params=param)
+    return generate_metadata_filter(MediaFileRequestKey.METADATA.value, params=param)
 
 
 def create_attachment_name(name: str, index: int, metadata: dict, media_files_manager: MediaFilesManager) -> str:
@@ -201,9 +213,163 @@ def recursive_delete_filter(
     # public_id is already known - only the children need to be queried (one query per node, not two)
     _ids.append(public_id)
 
-    children = media_files_manager.get_many_media_files(metadata={'metadata.parent': public_id}).result
+    children = media_files_manager.get_many_media_files(
+        metadata={metadata_field(MediaFileMetadataKey.PARENT): public_id},
+    ).result
 
     for item in children:
         recursive_delete_filter(item['public_id'], media_files_manager, _ids)
 
     return _ids
+
+
+def get_stored_file_or_abort(media_files_manager: MediaFilesManager, public_id: int) -> dict[str, Any]:
+    """
+    Loads a stored MediaFile by public_id, or answers 404
+
+    The manager reports a missing file as None (GridFS raises NoFile, which it swallows), so every route
+    that goes on to read the document needs this in front of it - without it the None reaches the next
+    subscript and the request ends as a 500 about a file that simply is not there
+
+    Args:
+        media_files_manager (MediaFilesManager): db interface for MediaFiles
+        public_id (int): public_id of the MediaFile
+
+    Raises:
+        HTTPException: 404 when no MediaFile carries the public_id
+
+    Returns:
+        dict[str, Any]: The stored file document
+    """
+    stored_file: dict[str, Any] | None = media_files_manager.get_file(
+        metadata={MediaFileKey.PUBLIC_ID.value: public_id},
+    )
+
+    if not stored_file:
+        abort(404, f"The File with ID: {public_id} was not found!")
+
+    return stored_file
+
+
+def get_reference_attachment_or_abort() -> dict[str, Any]:
+    """
+    Reads the update route's ``attachment`` query parameter
+
+    The parameter says whether the write only re-points a reference, in which case the filename is left
+    alone. It is required - the frontend always sends it - so a missing or malformed value is a client
+    error rather than the TypeError / JSONDecodeError it used to raise on the way to a 500
+
+    Raises:
+        HTTPException: 400 when the parameter is absent or is not a JSON object
+
+    Returns:
+        dict[str, Any]: The parsed parameter, e.g. {"reference": false}
+    """
+    raw_value: str | None = request.args.get(MediaFileRequestKey.ATTACHMENT.value)
+
+    if raw_value is None:
+        abort(400, f"The '{MediaFileRequestKey.ATTACHMENT.value}' query parameter is required!")
+
+    try:
+        attachment: Any = json.loads(raw_value)
+    except ValueError:
+        abort(400, f"The '{MediaFileRequestKey.ATTACHMENT.value}' query parameter is not valid JSON!")
+
+    if not isinstance(attachment, dict):
+        abort(400, f"The '{MediaFileRequestKey.ATTACHMENT.value}' query parameter must be an object!")
+
+    return attachment
+
+
+def get_upload_from_request(_request: Request) -> tuple[FileStorage, dict[str, Any], dict[str, Any]]:
+    """
+    Reads the three parts of an upload request
+
+    Args:
+        _request (Request): The upload request, carrying the file and its metadata as form parts
+
+    Raises:
+        HTTPException: 400 when the file part or the metadata is missing / unusable, or when the
+            metadata carries a key the media library does not declare
+
+    Returns:
+        tuple[FileStorage, dict[str, Any], dict[str, Any]]: The uploaded file, the filter identifying
+            an already stored file of that name in that folder, and the metadata to persist
+    """
+    upload: FileStorage = get_file_in_request(MediaFileRequestKey.FILE.value)
+
+    existing_filter: dict[str, Any] = generate_metadata_filter(MediaFileRequestKey.METADATA.value, _request)
+    existing_filter.update({MediaFileKey.FILENAME.value: upload.filename})
+
+    metadata: dict[str, Any] = get_element_from_data_request(MediaFileRequestKey.METADATA.value, _request)
+    validate_upload_metadata(metadata)
+
+    return upload, existing_filter, metadata
+
+
+def build_upload_metadata(
+        metadata: dict[str, Any],
+        upload: FileStorage,
+        author_id: int,
+        replaced_file: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Completes the metadata an upload is stored with
+
+    The author and the mime type are server-owned. When the upload replaces a file of the same name in
+    the same folder, that file's reference and reference_type are carried over, because the replacement
+    is the same library entry with new content and the references pointing at it must survive it. They
+    are read defensively: a stored file written before the keys existed carries neither
+
+    Args:
+        metadata (dict[str, Any]): The metadata as it arrived with the request
+        upload (FileStorage): The uploaded file, for its mime type
+        author_id (int): public_id of the uploading CmdbUser
+        replaced_file (dict[str, Any] | None): The stored file this upload replaces, if any
+
+    Returns:
+        dict[str, Any]: The metadata to persist
+    """
+    if replaced_file:
+        previous_metadata: dict[str, Any] = replaced_file.get(MediaFileKey.METADATA.value) or {}
+
+        metadata[MediaFileMetadataKey.REFERENCE.value] = previous_metadata.get(
+            MediaFileMetadataKey.REFERENCE.value)
+        metadata[MediaFileMetadataKey.REFERENCE_TYPE.value] = previous_metadata.get(
+            MediaFileMetadataKey.REFERENCE_TYPE.value)
+
+    metadata[MediaFileMetadataKey.AUTHOR_ID.value] = author_id
+    metadata[MediaFileMetadataKey.MIME_TYPE.value] = upload.mimetype
+
+    return metadata
+
+
+def build_updated_file_data(
+        stored_file: dict[str, Any],
+        new_file_data: dict[str, Any],
+        author_id: int) -> dict[str, Any]:
+    """
+    Merges an update payload onto the stored MediaFile document
+
+    The public_id is taken from the stored document, so the payload can not rewrite the identity, and the
+    author is stamped as the last modifier
+
+    Args:
+        stored_file (dict[str, Any]): The MediaFile as stored
+        new_file_data (dict[str, Any]): The parsed request body
+        author_id (int): public_id of the CmdbUser performing the update
+
+    Raises:
+        HTTPException: 400 when the payload does not carry a filename or metadata
+
+    Returns:
+        dict[str, Any]: The document to persist
+    """
+    for required_key in (MediaFileKey.FILENAME, MediaFileKey.METADATA):
+        if required_key.value not in new_file_data:
+            abort(400, f"The request body is missing '{required_key.value}'!")
+
+    stored_file[MediaFileKey.FILENAME.value] = new_file_data[MediaFileKey.FILENAME.value]
+    stored_file[MediaFileKey.METADATA.value] = new_file_data[MediaFileKey.METADATA.value]
+    stored_file[MediaFileKey.METADATA.value][MediaFileMetadataKey.AUTHOR_ID.value] = author_id
+
+    return stored_file

@@ -21,16 +21,62 @@ Provides:
       the database updater (per-version `updater_<date>` modules) and the exporter
       framework (per-format classes under `cmdb.framework.exporter.format.*`)
     * `str_to_bool` — lenient string/bool coercer used to normalise REST query params
+    * `is_truthy_query_arg` — the never-raising wrapper around `str_to_bool` the routes apply to an
+      optional query flag, falling back to a default instead of rejecting the request
+    * `parse_import_bool` — the more permissive boolean parser the object- and type-imports apply to
+      an uploaded flag, reporting an unusable value instead of raising
+    * `coerce_whole_number` — the "this is a count / an index / a slot" coercer, shared by the
+      request-parameter parsers, the rack layout rules and the config-file port check
+    * `is_non_blank_string` — the "usable name / label" predicate the type import applies to every
+      name, label and icon it reads
+    * `duplicate_names` — reports the values occurring more than once in a sequence, used by the
+      object- and type-import validators to reject duplicate field / section identifiers
+    * `random_hex_color` — random '#RRGGBB' color, used wherever a CI-Explorer color is defaulted
+    * `is_hex_color` — the '#RRGGBB' predicate applied to a user-supplied color
+    * `coerce_datetime` — parses a stored or request-supplied timestamp into a datetime
+    * `coerce_mongo_datetime` — the same, plus the Mongo extended-JSON `{'$date': ...}` wrapper the
+      REST API emits and the frontend sends back
+    * `coerce_document_dates` — normalises a document's date fields in place and names the ones that
+      could not be read, shared by the model layer and the generic manager
     * `process_bar` — stdout progress bar driven by the database updater
 """
 import re
 import sys
+import random
 import importlib
+from datetime import datetime, timezone
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Iterable
+
+from dateutil.parser import parse
+
+from cmdb.errors.utils import ClassLoadError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Accepted string spellings for a boolean import value (compared case-insensitively, stripped)
+_TRUTHY_IMPORT_VALUES: frozenset[str] = frozenset({'true', 'yes', '1'})
+_FALSY_IMPORT_VALUES: frozenset[str] = frozenset({'false', 'no', '0'})
+
+# Mongo extended-JSON wrapper key carrying a timestamp, e.g. {'$date': 1700000000000}
+MONGO_DATE_KEY: str = '$date'
+
+# A '$date' wrapper holding a number counts milliseconds since the epoch, matching what
+# `cmdb.database.json_codec.default` writes when it serialises a datetime for a response
+_MILLISECONDS_PER_SECOND: int = 1000
+
+# Values that mean 'no date' when they arrive in a date field: an empty request field, an empty
+# date widget payload or an absent value are all normalised to None rather than refused
+_EMPTY_DATE_VALUES: tuple[Any, ...] = (None, '', {}, [])
+
+# Bounds of a random '#RRGGBB' CI-Explorer color: a value in [0, MAX] rendered as zero-padded hex
+_HEX_COLOR_MAX: int = 0xFFFFFF
+_HEX_COLOR_WIDTH: int = 6
+
+# A '#RRGGBB' color, the only spelling accepted from a user - the same form random_hex_color produces.
+# Anchored with \Z rather than $, because $ also matches immediately before a trailing newline
+_HEX_COLOR_PATTERN: re.Pattern = re.compile(r'\A#[0-9A-Fa-f]{6}\Z')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -54,22 +100,19 @@ def load_class(classname: str) -> type:
         type: The resolved class object
 
     Raises:
-        Exception: When `classname` does not contain a dot (the split fails)
+        ClassLoadError: When `classname` does not contain a dot, so it cannot be split into a
+            module path and an attribute name
         ModuleNotFoundError: When the module portion cannot be imported
         AttributeError: When the module is imported but the named attribute is missing
     """
-    pattern = re.compile(r"(.*)\.(.*)")
-    match = pattern.fullmatch(classname)
+    module_name, _, class_name = classname.rpartition('.')
 
-    if match is None:
-        raise Exception(f"Could not load class {classname}")
+    if not module_name:
+        raise ClassLoadError(f"Could not load class {classname}")
 
-    module_name = match.group(1)
-    class_name = match.group(2)
     loaded_module = importlib.import_module(module_name)
-    loaded_class = getattr(loaded_module, class_name)
 
-    return loaded_class
+    return getattr(loaded_module, class_name)
 
 
 def str_to_bool(s: Any) -> bool:
@@ -104,6 +147,28 @@ def str_to_bool(s: Any) -> bool:
     raise ValueError("Invalid value for conversion to boolean")
 
 
+def is_truthy_query_arg(value: Any, default: bool = False) -> bool:
+    """
+    Leniently interprets a query-string boolean flag, never raising
+
+    Wraps `str_to_bool` for the REST query-parameter case where an absent or unrecognised value should
+    fall back to a default rather than raise: `"true"` / `"True"` (and native `True`) become `True`,
+    `"false"` / `False` become `False`, and anything else (missing param, `None`, `"1"`, `"yes"`, ...)
+    returns `default`. Replaces the ad-hoc `value in ['True', 'true']` checks scattered across the routes.
+
+    Args:
+        value (Any): The raw query-parameter value (typically `request.args.get(...)`)
+        default (bool): Value returned when `value` is missing or unrecognised. Defaults to False
+
+    Returns:
+        bool: The interpreted boolean flag
+    """
+    try:
+        return str_to_bool(value)
+    except ValueError:
+        return default
+
+
 def process_bar(name: str, total: int, progress: int) -> None:
     """
     Writes (or rewrites) a single-line stdout progress bar
@@ -112,8 +177,9 @@ def process_bar(name: str, total: int, progress: int) -> None:
     newline once `progress >= total` so the next stdout write starts cleanly. The bar is
     a fixed 50 chars wide, filled in proportion to `progress / total`. The `[x/y]`
     segment shows the raw step counts (`progress` and `total`) while the bar fill and
-    percentage are clamped to a maximum of 100%. Calls with `total <= 0` return without
-    writing anything
+    percentage are clamped to the 0-100% range, so neither an overshooting nor a negative
+    `progress` can render a bar wider than its 50 chars. Calls with `total <= 0` return
+    without writing anything
 
     Args:
         name (str): Label printed before the bar
@@ -127,7 +193,7 @@ def process_bar(name: str, total: int, progress: int) -> None:
     if total <= 0:
         return
 
-    fraction = min(float(progress) / float(total), 1.0)
+    fraction = min(max(float(progress) / float(total), 0.0), 1.0)
     status = "\r\n" if fraction >= 1.0 else ""
 
     bar_length = 50
@@ -135,7 +201,300 @@ def process_bar(name: str, total: int, progress: int) -> None:
 
     progress_percentage = f"{fraction * 100:.0f}%"
     through_of = f"[{progress}/{total}]"
-    progress_bar = f'[{ "#" * block + "-" * (bar_length - block)}] {progress_percentage} {through_of}'
+    progress_bar = f'[{"#" * block + "-" * (bar_length - block)}] {progress_percentage} {through_of}'
 
     sys.stdout.write(f'\r{name}: {progress_bar}{status}')
     sys.stdout.flush()
+
+
+def parse_import_bool(value: Any) -> bool | None:
+    """
+    Parses a boolean value as accepted by an import
+
+    Accepts real booleans, the integers ``1``/``0``, and (case-insensitive, whitespace-tolerant)
+    the strings ``true``/``yes``/``1`` and ``false``/``no``/``0``. Any other value is rejected.
+    Unlike `str_to_bool`, an unusable value is reported as None instead of raising, so an import can
+    collect it as a per-entry message. Shared by the object import (`active`) and the type import
+    (`active`, `selectable_as_parent`)
+
+    Args:
+        value (Any): The value to parse
+
+    Returns:
+        bool | None: The parsed boolean, or None if the value is not an accepted boolean
+    """
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, int):  # bool is handled above, so this is a plain int (e.g. 1 / 0)
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+
+        if normalized in _TRUTHY_IMPORT_VALUES:
+            return True
+        if normalized in _FALSY_IMPORT_VALUES:
+            return False
+
+    return None
+
+
+def random_hex_color() -> str:
+    """
+    Generates a random hex color in the form #RRGGBB
+
+    Used wherever a CI-Explorer color has to be filled in for a CmdbType that brings none, so every
+    type shows up with a distinguishable color instead of no color at all
+
+    Returns:
+        str: A random color string such as '#1A2B3C'
+    """
+    return f'#{random.randint(0, _HEX_COLOR_MAX):0{_HEX_COLOR_WIDTH}X}'
+
+
+def is_hex_color(value: Any) -> bool:
+    """
+    Reports whether a value is a '#RRGGBB' color string
+
+    The predicate behind every user-supplied color. Deliberately strict about the form - the shorthand
+    '#RGB', a bare 'RRGGBB', a CSS color name and a value carrying any surrounding whitespace are all
+    rejected, so a stored color is always the one spelling a frontend has to render and the one
+    `random_hex_color` produces. Case-insensitive, since '#4caf50' and '#4CAF50' are the same color
+
+    Args:
+        value (Any): The value to check
+
+    Returns:
+        bool: True for a '#RRGGBB' string, False for anything else
+    """
+    return isinstance(value, str) and bool(_HEX_COLOR_PATTERN.match(value))
+
+
+def coerce_datetime(value: Any) -> datetime | None:
+    """
+    Coerces a stored or request-supplied timestamp into a datetime, or None when it is not one
+
+    A timestamp reaches the models two ways: as a real datetime out of MongoDB, and as a string out of
+    a JSON request body. This accepts both and reports anything else as None rather than raising, so a
+    drifted document still loads and a malformed request value can be refused by the caller with a
+    readable message instead of a stack trace
+
+    Args:
+        value (Any): The value to coerce
+
+    Returns:
+        datetime | None: The value as a datetime, or None when it is not a usable timestamp
+    """
+    if isinstance(value, datetime):
+        return value
+
+    if isinstance(value, str) and value.strip():
+        try:
+            return parse(value)
+        except (ValueError, OverflowError):
+            return None
+
+    return None
+
+
+def coerce_mongo_datetime(value: Any) -> datetime | None:
+    """
+    Coerces a timestamp into a datetime, accepting the Mongo extended-JSON wrapper as well
+
+    Extends `coerce_datetime` with the `{'$date': ...}` shape, which is not an exotic input but the
+    only shape a datetime has on the wire: `cmdb.database.json_codec.default` serialises every
+    datetime in a REST response as `{'$date': <epoch millis>}`, so that is what the frontend sends
+    back. The wrapper carries either a number of milliseconds or a timestamp string.
+
+    Booleans inside the wrapper are refused on purpose - bool is an int subclass in Python, so
+    `{'$date': True}` would otherwise read as one millisecond past 1970-01-01
+
+    Args:
+        value (Any): The value to coerce - a datetime, a `{'$date': ...}` wrapper, or a
+            timestamp string
+
+    Returns:
+        datetime | None: The value as a datetime, or None when it is not a usable timestamp
+    """
+    if isinstance(value, dict):
+        if MONGO_DATE_KEY not in value:
+            return None
+
+        wrapped: Any = value[MONGO_DATE_KEY]
+
+        if isinstance(wrapped, bool):
+            return None
+
+        if isinstance(wrapped, (int, float)):
+            try:
+                return datetime.fromtimestamp(wrapped / _MILLISECONDS_PER_SECOND, tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+
+        return coerce_datetime(wrapped)
+
+    return coerce_datetime(value)
+
+
+def coerce_empty_document_values(
+        document: dict[str, Any],
+        text_keys: Iterable[str] = (),
+        list_keys: Iterable[str] = ()) -> None:
+    """
+    Replaces a document's missing and null optional values with the empty string / empty list, in place
+
+    The rule that keeps a stored document sendable back: a Cerberus schema types an optional key
+    `string` or `list`, so a document holding null in one of them is a document its own schema
+    refuses - a GET followed by an unmodified PUT is answered 400, and code reading the value has to
+    guard for a third state that means exactly what the empty value means.
+
+    A key that is absent is filled in, so the documents of a collection have one shape rather than two,
+    and a key holding anything else - including a non-empty value of the wrong type - is left untouched
+    for the schema to reject.
+
+    Args:
+        document (dict[str, Any]): The document to normalise in place
+        text_keys (Iterable[str]): Keys whose empty value is ''
+        list_keys (Iterable[str]): Keys whose empty value is []
+    """
+    for key in text_keys:
+        if document.get(key) is None:
+            document[key] = ''
+
+    for key in list_keys:
+        if document.get(key) is None:
+            document[key] = []
+
+
+def coerce_document_dates(document: dict[str, Any], keys: Iterable[str]) -> list[str]:
+    """
+    Normalises a document's date fields into datetimes in place, naming the ones that failed
+
+    The single place that decides what a stored date *is*. A date field reaches a document as a
+    `{'$date': ...}` wrapper (from the frontend), as a real datetime (read back from MongoDB) or as a
+    timestamp string (an API client), and MongoDB can only compare, sort and range-filter it as a real
+    date - so the shape is normalised once, at every boundary that writes or loads a document.
+
+    Absent keys are left absent, and a key present but empty (None, '', {}, []) becomes None: an
+    emptied date widget means "no date", not "a broken date". Anything else that cannot be read is
+    left untouched and its key returned, so the caller decides whether that is a 400 or a raise -
+    guessing a date is worse than refusing one, because nothing about the wrong answer looks wrong
+
+    Args:
+        document (dict[str, Any]): The document to normalise in place
+        keys (Iterable[str]): The document's date field names (a model's `DATE_FIELDS`)
+
+    Returns:
+        list[str]: The names of the present, non-empty fields that could not be read as a date,
+            in the order given by `keys` (empty when every date was usable)
+    """
+    unusable: list[str] = []
+
+    for key in keys:
+        if key not in document:
+            continue
+
+        raw: Any = document[key]
+
+        if any(raw == empty_value for empty_value in _EMPTY_DATE_VALUES):
+            document[key] = None
+            continue
+
+        coerced: datetime | None = coerce_mongo_datetime(raw)
+
+        if coerced is None:
+            unusable.append(key)
+            continue
+
+        document[key] = coerced
+
+    return unusable
+
+
+def is_non_blank_string(value: Any) -> bool:
+    """
+    Reports whether a value is a string carrying more than whitespace
+
+    The check behind "this name / label is usable": the type import applies it to every field name,
+    section name, label and icon an upload brings, where `None`, `''`, `'   '` and a stray number all
+    mean the same thing - nothing to identify or display
+
+    Args:
+        value (Any): The value to test
+
+    Returns:
+        bool: True for a non-blank string, False for anything else
+    """
+    return isinstance(value, str) and bool(value.strip())
+
+
+def coerce_whole_number(value: Any) -> int | None:
+    """
+    Coerces a value to a whole number, or returns None when it is not one
+
+    The check behind every "this is a count / an index / a slot" field. Accepts an int, a float with no
+    fractional part (a JSON client may send 42.0) and a string holding either (a CSV import has no other
+    way to carry a number). Booleans are rejected on purpose: bool is an int subclass in Python, so
+    `True` would otherwise pass as 1
+
+    Args:
+        value (Any): The value to coerce
+
+    Returns:
+        int | None: The value as an int, or None when it is not a whole number
+    """
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, int):
+        return value
+
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            pass
+
+        try:
+            as_float = float(value.strip())
+        except ValueError:
+            return None
+
+        return int(as_float) if as_float.is_integer() else None
+
+    return None
+
+
+def duplicate_names(names: Iterable[Any]) -> list:
+    """
+    Returns the values that occur more than once, each listed once, in first-seen order
+
+    Shared by the import validators, which reject duplicate identifiers (object field names, type
+    field / section names) and report exactly which ones collided
+
+    Args:
+        names (Iterable[Any]): The values to inspect
+
+    Returns:
+        list: The duplicated values (empty when all are unique)
+    """
+    seen: set = set()
+    reported: set = set()
+    duplicates: list = []
+
+    for name in names:
+        if name in seen and name not in reported:
+            duplicates.append(name)
+            reported.add(name)
+
+        seen.add(name)
+
+    return duplicates

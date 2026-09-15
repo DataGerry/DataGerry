@@ -15,6 +15,13 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of UserSettingsManager
+
+Identity here is `(user_id, resource)` rather than a public_id, so every method filters on that pair
+instead of using the public_id-keyed CRUD of its GenericManager base - see `CmdbUserSetting`.
+
+`get_user_settings` is deliberately the one read that does NOT build models: it normalises each
+document and **skips** the ones it cannot read (reporting them), because it answers a whole user's
+settings at once and one unreadable record used to fail all of them
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -23,7 +30,12 @@ from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.settings_model import CmdbUserSetting, UserSettingType
+from cmdb.models.settings_model import (
+    CmdbUserSetting,
+    UserSettingKey,
+    UserSettingType,
+    normalize_user_setting_document,
+)
 
 from cmdb.errors.manager import (
     BaseManagerDeleteError,
@@ -68,35 +80,55 @@ class UserSettingsManager(GenericManager):
             dict | None: A dictionary representation of the CmdbUserSetting if successful, otherwise None
         """
         try:
-            return self.get_one_by(criteria={'user_id': user_id, 'resource': resource})
+            return self.get_one_by(criteria={
+                UserSettingKey.USER_ID.value: user_id,
+                UserSettingKey.RESOURCE.value: resource,
+            })
         except Exception as err:
             LOGGER.error("[get_user_setting] Exception: %s. Type: %s", err, type(err))
             raise UserSettingsManagerGetError(str(err)) from err
 
 
-    def get_user_settings(self, user_id: int, setting_type: UserSettingType | None = None) -> list[CmdbUserSetting]:
+    def get_user_settings(
+            self,
+            user_id: int,
+            setting_type: UserSettingType | None = None) -> list[dict[str, Any]]:
         """
-        Get all CmdbUserSettings from a CmdbUser by the user_id
+        Get all CmdbUserSettings of a CmdbUser by the user_id
+
+        Answers normalised documents rather than model instances: the four keys, with an absent
+        payload list reported as an empty one. It used to build a `CmdbUserSetting` per document and
+        the caller immediately converted each back into a dict, which cost two objects per setting
+        plus one per payload entry for a payload that is handed straight back.
+
+        **A document that cannot be read is skipped, not fatal.** Reading one resolves its stored
+        scope, and until 2026-09-09 an unresolvable value failed the whole call - so a single bad
+        record answered 400 for every setting the user had, and the frontend (which syncs these on
+        login and only logs a failure) silently stopped restoring any of them. The skipped record is
+        logged with its resource by `normalize_user_setting_document`
 
         Args:
             user_id (int): public_id of the CmdbUser
-            setting_type(UserSettingType, optional): UserSettingType for filtering
+            setting_type (UserSettingType, optional): UserSettingType to filter by. No route passes
+                one; the scope is a label the frontend maintains for itself
 
         Raises:
-            UserSettingsManagerIterationError:
+            UserSettingsManagerIterationError: If the settings could not be read
 
         Returns:
-            (list[CmdbUserSetting]): List of CmdbUserSetting instances
+            list[dict[str, Any]]: The user's readable settings, in the shape the list route answers
         """
         try:
-            query = {'user_id': user_id}
+            query: dict[str, Any] = {UserSettingKey.USER_ID.value: user_id}
 
             if setting_type:
-                query.update({'setting_type': setting_type.value})
+                query[UserSettingKey.SETTING_TYPE.value] = setting_type.value
 
-            user_settings = self.find(criteria=query)
+            normalized: list[dict[str, Any]] = [
+                normalize_user_setting_document(setting) for setting in self.find(criteria=query)
+            ]
 
-            return [CmdbUserSetting.from_data(setting) for setting in user_settings]
+            return [setting for setting in normalized if setting is not None]
         except Exception as err:
             LOGGER.error("[get_user_settings] Exception: %s. Type: %s", err, type(err))
             raise UserSettingsManagerIterationError(str(err)) from err
@@ -119,7 +151,13 @@ class UserSettingsManager(GenericManager):
             if isinstance(setting, CmdbUserSetting):
                 setting = CmdbUserSetting.to_json(setting)
 
-            return self.update(criteria={'resource': resource, 'user_id': user_id}, data=setting)
+            return self.update(
+                criteria={
+                    UserSettingKey.RESOURCE.value: resource,
+                    UserSettingKey.USER_ID.value: user_id,
+                },
+                data=setting,
+            )
         except Exception as err:
             LOGGER.error("[update_user_setting] Exception: %s. Type: %s", err, type(err))
             raise UserSettingsManagerUpdateError(str(err)) from err
@@ -141,6 +179,9 @@ class UserSettingsManager(GenericManager):
             bool: True if deletion was successful
         """
         try:
-            return self.delete(criteria={'user_id': user_id, 'resource': resource})
+            return self.delete(criteria={
+                UserSettingKey.USER_ID.value: user_id,
+                UserSettingKey.RESOURCE.value: resource,
+            })
         except BaseManagerDeleteError as err:
             raise UserSettingsManagerDeleteError(str(err)) from err

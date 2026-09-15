@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,63 +21,80 @@ A CmdbObjectRelation is a concrete relation instance between two CmdbObjects
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbObjectRelation.SCHEMA.
+
+The keys come from ``ObjectRelationKey``, so the schema and the model cannot drift apart on a key name.
+
+Both timestamps accept the three shapes a date arrives in and are normalised to a real datetime before
+the document is stored (``CmdbObjectRelation.DATE_FIELDS``). They are **server-owned** either way: the
+create route stamps ``creation_time`` and clears ``last_edit_time``, and the update route preserves the
+first and stamps the second, so a value sent for either is validated and then overwritten
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The three shapes a date arrives in: the Mongo extended-JSON wrapper {'$date': ...} the frontend
+# sends, a timestamp string from an API client, and a real datetime (an already-normalised payload)
+_DATE_TYPES: list[str] = ['dict', 'string', 'datetime']
+
 # pylint: disable=R0801
-def get_cmdb_object_relation_schema() -> dict:
+def get_cmdb_object_relation_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbObjectRelation document
 
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbObjectRelation.SCHEMA
     """
+    # Imported inside the builder: the key enum lives in the model layer, which imports this module
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.object_relation_model.object_relation_constants import ObjectRelationKey
+
     return {
-        'public_id': {  # public_id of CmdbObjectRelation
+        ObjectRelationKey.PUBLIC_ID.value: {  # public_id of CmdbObjectRelation
             'type': 'integer'
         },
-        'relation_id': {  # public_id of the CmdbRelation
+        ObjectRelationKey.RELATION_ID.value: {  # public_id of the CmdbRelation
             'type': 'integer',
             'required': True,
             'empty': False
         },
-        'creation_time': {  # When the CmdbObjectRelation was created
-            'type': 'dict',
+        ObjectRelationKey.CREATION_TIME.value: {  # Stamped on create, preserved by every update
+            'anyof_type': _DATE_TYPES,
             'nullable': True,
             'required': False
         },
-        'last_edit_time': {  # When the CmdbObjectRelation was last time edited
-            'type': 'dict',
+        ObjectRelationKey.LAST_EDIT_TIME.value: {  # Null until the first edit, stamped by the update
+            'anyof_type': _DATE_TYPES,
             'nullable': True,
             'required': False
         },
-        'author_id': {  # public_id of the CmdbUser who created the CmdbObjectRelation then the last one editing it
+        ObjectRelationKey.AUTHOR_ID.value: {  # The CmdbUser who created it, then the last one editing it
             'type': 'integer'
         },
-        'relation_parent_id': {  # public_id of the parent CmdbObject
+        ObjectRelationKey.RELATION_PARENT_ID.value: {  # public_id of the parent CmdbObject
             'type': 'integer',
             'nullable': False,
             'required': True,
             'empty': False
         },
-        'relation_parent_type_id': {  # public_id of the parent CmdbType
+        ObjectRelationKey.RELATION_PARENT_TYPE_ID.value: {  # public_id of the parent CmdbType
             'type': 'integer',
             'nullable': False,
             'required': True,
             'empty': False
         },
-        'relation_child_id': {  # public_id of the child CmdbObject
+        ObjectRelationKey.RELATION_CHILD_ID.value: {  # public_id of the child CmdbObject
             'type': 'integer',
             'nullable': False,
             'required': True,
             'empty': False
         },
-        'relation_child_type_id': {  # public_id of the child CmdbType
+        ObjectRelationKey.RELATION_CHILD_TYPE_ID.value: {  # public_id of the child CmdbType
             'type': 'integer',
             'nullable': False,
             'required': True,
             'empty': False
         },
-        'field_values': {  # All field values for this CmdbObjectRelation
+        ObjectRelationKey.FIELD_VALUES.value: {  # Name/value pairs, not the triples an object carries
             'type': 'list',
             'required': False,
             'default': [],

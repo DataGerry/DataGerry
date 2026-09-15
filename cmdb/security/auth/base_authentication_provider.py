@@ -100,17 +100,6 @@ class BaseAuthenticationProvider:
 
 
     @classmethod
-    def is_password_able(cls):
-        """
-        Checks if the authentication provider supports password-based authentication
-
-        Returns:
-            bool: Returns `True` if the provider supports password authentication, otherwise `False`
-        """
-        return cls.PASSWORD_ABLE
-
-
-    @classmethod
     def get_name(cls):
         """
         Returns the name of the authentication provider class

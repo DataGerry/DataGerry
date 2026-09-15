@@ -15,19 +15,42 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 This module contains the implementation of the PersonGroupsManager
+
+The manager owns the ``management.personGroup`` collection and is the mirror image of
+``PersonsManager``: the same two-sided membership seen from the group's end, and the same ISMS cleanup
+for a deleted reference target. Two things are worth knowing before changing anything:
+
+**A group's deletion is a cascade, and the whole cascade lives here.** ``delete_with_follow_up`` clears
+the ISMS references, removes the group from every CmdbPerson that lists it and only then deletes the
+document. The person half used to be a second call made by the delete route, which meant any *other*
+caller deleting a group left it listed on every member.
+
+**A group is referenced where a person can be.** An IsmsRiskAssessment's owner, responsible persons and
+auditor, and an IsmsControlMeasureAssignment's responsible party, each hold either kind - which is what
+the '_ref_type' sibling of every one of those fields records, and why this cascade always filters on
+both halves. Unlike a person, a group is never the risk *assessor* and never appears among the
+interviewed persons
 """
 from logging import Logger, getLogger
-from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.person_reference_helper import (
+    add_member_to_documents,
+    remove_member_from_documents,
+    clear_polymorphic_risk_assessment_references,
+    clear_control_measure_assignment_reference,
+)
 
-from cmdb.models.person_group_model import CmdbPersonGroup
+from cmdb.models.person_model import CmdbPerson, PersonKey
+from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
-from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 
-from cmdb.errors.manager.person_groups_manager import PERSON_GROUPS_MANAGER_ERRORS
+from cmdb.errors.manager.person_groups_manager import (
+    PERSON_GROUPS_MANAGER_ERRORS,
+    PersonGroupsManagerDeleteError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -50,16 +73,27 @@ class PersonGroupsManager(GenericManager):
         """
         Deletes a CmdbPersonGroup and cleans all affected collections from it
 
+        The complete cascade: the ISMS references are cleared, the group is removed from every
+        CmdbPerson that lists it, and the document is deleted last, so an interrupted run leaves the
+        group in place rather than leaving references to a group that no longer exists
+
         Args:
             public_id (int): public_id of CmdbPersonGroup which should be deleted
+
+        Raises:
+            PersonGroupsManagerDeleteError: If any step of the cascade or the deletion itself fails
 
         Returns:
             bool: True if deletion was a success, else False
         """
-        self.remove_person_group_from_risk_assessments(public_id)
-        self.remove_person_group_from_control_measure_assignments(public_id)
+        try:
+            self.remove_person_group_from_risk_assessments(public_id)
+            self.remove_person_group_from_control_measure_assignments(public_id)
+            self.remove_person_group_from_persons(public_id)
 
-        return self.delete_item(public_id)
+            return self.delete_item(public_id)
+        except Exception as err:
+            raise PersonGroupsManagerDeleteError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -80,22 +114,17 @@ class PersonGroupsManager(GenericManager):
         """
         Adds a CmdbPerson to the 'group_members' of the given CmdbPersonGroups in a single bulk update
 
-        Uses '$addToSet' so the person is only added where they are not already a member, matching the
-        previous per-group duplicate check without loading each CmdbPersonGroup first.
-
         Args:
             person_id (int): public_id of CmdbPerson which should be added
             group_ids (list[int]): public_id's of CmdbPersonGroups where the CmdbPerson should be added
         """
-        if not group_ids:
-            return
-
-        self.dbm.update_many(
-            self.collection,
+        add_member_to_documents(
+            self.dbm,
             self.db_name,
-            {'public_id': {'$in': list(group_ids)}},
-            {'group_members': person_id},
-            add_to_set=True,
+            self.collection,
+            PersonGroupKey.GROUP_MEMBERS.value,
+            person_id,
+            group_ids,
         )
 
 
@@ -104,73 +133,75 @@ class PersonGroupsManager(GenericManager):
         Removes a CmdbPerson from the 'group_members' of CmdbPersonGroups in a single bulk '$pull' update
 
         When groups_ids is provided the pull is restricted to those CmdbPersonGroups, otherwise it is
-        applied to every CmdbPersonGroup that lists the person as a member.
+        applied to every CmdbPersonGroup that lists the person as a member
 
         Args:
             person_id (int): public_id of CmdbPerson which should be removed
             groups_ids (list[int], optional): public_id's of the CmdbPersonGroups to update. Defaults to None
         """
-        criteria: dict[str, Any] = {'group_members': person_id}
-
-        if groups_ids is not None:
-            criteria['public_id'] = {'$in': list(groups_ids)}
-
-        self.dbm.update_many_pull(
-            self.collection,
+        remove_member_from_documents(
+            self.dbm,
             self.db_name,
-            criteria,
-            {'group_members': person_id},
+            self.collection,
+            PersonGroupKey.GROUP_MEMBERS.value,
+            person_id,
+            groups_ids,
         )
 
 
-    def remove_person_group_from_control_measure_assignments(self, deleted_person_group_id: int) -> None:
+    def remove_person_group_from_persons(self, person_group_id: int) -> None:
         """
-        Deletes a CmdbPersonGroup from all ControlMeasureAssignments by replacing the 
-        'responsible_for_implementation_id' field based on the person group's reference type.
-        
-        If 'responsible_for_implementation_id_ref_type' is 'PERSON_GROUP' and the 
-        'responsible_for_implementation_id' matches the deleted person group's ID,
-        it sets the 'responsible_for_implementation_id' to None.
-        
-        Args:
-            deleted_person_group_id (int): The public_id of the deleted CmdbPersonGroup
-        """
-        # Query to find all ControlMeasureAssignments where the responsible_for_implementation_id
-        # matches the deleted person group's ID, only if the ref_type is PERSON_GROUP.
-        query = {
-            '$and': [
-                {'responsible_for_implementation_id_ref_type': PersonReferenceType.PERSON_GROUP},
-                {'responsible_for_implementation_id': deleted_person_group_id}
-            ]
-        }
+        Removes a deleted CmdbPersonGroup from the 'groups' of every CmdbPerson listing it
 
-        # Perform the update using the update_many function
-        self.dbm.update_many(
-            IsmsControlMeasureAssignment.COLLECTION,
+        The person side of the two-sided membership. Written straight to the person collection rather
+        than through PersonsManager, because a manager must not depend on another manager
+
+        Args:
+            person_group_id (int): public_id of the deleted CmdbPersonGroup
+        """
+        remove_member_from_documents(
+            self.dbm,
             self.db_name,
-            query,
-            {"$set": {'responsible_for_implementation_id': None}},
-            plain=True
+            CmdbPerson.COLLECTION,
+            PersonKey.GROUPS.value,
+            person_group_id,
         )
 
 
     def remove_person_group_from_risk_assessments(self, deleted_person_group_id: int) -> None:
         """
-        Deletes a CmdbPersonGroup from all RiskAssessments by replacing the corresponding
-        fields with None where they reference the deleted PersonGroup's public_id.
-        
-        If 'responsible_persons_id_ref_type', 'auditor_id_ref_type', or 'risk_owner_id_ref_type'
-        is 'PERSON_GROUP' and their respective IDs match the deleted person group's ID,
-        it sets those fields to None
-        
+        Nulls every IsmsRiskAssessment reference naming the deleted CmdbPersonGroup
+
+        The owner, the responsible persons and the auditor may each be a group; each is filtered by its
+        '_ref_type' sibling, so a CmdbPerson with the same public_id keeps their references
+
         Args:
             deleted_person_group_id (int): The public_id of the deleted CmdbPersonGroup
         """
-        # Each field is polymorphic; null it only where it references the deleted PersonGroup
-        for field in ('responsible_persons_id', 'risk_owner_id', 'auditor_id'):
-            self.dbm.update_many(
-                IsmsRiskAssessment.COLLECTION,
-                self.db_name,
-                {field: deleted_person_group_id, f'{field}_ref_type': PersonReferenceType.PERSON_GROUP},
-                {field: None},
-            )
+        clear_polymorphic_risk_assessment_references(
+            self.dbm,
+            self.db_name,
+            IsmsRiskAssessment.COLLECTION,
+            deleted_person_group_id,
+            PersonReferenceType.PERSON_GROUP,
+        )
+
+
+    def remove_person_group_from_control_measure_assignments(self, deleted_person_group_id: int) -> None:
+        """
+        Nulls the 'responsible_for_implementation_id' of every IsmsControlMeasureAssignment that names
+        the deleted CmdbPersonGroup
+
+        Filtered by the field's '_ref_type' sibling, so an assignment whose responsible party is the
+        CmdbPerson with the same public_id keeps it
+
+        Args:
+            deleted_person_group_id (int): The public_id of the deleted CmdbPersonGroup
+        """
+        clear_control_measure_assignment_reference(
+            self.dbm,
+            self.db_name,
+            IsmsControlMeasureAssignment.COLLECTION,
+            deleted_person_group_id,
+            PersonReferenceType.PERSON_GROUP,
+        )

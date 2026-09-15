@@ -85,13 +85,20 @@ def test_builds_params_serializes_rows_and_wraps_response() -> None:
     assert to_json_mock.call_count == len(rows)
 
     serialized = [{'row': id(rows[0])}, {'row': id(rows[1])}]
-    response_cls.assert_called_once_with(serialized, TOTAL_LOGS, params, REQUEST_URL, False)
+    response_cls.assert_called_once_with(serialized, TOTAL_LOGS, params, REQUEST_URL, True)
     assert result is response_cls.return_value.make_response.return_value
 
 
-@pytest.mark.parametrize('method,expected_head', [('GET', False), ('HEAD', True)])
-def test_head_flag_reflects_request_method(method: str, expected_head: bool) -> None:
-    """The GetMultiResponse body flag is True only for a HEAD request."""
+@pytest.mark.parametrize('method,expected_body', [('GET', True), ('HEAD', False)])
+def test_the_body_flag_reflects_the_request_method(method: str, expected_body: bool) -> None:
+    """
+    The GetMultiResponse body flag is True for everything BUT a HEAD request
+
+    It used to be asserted the other way round: this helper derived the flag as
+    `request.method == HTTP_HEAD_METHOD`, so a plain GET asked for a bodyless answer - harmless only
+    because the flag was inert. Corrected 2026-09-09, and the rule now comes from
+    `routes_helper.request_wants_body`.
+    """
     manager = _manager_returning([])
     params = _params()
     request = _request(method)
@@ -102,7 +109,7 @@ def test_head_flag_reflects_request_method(method: str, expected_head: bool) -> 
         build_object_logs_response(manager, QUERY, params, request, MagicMock())
 
     _, _, _, _, body_flag = response_cls.call_args.args
-    assert body_flag is expected_head
+    assert body_flag is expected_body
 
 
 class TestResolveLogUsers:

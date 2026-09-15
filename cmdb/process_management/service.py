@@ -71,7 +71,6 @@ class AbstractCmdbService:
         """
         self._name = "abstract-service"
         self._threaded_service = True
-        self._multiprocessing = False
 
         self._event_shutdown = None
         self._thread_service = None

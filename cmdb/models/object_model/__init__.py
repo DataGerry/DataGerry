@@ -18,6 +18,7 @@ Provides all CmdbObject relevant classes
 """
 from .cmdb_object import CmdbObject
 from .cmdb_object_key_enum import (
+    OBJECT_DATE_KEYS,
     CmdbObjectKey,
     CmdbObjectFieldKey,
     CmdbObjectMdsKey,
@@ -32,5 +33,6 @@ __all__: list[str] = [
     'CmdbObjectFieldKey',
     'CmdbObjectMdsKey',
     'CmdbObjectMdsRowKey',
+    'OBJECT_DATE_KEYS',
     'extract_field_value',
 ]

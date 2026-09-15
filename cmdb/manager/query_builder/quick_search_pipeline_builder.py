@@ -23,7 +23,7 @@ from cmdb.manager.query_builder.search_references_pipeline_builder import Search
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.security.acl.builder import AccessControlQueryBuilder
+from cmdb.security.acl.builder import build_acl_pipeline
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -80,8 +80,7 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
 
         # Apply permission-based filtering if a user and permission are provided
         if user and permission:
-            self.pipeline = [*self.pipeline, *(AccessControlQueryBuilder().build(group_id=int(user.group_id),
-                                                                                 permission=permission))]
+            self.pipeline = [*self.pipeline, *build_acl_pipeline(user, permission)]
 
          # Add the main search match stage
         self.add_pipe(pipe_match)

@@ -23,6 +23,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from flask import abort
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectRelationsManager
@@ -111,3 +112,12 @@ class TestRelationTabsRoute:
         monkeypatch.setattr(ObjectRelationsManager, 'get_relation_tabs', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{TABS_URL}/{MAIN_OBJ}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_passes_an_http_exception_through(self, rest_api, monkeypatch) -> None:
+        """An HTTPException raised inside the handler keeps its status instead of becoming a 500."""
+        def _abort_418(*_args, **_kwargs):
+            abort(HTTPStatus.IM_A_TEAPOT)
+
+        monkeypatch.setattr(ObjectRelationsManager, 'get_relation_tabs', _abort_418)
+
+        assert rest_api.get(f'{TABS_URL}/{MAIN_OBJ}').status_code == HTTPStatus.IM_A_TEAPOT

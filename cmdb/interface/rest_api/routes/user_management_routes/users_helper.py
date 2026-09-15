@@ -23,9 +23,11 @@ preparation used on create.
 import json
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime, timezone
+from datetime import datetime
 
 from flask import abort
+
+from cmdb.utils import coerce_mongo_datetime
 
 from cmdb.manager import UsersManager
 from cmdb.models.user_model import CmdbUser
@@ -37,17 +39,16 @@ LOGGER: Logger = getLogger(__name__)
 
 TEST_USERS_FILE: str = 'etc/test_users.json'
 
-# Milliseconds per second, used when a BSON ``$date`` arrives as an epoch integer
-MILLISECONDS_PER_SECOND: int = 1000
-
 
 def parse_registration_time(raw: Any) -> Any:
     """
-    Coerces a registration_time value into a timezone-aware datetime
+    Coerces a registration_time value into a datetime
 
-    Accepts the two shapes the frontend / BSON round-trip can produce - a ``{'$date': ...}`` wrapper
-    (ISO string or epoch-millisecond integer) and a bare ISO string - and returns them as a datetime.
-    Any other value (already a datetime, None, or an unexpected shape) is returned unchanged
+    Accepts the shapes the frontend / BSON round-trip can produce - a ``{'$date': ...}`` wrapper
+    (timestamp string or epoch milliseconds) and a bare timestamp string - through the shared
+    ``coerce_mongo_datetime`` caster, so a user's registration_time is read exactly like every other
+    date in the API. Any value the caster cannot read (an unexpected shape, None) is returned
+    unchanged, which keeps this route's "pass through what you do not understand" behaviour
 
     Args:
         raw (Any): The incoming registration_time value
@@ -55,19 +56,9 @@ def parse_registration_time(raw: Any) -> Any:
     Returns:
         Any: A datetime for the recognised shapes, otherwise the original value
     """
-    if isinstance(raw, dict) and '$date' in raw:
-        date_val = raw['$date']
+    coerced: datetime | None = coerce_mongo_datetime(raw)
 
-        if isinstance(date_val, str):
-            return datetime.fromisoformat(date_val.replace('Z', '+00:00'))
-
-        if isinstance(date_val, int):  # epoch milliseconds
-            return datetime.fromtimestamp(date_val / MILLISECONDS_PER_SECOND, tz=timezone.utc)
-
-    elif isinstance(raw, str):
-        return datetime.fromisoformat(raw.replace('Z', '+00:00'))
-
-    return raw
+    return coerced if coerced is not None else raw
 
 
 def apply_registration_time(data: dict[str, Any]) -> None:

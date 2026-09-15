@@ -24,8 +24,14 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
 
-from cmdb.models.object_relation_model import CmdbObjectRelation
-from cmdb.models.relation_model import CmdbRelation
+from cmdb.models.object_relation_model import (
+    CmdbObjectRelation,
+    ObjectRelationKey,
+    ObjectRelationFieldValueKey,
+    ObjectRelationRole,
+    RelationTabKey,
+)
+from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKey
 
 from cmdb.framework.results import IterationResult
 
@@ -37,45 +43,13 @@ from cmdb.errors.manager.object_relations_manager import (
 
 LOGGER: Logger = getLogger(__name__)
 
-# Document field names of a CmdbObjectRelation, named here so queries/updates reference a constant
-# instead of repeating the literal keys
-PUBLIC_ID_FIELD: str = 'public_id'
-RELATION_ID_FIELD: str = 'relation_id'
-RELATION_PARENT_ID_FIELD: str = 'relation_parent_id'
-RELATION_CHILD_ID_FIELD: str = 'relation_child_id'
-RELATION_PARENT_TYPE_ID_FIELD: str = 'relation_parent_type_id'
-RELATION_CHILD_TYPE_ID_FIELD: str = 'relation_child_type_id'
-FIELD_VALUES_FIELD: str = 'field_values'
+# The document keys, the roles and the relation-tab keys are shared with the routes and the
+# ObjectRelationLogsManager, so they live with the model (ObjectRelationKey / ObjectRelationRole /
+# RelationTabKey in cmdb.models.object_relation_model) instead of being declared per layer
 
-# Keys of a single ``field_values`` entry. An object-relation field value is a ``name``/``value``
-# pair by design (consumed that way across the codebase); it is intentionally NOT a name/value/type
-# triple like a CmdbObject field
-FIELD_VALUE_NAME_KEY: str = 'name'
-FIELD_VALUE_VALUE_KEY: str = 'value'
-
-# Keys of the ``changed_fields`` diff produced by RelationsManager.get_added_and_removed_fields
-ADDED_FIELDS_KEY: str = 'added'
-REMOVED_FIELDS_KEY: str = 'removed'
-
-# Role an object plays in a relation instance (parent side or child side)
-ROLE_PARENT: str = 'parent'
-ROLE_CHILD: str = 'child'
-
-# Role-oriented display fields on a CmdbRelation definition, projected into a relation tab
-DEF_NAME_PARENT_FIELD: str = 'relation_name_parent'
-DEF_NAME_CHILD_FIELD: str = 'relation_name_child'
-DEF_ICON_PARENT_FIELD: str = 'relation_icon_parent'
-DEF_ICON_CHILD_FIELD: str = 'relation_icon_child'
-DEF_COLOR_PARENT_FIELD: str = 'relation_color_parent'
-DEF_COLOR_CHILD_FIELD: str = 'relation_color_child'
-
-# Keys of a single relation-tab descriptor returned by build_relation_tabs_pipeline
-TAB_RELATION_ID_KEY: str = 'relation_id'
-TAB_ROLE_KEY: str = 'role'
-TAB_LABEL_KEY: str = 'label'
-TAB_ICON_KEY: str = 'icon'
-TAB_COLOR_KEY: str = 'color'
-TAB_COUNT_KEY: str = 'count'
+# The keys of the ``changed_fields`` diff and the role-oriented display fields of a CmdbRelation
+# definition (projected into a relation tab) belong to the relation document, so they come from
+# RelationDiffKey / RelationKey in cmdb.models.relation_model instead of being repeated here
 
 # Temporary field name for the joined relation definition inside the pipeline
 _DEFINITION_FIELD: str = 'definition'
@@ -97,50 +71,55 @@ def build_relation_tabs_pipeline(object_id: int) -> list[dict[str, Any]]:
     Returns:
         list[dict[str, Any]]: The MongoDB aggregation pipeline
     """
-    role_ref = f'$_id.{TAB_ROLE_KEY}'
-    is_parent = {'$eq': [role_ref, ROLE_PARENT]}
+    relation_id_key = RelationTabKey.RELATION_ID.value
+    role_key = RelationTabKey.ROLE.value
+    parent_id_field = ObjectRelationKey.RELATION_PARENT_ID.value
+    child_id_field = ObjectRelationKey.RELATION_CHILD_ID.value
+
+    role_ref = f'$_id.{role_key}'
+    is_parent = {'$eq': [role_ref, ObjectRelationRole.PARENT.value]}
     definition_ref = f'${_DEFINITION_FIELD}'
 
     return [
         {'$match': {'$or': [
-            {RELATION_PARENT_ID_FIELD: object_id},
-            {RELATION_CHILD_ID_FIELD: object_id},
+            {parent_id_field: object_id},
+            {child_id_field: object_id},
         ]}},
         # An instance places the object on the parent side, the child side, or (self-relation) both
         {'$addFields': {'roles': {'$concatArrays': [
-            {'$cond': [{'$eq': [f'${RELATION_PARENT_ID_FIELD}', object_id]}, [ROLE_PARENT], []]},
-            {'$cond': [{'$eq': [f'${RELATION_CHILD_ID_FIELD}', object_id]}, [ROLE_CHILD], []]},
+            {'$cond': [{'$eq': [f'${parent_id_field}', object_id]}, [ObjectRelationRole.PARENT.value], []]},
+            {'$cond': [{'$eq': [f'${child_id_field}', object_id]}, [ObjectRelationRole.CHILD.value], []]},
         ]}}},
         {'$unwind': '$roles'},
         {'$group': {
-            '_id': {TAB_RELATION_ID_KEY: f'${RELATION_ID_FIELD}', TAB_ROLE_KEY: '$roles'},
-            TAB_COUNT_KEY: {'$sum': 1},
+            '_id': {relation_id_key: f'${ObjectRelationKey.RELATION_ID.value}', role_key: '$roles'},
+            RelationTabKey.COUNT.value: {'$sum': 1},
         }},
         {'$lookup': {
             'from': CmdbRelation.COLLECTION,
-            'localField': f'_id.{TAB_RELATION_ID_KEY}',
-            'foreignField': PUBLIC_ID_FIELD,
+            'localField': f'_id.{relation_id_key}',
+            'foreignField': ObjectRelationKey.PUBLIC_ID.value,
             'as': _DEFINITION_FIELD,
         }},
         # drops groups whose relation definition no longer exists
         {'$unwind': definition_ref},
         {'$project': {
             '_id': 0,
-            TAB_RELATION_ID_KEY: f'$_id.{TAB_RELATION_ID_KEY}',
-            TAB_ROLE_KEY: role_ref,
-            TAB_LABEL_KEY: {'$cond': [is_parent,
-                                      f'{definition_ref}.{DEF_NAME_PARENT_FIELD}',
-                                      f'{definition_ref}.{DEF_NAME_CHILD_FIELD}']},
-            TAB_ICON_KEY: {'$cond': [is_parent,
-                                     f'{definition_ref}.{DEF_ICON_PARENT_FIELD}',
-                                     f'{definition_ref}.{DEF_ICON_CHILD_FIELD}']},
-            TAB_COLOR_KEY: {'$cond': [is_parent,
-                                      f'{definition_ref}.{DEF_COLOR_PARENT_FIELD}',
-                                      f'{definition_ref}.{DEF_COLOR_CHILD_FIELD}']},
-            TAB_COUNT_KEY: 1,
+            relation_id_key: f'$_id.{relation_id_key}',
+            role_key: role_ref,
+            RelationTabKey.LABEL.value: {'$cond': [is_parent,
+                                                   f'{definition_ref}.{RelationKey.RELATION_NAME_PARENT.value}',
+                                                   f'{definition_ref}.{RelationKey.RELATION_NAME_CHILD.value}']},
+            RelationTabKey.ICON.value: {'$cond': [is_parent,
+                                                  f'{definition_ref}.{RelationKey.RELATION_ICON_PARENT.value}',
+                                                  f'{definition_ref}.{RelationKey.RELATION_ICON_CHILD.value}']},
+            RelationTabKey.COLOR.value: {'$cond': [is_parent,
+                                                   f'{definition_ref}.{RelationKey.RELATION_COLOR_PARENT.value}',
+                                                   f'{definition_ref}.{RelationKey.RELATION_COLOR_CHILD.value}']},
+            RelationTabKey.COUNT.value: 1,
         }},
         # stable order: by relation, parent tab before child tab
-        {'$sort': {TAB_RELATION_ID_KEY: 1, TAB_ROLE_KEY: -1}},
+        {'$sort': {relation_id_key: 1, role_key: -1}},
     ]
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -260,15 +239,22 @@ class ObjectRelationsManager(GenericManager):
         role: str,
         limit: int = 0,
         skip: int = 0,
-        sort: str = PUBLIC_ID_FIELD,
+        sort: str = ObjectRelationKey.PUBLIC_ID.value,
         order: int = 1,
     ) -> tuple[list[dict[str, Any]], int]:
         """
         Retrieves one page of a relation tab's instances plus the group's total
 
         A tab is identified by (relation_id, role): role=parent selects instances where the object is
-        the parent, role=child where it is the child. The total is the raw count of the group (so it
-        matches the tab badge and drives pagination); only the requested page is materialised
+        the parent, role=child where it is the child. **An unknown role is refused** rather than read as
+        one of the two - the sides are a two-way choice, so a typo would otherwise answer with the
+        other tab's instances and look like a valid, merely surprising result.
+
+        The total is the raw count of the group - it drives the tab badge and the pagination - and is a
+        SEPARATE read from the page, so a write landing between the two makes them disagree by one.
+        That is deliberate: the alternative is one `$facet` aggregation whose count is exact for the
+        same instant, at the price of running the match twice per request for a number the UI shows as
+        an approximation anyway
 
         Args:
             object_id (int): public_id of the CmdbObject whose relations are listed
@@ -280,13 +266,21 @@ class ObjectRelationsManager(GenericManager):
             order (int): Sort direction, 1 ascending / -1 descending. Defaults to 1
 
         Raises:
-            ObjectRelationsManagerIterationError: When the query fails
+            ObjectRelationsManagerIterationError: When the role is not a valid ObjectRelationRole, or
+                                                  when the query fails
 
         Returns:
             tuple[list[dict[str, Any]], int]: (the page's object-relation documents, total in group)
         """
-        side_field = RELATION_PARENT_ID_FIELD if role == ROLE_PARENT else RELATION_CHILD_ID_FIELD
-        criteria = {RELATION_ID_FIELD: relation_id, side_field: object_id}
+        if not ObjectRelationRole.is_valid(role):
+            raise ObjectRelationsManagerIterationError(
+                f"'{role}' is not a valid relation role - expected one of "
+                f"{[member.value for member in ObjectRelationRole]}!"
+            )
+
+        side_field = (ObjectRelationKey.RELATION_PARENT_ID.value if role == ObjectRelationRole.PARENT
+                      else ObjectRelationKey.RELATION_CHILD_ID.value)
+        criteria = {ObjectRelationKey.RELATION_ID.value: relation_id, side_field: object_id}
 
         try:
             total = self.count_documents(criteria)
@@ -316,7 +310,7 @@ class ObjectRelationsManager(GenericManager):
             data = CmdbObjectRelation.to_json(data)
 
         # Pin the identity: a payload public_id can never rewrite the document's id
-        data[PUBLIC_ID_FIELD] = public_id
+        data[ObjectRelationKey.PUBLIC_ID.value] = public_id
 
         self.update_item(public_id, data)
 
@@ -351,8 +345,8 @@ class ObjectRelationsManager(GenericManager):
         """
         return {
             "$or": [
-                {RELATION_PARENT_ID_FIELD: public_id},
-                {RELATION_CHILD_ID_FIELD: public_id},
+                {ObjectRelationKey.RELATION_PARENT_ID.value: public_id},
+                {ObjectRelationKey.RELATION_CHILD_ID.value: public_id},
             ]
         }
 
@@ -376,11 +370,17 @@ class ObjectRelationsManager(GenericManager):
             is_parent_ids (bool): A flag indicating whether the invalid IDs belong to parent type relations
                                   (True) or child type relations (False)
         """
-        type_field = RELATION_PARENT_TYPE_ID_FIELD if is_parent_ids else RELATION_CHILD_TYPE_ID_FIELD
+        # Nothing to invalidate: a '$in' over an empty list matches nothing, so the round trip would
+        # only ever report zero deletions
+        if not invalid_ids:
+            return
+
+        type_field = (ObjectRelationKey.RELATION_PARENT_TYPE_ID.value if is_parent_ids
+                      else ObjectRelationKey.RELATION_CHILD_TYPE_ID.value)
 
         query: dict[str, Any] = {
             "$and": [
-                {RELATION_ID_FIELD: relation_id},
+                {ObjectRelationKey.RELATION_ID.value: relation_id},
                 {type_field: {"$in": invalid_ids}},
             ]
         }
@@ -405,30 +405,33 @@ class ObjectRelationsManager(GenericManager):
                 - "added" (list[str]): Field names that were newly introduced
                 - "removed" (list[str]): Field names that should be removed
         """
-        added: list[str] = changed_fields.get(ADDED_FIELDS_KEY, [])
-        removed: list[str] = changed_fields.get(REMOVED_FIELDS_KEY, [])
+        added: list[str] = changed_fields.get(RelationDiffKey.ADDED.value, [])
+        removed: list[str] = changed_fields.get(RelationDiffKey.REMOVED.value, [])
 
         # Nothing changed: skip the write entirely so unrelated relation edits do not rewrite every
         # dependent CmdbObjectRelation
         if not added and not removed:
             return
 
+        name_key = ObjectRelationFieldValueKey.NAME.value
+        field_values_field = ObjectRelationKey.FIELD_VALUES.value
+
         new_field_entries: list[dict[str, Any]] = [
-            {FIELD_VALUE_NAME_KEY: name, FIELD_VALUE_VALUE_KEY: None} for name in added
+            {name_key: name, ObjectRelationFieldValueKey.VALUE.value: None} for name in added
         ]
 
         # Pipeline update: keep the field values whose name is not removed, then append the new ones
         pipeline: list[dict[str, Any]] = [
             {
                 "$set": {
-                    FIELD_VALUES_FIELD: {
+                    field_values_field: {
                         "$concatArrays": [
                             {
                                 "$filter": {
-                                    "input": {"$ifNull": [f"${FIELD_VALUES_FIELD}", []]},
+                                    "input": {"$ifNull": [f"${field_values_field}", []]},
                                     "as": "fv",
                                     "cond": {
-                                        "$not": [{"$in": [f"$$fv.{FIELD_VALUE_NAME_KEY}", removed]}]
+                                        "$not": [{"$in": [f"$$fv.{name_key}", removed]}]
                                     },
                                 }
                             },
@@ -439,4 +442,4 @@ class ObjectRelationsManager(GenericManager):
             }
         ]
 
-        self.update_many({RELATION_ID_FIELD: relation_id}, pipeline, plain=True)
+        self.update_many({ObjectRelationKey.RELATION_ID.value: relation_id}, pipeline, plain=True)

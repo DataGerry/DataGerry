@@ -32,7 +32,11 @@ from cmdb.models.isms_model import IsmsControlMeasure
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    get_item_or_404,
+    bulk_delete_reporting_in_use,
+)
+from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids, request_wants_body
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -41,6 +45,7 @@ from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
     UpdateSingleResponse,
     DeleteSingleResponse,
+    DefaultResponse,
 )
 
 from cmdb.errors.manager.control_measure_manager import (
@@ -78,7 +83,9 @@ def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) ->
         control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                        request_user)
 
-        result_id: int = control_measure_manager.insert_item(data)
+        # The validated payload is written straight to the collection, so the SoA answer is normalised
+        # here: the schema accepts null and a null is an empty cell in the report, not a third state
+        result_id: int = control_measure_manager.insert_item(IsmsControlMeasure.normalize_is_applicable(data))
 
         created_control_measure: dict = control_measure_manager.get_item(result_id, as_dict=True)
 
@@ -117,7 +124,7 @@ def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUs
         GetMultiResponse: All the IsmsControlMeasures matching the CollectionParameters
     """
     try:
-        body: bool = request.method == 'HEAD'
+        body: bool = request_wants_body()
 
         control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                        request_user)
@@ -165,7 +172,7 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
         requested_control_measure = get_item_or_404(control_measure_manager, public_id,
                                                     f"The ControlMeasure with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_control_measure, body = request.method == 'HEAD').make_response()
+        return GetSingleResponse(requested_control_measure, body=request_wants_body()).make_response()
     except HTTPException as http_err:
         raise http_err
     except ControlMeasureManagerGetError as err:
@@ -257,3 +264,53 @@ def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Respo
     except Exception as err:
         LOGGER.error("[delete_isms_control_measure] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while deleting the ControlMeasure with ID: {public_id}!")
+
+
+@control_measure_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
+def delete_many_isms_control_measures(public_ids: str, request_user: CmdbUser) -> Response:
+    """
+    HTTP `DELETE` route to bulk-delete IsmsControlMeasures by a comma-separated id list
+
+    A ControlMeasure can only be deleted while it is not referenced by any IsmsControlMeasureAssignment
+    (mirroring the single-delete guard, since deleting it would strip the control out of a
+    RiskAssessment's treatment plan). This bulk variant is partial by design: every requested
+    ControlMeasure that is still referenced is left untouched and reported back, while the unused ones
+    are deleted. Non-existent ids are silently ignored. The used-check runs as a single grouped query
+    for the whole batch
+
+    Args:
+        public_ids (str): Comma-separated IsmsControlMeasure public_ids to delete
+        request_user (CmdbUser): User requesting this data
+
+    Returns:
+        DefaultResponse: {'successfully': [deleted ids], 'in_use': [skipped ids still referenced]}
+    """
+    try:
+        control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                       request_user)
+
+        requested_ids: list[int] = extract_public_ids(public_ids)
+
+        # Partition the whole batch in one grouped query: ids still referenced by an assignment are
+        # kept (deleting them would orphan a RiskAssessment's treatment plan)
+        in_use_ids: set[int] = control_measure_manager.get_used_control_measure_ids(requested_ids)
+
+        payload: dict[str, list[int]] = bulk_delete_reporting_in_use(
+            control_measure_manager, requested_ids, in_use_ids
+        )
+
+        return DefaultResponse(payload).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ControlMeasureManagerGetError as err:
+        LOGGER.error("[delete_many_isms_control_measures] ControlMeasureManagerGetError: %s", err, exc_info=True)
+        abort(400, "Failed to determine which ControlMeasures are still in use!")
+    except ControlMeasureManagerDeleteError as err:
+        LOGGER.error("[delete_many_isms_control_measures] ControlMeasureManagerDeleteError: %s", err, exc_info=True)
+        abort(400, "Failed to delete one of the requested ControlMeasures!")
+    except Exception as err:
+        LOGGER.error("[delete_many_isms_control_measures] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while bulk-deleting ControlMeasures!")

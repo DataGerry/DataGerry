@@ -22,9 +22,14 @@ class UpdaterError(Exception):
     """
     Raised to catch all Update related errors
     """
-    def __init__(self, err: str) -> None:
+    def __init__(self, err: str | Exception) -> None:
         """
         Raised to catch all Update related errors
+
+        Args:
+            err (str | Exception): A message, or the error being wrapped. Passing the exception keeps
+                                   it inspectable through ``args[0]`` while ``str()`` still reads the
+                                   same as its message
         """
         super().__init__(err)
 

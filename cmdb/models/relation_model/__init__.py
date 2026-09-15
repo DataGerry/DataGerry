@@ -15,10 +15,17 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Provides all CmdbRelation relevant classes
+
+Re-exports the CmdbRelation model plus the document / diff key enums shared by the routes, the
+RelationsManager and the ObjectRelationsManager, so consumers import them from this package path
+instead of the inner modules
 """
 from .cmdb_relation import CmdbRelation
+from .relation_constants import RelationKey, RelationDiffKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'CmdbRelation',
+    'RelationKey',
+    'RelationDiffKey',
 ]

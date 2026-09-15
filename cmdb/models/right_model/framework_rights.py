@@ -139,6 +139,46 @@ class ObjectRelationLogRight(FrameworkRight):
         super().__init__(name, level, description=description)
 
 
+class RackRight(FrameworkRight):
+    """
+    Base class for Rack rights (the Rack View feature)
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.rack'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
+class PortRight(FrameworkRight):
+    """
+    Base class for Port rights (the Port Connectivity feature)
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.port'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
+class ConnectionRight(FrameworkRight):
+    """
+    Base class for port-connection rights (the Port Connectivity feature)
+
+    Separate from PortRight on purpose: a connection spans TWO objects, so granting somebody the right
+    to document an object's ports is not the same as granting them the right to cable it to another
+    object's - the second changes something about a device the grantee may not administer
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.DANGER
+    PREFIX = f'{FrameworkRight.PREFIX}.connection'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
 class ExtendableOptionRight(FrameworkRight):
     """
     Base class for CmdbExtendableOption rights
@@ -170,6 +210,42 @@ class CiExplorerRight(FrameworkRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{FrameworkRight.PREFIX}.ciExplorer'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
+class ReportRight(FrameworkRight):
+    """
+    Base class for CmdbReport rights
+    """
+    MIN_LEVEL = Levels.PERMISSION
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.report'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
+class IpamRight(FrameworkRight):
+    """
+    Base class for IPAM rights
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.ipam'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)
+
+
+class LocationRight(FrameworkRight):
+    """
+    Base class for CmdbLocation rights
+    """
+    MIN_LEVEL = Levels.PERMISSION
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{FrameworkRight.PREFIX}.location'
 
     def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
         super().__init__(name, level, description=description)

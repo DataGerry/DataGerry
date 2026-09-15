@@ -21,6 +21,7 @@ update_user_setting (both the dict and CmdbUserSetting-instance inputs), delete_
 error-wrapping of each method into its manager-specific exception.
 """
 import pytest
+from pymongo.errors import DuplicateKeyError
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.user_settings_manager import UserSettingsManager
@@ -34,6 +35,7 @@ from cmdb.errors.manager.user_settings_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+OTHER_USER_ID: int = 96702
 USER_ID: int = 96701
 RESOURCE_GLOBAL: str = 'dashboard'
 RESOURCE_SERVER: str = 'sync-job'
@@ -104,7 +106,7 @@ class TestGetUserSettings:
 
         results = user_settings_manager.get_user_settings(USER_ID)
 
-        assert {setting.resource for setting in results} == {RESOURCE_GLOBAL, RESOURCE_SERVER}
+        assert {setting['resource'] for setting in results} == {RESOURCE_GLOBAL, RESOURCE_SERVER}
 
     def test_filters_by_setting_type(self, user_settings_manager: UserSettingsManager,
                                     database_manager: MongoDatabaseManager, database_name: str) -> None:
@@ -114,7 +116,7 @@ class TestGetUserSettings:
 
         results = user_settings_manager.get_user_settings(USER_ID, UserSettingType.SERVER)
 
-        assert [setting.resource for setting in results] == [RESOURCE_SERVER]
+        assert [setting['resource'] for setting in results] == [RESOURCE_SERVER]
 
     def test_wraps_unexpected_error(self, user_settings_manager: UserSettingsManager, monkeypatch) -> None:
         """An unexpected iteration error is wrapped as UserSettingsManagerIterationError."""
@@ -190,3 +192,126 @@ class TestDeleteUserSetting:
 
         with pytest.raises(UserSettingsManagerDeleteError):
             user_settings_manager.delete_user_setting(USER_ID, RESOURCE_GLOBAL)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   the index, and a document that cannot be read                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestIdentityIndex:
+    """(resource, user_id) is enforced by the database, and only a real index can show it.
+
+    The create route rejects a duplicate itself, so the index is never reached through the API - which
+    is exactly why it is measured here. It exists in production because `CmdbUserSetting` is registered
+    in `user_management_constants.__COLLECTIONS__`; the test database never runs CollectionValidator,
+    so the index is built here the way the application builds it at startup.
+    """
+
+    @staticmethod
+    def _with_index(database_manager: MongoDatabaseManager, database_name: str):
+        """The settings collection with the model's declared index built."""
+        database_manager.create_indexes(
+            CmdbUserSetting.COLLECTION, database_name, CmdbUserSetting.get_index_keys(),
+        )
+
+        return database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name)
+
+    def test_the_same_resource_twice_for_one_user_is_refused(
+        self, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """One document per user and resource - the guarantee the routes rely on"""
+        collection = self._with_index(database_manager, database_name)
+        collection.insert_one({'resource': RESOURCE_GLOBAL, 'user_id': USER_ID,
+                               'payloads': [], 'setting_type': 'GLOBAL', 'public_id': 8001})
+
+        with pytest.raises(DuplicateKeyError):
+            collection.insert_one({'resource': RESOURCE_GLOBAL, 'user_id': USER_ID,
+                                   'payloads': [], 'setting_type': 'SERVER', 'public_id': 8002})
+
+    def test_the_same_resource_for_another_user_is_accepted(
+        self, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The index is compound: every user has their own 'dashboard'"""
+        collection = self._with_index(database_manager, database_name)
+        collection.insert_one({'resource': RESOURCE_GLOBAL, 'user_id': USER_ID,
+                               'payloads': [], 'setting_type': 'GLOBAL', 'public_id': 8003})
+        collection.insert_one({'resource': RESOURCE_GLOBAL, 'user_id': OTHER_USER_ID,
+                               'payloads': [], 'setting_type': 'GLOBAL', 'public_id': 8004})
+
+        assert collection.count_documents({'resource': RESOURCE_GLOBAL}) == 2
+
+        collection.delete_many({'user_id': OTHER_USER_ID})
+
+
+class TestUnreadableDocuments:
+    """One document that cannot be read may not cost the user the rest of their settings."""
+
+    def test_a_bad_scope_is_skipped_and_the_others_survive(
+        self, user_settings_manager: UserSettingsManager,
+        database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        Against a real collection, which is where such a document comes from
+
+        Before 2026-09-09 this call raised UserSettingsManagerIterationError - a 400 answering for
+        every setting the user had.
+        """
+        _seed(database_manager, database_name, RESOURCE_GLOBAL, 'GLOBAL')
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
+            {'resource': RESOURCE_SERVER, 'user_id': USER_ID, 'payloads': [],
+             'setting_type': 'NOT_A_TYPE', 'public_id': 8010},
+        )
+
+        results = user_settings_manager.get_user_settings(USER_ID)
+
+        assert [setting['resource'] for setting in results] == [RESOURCE_GLOBAL]
+
+    def test_the_skipped_document_is_reported(
+        self, user_settings_manager: UserSettingsManager,
+        database_manager: MongoDatabaseManager, database_name: str, caplog,
+    ) -> None:
+        """Silently dropping a stored record would be worse than the 400 it replaces"""
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
+            {'resource': RESOURCE_SERVER, 'user_id': USER_ID, 'payloads': [],
+             'setting_type': 'NOT_A_TYPE', 'public_id': 8011},
+        )
+
+        with caplog.at_level('WARNING'):
+            user_settings_manager.get_user_settings(USER_ID)
+
+        assert RESOURCE_SERVER in caplog.text
+
+    def test_a_stored_payload_list_survives_the_read(
+        self, user_settings_manager: UserSettingsManager,
+        database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The content is what a setting is for, and no test stored any until 2026-09-09"""
+        payloads = [{'id': 'objects-table', 'columns': ['public_id', 'name']}]
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
+            {'resource': RESOURCE_GLOBAL, 'user_id': USER_ID, 'payloads': payloads,
+             'setting_type': 'APPLICATION', 'public_id': 8012},
+        )
+
+        results = user_settings_manager.get_user_settings(USER_ID)
+
+        assert results[0]['payloads'] == payloads
+
+    def test_a_document_without_a_payload_list_reads_as_empty(
+        self, user_settings_manager: UserSettingsManager,
+        database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The key is optional, and the read normalises rather than answering a missing key"""
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
+            {'resource': RESOURCE_GLOBAL, 'user_id': USER_ID, 'setting_type': 'GLOBAL',
+             'public_id': 8013},
+        )
+
+        assert user_settings_manager.get_user_settings(USER_ID)[0]['payloads'] == []
+
+    def test_the_public_id_is_not_part_of_the_answer(
+        self, user_settings_manager: UserSettingsManager,
+        database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """It is stamped in the collection but not in this shape (backlog #218)"""
+        _seed(database_manager, database_name, RESOURCE_GLOBAL)
+
+        assert 'public_id' not in user_settings_manager.get_user_settings(USER_ID)[0]

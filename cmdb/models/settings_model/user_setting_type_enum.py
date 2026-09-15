@@ -1,4 +1,4 @@
-# DATAGERRY - OpenSource Enterprise CMDB
+# DataGerry - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,17 +16,24 @@
 """
 Implementation of UserSettingType
 """
-from enum import Enum
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class UserSettingType(Enum):
+class UserSettingType(BaseStrEnum):
     """
-    Enum representing the type of user settings
+    Scope a CmdbUserSetting declares for itself
 
-    Attributes:
-        - SERVER = only backend settings
-        - APPLICATION  = only frontend settings
-        - GLOBAL = frontend and backend settings
+    The three values are what the API accepts in `setting_type` (the document schema allows exactly
+    these), and the value is stored as the string.
+
+    **The backend does not act on the distinction.** Nothing server-side reads the scope to decide
+    anything: `UserSettingsManager.get_user_settings` can filter by it, but no route passes a filter,
+    so the scope is a label the frontend maintains for itself. The names describe the intent it was
+    introduced with:
+
+        - SERVER: meant for settings only the backend would consume
+        - APPLICATION: frontend-only settings - what the Angular app writes (`UserSetting.USER_SETTING_TYPE`)
+        - GLOBAL: meant for both
     """
     GLOBAL = 'GLOBAL'
     APPLICATION = 'APPLICATION'

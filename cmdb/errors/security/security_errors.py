@@ -32,7 +32,17 @@ class SecurityError(Exception):
 
 class TokenValidationError(SecurityError):
     """
-    Raised when a jwt token could not be decoded
+    Raised when a jwt token is invalid: a bad signature, a refused algorithm, malformed content or
+    an expired / not-yet-valid claim. Always the CALLER's fault, so a route maps it to 401
+    """
+
+
+class TokenKeyMaterialError(SecurityError):
+    """
+    Raised when the RSA key material a token has to be verified against cannot be obtained
+
+    The SERVER's fault - an unset 'DG_RSA_PUBLIC_KEY' in cloud mode, an unreadable settings
+    document - so a route must not answer 401 for it: nothing is wrong with the caller's token
     """
 
 
@@ -87,24 +97,6 @@ class RequestTimeoutError(SecurityError):
 class RequestError(SecurityError):
     """
     Raised when a request had an error
-    """
-
-
-class DisallowedActionError(SecurityError):
-    """
-    Raised when an illegal action is requested
-    """
-
-
-class WrongPasswordError(SecurityError):
-    """
-    Raised when the password is not matching
-    """
-
-
-class NoValidSubscriptionError(SecurityError):
-    """
-    Raised when no subscription matches the given API-KEY
     """
 
 

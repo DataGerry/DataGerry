@@ -17,10 +17,10 @@
 Unit tests for cmdb.framework.section_templates.section_template_creator
 
 Pure tests (no database): assert the set and shape of the predefined templates returned by
-get_predefined_templates, the per-template field layout (rack mounting, model specifications and the
-dg-ipam-interface MDS section), that the removed 'dg-network' template no longer appears, and the
-branching of the two private section/field builders (including the optional options/regex/helperText
-keys that no live template currently exercises).
+get_predefined_templates, the per-template field layout (model specifications and the
+dg-ipam-interface MDS section), that the retired 'dg-network' and 'dg-rackmounting' templates no
+longer appear, and the branching of the two private section/field builders (including the optional
+options/regex/helperText keys that no live template currently exercises).
 """
 from typing import Any
 
@@ -33,10 +33,10 @@ from cmdb.framework.section_templates.section_template_creator import SectionTem
 # Several tests reach the creator's private section/field builders on purpose
 # pylint: disable=protected-access
 
-RACK_TEMPLATE: str = 'dg-rackmounting'
 MODELSPEC_TEMPLATE: str = 'dg-modelspec'
 REMOVED_NETWORK_TEMPLATE: str = 'dg-network'
-EXPECTED_TEMPLATE_NAMES: set[str] = {RACK_TEMPLATE, MODELSPEC_TEMPLATE, IpamSection.INTERFACE}
+REMOVED_RACK_TEMPLATE: str = 'dg-rackmounting'
+EXPECTED_TEMPLATE_NAMES: set[str] = {MODELSPEC_TEMPLATE, IpamSection.INTERFACE}
 
 GLOBAL_KEY: str = 'is_global'
 PREDEFINED_KEY: str = 'predefined'
@@ -63,18 +63,23 @@ def _fields_by_name(template: dict[str, Any]) -> dict[str, dict[str, Any]]:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def test_returns_expected_template_set(creator: SectionTemplateCreator) -> None:
-    """Exactly the three predefined templates are produced"""
+    """Exactly the two predefined templates are produced"""
     templates: list[dict[str, Any]] = creator.get_predefined_templates()
 
-    assert len(templates) == 3
+    assert len(templates) == 2
     assert {template[SectionKey.NAME] for template in templates} == EXPECTED_TEMPLATE_NAMES
 
 
-def test_removed_network_template_absent(creator: SectionTemplateCreator) -> None:
-    """The retired 'dg-network' template is no longer produced"""
+@pytest.mark.parametrize('retired_template', [REMOVED_NETWORK_TEMPLATE, REMOVED_RACK_TEMPLATE])
+def test_retired_template_absent(creator: SectionTemplateCreator, retired_template: str) -> None:
+    """A retired template is no longer produced, so CollectionValidator cannot re-seed it
+
+    'dg-network' was replaced by the IPAM interface section; 'dg-rackmounting' by the Rack View,
+    which records the same facts on the mount document (see updater_20260824).
+    """
     names: set[str] = {template[SectionKey.NAME] for template in creator.get_predefined_templates()}
 
-    assert REMOVED_NETWORK_TEMPLATE not in names
+    assert retired_template not in names
 
 
 def test_all_templates_are_global_and_predefined(creator: SectionTemplateCreator) -> None:
@@ -97,22 +102,6 @@ def test_all_templates_have_required_keys_and_unique_nonempty_fields(creator: Se
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            per-template structure                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
-
-def test_rack_mounting_template_structure(creator: SectionTemplateCreator) -> None:
-    """Rack mounting is a plain section with two regex-guarded numeric fields and an orientation select"""
-    template: dict[str, Any] = _templates_by_name(creator)[RACK_TEMPLATE]
-    assert template[SectionKey.TYPE] == SectionType.SECTION
-
-    fields: dict[str, dict[str, Any]] = _fields_by_name(template)
-    assert set(fields) == {'dg-rackmounting-ru', 'dg-rackmounting-position', 'dg-rackmounting-orientation'}
-
-    assert FieldKey.REGEX in fields['dg-rackmounting-ru']
-    assert FieldKey.REGEX in fields['dg-rackmounting-position']
-
-    orientation: dict[str, Any] = fields['dg-rackmounting-orientation']
-    assert orientation[FieldKey.TYPE] == FieldType.SELECT
-    assert [option['name'] for option in orientation[FieldKey.OPTIONS]] == ['horizontal', 'vertical']
-
 
 def test_model_spec_template_structure(creator: SectionTemplateCreator) -> None:
     """Model specifications is a plain section of three bare text fields"""

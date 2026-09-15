@@ -16,11 +16,23 @@
 """
 This module provide all classes for the CmdbUserGroup logics
 """
+from .group_constants import (
+    ADMIN_GROUP_ID,
+    USER_GROUP_ID,
+    PROTECTED_GROUP_IDS,
+    MASTER_RIGHT_NAME,
+    GroupKey,
+)
 from .cmdb_user_group import CmdbUserGroup
 from .group_delete_mode_enum import GroupDeleteMode
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'ADMIN_GROUP_ID',
+    'USER_GROUP_ID',
+    'PROTECTED_GROUP_IDS',
+    'MASTER_RIGHT_NAME',
+    'GroupKey',
     'CmdbUserGroup',
     'GroupDeleteMode',
 ]

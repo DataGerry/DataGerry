@@ -59,10 +59,18 @@ class VlanField(BaseStrEnum):
 class InterfaceField(BaseStrEnum):
     """
     Field names of one row in the dg-ipam-interface MDS section template
+
+    The template declares seven fields; every one of them is named here, because a consumer that
+    shows an interface row (the subnet overview, the port picker) needs the descriptive ones just as
+    much as the addressing ones - and a row is the single source of truth for both, neither value
+    being copied onto anything that references it
     """
+    ACTIVE = 'dg-interface-active'
     SUBNET = 'dg-interface-subnet'
     IP = 'dg-interface-ip-address'
     MAC = 'dg-interface-mac-address'
+    HOST = 'dg-interface-host'
+    DOMAIN = 'dg-interface-domain'
     TYPE = 'dg-interface-type'
 
 

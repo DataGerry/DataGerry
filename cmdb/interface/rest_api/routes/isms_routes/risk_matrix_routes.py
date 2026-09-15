@@ -18,7 +18,7 @@ Implementation of all API routes for the IsmsRiskMatrix
 """
 from logging import Logger, getLogger
 from typing import Any
-from flask import request, abort
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -28,6 +28,8 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsRiskMatrix
+from cmdb.models.isms_model.isms_helper import ensure_risk_matrix_matches_scales
+from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -42,6 +44,7 @@ from cmdb.errors.manager.risk_matrix_manager import (
     RiskMatrixManagerGetError,
     RiskMatrixManagerUpdateError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -58,12 +61,20 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the IsmsRiskMatrix
 
+    **The read repairs a stale grid before answering.** The matrix is only ever written by the six
+    impact and likelihood write routes, so a database whose stored grid does not match its scales
+    would keep serving that grid forever - which is what a database configured under the old
+    minimum-configuration guard does, and what a restored dump can do. `ensure_risk_matrix_matches_scales`
+    costs one count per scale when the grid is current and rebuilds it when it is not, carrying every
+    existing risk-class assignment over. Only the singleton is healed: any other public_id is a 404 and
+    has no scales to be measured against
+
     Args:
         public_id (int): public_id of the IsmsRiskMatrix
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        GetSingleResponse: The requested IsmsRiskMatrix
+        GetSingleResponse: The requested IsmsRiskMatrix, rebuilt first if its shape was stale
     """
     try:
         risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(
@@ -74,7 +85,10 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
         requested_risk_matrix = get_item_or_404(risk_matrix_manager, public_id,
                                                  f"The RiskMatrix with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_risk_matrix, body = request.method == 'HEAD').make_response()
+        if public_id == RISK_MATRIX_PUBLIC_ID:
+            requested_risk_matrix = ensure_risk_matrix_matches_scales(request_user, requested_risk_matrix)
+
+        return GetSingleResponse(requested_risk_matrix, body=request_wants_body()).make_response()
     except HTTPException as http_err:
         raise http_err
     except RiskMatrixManagerGetError as err:

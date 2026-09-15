@@ -186,3 +186,15 @@ class IsmsReportRight(IsmsRight):
 
     def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
         super().__init__(name, level, description=description)
+
+
+class IsmsImportRight(IsmsRight):
+    """
+    Base class for ISMS import rights
+    """
+    MIN_LEVEL = Levels.PROTECTED
+    MAX_LEVEL = Levels.SECURE
+    PREFIX = f'{IsmsRight.PREFIX}.import'
+
+    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
+        super().__init__(name, level, description=description)

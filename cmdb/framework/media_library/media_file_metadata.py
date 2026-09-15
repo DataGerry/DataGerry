@@ -14,118 +14,60 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of FileMetaData
+Builds the metadata sub-document a MediaFile is stored with
+
+A MediaFile is a GridFS file document, and everything DataGerry knows about it beyond its name and its
+content lives in that document's ``metadata`` sub-document: which folder it sits in, whether it IS a
+folder, and what it is attached to. The upload route assembles that metadata from the request and stamps
+the server-owned parts onto it; this module turns the result into the document that is actually stored
+
+The values are kept as they arrive, with the mime type as the single exception (see DEFAULT_MIME_TYPE).
+In particular an unset reference_type stays None rather than becoming an empty string, so storing a
+metadata does not change what it says
 """
-from logging import Logger, getLogger
+from typing import Any
+
+from cmdb.framework.media_library.media_file_keys import MediaFileMetadataKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
+__all__: list[str] = [
+    'DEFAULT_MIME_TYPE',
+    'build_media_file_metadata',
+]
 
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                 FileMetadata - CLASS                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-class FileMetadata:
+# What a file is stored as when the upload carries no content type of its own - werkzeug answers an
+# empty string for a form part without one, and an empty mime type is worse than a generic one
+DEFAULT_MIME_TYPE: str = 'application/json'
+
+# A folder flag that the request does not carry means "this is a file"
+DEFAULT_IS_FOLDER: bool = False
+
+
+def build_media_file_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     """
-    A class representing metadata for a file or folder
+    Builds the metadata sub-document of a MediaFile out of the metadata an upload arrived with
 
-    Attributes:
-        author_id (str): The ID of the author of the file/folder
-        permissions (str | None): The permissions associated with the file/folder
-        reference (str | None): A reference to another object
-        reference_type (str | None): The type of reference (if any)
-        folder (bool): Whether the object represents a folder
-        parent (ints | None): The ID of the parent folder or object
-        mime_type (str): The MIME type of the file, default is "application/json"
+    Every key of MediaFileMetadataKey is present in the result, so a stored file always carries the whole
+    sub-document: a key the request does not carry is stored as None, except the folder flag which
+    defaults to False and the mime type which falls back to DEFAULT_MIME_TYPE. Keys the media library
+    does not declare are dropped - the upload route refuses those with a 400 before the write ever
+    happens, and dropping them here keeps a caller that bypasses the route from storing keys that
+    nothing can read back
+
+    Args:
+        metadata (dict[str, Any]): The metadata as the upload route assembled it, i.e. what the client
+            sent plus the server-owned author_id and mime_type
+
+    Returns:
+        dict[str, Any]: The metadata sub-document to store with the file
     """
-
-    #pylint: disable=R0917
-    def __init__(
-            self,
-            author_id,
-            permissions = None,
-            reference = None,
-            reference_type = None,
-            folder: bool = False,
-            parent: int = None,
-            mime_type = "application/json"):
-        """
-        Initialize the FileMetadata
-
-        Args:
-            author_id (str): The ID of the author
-            permissions (str | None): The permissions for the file/folder
-            reference (str | None): The reference associated with the file/folder
-            reference_type (str | None): The type of reference (if any)
-            folder (bool): A flag indicating if it's a folder
-            parent (int | None): The ID of the parent folder
-            mime_type (str): The MIME type for the file
-        """
-        self.reference = reference
-        self.reference_type = reference_type
-        self.mime_type = mime_type
-        self.author_id = author_id
-        self.folder = folder
-        self.parent = parent
-        self.permission = permissions
-
-
-    def get_ref_to(self) -> str | None:
-        """
-        Get the reference associated with this file/folder
-
-        Returns:
-            str | None: The reference, or None if not set
-        """
-        return self.reference
-
-
-    def get_ref_to_type(self) -> str:
-        """
-        Get the reference type associated with this file/folder
-
-        Returns:
-            str: The reference type, or an empty string if not set
-        """
-        return self.reference_type or ""
-
-
-    def get_mime_type(self) -> str:
-        """
-        Get the MIME type associated with this file/folder
-
-        Returns:
-            str: The MIME type, default is "application/json"
-        """
-        return self.mime_type or "application/json"
-
-
-    def get_permission(self) -> str | None:
-        """
-        Get the permissions associated with this file/folder
-
-        Returns:
-            str | None: The permissions, or None if not set
-        """
-        return self.permission
-
-
-    @classmethod
-    def to_json(cls, instance: "FileMetadata") -> dict:
-        """
-        Convert a FileMetadata instance to a JSON-compatible dictionary
-
-        Args:
-            instance (FileMetadata): The FileMetadata to convert
-
-        Returns:
-            dict: A dictionary representation of the FileMetadata
-        """
-        return {
-            'reference': instance.get_ref_to(),
-            'reference_type': instance.get_ref_to_type(),
-            'mime_type': instance.get_mime_type(),
-            'author_id': instance.author_id,
-            'folder': instance.folder,
-            'parent': instance.parent,
-            'permission': instance.permission,
-        }
+    return {
+        MediaFileMetadataKey.REFERENCE.value: metadata.get(MediaFileMetadataKey.REFERENCE.value),
+        MediaFileMetadataKey.REFERENCE_TYPE.value: metadata.get(MediaFileMetadataKey.REFERENCE_TYPE.value),
+        MediaFileMetadataKey.MIME_TYPE.value: (metadata.get(MediaFileMetadataKey.MIME_TYPE.value)
+                                               or DEFAULT_MIME_TYPE),
+        MediaFileMetadataKey.AUTHOR_ID.value: metadata.get(MediaFileMetadataKey.AUTHOR_ID.value),
+        MediaFileMetadataKey.FOLDER.value: metadata.get(MediaFileMetadataKey.FOLDER.value, DEFAULT_IS_FOLDER),
+        MediaFileMetadataKey.PARENT.value: metadata.get(MediaFileMetadataKey.PARENT.value),
+        MediaFileMetadataKey.PERMISSION.value: metadata.get(MediaFileMetadataKey.PERMISSION.value),
+    }

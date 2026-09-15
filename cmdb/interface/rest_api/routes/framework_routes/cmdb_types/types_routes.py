@@ -18,15 +18,16 @@ REST API routes for CmdbType CRUD
 
 Blueprint ``types_blueprint`` is mounted at ``/rest/types`` (see ``init_rest_api.py``). Endpoints:
 
-    POST   /                                insert_cmdb_type
-    GET    /                                get_cmdb_types
-    GET    /with_clean_status               get_cmdb_types_with_status
-    GET    /<public_id>                     get_cmdb_type
-    GET    /count_objects/<public_id>       count_objects_of_cmdb_type
-    GET    /location_field_usage/<public_id> get_location_field_usage_of_cmdb_type
-    PUT    /<public_id>                     update_cmdb_type
-    PATCH  /<public_id>                     update_cmdb_type
-    DELETE /<public_id>                     delete_cmdb_type
+    POST   /                                       insert_cmdb_type
+    GET    /                                       get_cmdb_types
+    GET    /overview                                get_cmdb_types_overview
+    GET    /<public_id>                             get_cmdb_type
+    GET    /count_objects/<public_id>               count_objects_of_cmdb_type
+    GET    /location_field_usage/<public_id>        get_location_field_usage_of_cmdb_type
+    GET    /selectable_as_parent_usage/<public_id>  get_selectable_as_parent_usage_of_cmdb_type
+    PUT    /<public_id>                             update_cmdb_type
+    PATCH  /<public_id>                             update_cmdb_type
+    DELETE /<public_id>                             delete_cmdb_type
 
 All routes require authentication (JWT or ``x-api-key`` in cloud mode), ApiLevel.ADMIN and the
 per-route ``base.framework.type.*`` right (see ``TypeRight``). Domain logic lives in
@@ -38,6 +39,7 @@ from typing import Any
 from datetime import datetime, timezone
 
 from flask import abort, request
+from pymongo.results import UpdateResult
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -52,20 +54,32 @@ from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects
+from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects, request_wants_body
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
+    build_referenced_section_usage_payload,
+    guard_referenced_section_removal,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     verify_type_is_unique,
     prepare_builder_parameters,
     verify_type_deletable,
     type_deletion_followup,
     special_type_is_unchanged,
-    get_objects_using_location_field,
+    build_location_usage_payload,
     get_type_or_404,
+    get_type_instance_or_404,
+    guard_field_identifier_change,
     guard_location_field_removal,
+    guard_mds_section_identifier_change,
+    guard_selectable_as_parent_change,
+    guard_uses_ports_change,
+    build_uses_ports_usage_payload,
     compute_removed_global_templates,
     apply_type_update_side_effects,
-    build_types_clean_status_items,
+    build_types_overview_items,
     enforce_special_type_license,
+    enforce_rack_selectable_as_parent,
+    enforce_uses_ports_license,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.blueprints import APIBlueprint
@@ -96,6 +110,12 @@ LOGGER: Logger = getLogger(__name__)
 
 types_blueprint = APIBlueprint('types', __name__)
 
+# What each pre-check route is determining, interpolated into the shared failure messages
+LOCATION_FIELD_USAGE_SUBJECT: str = 'location-field usage'
+SELECTABLE_AS_PARENT_USAGE_SUBJECT: str = 'selectable-as-parent usage'
+REFERENCED_SECTION_USAGE_SUBJECT: str = 'reference-section usage'
+USES_PORTS_USAGE_SUBJECT: str = 'port usage'
+
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @types_blueprint.route('/', methods=['POST'])
@@ -107,9 +127,23 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbType into the database
 
+    Requires the ``base.framework.type.add`` right and ApiLevel.ADMIN. The author and the creation
+    time are stamped server-side, a duplicate type name is refused, and for a SpecialType the IPAM
+    license is checked and the SpecialType wiring (ref_types cross-wiring, predefined sections) runs
+    before the response is built
+
+    Note:
+        A payload ``public_id`` is currently honoured - the database only generates one when the key
+        is absent - so a client can choose the new Type's id (discussion backlog #186)
+
     Args:
         data (CmdbType.SCHEMA): Data of the CmdbType which should be inserted
         request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right or the IPAM license; 400 when the payload
+            carries no name, the name is already taken or the insert fails; 404 when the created
+            Type cannot be read back; 500 on an unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbType and its public_id
@@ -118,7 +152,13 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
         # Creating an IPAM special type (Supernet/Subnet/VLAN) requires a valid IPAM license
-        enforce_special_type_license(request_user, bool(data.get(TypeSchemaKey.SPECIAL_TYPE)))
+        enforce_special_type_license(request_user, data.get(TypeSchemaKey.SPECIAL_TYPE))
+
+        # A Rack must stay selectable as a parent Location or nothing could be placed in it
+        enforce_rack_selectable_as_parent(data.get(TypeSchemaKey.SPECIAL_TYPE), data)
+
+        # Declaring a Type as port-bearing requires a valid IPAM license
+        enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
 
         data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
         data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
@@ -172,12 +212,18 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbTypes
 
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN
+
     Args:
-        params (CollectionParameters): Filter for requested CmdbTypes
+        params (TypeIterationParameters): Filter, sort, pagination and the 'active' flag for the
+            requested CmdbTypes
         request_user (CmdbUser): CmdbUser requesting this data
 
+    Raises:
+        HTTPException: 400 when the iteration fails; 500 on an unexpected error
+
     Returns:
-        GetMultiResponse: All the CmdbTypes matching the CollectionParameters
+        GetMultiResponse: All the CmdbTypes matching the TypeIterationParameters
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -192,10 +238,12 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
             total=iteration_result.total,
             params=params,
             url=request.url,
-            body=request.method == 'HEAD'
+            body=request_wants_body()
         )
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except TypesManagerIterationError as err:
         LOGGER.error("[get_cmdb_types] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to iterate Types from the database!")
@@ -204,40 +252,37 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
         abort(500, "An internal server error occured while retrieving the Types!")
 
 
-@types_blueprint.route('/with_clean_status', methods=['GET', 'HEAD'])
+@types_blueprint.route('/overview', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
 @types_blueprint.parse_parameters(TypeIterationParameters)
-def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: CmdbUser) -> Response:
+def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbUser) -> Response:
     """
-    HTTP `GET`/`HEAD` route for getting multiple CmdbTypes with clean status
+    HTTP `GET`/`HEAD` route for the types overview listing
+
+    Returns the filtered CmdbTypes each bundled with its resolved author/editor display block, so
+    the overview renders author/editor names without a per-type user lookup (they are resolved in a
+    single bulk query). Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN
 
     Args:
-        params (CollectionParameters): Filter for requested CmdbTypes
+        params (TypeIterationParameters): Filter/pagination for the requested CmdbTypes
         request_user (CmdbUser): CmdbUser requesting this data
 
+    Raises:
+        HTTPException: 400 when the iteration fails; 500 on an unexpected error
+
     Returns:
-        GetMultiResponse: All the CmdbTypes matching the CollectionParameters
+        GetMultiResponse: The matching CmdbTypes, each as a {type_data, user_data} item
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 
         builder_params: BuilderParameters = prepare_builder_parameters(params)
 
         iteration_result: IterationResult[CmdbType] = types_manager.iterate(builder_params)
         types: list[dict[str, Any]] = [CmdbType.to_json(type) for type in iteration_result.results]
-
-        type_ids: list[int] = [
-            t[TypeSchemaKey.PUBLIC_ID] for t in types if t.get(TypeSchemaKey.PUBLIC_ID) is not None
-        ]
-
-        # Distinct object field-name sets per type, deduplicated DB-side (no full objects loaded)
-        field_name_sets_by_type: dict[int, list[set[str]]] = objects_manager.get_object_field_name_sets_by_type(
-            type_ids,
-        )
 
         # Get all users which interacted with the filtered types
         user_ids = {
@@ -249,26 +294,26 @@ def get_cmdb_types_with_status(params: TypeIterationParameters, request_user: Cm
 
         user_lookup: dict[int, CmdbUser] = users_manager.get_user_lookup(user_ids)
 
-        # Build the per-type {type_data, user_data, clean_status} items
-        response_items: list[dict[str, Any]] = build_types_clean_status_items(
-            types, field_name_sets_by_type, user_lookup,
-        )
+        # Build the per-type {type_data, user_data} items
+        response_items: list[dict[str, Any]] = build_types_overview_items(types, user_lookup)
 
         api_response = GetMultiResponse(
             response_items,
             total=iteration_result.total,
             params=params,
             url=request.url,
-            body=request.method == 'HEAD'
+            body=request_wants_body()
         )
 
         return api_response.make_response()
+    except HTTPException as http_err:
+        raise http_err
     except TypesManagerIterationError as err:
-        LOGGER.error("[get_cmdb_types_with_status] %s: %s", type(err), err, exc_info=True)
+        LOGGER.error("[get_cmdb_types_overview] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to iterate Types from the database!")
     except Exception as err:
-        LOGGER.error("[get_cmdb_types_with_status] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the Types with clean status!")
+        LOGGER.error("[get_cmdb_types_overview] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, "An internal server error occured while retrieving the Types overview!")
 
 
 @types_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -279,9 +324,15 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbType
 
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN
+
     Args:
         public_id (int): public_id of the CmdbType
         request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists; 400 when the read fails;
+            500 on an unexpected error
 
     Returns:
         GetSingleResponse: The requested CmdbType
@@ -291,7 +342,7 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
 
         requested_type: dict[str, Any] = get_type_or_404(types_manager, public_id)
 
-        return GetSingleResponse(requested_type, body=request.method == 'HEAD').make_response()
+        return GetSingleResponse(requested_type, body=request_wants_body()).make_response()
     except HTTPException as http_err:
         raise http_err
     except TypesManagerGetError as err:
@@ -310,9 +361,20 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
     """
     Counts the number of CmdbObjects in the database with the given public_id as the type_id
 
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. Inactive CmdbObjects are
+    excluded when the request asks for active objects only (see fetch_only_active_objects). A
+    missing Type is not an error - it simply has no objects, so the count is 0
+
+    Note:
+        The count covers every CmdbObject of the Type regardless of the caller's object ACL, so it
+        can exceed what the same user is allowed to see (discussion backlog #189)
+
     Args:
         public_id (int): The public_id of the CmdbType to count CmdbObjects for
         request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 400 when the count fails; 500 on an unexpected error
 
     Returns:
         DefaultResponse: An API response containing the count of CmdbObjects for the given type_id
@@ -328,12 +390,53 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
         objects_count: int = objects_manager.count_documents(count_query)
 
         return DefaultResponse(objects_count).make_response()
+    except HTTPException as http_err:
+        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[count_objects_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to count Objects for Type with ID: {public_id}!")
     except Exception as err:
         LOGGER.error("[count_objects_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while counting Objects for Type with ID: {public_id}!")
+
+
+def build_type_usage_response(public_id: int, request_user: CmdbUser, route_name: str, subject: str) -> Response:
+    """
+    Answers a "is this Type's location placement still in use" pre-check route
+
+    Both pre-check routes below ask the same underlying question - are any CmdbObjects of this Type
+    placed in the location tree - and answer it with the same payload, so they share this body and
+    only pass their own name (for the logs) and the subject of their failure messages
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+        route_name (str): Name of the calling route, used as the log prefix
+        subject (str): What the caller was determining, used in the failure messages
+
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists; 400 when the Type or its
+            CmdbObjects could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: { in_use: bool, count: int, object_public_ids: list[int] }
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
+
+        return DefaultResponse(build_location_usage_payload(request_user, target_type)).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[%s] ObjectsManagerGetError: %s", route_name, err, exc_info=True)
+        abort(400, f"Failed to determine {subject} for Type with ID: {public_id}!")
+    except TypesManagerGetError as err:
+        LOGGER.error("[%s] TypesManagerGetError: %s", route_name, err, exc_info=True)
+        abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
+    except Exception as err:
+        LOGGER.error("[%s] Exception: %s. Type: %s", route_name, err, type(err), exc_info=True)
+        abort(500, f"An internal server error occured while determining {subject} for Type with ID: {public_id}!")
 
 
 @types_blueprint.route('/location_field_usage/<int:public_id>', methods=['GET'])
@@ -345,43 +448,160 @@ def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser
     Returns the public_ids of CmdbObjects that have a value (integer > 0) in the
     location-typed field of the given CmdbType
 
-    The frontend uses this to decide whether the location field can be removed
-    from the CmdbType. The same check is enforced server-side on update
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. The frontend
+    (``type.service.ts``) calls this to decide whether the location field may be removed from the
+    CmdbType; the same check is enforced server-side on update by guard_location_field_removal
 
     Args:
         public_id (int): public_id of the CmdbType to inspect
         request_user (CmdbUser): CmdbUser requesting this data
 
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists; 400 when the Type or its
+            CmdbObjects could not be read; 500 on an unexpected error
+
     Returns:
         DefaultResponse: { in_use: bool, count: int, object_public_ids: list[int] }
     """
+    return build_type_usage_response(
+        public_id, request_user, 'get_location_field_usage_of_cmdb_type', LOCATION_FIELD_USAGE_SUBJECT,
+    )
+
+
+@types_blueprint.route('/selectable_as_parent_usage/<int:public_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+def get_selectable_as_parent_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns whether the given CmdbType still has placed CmdbObjects, blocking a selectable-as-parent
+    change to false
+
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. A CmdbType may only stop
+    being selectable as a parent once no CmdbObject of it is placed in the location tree (holds a
+    location value > 0); the same check is enforced server-side on update by
+    guard_selectable_as_parent_change
+
+    Note:
+        This route has **no frontend caller** - the type builder toggles 'selectable_as_parent'
+        locally and only learns of the block from the 400 the update route returns. Whether the
+        frontend should pre-check here or the route should be retired is a pending decision
+        (discussion backlog #188)
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists; 400 when the Type or its
+            CmdbObjects could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: { in_use: bool, count: int, object_public_ids: list[int] }
+    """
+    return build_type_usage_response(
+        public_id, request_user, 'get_selectable_as_parent_usage_of_cmdb_type', SELECTABLE_AS_PARENT_USAGE_SUBJECT,
+    )
+
+@types_blueprint.route('/referenced_section_usage/<int:public_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+def get_referenced_section_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns which CmdbTypes reference the given CmdbType, and which of its sections they pull
+
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. A section may only be removed
+    (or renamed - a ref-section resolves its target by NAME) once no other CmdbType pulls its fields
+    through a reference section, and the Type itself may only be deleted once nothing references it at
+    all. Both are enforced server-side by guard_referenced_section_removal and verify_type_deletable;
+    this route exists so the type builder can disable the delete action up front instead of learning
+    about it from a 400.
+
+    ``sections`` is keyed by section name and carries only the sections that ARE referenced, so a
+    section absent from it is free to remove
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists; 400 when the Type or the
+            referencing Types could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: { in_use: bool, count: int, referencing_type_ids: list[int],
+                           sections: { <section_name>: [{public_id, name, label}] } }
+    """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        target_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
+        target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
 
-        object_public_ids: list[int] = get_objects_using_location_field(request_user, target_type)
+        payload = build_referenced_section_usage_payload(request_user, target_type)
 
-        return DefaultResponse({
-            'in_use': bool(object_public_ids),
-            'count': len(object_public_ids),
-            'object_public_ids': object_public_ids,
-        }).make_response()
+        return DefaultResponse(payload).make_response()
     except HTTPException as http_err:
         raise http_err
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[get_location_field_usage_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to determine location-field usage for Type with ID: {public_id}!")
     except TypesManagerGetError as err:
-        LOGGER.error("[get_location_field_usage_of_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
+        LOGGER.error("[get_referenced_section_usage_of_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to determine {REFERENCED_SECTION_USAGE_SUBJECT} for Type with ID: {public_id}!")
     except Exception as err:
         LOGGER.error(
-            "[get_location_field_usage_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True
+            "[get_referenced_section_usage_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True,
         )
         abort(
             500,
-            f"An internal server error occured while determining location-field usage for Type with ID: {public_id}!"
+            "An internal server error occured while determining "
+            f"{REFERENCED_SECTION_USAGE_SUBJECT} for Type with ID: {public_id}!",
         )
+
+@types_blueprint.route('/uses_ports_usage/<int:public_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    Returns how many Ports exist on the CmdbObjects of the given CmdbType
+
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. A CmdbType may only stop using
+    ports once none of its objects has one, because the frontend renders the ports panel for a
+    port-bearing type only - the same check is enforced server-side on update by
+    `guard_uses_ports_change`. ``in_use: false`` means the flag may be cleared.
+
+    Counts only, deliberately: the equivalent location payload returns every matching public_id and is
+    unbounded for a large Type (discussion backlog #187).
+
+    Note this read is NOT license-gated, unlike the rest of the feature. Turning the flag off is the
+    cleanup direction and is always allowed, so gating the pre-check would blind exactly the users who
+    need it after a license lapsed
+
+    Args:
+        public_id (int): public_id of the CmdbType to inspect
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 404 when no Type with that public_id exists; 400 when the Type, its Objects or
+            their Ports could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: { in_use: bool, port_count: int, object_count: int }
+    """
+    try:
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
+
+        return DefaultResponse(build_uses_ports_usage_payload(request_user, target_type)).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except (ObjectsManagerGetError, TypesManagerGetError) as err:
+        LOGGER.error("[get_uses_ports_usage_of_cmdb_type] ManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to determine {USES_PORTS_USAGE_SUBJECT} for Type with ID: {public_id}!")
+    except Exception as err:
+        LOGGER.error("[get_uses_ports_usage_of_cmdb_type] Exception: %s. Type: %s", err, type(err),
+                     exc_info=True)
+        abort(500, "An internal server error occured while determining "
+                   f"{USES_PORTS_USAGE_SUBJECT} for Type with ID: {public_id}!")
+
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -394,10 +614,28 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbType
 
+    Requires the ``base.framework.type.edit`` right and ApiLevel.ADMIN. The write is always a full
+    document (there is no partial update): the editor and the edit time are stamped server-side, the
+    identity is pinned to the URL public_id, and several changes are refused outright - changing the
+    SpecialType, renaming a field or a multi-data-section identifier while the Type has Objects,
+    removing the location field while CmdbObjects still hold a location value, and turning
+    'selectable_as_parent' off while CmdbObjects of the Type are placed in the tree
+
+    Once the document is written, the side effects run (dropped global templates removed,
+    SpecialType ref_types re-wired, label/icon/selectable propagated to the Type's CmdbLocations,
+    MDS field changes and the flat field set applied to its CmdbObjects); because those mutate the
+    document further, the response is a fresh read rather than the request payload
+
     Args:
         public_id (int): public_id of the CmdbType which should be updated
         data (CmdbType.SCHEMA): New CmdbType data
         request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right or the IPAM license; 404 when the Type does
+            not exist, disappeared before the write, or cannot be read back afterwards; 400 when a
+            guard refuses the change or the update, the location/MDS/object propagation fails;
+            500 on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbType
@@ -406,10 +644,18 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        old_type: CmdbType = get_type_or_404(types_manager, public_id, as_dict=False)
+        old_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
 
         # Editing an IPAM special type (existing or attempted) requires a valid IPAM license
-        enforce_special_type_license(request_user, bool(old_type.special_type or data.get(TypeSchemaKey.SPECIAL_TYPE)))
+        enforce_special_type_license(request_user, old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE))
+
+        # Applied before CmdbType.from_data below, so the coercion reaches the instance too. Keyed on
+        # the STORED marker: the SpecialType of a type can never change (guarded further down)
+        enforce_rack_selectable_as_parent(old_type.special_type, data)
+
+        # Turning 'uses_ports' on requires a valid IPAM license. Only the requested value is gated,
+        # so an unlicensed instance can still turn the flag back off
+        enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id
@@ -420,8 +666,25 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         if not special_type_is_unchanged(old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE)):
             abort(400, "It is not possible to change the SpecialType property of Types!")
 
+        # A field's name IS its identity - every CmdbObject keys its stored values by it - so a
+        # rename would empty that value on every Object. Same for a multi-data-section, whose name is
+        # the section_id an Object stores its rows under: a rename drops every row
+        guard_field_identifier_change(request_user, old_type, new_type)
+        guard_mds_section_identifier_change(request_user, old_type, new_type)
+
         # Block removal of the location field while CmdbObjects still hold a location value
         guard_location_field_removal(request_user, old_type, new_type)
+
+        # A section another Type pulls its fields from may not be removed (or renamed) while
+        # that Type still references it - the reference resolves by NAME and would be left dangling
+        guard_referenced_section_removal(request_user, old_type, new_type)
+
+        # Block disabling selectable_as_parent while CmdbObjects of this Type are placed in the tree
+        guard_selectable_as_parent_change(request_user, old_type, new_type)
+
+        # Block disabling uses_ports while Ports of this Type's Objects still exist - clearing the flag
+        # hides the ports panel, so those ports would become rows nothing in the UI can reach
+        guard_uses_ports_change(request_user, old_type, new_type)
 
         # Compute templates being removed by comparing the pre-update state to the incoming
         # payload (NOT the post-update type) and snapshot each removed template's section info
@@ -430,25 +693,28 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
             old_type, set(data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS) or []),
         )
 
-        # Update the target CmdbType
-        types_manager.update_type(public_id, CmdbType.to_json(new_type))
+        # Update the target CmdbType. The write is a full-document update that does not upsert, so
+        # matched_count reports whether the Type was still there - no extra read needed for that
+        update_result: UpdateResult = types_manager.update_type(public_id, CmdbType.to_json(new_type))
 
-        updated_type: CmdbType | None = types_manager.get_type(public_id, as_dict=False)
-
-        if not updated_type:
-            abort(404, f"The updated Type with ID:{public_id} was not found!")
+        if update_result.matched_count == 0:
+            LOGGER.warning(
+                "[update_cmdb_type] Type with ID:%s disappeared between its read and its update", public_id
+            )
+            abort(404, f"The Type with ID:{public_id} no longer existed when its update was written!")
 
         # Run the post-update persistence side effects (template cleanup, special-type wiring,
-        # location + MDS propagation)
-        apply_type_update_side_effects(request_user, types_manager, old_type, updated_type, removed_templates)
+        # location + MDS propagation). new_type IS what was just written, so it is used directly
+        # instead of reading the document back
+        apply_type_update_side_effects(request_user, types_manager, old_type, new_type, removed_templates)
 
-        # Re-read the fully-persisted Type so server-side mutations applied after the initial
-        # update (special-type ref_types cross-wiring, removed-template section cleanup) are
-        # reflected in the response instead of the raw request payload
+        # Re-read the fully-persisted Type so server-side mutations applied by those side effects
+        # (special-type ref_types cross-wiring, removed-template section cleanup) are reflected in
+        # the response instead of the raw request payload
         final_type: dict[str, Any] | None = types_manager.get_type(public_id)
 
         if not final_type:
-            abort(404, f"The updated Type with ID:{public_id} was not found!")
+            abort(404, f"The updated Type with ID:{public_id} could not be read back after its update!")
 
         return UpdateSingleResponse(final_type).make_response()
     except HTTPException as http_err:
@@ -485,9 +751,19 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbType
 
+    Requires the ``base.framework.type.delete`` right and ApiLevel.ADMIN. A CmdbType may only be
+    deleted while nothing depends on it: the deletion is refused when CmdbObjects of the Type exist
+    or a CmdbReport uses it. Afterwards the follow-up removes the Type from the categories, the
+    object groups and (for a SpecialType) its IPAM wiring
+
     Args:
         public_id (int): public_id of the CmdbType which should be deleted
         request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the user lacks the right or the IPAM license; 404 when no Type with
+            that public_id exists; 400 when CmdbObjects or CmdbReports still use the Type, or a
+            lookup / the deletion fails; 500 on an unexpected error
 
     Returns:
         DeleteSingleResponse: The deleted CmdbType data
@@ -498,8 +774,10 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
         to_delete_type: dict[str, Any] | None = types_manager.get_type(public_id)
 
         # Deleting an IPAM special type requires a valid IPAM license
-        deletes_special_type: bool = bool(to_delete_type and to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE))
-        enforce_special_type_license(request_user, deletes_special_type)
+        enforce_special_type_license(
+            request_user,
+            to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE) if to_delete_type else None,
+        )
 
         # Check CmdbType is allowed to be deleted
         verify_type_deletable(request_user, public_id, to_delete_type)

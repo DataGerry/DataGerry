@@ -15,10 +15,23 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of IsmsRiskClass in DataGerry - ISMS
+
+An IsmsRiskClass is one severity band of the ISMS configuration (collection ``isms.riskClass``): a
+name, a colour and a sort order, applied to calculated risk values.
+
+**The matrix references it by public_id alone.** Every cell of the singleton IsmsRiskMatrix carries a
+``risk_class_id``, and `0` means "not yet assigned" - so deleting a class does not cascade, it resets
+the cells that named it (`remove_deleted_risk_class_from_matrix`). Nothing outside this document reads
+its other four keys; the ISMS report aggregations name ``color`` as a dotted path inside a pipeline
+literal, which is a string by design.
+
+``RiskClassKey`` names every persisted key and drives the shared ``CmdbDAO`` ``from_data`` / ``to_json``,
+so this model defines neither
 """
-from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.isms_model.isms_risk_class_constants import RiskClassKey
 
 from cmdb.class_schema.isms_model.isms_risk_class_schema import get_isms_risk_class_schema
 
@@ -27,10 +40,6 @@ from cmdb.errors.models.isms_risk_class import (
     IsmsRiskClassInitFromDataError,
     IsmsRiskClassToJsonError,
 )
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 IsmsRiskClass - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -42,20 +51,34 @@ class IsmsRiskClass(CmdbDAO):
     """
     COLLECTION = "isms.riskClass"
 
-    SCHEMA: dict = get_isms_risk_class_schema()
+    SCHEMA: dict[str, Any] = get_isms_risk_class_schema()
 
+    # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
+    KEYS = RiskClassKey
+    INIT_FROM_DATA_ERROR = IsmsRiskClassInitFromDataError
+    TO_JSON_ERROR = IsmsRiskClassToJsonError
 
-    #pylint: disable=R0917
-    def __init__(self, public_id: int, name: str, color: str, sort: int = None, description: str = None):
+    def __init__(
+            self,
+            *,
+            public_id: int,
+            name: str,
+            color: str,
+            sort: int | None = None,
+            description: str | None = None,
+        ) -> None:
         """
         Initialises an IsmsRiskClass
+
+        Keyword-only, because CmdbDAO.__new__ looks for public_id in **kwargs and runs before this:
+        a positional call could never have worked
 
         Args:
             public_id (int): public_id of the IsmsRiskClass
             name (str): The name of the IsmsRiskClass
-            color (float): The color of the IsmsRiskClass
-            sort (int): The sort order of the IsmsRiskClass
-            description (str): The description of the IsmsRiskClass
+            color (str): The display colour of the IsmsRiskClass, as a hex / css value
+            sort (int, optional): The sort order of the IsmsRiskClass
+            description (str, optional): The description of the IsmsRiskClass
 
         Raises:
             IsmsRiskClassInitError: When the IsmsRiskClass could not be initialised
@@ -69,56 +92,3 @@ class IsmsRiskClass(CmdbDAO):
             super().__init__(public_id=public_id)
         except Exception as err:
             raise IsmsRiskClassInitError(err) from err
-
-# -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
-
-    @classmethod
-    def from_data(cls, data: dict) -> "IsmsRiskClass":
-        """
-        Initialises a IsmsRiskClass from a dict
-
-        Args:
-            data (dict): Data with which the IsmsRiskClass should be initialised
-
-        Raises:
-            IsmsRiskClassInitFromDataError: If the initialisation with the given data fails
-
-        Returns:
-            IsmsRiskClass: IsmsRiskClass with the given data
-        """
-        try:
-            return cls(
-                public_id = data.get('public_id'),
-                name = data.get('name'),
-                color = data.get('color'),
-                sort = data.get('sort'),
-                description = data.get('description'),
-            )
-        except Exception as err:
-            raise IsmsRiskClassInitFromDataError(err) from err
-
-
-    @classmethod
-    def to_json(cls, instance: "IsmsRiskClass") -> dict:
-        """
-        Converts a IsmsRiskClass into a json compatible dict
-
-        Args:
-            instance (IsmsRiskClass): The IsmsRiskClass which should be converted
-
-        Raises:
-            IsmsRiskClassToJsonError: If the IsmsRiskClass could not be converted to a json compatible dict
-
-        Returns:
-            dict: Json compatible dict of the IsmsRiskClass values
-        """
-        try:
-            return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'color': instance.color,
-                'sort': instance.sort,
-                'description': instance.description,
-            }
-        except Exception as err:
-            raise IsmsRiskClassToJsonError(err) from err

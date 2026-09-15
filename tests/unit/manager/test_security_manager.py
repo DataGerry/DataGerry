@@ -93,6 +93,39 @@ class TestGetSymmetricAesKeyCloud:
                 security_manager.get_symmetric_aes_key()
 
 
+class TestGenerateSymmetricAesKey:
+    """Minting a new AES key and storing it in the 'security' settings section."""
+
+    def test_writes_a_32_byte_key_to_the_security_section(
+            self, security_manager: SecurityManager, monkeypatch) -> None:
+        """AES-256 needs exactly 32 bytes, and the section name is what get_symmetric_aes_key reads back"""
+        written: dict = {}
+
+        monkeypatch.setattr(
+            security_manager.settings_manager, 'write',
+            lambda section, data: written.update({'section': section, 'data': data}),
+        )
+
+        security_manager.generate_symmetric_aes_key()
+
+        assert written['section'] == 'security'
+        assert len(written['data']['symmetric_aes_key']) == 32
+
+    def test_each_call_mints_a_different_key(self, security_manager: SecurityManager, monkeypatch) -> None:
+        """A deterministic 'random' key would make every installation's secrets interchangeable"""
+        keys: list[bytes] = []
+
+        monkeypatch.setattr(
+            security_manager.settings_manager, 'write',
+            lambda _section, data: keys.append(data['symmetric_aes_key']),
+        )
+
+        security_manager.generate_symmetric_aes_key()
+        security_manager.generate_symmetric_aes_key()
+
+        assert keys[0] != keys[1]
+
+
 class TestGetSymmetricAesKeyOnPremise:
     """get_symmetric_aes_key on-premise generate-on-absence branch (settings manager stubbed)."""
 

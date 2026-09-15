@@ -31,25 +31,32 @@ def get_isms_threat_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsThreat.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.isms_model.isms_threat_constants import ThreatKey
+
     return {
-        'public_id': {  # public_id of the IsmsThreat
+        ThreatKey.PUBLIC_ID.value: {  # public_id of the IsmsThreat
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the threat
+        ThreatKey.NAME.value: {  # Name of the threat, and the key its catalogue is looked up by
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'source': {  # public_id of the source the threat originates from (e.g. a catalogue)
+        # public_id of the CmdbExtendableOption('THREAT_VULNERABILITY') naming where this entry came from
+        ThreatKey.SOURCE.value: {
             'type': 'integer',
             'nullable': True,
         },
-        'identifier': {  # External identifier / catalogue number of the threat
+        ThreatKey.IDENTIFIER.value: {  # External identifier / catalogue number of the threat
             'type': 'string',
             'nullable': True,
         },
-        'description': {  # Description of the threat
+        ThreatKey.DESCRIPTION.value: {  # Description of the threat
             'type': 'string',
             'nullable': True,
         },

@@ -19,4 +19,12 @@ Collection of the validation schemas for the DataGerry classes
 Each schema lives in a subpackage mirroring its class' package under cmdb.models
 (e.g. cmdb.class_schema.ci_explorer_model holds the schemas of cmdb.models.ci_explorer_model).
 A schema is exposed via a get_<class>_schema() function and consumed by the model class as its SCHEMA
+
+A schema builder that needs its model's key or enum names imports them INSIDE the builder function,
+never at module level. The dependency runs both ways - a model imports its schema at class-definition
+time, while a schema names the model's constants - so a module-level import here closes the cycle
+cmdb.class_schema.x -> cmdb.models.x (package __init__) -> the model -> back into this module while it
+is still half-initialised, and importing any class_schema module before its model package then raises
+an ImportError. Deferring the import to call time removes that ordering requirement: by the time a
+builder runs, both halves are importable whichever one was entered first
 """

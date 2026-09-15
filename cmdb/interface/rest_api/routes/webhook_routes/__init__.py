@@ -13,3 +13,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+REST route package for CmdbWebhooks and their CmdbWebhookEvents
+
+Holds the two blueprints (``webhook_blueprint`` at ``/webhooks`` and the event blueprint, both
+registered by ``init_rest_api``), the ACL rights and delivery constants in ``webhook_constants``, and
+``webhook_helper`` - which both validates the route parameters and performs the outbound deliveries.
+Nothing is re-exported here; consumers import from the module path, so the package declares no
+``__all__``
+"""

@@ -18,37 +18,38 @@ This module provides the predefined CmdbExtendableOptions required for ISMS
 """
 from typing import Any
 
-from cmdb.models.extendable_option_model import OptionType
-from cmdb.database.predefined_data.predefined_data_constants import ExtendableOptionKey
+from cmdb.models.extendable_option_model import OptionType, ExtendableOptionKey
+from cmdb.models.isms_model.implementation_state_enum import ImplementationState
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_default_isms_extendable_options() -> list[dict[str, Any]]:
     """
     Returns the predefined CmdbExtendableOptions for ISMS, inserted at setup
 
-    Currently the IMPLEMENTATION_STATE options (None / Open / In Progress / Implemented).
+    Currently the IMPLEMENTATION_STATE options, whose values are named by `ImplementationState` -
+    the risk-matrix report resolves IMPLEMENTED by value, so the two may not drift apart.
 
     Returns:
         list[dict[str, Any]]: The default ISMS CmdbExtendableOptions as documents
     """
     return [
         {
-            ExtendableOptionKey.VALUE: 'None',
+            ExtendableOptionKey.VALUE: ImplementationState.NONE.value,
             ExtendableOptionKey.OPTION_TYPE: OptionType.IMPLEMENTATION_STATE,
             ExtendableOptionKey.PREDEFINED: True,
         },
         {
-            ExtendableOptionKey.VALUE: 'Open',
+            ExtendableOptionKey.VALUE: ImplementationState.OPEN.value,
             ExtendableOptionKey.OPTION_TYPE: OptionType.IMPLEMENTATION_STATE,
             ExtendableOptionKey.PREDEFINED: True,
         },
         {
-            ExtendableOptionKey.VALUE: 'In Progress',
+            ExtendableOptionKey.VALUE: ImplementationState.IN_PROGRESS.value,
             ExtendableOptionKey.OPTION_TYPE: OptionType.IMPLEMENTATION_STATE,
             ExtendableOptionKey.PREDEFINED: True,
         },
         {
-            ExtendableOptionKey.VALUE: 'Implemented',
+            ExtendableOptionKey.VALUE: ImplementationState.IMPLEMENTED.value,
             ExtendableOptionKey.OPTION_TYPE: OptionType.IMPLEMENTATION_STATE,
             ExtendableOptionKey.PREDEFINED: True,
         }

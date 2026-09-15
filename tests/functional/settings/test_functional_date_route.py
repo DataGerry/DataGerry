@@ -22,9 +22,11 @@ DateSettingsDAO, the empty-body 400 (which was previously masked as a 500), and 
 '_id' carried in the request body.
 """
 from http import HTTPStatus
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.system_manager.settings_manager import SettingsManager
@@ -128,3 +130,32 @@ class TestDateSettingsErrors:
         monkeypatch.setattr(SettingsManager, 'write', _boom)
 
         assert rest_api.post('/date/', json=_date_payload()).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_passes_an_http_exception_through(self, rest_api, monkeypatch) -> None:
+        """
+        The HTTPException arm hands an abort through with its own status
+
+        Unreachable in a normal request - the read aborts nowhere inside its try - so it needs a
+        forced abort. It exists so an abort added later is not swallowed by the generic handler and
+        reported as a 500.
+        """
+        def _abort(*_args, **_kwargs):
+            raise NotFound('forced')
+
+        monkeypatch.setattr(SettingsManager, 'get_all_values_from_section', _abort)
+
+        assert rest_api.get('/date/').status_code == HTTPStatus.NOT_FOUND
+
+    def test_an_unacknowledged_write_is_a_400(self, rest_api, monkeypatch) -> None:
+        """
+        A write MongoDB did not acknowledge is refused rather than reported as success
+
+        The route reads the section back and echoes it, so answering 200 here would return the
+        settings the client sent while the stored ones are unchanged.
+        """
+        monkeypatch.setattr(SettingsManager, 'write', lambda *_a, **_k: SimpleNamespace(acknowledged=False))
+
+        response = rest_api.post('/date/', json=_date_payload())
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'DateSettings' in response.get_json()['message']

@@ -13,3 +13,20 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Provides all CmdbSectionTemplate relevant classes
+
+A CmdbSectionTemplate is a reusable section definition. A *global* template (``is_global``) is shared
+by every CmdbType that references it by name in ``global_template_ids``; a *predefined* template
+(``predefined``) is additionally DataGerry-provided and immutable - see
+``cmdb.framework.section_templates``
+"""
+from .cmdb_section_template import CmdbSectionTemplate
+from .section_template_constants import SectionTemplateKey, SectionTemplateRight
+# -------------------------------------------------------------------------------------------------------------------- #
+
+__all__: list[str] = [
+    'CmdbSectionTemplate',
+    'SectionTemplateKey',
+    'SectionTemplateRight',
+]

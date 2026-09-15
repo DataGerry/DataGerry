@@ -372,3 +372,74 @@ class TestCiExplorerNodesEdgesContract:
         loc_edge_down = next(e for e in body['parent_edges'] if e['from'] == OBJ_LOC_CHILD)
         assert loc_edge_down['to'] == OBJ_TARGET
         assert 'metadata' not in loc_edge_down
+
+
+class TestAMissingTargetIsA404:
+    """The contract change of 2026-09-08: a graph of nothing is not an empty graph."""
+
+    def test_an_unknown_target_id_is_refused(self, rest_api) -> None:
+        """
+        It used to answer 200 with empty buckets, so a typo'd id looked like an isolated CI
+
+        Every other read route in the API answers 404 for a public_id that resolves to nothing, and
+        the CI Explorer view can now tell the two cases apart.
+        """
+        response = rest_api.get(f'{ROUTE_URL}?target_id=987654&target_type=BOTH&with_root=true')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert '987654' in response.get_json()['message']
+
+    def test_an_unknown_target_is_refused_without_the_root_block_too(self, rest_api) -> None:
+        """
+        The existence read no longer depends on the flags
+
+        Before, the target was loaded only for with_root / with_ipam_relations, so a neighbours-only
+        request could not have noticed the object was gone.
+        """
+        response = rest_api.get(f'{ROUTE_URL}?target_id=987654&target_type=CHILD')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_an_existing_target_without_neighbours_is_still_200(self, rest_api) -> None:
+        """
+        The case the 404 must not swallow: an isolated CI is a valid, empty graph
+
+        This is the distinction the whole change exists to make, so both halves are pinned together.
+        """
+        response = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_LOC_CHILD}&target_type=BOTH&with_root=true')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['root_node']['linked_object']['public_id'] == OBJ_LOC_CHILD
+
+
+class TestTheCapIsStable:
+    """item_limit truncation returns the same subgraph on every request."""
+
+    def test_two_identical_capped_requests_return_the_same_neighbours(self, rest_api) -> None:
+        """
+        The read is sorted by public_id before the limit applies
+
+        An unsorted limit returns natural order, which MongoDB does not guarantee and which changes as
+        documents are rewritten - so the graph a user shared could differ from the one their colleague
+        opened.
+        """
+        url: str = f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=CHILD&item_limit=2'
+
+        first = rest_api.get(url).get_json()
+        second = rest_api.get(url).get_json()
+
+        first_ids = [node['linked_object']['public_id'] for node in first['children_nodes']]
+        second_ids = [node['linked_object']['public_id'] for node in second['children_nodes']]
+
+        assert first_ids == second_ids
+
+    def test_the_capped_neighbours_are_the_lowest_public_ids(self, rest_api) -> None:
+        """
+        Which subset survives is now a stated rule rather than whatever Mongo returned first
+
+        Ascending public_id means the oldest neighbours win, which is at least explicable to a user.
+        """
+        response = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=CHILD&item_limit=2')
+        returned = [node['linked_object']['public_id'] for node in response.get_json()['children_nodes']]
+
+        assert returned == sorted(returned)

@@ -33,9 +33,15 @@ RISK_ID: int = 98001
 RISK_ASSESSMENT_ID: int = 98002
 CONTROL_ASSIGNMENT_ID: int = 98003
 
-ALL_RISK_IDS: list[int] = [RISK_ID]
-ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
-ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CONTROL_ASSIGNMENT_ID]
+# second risk + cascade for the bulk delete
+RISK_ID_2: int = 98011
+RISK_ASSESSMENT_ID_2: int = 98012
+CONTROL_ASSIGNMENT_ID_2: int = 98013
+MISSING_RISK_ID: int = 98099
+
+ALL_RISK_IDS: list[int] = [RISK_ID, RISK_ID_2]
+ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID, RISK_ASSESSMENT_ID_2]
+ALL_CONTROL_ASSIGNMENT_IDS: list[int] = [CONTROL_ASSIGNMENT_ID, CONTROL_ASSIGNMENT_ID_2]
 
 
 @pytest.fixture(name='risk_manager')
@@ -105,3 +111,58 @@ class TestRiskDeleteWithFollowUp:
 
         assert result is True
         assert not _exists(database_manager, database_name, IsmsRisk.COLLECTION, RISK_ID)
+
+
+class TestRiskDeleteManyWithFollowUp:
+    """RiskManager.delete_many_with_follow_up batches the Risk -> RA -> CMA cascade over several Risks."""
+
+    def test_cascades_all_and_returns_counts(self, risk_manager: RiskManager,
+                                            database_manager: MongoDatabaseManager,
+                                            database_name: str) -> None:
+        """Both Risks + their RiskAssessments + ControlMeasureAssignments are removed; counts returned."""
+        _insert(database_manager, database_name, IsmsRisk.COLLECTION, {'public_id': RISK_ID, 'name': 'R'})
+        _insert(database_manager, database_name, IsmsRisk.COLLECTION, {'public_id': RISK_ID_2, 'name': 'R2'})
+        _insert(database_manager, database_name, IsmsRiskAssessment.COLLECTION,
+                {'public_id': RISK_ASSESSMENT_ID, 'risk_id': RISK_ID})
+        _insert(database_manager, database_name, IsmsRiskAssessment.COLLECTION,
+                {'public_id': RISK_ASSESSMENT_ID_2, 'risk_id': RISK_ID_2})
+        _insert(database_manager, database_name, IsmsControlMeasureAssignment.COLLECTION,
+                {'public_id': CONTROL_ASSIGNMENT_ID, 'risk_assessment_id': RISK_ASSESSMENT_ID})
+        _insert(database_manager, database_name, IsmsControlMeasureAssignment.COLLECTION,
+                {'public_id': CONTROL_ASSIGNMENT_ID_2, 'risk_assessment_id': RISK_ASSESSMENT_ID_2})
+
+        # a non-existent id in the batch is silently ignored
+        deleted_ids, deleted_ras, deleted_cmas = risk_manager.delete_many_with_follow_up(
+            [RISK_ID, RISK_ID_2, MISSING_RISK_ID]
+        )
+
+        assert set(deleted_ids) == {RISK_ID, RISK_ID_2}
+        assert deleted_ras == 2
+        assert deleted_cmas == 2
+        assert not _exists(database_manager, database_name, IsmsRisk.COLLECTION, RISK_ID_2)
+        assert not _exists(database_manager, database_name, IsmsRiskAssessment.COLLECTION, RISK_ASSESSMENT_ID_2)
+        assert not _exists(
+            database_manager, database_name, IsmsControlMeasureAssignment.COLLECTION, CONTROL_ASSIGNMENT_ID_2
+        )
+
+    def test_deletes_risks_without_assessments_zero_cascade(self, risk_manager: RiskManager,
+                                                           database_manager: MongoDatabaseManager,
+                                                           database_name: str) -> None:
+        """Risks with no RiskAssessments are deleted with zero RA / CMA cascade counts."""
+        _insert(database_manager, database_name, IsmsRisk.COLLECTION, {'public_id': RISK_ID, 'name': 'R'})
+        _insert(database_manager, database_name, IsmsRisk.COLLECTION, {'public_id': RISK_ID_2, 'name': 'R2'})
+
+        deleted_ids, deleted_ras, deleted_cmas = risk_manager.delete_many_with_follow_up([RISK_ID, RISK_ID_2])
+
+        assert set(deleted_ids) == {RISK_ID, RISK_ID_2}
+        assert (deleted_ras, deleted_cmas) == (0, 0)
+        assert not _exists(database_manager, database_name, IsmsRisk.COLLECTION, RISK_ID)
+        assert not _exists(database_manager, database_name, IsmsRisk.COLLECTION, RISK_ID_2)
+
+    def test_empty_input_returns_zeros(self, risk_manager: RiskManager) -> None:
+        """An empty id list is a no-op returning empty ids and zero counts."""
+        assert risk_manager.delete_many_with_follow_up([]) == ([], 0, 0)
+
+    def test_non_existent_ids_are_ignored(self, risk_manager: RiskManager) -> None:
+        """A batch of only non-existent ids deletes nothing and returns empty ids / zero counts."""
+        assert risk_manager.delete_many_with_follow_up([MISSING_RISK_ID]) == ([], 0, 0)

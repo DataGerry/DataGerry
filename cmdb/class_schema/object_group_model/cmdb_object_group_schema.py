@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,6 +21,14 @@ A CmdbObjectGroup is a static or dynamic grouping of CmdbObjects
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbObjectGroup.SCHEMA.
+
+``group_type`` is constrained to the ``ObjectGroupMode`` members, and that is not cosmetic: both
+cleanup paths select the groups they maintain by mode (``objects_helper`` pulls deleted objects out of
+the STATIC ones, ``types_helper`` pulls a deleted type out of the DYNAMIC ones), so a group stored with
+any third value is reachable by neither and keeps dead ids for the rest of its life
+
+``assigned_ids`` is required and must not be empty - a group of nothing has no meaning here - so it is
+the one list key that is not nullable
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -32,27 +40,34 @@ def get_cmdb_object_group_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbObjectGroup.SCHEMA
     """
+    # Imported inside the builder: both live in the model layer, which imports this module
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.object_group_model.object_group_constants import ObjectGroupKey
+    from cmdb.models.object_group_model.object_group_mode_enum import ObjectGroupMode
+
     return {
-        'public_id': {  # public_id of the CmdbObjectGroup
+        ObjectGroupKey.PUBLIC_ID.value: {  # public_id of the CmdbObjectGroup
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the object group
+        ObjectGroupKey.NAME.value: {  # Name of the object group
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'group_type': {  # STATIC or DYNAMIC membership mode (an ObjectGroupMode value)
+        ObjectGroupKey.GROUP_TYPE.value: {  # STATIC or DYNAMIC membership mode
             'type': 'string',
             'required': True,
             'empty': False,
+            'allowed': [mode.value for mode in ObjectGroupMode],
         },
-        'assigned_ids': {  # STATIC: explicit member public_ids; DYNAMIC: the matching category ids
+        ObjectGroupKey.ASSIGNED_IDS.value: {  # STATIC: member CmdbObject ids; DYNAMIC: CmdbType ids
             'type': 'list',
             'required': True,
             'empty': False,
         },
-        'categories': {  # public_ids of the CmdbCategories associated with this group
+        ObjectGroupKey.CATEGORIES.value: {  # public_ids of the OBJECT_GROUP CmdbExtendableOptions
             'type': 'list',
+            'nullable': True,
         },
     }
