@@ -224,10 +224,10 @@ export class SectionFieldEditComponent extends ConfigEditBaseComponent implement
                 return;
             }
 
-            // No active index means this section was never registered with the identifier service -
-            // the section template builder owns a single fixed section and never registers it. There
-            // is nothing to rename there, and asking anyway reports a false uniqueness failure.
-            if (this.activeIndex === null || this.activeIndex === undefined) {
+            // `updateSection` returns false for "unknown" as well as for "taken", so an index the
+            // registry does not hold would be reported as a duplicate. The section template builder
+            // never registers its fixed section, and a type builder can leave a stale index behind.
+            if (!this.sectionIdentifier.hasSectionAtIndex(this.activeIndex)) {
                 return;
             }
 

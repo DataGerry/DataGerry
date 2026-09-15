@@ -347,7 +347,9 @@ describe('SectionFieldEditComponent duplicate detection', () => {
                     provide: SectionIdentifierService,
                     useValue: jasmine.createSpyObj('SectionIdentifierService', {
                         getActiveIndex: activeIndexSubject.asObservable(),
-                        updateSection: true
+                        updateSection: true,
+                        // No section is ever registered or focused in these specs.
+                        hasSectionAtIndex: false
                     })
                 },
                 { provide: CopyService, useValue: jasmine.createSpyObj('CopyService', ['copyWithFeedback']) }
