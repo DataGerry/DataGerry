@@ -29,6 +29,8 @@ import { Threat } from '../../models/threat.model';
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { ExtendableOptionManagerComponent } from 'src/app/core/components/extendable_option_manager/extendable-option-manager.component';
 
 @Component({
     selector: 'app-threats-add',
@@ -44,6 +46,7 @@ export class ThreatsAddComponent implements OnInit {
   private readonly loaderService = inject(LoaderService);
   private readonly toast = inject(ToastService);
   private readonly extendableOptionService = inject(ExtendableOptionService);
+  private readonly modalService = inject(NgbModal);
 
   public isEditMode = false;
   public isViewMode = false;
@@ -60,8 +63,6 @@ export class ThreatsAddComponent implements OnInit {
     identifier: '',
     description: ''
   };
-
-  public showSourceManager = false;
 
   ngOnInit(): void {
     const threatFromState = (history.state as { threat?: Threat }).threat;
@@ -196,15 +197,22 @@ export class ThreatsAddComponent implements OnInit {
     this.router.navigate(['/isms/threats']);
   }
 
-  // Open/close the Source Manager (ExtendableOptionManager) for "Threat Source"
+  // Open the Source Manager (ExtendableOptionManager) for "Threat Source"
   public openSourceManager(): void {
-    this.showSourceManager = true;
-  }
+    const modalRef = this.modalService.open(ExtendableOptionManagerComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
 
-  public closeSourceManager(): void {
-    this.showSourceManager = false;
+    modalRef.componentInstance.options = this.sourceOptions;
+    modalRef.componentInstance.optionType = OptionType.THREAT_VULNERABILITY;
+    modalRef.componentInstance.modalTitle = 'Manage Threat Sources';
+    modalRef.componentInstance.itemLabel = 'Threat Source';
+    modalRef.componentInstance.itemLabelPlural = 'Threat Sources';
+
     // Refresh the local source list after closing manager
-    this.loadSourceOptions();
+    modalRef.result.then(() => this.loadSourceOptions(), () => this.loadSourceOptions());
   }
 
   /** Helper for easier template access */

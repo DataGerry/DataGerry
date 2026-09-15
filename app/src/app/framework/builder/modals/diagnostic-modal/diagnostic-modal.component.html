@@ -1,0 +1,19 @@
+<dg-modal
+    icon="fas fa-stethoscope"
+    title="Diagnostic Information"
+    [scrollBody]="false"
+    (dismiss)="activeModal.dismiss('Cross click')">
+
+    <div class="diagnostic-content">
+        <pre class="diagnostic-json">{{data | json}}</pre>
+    </div>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Close"
+        type="button"
+        icon="fas fa-times"
+        (clicked)="activeModal.close('Close click')">
+    </app-button>
+</dg-modal>

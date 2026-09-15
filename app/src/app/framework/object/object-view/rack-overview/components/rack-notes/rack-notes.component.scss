@@ -1,0 +1,12 @@
+/*
+ * The card is this component's host, so the shell can size it in the side column without reaching
+ * into the template.
+ *
+ *   rack-tokens ............ palette, radii, shadows, easing. Must stay first.
+ *   rack-buttons-action .... the rack's app-button skin, shared with the inspector's action band
+ *   rack-notes ............. the card: the disclosure header, the read-out, the editor it opens into
+ */
+
+@import "../../styles/rack-tokens";
+@import "../../styles/rack-buttons-action";
+@import "../../styles/rack-notes";

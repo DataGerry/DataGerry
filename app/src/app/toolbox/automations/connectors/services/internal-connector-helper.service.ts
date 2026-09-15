@@ -72,7 +72,9 @@ export class InternalConnectorHelperService {
   private showInternalConnectorModal(options: InternalConnectorCheckOptions): void {
     const modalRef = this.modalService.open(CoreConfirmationModalComponent, {
       centered: true,
-      backdrop: 'static'
+      backdrop: 'static',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
     });
 
     modalRef.componentInstance.title = 'DataGerry API Credentials Required';

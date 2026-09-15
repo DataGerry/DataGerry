@@ -1,23 +1,19 @@
-<div class="modal-header bg-primary text-white">
-  <h4 class="modal-title">{{ title }}</h4>
-  <button type="button" class="btn-close btn-close-white" (click)="activeModal.dismiss('cancel')"></button>
-</div>
-<div class="modal-body">
-  <div id="confirmation-message">
+<dg-modal icon="fas fa-circle-question" [title]="title" (dismiss)="activeModal.dismiss('cancel')">
+
+  <div id="confirmation-message" class="confirmation-lead">
     {{ message }}
   </div>
 
   @if (warningMessage) {
+  <app-warning-alert [title]="warningTitle" [message]="warningMessage" [iconClass]="warningIconClass">
+  </app-warning-alert>
+  }
 
-    <app-warning-alert
-      [title]="warningTitle"
-      [message]="warningMessage"
-      [iconClass]="warningIconClass">
-    </app-warning-alert>
-  
-}
-</div>
-<div class="modal-footer">
-  <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss()">{{ cancelButtonText }}</button>
-  <button type="button" class="btn" [class]="confirmButtonClass" (click)="confirm()">{{ confirmButtonText }}</button>
-</div>
+  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" [label]="cancelButtonText" type="button"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
+
+  <app-button dgModalFooter [bootstrapClass]="confirmButtonClass" [label]="confirmButtonText" type="button"
+    (clicked)="confirm()">
+  </app-button>
+</dg-modal>

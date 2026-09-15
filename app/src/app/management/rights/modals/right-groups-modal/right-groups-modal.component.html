@@ -1,11 +1,17 @@
-<div class="modal-header bg-primary text-white">
-  <h4 class="modal-title">Groups with right: {{right?.label}}</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('Cross click')">
-  </button>
-</div>
-<div class="modal-body">
-  <cmdb-group-table-list [filter]="{rights: right.name}"></cmdb-group-table-list>
-</div>
-<div class="modal-footer">
-  <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss('Close click')">Close</button>
-</div>
+<dg-modal
+    icon="fas fa-user-shield"
+    eyebrow="Right"
+    [title]="right?.label"
+    subtitle="Groups that hold this right"
+    (dismiss)="activeModal.dismiss('Cross click')">
+
+    <cmdb-group-table-list [filter]="{rights: right.name}"></cmdb-group-table-list>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.dismiss('Close click')">
+    </app-button>
+</dg-modal>

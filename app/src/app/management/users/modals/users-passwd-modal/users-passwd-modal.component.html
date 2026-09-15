@@ -1,58 +1,70 @@
-<div class="modal-header bg-primary text-white">
-  <h4 class="modal-title">Change user password</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close"
-    (click)="activeModal.dismiss('Cross click')">
-  </button>
-</div>
+<dg-modal
+    icon="fas fa-key"
+    eyebrow="User"
+    title="Change password"
+    (dismiss)="activeModal.dismiss('Cross click')">
 
-<form [formGroup]="passwdForm" (ngSubmit)="onPasswordChange()" novalidate>
-  <div class="modal-body">
-    <p>Change password of the user: {{ user.user_name }}</p>
+    <form [formGroup]="passwdForm" (ngSubmit)="onPasswordChange()" novalidate>
+        <p class="passwd-lead">
+            Set a new password for <b>{{ user.user_name }}</b>.
+        </p>
 
-    <div class="row mb-3">
-      <label class="col-sm-2 col-form-label">Password: <span class="required">*</span></label>
+        <label class="form-label" for="userPasswordInput">
+            Password <span class="text-danger">*</span>
+        </label>
 
-      <div class="col-sm-10">
         <div class="input-group">
-          <input type="password" #passWordInput formControlName="password" class="form-control" placeholder="Password"
-            [ngClass]="{
-              'is-valid': password.valid && (password.dirty || password.touched),
-              'is-invalid': password.invalid && (password.dirty || password.touched)
-            }" />
+            <input
+                id="userPasswordInput"
+                #passWordInput
+                type="password"
+                class="form-control"
+                placeholder="Password"
+                autocomplete="new-password"
+                formControlName="password"
+                [class.is-valid]="password.valid && (password.dirty || password.touched)"
+                [class.is-invalid]="password.invalid && (password.dirty || password.touched)" />
 
-          <!-- BS5: no input-group-append; place addon directly -->
-          <span class="input-group-text" role="button" (click)="toggleInput()" title="Show/Hide password"
-            style="cursor:pointer">
-            <i class="far fa-eye"></i>
-          </span>
+            <button
+                type="button"
+                class="input-group-text passwd-toggle"
+                title="Show/Hide password"
+                aria-label="Show or hide the password"
+                (click)="toggleInput()">
+                <i class="far fa-eye" aria-hidden="true"></i>
+            </button>
 
-          <!-- Validation feedback (kept as-is) -->
-          @if (password.invalid && (password.dirty || password.touched)) {
-          <div class="invalid-feedback">
-            @if (password.errors?.required) {
-            <div class="text-end ms-2">
-              Password is required
+            @if (password.invalid && (password.dirty || password.touched)) {
+            <div class="invalid-feedback">
+                @if (password.errors?.required) {
+                <div>Password is required</div>
+                }
+                @if (password.errors?.strength) {
+                <div>Password is not strong enough</div>
+                }
             </div>
             }
-            @if (password.errors?.strength) {
-            <div class="text-end ms-2">
-              Password is not strong enough
-            </div>
-            }
-            <div class="clearfix"></div>
-          </div>
-          }
         </div>
 
-        <!-- Fix stray extra '>' and keep component -->
-        <password-strength-meter [password]="password.value" [enableFeedback]="true">
+        <password-strength-meter class="passwd-meter" [password]="password.value" [enableFeedback]="true">
         </password-strength-meter>
-      </div>
-    </div>
-  </div>
+    </form>
 
-  <div class="modal-footer">
-    <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss('Close click')">Close</button>
-    <button type="submit" class="btn btn-outline-primary" [disabled]="!passwdForm.valid">Save</button>
-  </div>
-</form>
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.dismiss('Close click')">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-primary"
+        label="Save"
+        type="button"
+        icon="fas fa-key"
+        [disabled]="!passwdForm.valid"
+        (clicked)="onPasswordChange()">
+    </app-button>
+</dg-modal>

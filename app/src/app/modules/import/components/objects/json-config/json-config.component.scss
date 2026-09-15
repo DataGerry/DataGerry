@@ -1,0 +1,6 @@
+@import '../../wizard-step';
+
+:host {
+    display: block;
+    @include dg-controls;
+}

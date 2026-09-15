@@ -1,0 +1,8 @@
+@if (mount) {
+  <div class="rack-placement alert alert-info">
+    <i class="fas fa-server" aria-hidden="true"></i>
+    Mounted in
+    <button type="button" class="btn btn-link p-0" (click)="onOpenRack()">{{ rackLabel }}</button>
+    &mdash; {{ placementText }}.
+  </div>
+}

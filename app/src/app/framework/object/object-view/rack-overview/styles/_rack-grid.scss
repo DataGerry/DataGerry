@@ -1,0 +1,47 @@
+/* Rack › grid — the one grid both elevations and the ruler share, and which column each view uses. */
+
+/*
+ * One grid drives both enclosures and the ruler between them, so the same U is the same row track
+ * everywhere and nothing can drift. The row tracks are set from the component, because they depend on
+ * the rack height: the cap, one track per U, then the plinth. They must stay EXPLICIT - the shell, the
+ * posts and the cavity span `1 / -1`, which only reaches the end of the explicit grid.
+ */
+.rack-grid {
+  display: grid;
+  flex: none;
+  position: relative;
+
+  &[data-view='split'] {
+    grid-template-columns: var(--rack-face) var(--rack-spine) var(--rack-face);
+  }
+
+  &[data-view='front'],
+  &[data-view='rear'] {
+    grid-template-columns: var(--rack-spine) var(--rack-face) var(--rack-spine);
+  }
+
+  &__unset {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    align-self: center;
+    margin: 0;
+    padding: 1.5rem;
+    text-align: center;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
+  }
+}
+
+/* Which column a part of an elevation lives in, per view. */
+.rack-grid[data-view='split'] .rack-face {
+  grid-column: 1;
+}
+
+.rack-grid[data-view='split'] .rack-face--rear {
+  grid-column: 3;
+}
+
+.rack-grid[data-view='front'] .rack-face,
+.rack-grid[data-view='rear'] .rack-face {
+  grid-column: 2;
+}

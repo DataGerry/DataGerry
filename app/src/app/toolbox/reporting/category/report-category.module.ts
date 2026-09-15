@@ -20,6 +20,7 @@ import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule } from '@angular/forms';
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
 import { CoreModule } from 'src/app/core/core.module';
+import { AuthModule } from 'src/app/modules/auth/auth.module';
 import { TableModule } from 'src/app/layout/table/table.module';
 import { AddCategoryModalComponent } from './components/category-add-modal/category-add-modal.component';
 import { CategoryFormComponent } from './components/category-form/category-form.component';
@@ -40,6 +41,8 @@ import { ReportCategoryRoutingModule } from './report-category-routing.module';
         TableModule,
         NgbModule,
         ReactiveFormsModule,
-        CoreModule    ]
+        CoreModule,
+        AuthModule
+    ]
 })
 export class ReportCategoryModule { }

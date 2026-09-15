@@ -1,63 +1,58 @@
-<div class="modal-content">
-  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
-    <span class="total-title d-flex justify-content-center object-view-navbar" id="attachmentModalLabel" style="background-color: #e94d18;">
-      <span class="icon"><i class="fas fa-paperclip" style="color: #FFFFFF;"></i></span>
-      <span class="name">
-        <strong class="text-uppercase">Attachments</strong>
-        <br>Total {{recordsTotal}}
-      </span>
-    </span>
-    <button type="button"
-    class="btn-close btn-close-white"
-    aria-label="Close"
-    [disabled]="inProcess"
-    (click)="activeModal.close({ total: recordsTotal })">
-</button>
-  </div>
-  <div class="modal-body">
+<dg-modal
+    icon="fas fa-paperclip"
+    eyebrow="Attachments"
+    title="Upload files"
+    [subtitle]="'Total ' + recordsTotal"
+    [dismissDisabled]="inProcess"
+    (dismiss)="activeModal.close({ total: recordsTotal })">
+
     <div id="uploadFileForm">
-      <div appDragDrop id="uploadFileContainer" *permissionLink="['base.framework.object.edit']"
-           class="card-body jumbotron text-center align-items-center text-center"
-           (click)="fileInput.click()" (fileDropped)="uploadFile($event)">
-        <fa-icon class="attachment-fa-icon" icon="cloud-upload-alt"></fa-icon>
-        <h6 class="attachment-subtitle">Drop files here or click to upload.</h6>
-        <input id="fileUpload" hidden type="file" #fileInput (change)="uploadFile($event.target.files)">
-      </div>
+        <div appDragDrop id="uploadFileContainer" *permissionLink="['base.framework.object.edit']"
+            class="card-body jumbotron text-center align-items-center text-center"
+            (click)="fileInput.click()" (fileDropped)="uploadFile($event)">
+            <fa-icon class="attachment-fa-icon" icon="cloud-upload-alt"></fa-icon>
+            <h6 class="attachment-subtitle">Drop files here or click to upload.</h6>
+            <input id="fileUpload" hidden type="file" #fileInput (change)="uploadFile($event.target.files)">
+        </div>
     </div>
-  </div>
-  @if (newFiles?.length) {
-<div>
+
+    @if (newFiles?.length) {
     <div class="scrollable-container">
-      <table class="table framework-table table-hover table-striped table-bordered mb-0">
-        <thead>
-          <tr tableSortEvent>
-            <th scope="col" class="w-50 active _desc">Filename</th>
-            <th scope="col" class="w-10 _desc">Size</th>
-            <th scope="col" class="w-10 _desc">File Type</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (item of newFiles; track item) {
-<tr>
-            <td>{{item.name}}</td>
-            <td>{{item.size | fileSize}}</td>
-            <td><p class="thumbnail">{{item.type}}</p></td>
-          </tr>
-}
-        </tbody>
-      </table>
+        <table class="table framework-table table-hover table-striped table-bordered mb-0">
+            <thead>
+                <tr tableSortEvent>
+                    <th scope="col" class="w-50 active _desc">Filename</th>
+                    <th scope="col" class="w-10 _desc">Size</th>
+                    <th scope="col" class="w-10 _desc">File Type</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (item of newFiles; track item) {
+                <tr>
+                    <td>{{item.name}}</td>
+                    <td>{{item.size | fileSize}}</td>
+                    <td>
+                        <p class="thumbnail">{{item.type}}</p>
+                    </td>
+                </tr>
+                }
+            </tbody>
+        </table>
     </div>
-  </div>
-}
-  <div class="modal-footer">
-    <button type="button" class="btn btn-secondary me-1"
-            [disabled]='inProcess'
-            (click)="activeModal.close({total: recordsTotal})">Done</button>
-  </div>
-</div>
+    }
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        label="Done"
+        type="button"
+        [disabled]="inProcess"
+        (clicked)="activeModal.close({total: recordsTotal})">
+    </app-button>
+</dg-modal>
 
 
-<app-loading-popup 
-[isVisible]="isLoading$ | async"
-message="We're Processing the Data..."
+<app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
 ></app-loading-popup>

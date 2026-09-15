@@ -160,7 +160,11 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
         }
 
         const count = subnetIds.length;
-        const modalRef = this.fullscreenModalService.open(this.modalService, CoreConfirmationModalComponent, { size: 'lg' });
+        const modalRef = this.fullscreenModalService.open(this.modalService, CoreConfirmationModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         modalRef.componentInstance.title = 'Unassign Subnets';
         modalRef.componentInstance.message = count === 1
             ? 'Do you want to unassign the selected subnet from this supernet?'

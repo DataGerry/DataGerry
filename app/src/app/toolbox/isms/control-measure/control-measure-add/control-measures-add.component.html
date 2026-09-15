@@ -129,19 +129,8 @@
 }
 
 <!-- Manage Source Modal -->
-@if (showSourceManager) {
-<app-extendable-option-manager [options]="sourceOptions" [optionType]="'CONTROL_MEASURE'"
-  [modalTitle]="'Manage Control Measure Sources'" [itemLabel]="'Control Measure Source'"
-  [itemLabelPlural]="'Control Measure Sources'" (close)="closeSourceManager()"></app-extendable-option-manager>
-}
 
 <!-- Manage Implementation State Modal -->
-@if (showImplementationStateManager) {
-<app-extendable-option-manager [options]="implementationStateOptions" [optionType]="'IMPLEMENTATION_STATE'"
-  [modalTitle]="'Manage Implementation States'" [itemLabel]="'Implementation State'"
-  [itemLabelPlural]="'Implementation States'"
-  (close)="closeImplementationStateManager()"></app-extendable-option-manager>
-}
 
 <!-- Loading Spinner -->
 <app-loading-popup [isVisible]="isLoading$ | async" message="Saving...">

@@ -1,15 +1,14 @@
-<div class="modal-header">
-    <h4 class="modal-title">Preview</h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss()">
-    </button>
-</div>
+<dg-modal
+    icon="fas fa-eye"
+    eyebrow="Search result"
+    title="Preview"
+    (dismiss)="activeModal.dismiss()">
 
-<div class="modal-body">
     <div class="renderForm">
         <cmdb-render [renderResult]="renderResult" [mode]="mode" [renderForm]="formGroupDummy"></cmdb-render>
     </div>
-</div>
 
-<div class="modal-footer">
-    <button type="button" class="btn btn-outline-dark" (click)="activeModal.close()">Close</button>
-</div>
+    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Close" type="button"
+        (clicked)="activeModal.close()">
+    </app-button>
+</dg-modal>

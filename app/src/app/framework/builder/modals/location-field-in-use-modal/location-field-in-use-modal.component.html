@@ -1,0 +1,32 @@
+<dg-modal
+    icon="fas fa-triangle-exclamation"
+    eyebrow="Location field"
+    [title]="title"
+    [scrollBody]="false"
+    (dismiss)="activeModal.dismiss('cancel')">
+
+    <p class="in-use-message">{{ message }}</p>
+
+    <p class="in-use-label">Affected objects:</p>
+
+    <div class="in-use-list">
+        <ul class="list-group">
+            @for (id of objectPublicIds; track id) {
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <button type="button" class="in-use-link" (click)="openObject(id)">
+                    Object #{{ id }}
+                </button>
+                <i class="fas fa-external-link-alt text-muted small" aria-hidden="true"></i>
+            </li>
+            }
+        </ul>
+    </div>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.close('close')">
+    </app-button>
+</dg-modal>

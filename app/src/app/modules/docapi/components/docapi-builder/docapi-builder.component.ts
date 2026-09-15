@@ -81,6 +81,11 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     public isSaving = false;
     public isLoading$ = this.loaderService.isLoading$;
 
+    /** Right required to persist the template in the current wizard mode */
+    public get saveRight(): string {
+        return this.mode === CmdbMode.Edit ? 'base.docapi.template.edit' : 'base.docapi.template.add';
+    }
+
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -150,7 +155,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     public openPreviewObjectModal(): void {
         const modalRef = this.modalService.open(DocapiPreviewObjectModalComponent, {
             size: 'lg',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.templateType = this.typeStep?.typeForm?.get('template_type')?.value ?? 'DEFAULT';
@@ -285,7 +292,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
         this.warningModalOpen = true;
         const modalRef = this.modalService.open(CoreWarningModalComponent, {
             size: 'md',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.title = 'Confirm change';
@@ -372,7 +381,9 @@ export class DocapiBuilderComponent implements AfterViewInit, OnDestroy {
     private confirmSaveBeforePreview(objectId: number): void {
         const modalRef = this.modalService.open(CoreWarningModalComponent, {
             size: 'md',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.title = 'Save template for preview';

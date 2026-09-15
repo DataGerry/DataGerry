@@ -28,21 +28,24 @@ const routes: Routes = [
         path: '',
         pathMatch: 'full',
         data: {
-            breadcrumb: 'List'
+            breadcrumb: 'List',
+            right: 'base.docapi.template.view'
         },
         component: DocapiListComponent
   },
   {
         path: 'add',
         data: {
-            breadcrumb: 'Add'
+            breadcrumb: 'Add',
+            right: 'base.docapi.template.add'
         },
         component: DocapiAddComponent
   },
   {
         path: 'edit/:publicId',
         data: {
-            breadcrumb: 'Edit'
+            breadcrumb: 'Edit',
+            right: 'base.docapi.template.edit'
         },
         component: DocapiEditComponent
   }

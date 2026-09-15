@@ -8,7 +8,7 @@ import { UserService } from '../../../management/services/user.service';
 import { ToastService } from '../../../layout/toast/toast.service';
 import { GroupService } from '../../../management/services/group.service';
 import { SidebarService } from '../../../layout/services/sidebar.service';
-import { ValidationService } from '../services/validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CmdbMode } from '../../modes.enum';
 import { CmdbType } from '../../models/cmdb-type';
@@ -43,10 +43,10 @@ function enableSave(component: TypeBuilderComponent): void {
     component.accessValid = true;
     component.isLabelValid = true;
     component.isNameValid = true;
-    component.isSectionHighlighted = false;
-    component.isFieldHighlighted = false;
-    component.disableFields = false;
-    component.isSectionWithoutFields = true;
+    component.blocking.isSectionHighlighted = false;
+    component.blocking.isFieldHighlighted = false;
+    component.blocking.disableFields = false;
+    component.blocking.isSectionWithoutFields = true;
 }
 
 describe('TypeBuilderComponent (type creation wizard)', () => {
@@ -136,13 +136,13 @@ describe('TypeBuilderComponent (type creation wizard)', () => {
 
         it('is disabled when a section is highlighted (unresolved editing)', () => {
             enableSave(component);
-            component.isSectionHighlighted = true;
+            component.blocking.isSectionHighlighted = true;
             expect(component.isSaveButtonDisabled).toBeTrue();
         });
 
         it('is disabled when fields are disabled', () => {
             enableSave(component);
-            component.disableFields = true;
+            component.blocking.disableFields = true;
             expect(component.isSaveButtonDisabled).toBeTrue();
         });
     });
@@ -185,7 +185,7 @@ describe('TypeBuilderComponent (type creation wizard)', () => {
         it('refuses to save and warns the user when the form is incomplete', () => {
             component.mode = CmdbMode.Create;
             component.ngOnInit();
-            // isSectionWithoutFields stays false -> save button disabled
+            // blocking.isSectionWithoutFields stays false -> save button disabled
 
             component.saveType();
 

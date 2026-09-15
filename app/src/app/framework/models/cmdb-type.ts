@@ -79,6 +79,8 @@ export class CmdbType implements CmdbDao {
     public active: boolean;
     public selectable_as_parent: boolean;
     public global_template_ids?: Array<string> = [];
+    /** Whether objects of this type may carry ports. */
+    public uses_ports?: boolean = false;
     public author_id: number;
     public version: string;
     public creation_time: any;

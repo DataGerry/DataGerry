@@ -16,12 +16,14 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { ChangeDetectorRef, Component, EventEmitter, inject, Input, OnDestroy, OnInit, Output } from '@angular/core';
-import { NestedTreeControl } from '@angular/cdk/tree';
 import { MatTreeNestedDataSource } from '@angular/material/tree';
 import { Router } from '@angular/router';
 
-import { ReplaySubject } from 'rxjs';
-import { finalize, takeUntil } from 'rxjs/operators';
+import { BehaviorSubject, ReplaySubject, Subject } from 'rxjs';
+import { debounceTime, finalize, takeUntil } from 'rxjs/operators';
+
+import { ObjectService } from 'src/app/framework/services/object.service';
+import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 import { IpamTreeService } from './services/ipam-tree.service';
 import { IpamSupernetChildrenResponse, IpamTreeNode, IpamTreeResponse } from './models/ipam-tree.types';
@@ -36,6 +38,12 @@ import { IpamSupernetChildrenResponse, IpamTreeNode, IpamTreeResponse } from './
 export class IpamTreeComponent implements OnInit, OnDestroy {
 
     /**
+     * One save writes more than once - the object, then its active state - and each write announces
+     * itself, so the reloads are collapsed into the last one instead of reloading the tree per write.
+     */
+    private static readonly REFRESH_DEBOUNCE_MS = 200;
+
+    /**
      * Sidebar expansion state forwarded from the parent sidebar.
      */
     @Input() isExpanded: boolean;
@@ -46,7 +54,7 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
      */
     @Output() expandClicked = new EventEmitter<void>();
 
-    treeControl = new NestedTreeControl<IpamTreeNode>(node => node.children);
+    childrenAccessor = (node: IpamTreeNode) => this.childStream(node);
     supernetDataSource = new MatTreeNestedDataSource<IpamTreeNode>();
     unassigned: IpamTreeNode[] = [];
 
@@ -60,22 +68,42 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
      */
     private loadingNodeIds = new Set<number>();
 
+    /**
+     * public_ids of the currently expanded supernets. Bound to the tree via `isExpanded`.
+     */
+    private expandedNodeIds = new Set<number>();
+
+    /**
+     * Children stream per node, keyed by public_id. Lazily loaded subnets are pushed into these so a
+     * branch fills in place instead of the whole tree being torn down and rebuilt.
+     */
+    private readonly childStreams = new Map<number, BehaviorSubject<IpamTreeNode[]>>();
+
     private _searchString: string = '';
+
+    /** Re-reads the tree after a network object was written elsewhere. */
+    private readonly refresh$ = new Subject<void>();
 
     private unsubscribe: ReplaySubject<void> = new ReplaySubject<void>();
 
     private readonly ipamTreeService = inject(IpamTreeService);
+    private readonly objectService = inject(ObjectService);
+    private readonly sidebarService = inject(SidebarService);
     private readonly router = inject(Router);
     private readonly cdRef = inject(ChangeDetectorRef);
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
+        this.listenForChanges();
         this.loadTree();
     }
 
 
     public ngOnDestroy(): void {
+        this.childStreams.forEach((stream) => stream.complete());
+        this.childStreams.clear();
+        this.refresh$.complete();
         this.unsubscribe.next();
         this.unsubscribe.complete();
     }
@@ -88,8 +116,8 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
      * @param node the supernet node being toggled
      */
     public onToggleSupernet(node: IpamTreeNode): void {
-        if (this.treeControl.isExpanded(node)) {
-            this.treeControl.collapse(node);
+        if (this.isNodeExpanded(node)) {
+            this.expandedNodeIds.delete(node.public_id);
             return;
         }
 
@@ -98,7 +126,33 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
             return;
         }
 
-        this.treeControl.expand(node);
+        this.expandedNodeIds.add(node.public_id);
+    }
+
+
+    /**
+     * Mirrors the tree's expansion state back onto the component, so branches opened with the
+     * keyboard (ArrowLeft/ArrowRight) stay in sync with the chevron, and lazy-loads on first expand.
+     *
+     * @param node the supernet whose expansion changed
+     * @param expanded the new expansion state
+     */
+    public onExpandedChange(node: IpamTreeNode, expanded: boolean): void {
+        if (!expanded) {
+            this.expandedNodeIds.delete(node.public_id);
+            return;
+        }
+
+        this.expandedNodeIds.add(node.public_id);
+
+        if (node.has_children && !node.children && !this.isNodeLoading(node)) {
+            this.loadChildren(node);
+            return;
+        }
+
+        // The branch opened over children that were already fetched, so the tree flattened itself
+        // before the expansion landed. Refresh the keyboard order now that both are in place.
+        this.republishTree();
     }
 
 
@@ -145,6 +199,14 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
 
 
     /**
+     * Indicates whether a supernet is currently expanded.
+     */
+    public isNodeExpanded(node: IpamTreeNode): boolean {
+        return this.expandedNodeIds.has(node.public_id);
+    }
+
+
+    /**
      * Tree predicate: a node is expandable when it announces children or already has them loaded.
      */
     hasChild = (_: number, node: IpamTreeNode): boolean =>
@@ -181,12 +243,7 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
             return false;
         }
 
-        if (this.matchesSearch(node)) {
-            return false;
-        }
-
-        const descendants = this.treeControl.getDescendants(node);
-        return !descendants.some(descendant => this.matchesSearch(descendant));
+        return !this.subtreeMatchesSearch(node);
     }
 
 
@@ -223,8 +280,32 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    private loadTree(): void {
-        this.isLoadingTree = true;
+    /**
+     * Re-reads the tree whenever a network object is written. The tree is a section of the sidebar,
+     * so it reloads on the same signal the rest of it does, and on the object writes that reach the
+     * networks themselves - a supernet added, renamed or deleted from anywhere in the app.
+     */
+    private listenForChanges(): void {
+        this.sidebarService.reloaded.pipe(takeUntil(this.unsubscribe)).subscribe(() => this.refresh$.next());
+
+        this.objectService.objectActionSource.pipe(takeUntil(this.unsubscribe))
+            .subscribe(() => this.refresh$.next());
+
+        this.refresh$
+            .pipe(debounceTime(IpamTreeComponent.REFRESH_DEBOUNCE_MS), takeUntil(this.unsubscribe))
+            .subscribe(() => this.loadTree(false));
+    }
+
+
+    /**
+     * Reads the top level of the tree.
+     *
+     * @param showSpinner whether to blank the panel while reading. A reload triggered by a write
+     *   keeps the current tree on screen instead of flashing the loading state, and re-opens the
+     *   branches that were open - the node objects are replaced, so their children are gone with them.
+     */
+    private loadTree(showSpinner: boolean = true): void {
+        this.isLoadingTree = showSpinner;
 
         this.ipamTreeService.getTree()
             .pipe(takeUntil(this.unsubscribe), finalize(() => {
@@ -232,11 +313,31 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
                 this.cdRef.markForCheck();
             }))
             .subscribe((response: IpamTreeResponse) => {
+                this.resetChildStreams();
                 this.supernetDataSource.data = response?.supernets ?? [];
                 this.unassigned = response?.unassigned ?? [];
                 this.hasSupernets = this.supernetDataSource.data.length > 0;
                 this.hasUnassigned = this.unassigned.length > 0;
+                this.restoreExpansion();
             });
+    }
+
+
+    /**
+     * Re-fetches the branches that were open before a reload. One supernet read returns its whole
+     * nested subtree, so re-reading the open top-level supernets restores the descendants too - the
+     * deeper ids are still in `expandedNodeIds` and their children arrive inline.
+     */
+    private restoreExpansion(): void {
+        if (!this.expandedNodeIds.size) {
+            return;
+        }
+
+        for (const node of this.supernetDataSource.data) {
+            if (node.has_children && !node.children && this.expandedNodeIds.has(node.public_id)) {
+                this.loadChildren(node);
+            }
+        }
     }
 
 
@@ -250,19 +351,55 @@ export class IpamTreeComponent implements OnInit, OnDestroy {
             }))
             .subscribe((response: IpamSupernetChildrenResponse) => {
                 node.children = response?.children ?? [];
-                this.refreshSupernetTree();
-                this.treeControl.expand(node);
+                this.childStream(node).next(node.children);
+                this.expandedNodeIds.add(node.public_id);
+                this.republishTree();
             });
     }
 
 
     /**
-     * Reassigns the data source so the nested tree re-renders newly loaded children.
+     * Children stream for a node, created on first use and seeded with whatever the backend already
+     * delivered inline.
      */
-    private refreshSupernetTree(): void {
-        const data = this.supernetDataSource.data;
-        this.supernetDataSource.data = [];
-        this.supernetDataSource.data = data;
+    private childStream(node: IpamTreeNode): BehaviorSubject<IpamTreeNode[]> {
+        let stream = this.childStreams.get(node.public_id);
+
+        if (!stream) {
+            stream = new BehaviorSubject<IpamTreeNode[]>(node.children ?? []);
+            this.childStreams.set(node.public_id, stream);
+        }
+
+        return stream;
+    }
+
+
+    private resetChildStreams(): void {
+        this.childStreams.forEach((stream) => stream.complete());
+        this.childStreams.clear();
+    }
+
+
+    /**
+     * Re-emits the current level so the tree rebuilds its flattened node cache. That cache — which is
+     * what arrow-key navigation walks — is a snapshot taken when a branch opens, so without this the
+     * children that arrive afterwards are skipped. The nodes keep their identity, so nothing re-renders.
+     */
+    private republishTree(): void {
+        // Deferred: the tree re-flattens several times while a branch opens, and an inline re-emit
+        // races those runs and loses. A microtask lands after the burst, on settled state.
+        Promise.resolve().then(() => {
+            this.supernetDataSource.data = [...this.supernetDataSource.data];
+        });
+    }
+
+
+    /**
+     * Case-insensitive match against a node's name or CIDR, walking the already-loaded subtree.
+     */
+    private subtreeMatchesSearch(node: IpamTreeNode): boolean {
+        return this.matchesSearch(node)
+            || (node.children ?? []).some(child => this.subtreeMatchesSearch(child));
     }
 
 

@@ -1,3 +1,11 @@
 :host {
-  display: block;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+// Reserves room for the selector dropdown so it is not clipped by the scrolling body.
+.preview-object {
+    min-height: 18rem;
 }

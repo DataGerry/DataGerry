@@ -8,6 +8,7 @@ import { SpecialTypeService } from '../../../services/special-type.service';
 import { SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 import { CmdbType } from '../../../models/cmdb-type';
 import { SpecialType } from '../../../models/special-type';
+import { LoaderService } from 'src/app/core/services/loader.service';
 
 function buildType(overrides: Partial<CmdbType> = {}): CmdbType {
     return {
@@ -33,22 +34,30 @@ describe('TypeFieldsStepComponent (type creation - content step)', () => {
     let sectionTemplateService: jasmine.SpyObj<SectionTemplateService>;
     let toastService: jasmine.SpyObj<ToastService>;
     let specialTypeService: jasmine.SpyObj<SpecialTypeService>;
+    let loaderService: jasmine.SpyObj<LoaderService>;
 
     beforeEach(async () => {
-        sectionTemplateService = jasmine.createSpyObj<SectionTemplateService>('SectionTemplateService', ['getSectionTemplates']);
+        sectionTemplateService = jasmine.createSpyObj<SectionTemplateService>(
+            'SectionTemplateService',
+            ['getSectionTemplates', 'getVirtualSectionTemplates']
+        );
         sectionTemplateService.getSectionTemplates.and.returnValue(of({ results: [], total: 0, count: 0 } as any));
+        sectionTemplateService.getVirtualSectionTemplates.and.returnValue(of([]));
 
         toastService = jasmine.createSpyObj<ToastService>('ToastService', ['error']);
 
         specialTypeService = jasmine.createSpyObj<SpecialTypeService>('SpecialTypeService', ['getCachedSchema', 'getSchema']);
         specialTypeService.getCachedSchema.and.returnValue(null);
 
+        loaderService = jasmine.createSpyObj<LoaderService>('LoaderService', ['show', 'hide']);
+
         await TestBed.configureTestingModule({
             declarations: [TypeFieldsStepComponent],
             providers: [
                 { provide: SectionTemplateService, useValue: sectionTemplateService },
                 { provide: ToastService, useValue: toastService },
-                { provide: SpecialTypeService, useValue: specialTypeService }
+                { provide: SpecialTypeService, useValue: specialTypeService },
+                { provide: LoaderService, useValue: loaderService }
             ]
         })
             .overrideComponent(TypeFieldsStepComponent, { set: { template: '' } })
@@ -91,6 +100,21 @@ describe('TypeFieldsStepComponent (type creation - content step)', () => {
             component.typeInstance = buildType({ fields: [{ name: 'f1' }] });
             component.builderValid = true;
             expect(component.status).toBeFalse();
+        });
+
+        it('is valid when the ports section is the only content', () => {
+            component.typeInstance = buildType({
+                uses_ports: true,
+                fields: [],
+                render_meta: {
+                    icon: 'fa fa-cube',
+                    sections: [{ type: 'section', name: 'dg-virtual-tpl-ports', label: 'Ports', fields: [] }],
+                    externals: [],
+                    summary: { fields: [] }
+                }
+            });
+            component.builderValid = true;
+            expect(component.status).toBeTrue();
         });
 
         it('is invalid when the embedded builder reports an invalid state', () => {
@@ -154,11 +178,33 @@ describe('TypeFieldsStepComponent (type creation - content step)', () => {
             expect(component.globalSectionTemplates.map((t) => t.name)).toEqual(['shared']);
         });
 
+        it('lists the virtual templates ahead of the stored global ones', () => {
+            component.typeInstance = buildType();
+            sectionTemplateService.getSectionTemplates.and.returnValue(of({
+                results: [{ public_id: 2, name: 'shared', label: 'Shared', is_global: true }],
+                total: 1,
+                count: 1
+            } as any));
+            sectionTemplateService.getVirtualSectionTemplates.and.returnValue(
+                of([{ name: 'dg-virtual-tpl-ports', label: 'Ports', is_global: true, predefined: true, fields: [] }] as any)
+            );
+
+            component.ngOnInit();
+
+            expect(component.globalSectionTemplates.map((t) => t.name)).toEqual(['dg-virtual-tpl-ports', 'shared']);
+
+            const items = component.paletteGroups.find(group => group.id === 'globalSectionTemplates').items;
+            expect(items.map(item => item.label)).toEqual(['Ports', 'Shared']);
+            // No public_id, so the virtual entry is listed by label alone.
+            expect(items[0].badge).toBeUndefined();
+        });
+
         it('surfaces an error toast if templates cannot be loaded', () => {
             component.typeInstance = buildType();
             sectionTemplateService.getSectionTemplates.and.returnValue(
                 throwError(() => ({ error: { message: 'templates unavailable' } }))
             );
+            sectionTemplateService.getVirtualSectionTemplates.and.returnValue(of([]));
 
             component.ngOnInit();
 
@@ -189,6 +235,75 @@ describe('TypeFieldsStepComponent (type creation - content step)', () => {
             expect(component.lockedSectionNames).toEqual([]);
             expect(component.lockedFieldNames).toEqual([]);
             expect(specialTypeService.getCachedSchema).not.toHaveBeenCalled();
+        });
+    });
+
+    /* ------------------------------------ PALETTE GROUPS ------------------------------------ */
+
+    describe('paletteGroups', () => {
+
+        it('exposes the five groups in order, with the basic controls unchanged', () => {
+            const ids = component.paletteGroups.map(group => group.id);
+
+            expect(ids).toEqual([
+                'globalSectionTemplates',
+                'sectionTemplates',
+                'structureControls',
+                'basicControls',
+                'specialControls'
+            ]);
+
+            const basic = component.paletteGroups.find(group => group.id === 'basicControls');
+            expect(basic.items.map(item => item.label.toLowerCase())).toEqual([
+                'text', 'number', 'password', 'textarea', 'checkbox', 'radio', 'select', 'date'
+            ]);
+
+            // Only the global template group starts open, so with no global templates the whole
+            // accordion starts collapsed - the palette hides empty groups.
+            expect(component.paletteGroups.filter(group => group.expanded).map(g => g.id))
+                .toEqual(['globalSectionTemplates']);
+        });
+
+
+        it('returns a STABLE reference while the templates are unchanged', () => {
+            // The canvas is OnPush: a fresh array each check would mark it, and its whole section
+            // subtree, dirty on every tick.
+            const first = component.paletteGroups;
+
+            expect(component.paletteGroups).toBe(first);
+            expect(component.paletteGroups).toBe(first);
+        });
+
+
+        it('rebuilds when the canvas splices a template out of the palette in place', () => {
+            component.globalSectionTemplates = [
+                { public_id: 7, label: 'Network', name: 'dg_gst-net', fields: [] } as any,
+                { public_id: 8, label: 'Owner', name: 'dg_gst-own', fields: [] } as any
+            ];
+
+            const before = component.paletteGroups;
+            expect(before.find(g => g.id === 'globalSectionTemplates').items.length).toBe(2);
+
+            // Applying a global template splices it out of the array in place.
+            component.globalSectionTemplates.splice(0, 1);
+
+            const after = component.paletteGroups;
+            expect(after).not.toBe(before);
+            expect(after.find(g => g.id === 'globalSectionTemplates').items.length).toBe(1);
+            expect(after.find(g => g.id === 'globalSectionTemplates').items[0].label).toBe('Owner');
+        });
+
+
+        it('renders a section template with its public id as a badge', () => {
+            component.sectionTemplates = [
+                { public_id: 12, label: 'Contact', name: 'section_template-c', fields: [] } as any
+            ];
+
+            const item = component.paletteGroups.find(g => g.id === 'sectionTemplates').items[0];
+
+            expect(item.badge).toBe('#12');
+            expect(item.label).toBe('Contact');
+            expect(item.dndType).toBe('sections');
         });
     });
 });

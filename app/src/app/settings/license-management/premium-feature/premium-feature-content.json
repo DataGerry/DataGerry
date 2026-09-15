@@ -16,14 +16,15 @@
     "ipam": {
       "title": "Unlock IPAM",
       "subtitle": "IPAM is available in the DATAGerry Self-Hosted Edition",
-      "description": "Plan and track your entire IP space in one place.",
+      "description": "Plan and track your entire IP space in one place, and map what sits in every rack.",
       "icon": "fas fa-network-wired",
       "benefits": [
         "Organize subnets and ranges",
         "Track IP assignments",
-        "Avoid address conflicts"
+        "Avoid address conflicts",
+        "Lay out racks and mounted equipment"
       ],
-      "tags": ["Subnets", "IP Tracking", "Network"]
+      "tags": ["Subnets", "IP Tracking", "Network", "Rack View"]
     },
     "isms": {
       "title": "Unlock ISMS",

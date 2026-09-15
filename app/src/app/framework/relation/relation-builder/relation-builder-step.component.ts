@@ -15,99 +15,21 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { Directive, Input } from '@angular/core';
 
-
-import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { CmdbMode } from '../../modes.enum';
-import { CmdbType } from '../../models/cmdb-type';
+import { BuilderWizardStepComponent } from 'src/app/framework/builder/wizard/builder-wizard-step.component';
 import { CmdbRelation } from '../../models/relation.model';
-
-
-/**
- * Helper component to show a builder step validation status.
- */
-@Component({
-    selector: 'cmdb-relation-builder-step-status',
-    styles: [`span i {
-    float: right;
-    padding-top: 3px;
-  }`, `.step-valid i {
-    color: #28a745;
-  }`, `.step-invalid i {
-    color: #dc3545;
-  }`],
-    template: `{{step}}:
-  @if (status) {
-<span class="step-valid">
-    <i class="far fa-check-circle"></i>
-  </span>
-}
-  @if (!status) {
-<span class="step-invalid">
-    <i class="fas fa-exclamation-circle"></i>
-  </span>
-}
-  <div class="clearfix"></div>
-  `,
-    standalone: false
-})
-export class RelationBuilderStepValidStatusComponent {
-  /**
-   * Name of the step
-   */
-  @Input() public step: string = '';
-
-  /**
-   * Validation status of the step
-   */
-  @Input() public status: boolean = true;
-}
+/* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * Abstract class for every builder step
+ * Base class for every step of the relation wizard: the shared step contract plus the relation it
+ * edits.
  */
-@Component({
-    selector: 'cmdb-relation-builder-step',
-    template: '',
-    standalone: false
-})
-export class RelationBuilderStepComponent {
+@Directive()
+export abstract class RelationBuilderStepComponent extends BuilderWizardStepComponent {
 
   /**
-   * Render Modes
-   */
-  public modes = CmdbMode;
-
-  /**
-   * Selected render mode
-   */
-  @Input() public mode: CmdbMode = CmdbMode.View;
-
-  /**
-   * Type instance
+   * Relation instance
    */
   @Input() public relationInstance: CmdbRelation;
-
-
-  /**
-   * List of possible types
-   */
-  @Input() public types: Array<CmdbType> = [];
-
-  /**
-   * Is the step valid
-   */
-  @Input() public valid: boolean = true;
-
-  /**
-   * Validation change emitter
-   */
-  @Output() public validateChange: EventEmitter<boolean> = new EventEmitter<boolean>();
-
-  /**
-   * Constructor of `TypeBuilderStepComponent`
-   */
-  public constructor() {
-  }
-
 }

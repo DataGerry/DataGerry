@@ -1,0 +1,172 @@
+:host {
+    display: block;
+}
+
+.cat-node {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 1.9rem;
+    padding: 0.1rem 0.35rem;
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    color: var(--dg-ink);
+    font-size: 0.84rem;
+    line-height: 1.3;
+    transition: background-color 160ms ease, border-color 160ms ease;
+
+    &:hover,
+    &:focus-within {
+        background: rgba(var(--dg-brand-rgb), 0.06);
+        border-color: rgba(var(--dg-brand-rgb), 0.16);
+
+        .cat-node__actions {
+            opacity: 1;
+        }
+
+        .cat-node__grip {
+            color: var(--dg-label);
+        }
+    }
+}
+
+/* Organize mode: the whole row is the drag surface, so it advertises itself as one. */
+.cat-node--organizing {
+    cursor: grab;
+
+    &:active {
+        cursor: grabbing;
+    }
+}
+
+/* ------------------------------------------------ TOGGLE / GRIP --------------------------------------------------- */
+
+.cat-node__toggle,
+.cat-node__toggle-spacer,
+.cat-node__grip {
+    flex: 0 0 auto;
+    width: 1.25rem;
+}
+
+.cat-node__toggle ::ng-deep .btn {
+    display: grid;
+    place-items: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--dg-muted);
+    font-size: 0.65rem;
+    box-shadow: none;
+    transition: color 160ms ease, background-color 160ms ease;
+
+    &:hover {
+        color: var(--dg-brand);
+        background: rgba(var(--dg-brand-rgb), 0.1);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+}
+
+.cat-node__grip {
+    display: grid;
+    place-items: center;
+    height: 1.25rem;
+    color: var(--dg-muted);
+    font-size: 0.72rem;
+    cursor: grab;
+    transition: color 160ms ease;
+}
+
+/* --------------------------------------------------- CONTENT ------------------------------------------------------ */
+
+.cat-node__chip {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 0.4rem;
+    background: rgba(var(--dg-brand-rgb), 0.1);
+    color: var(--dg-brand);
+    font-size: 0.68rem;
+    box-shadow: inset 0 0 0 1px rgba(var(--dg-brand-rgb), 0.12);
+}
+
+.cat-node__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+/* --------------------------------------------------- ACTIONS ------------------------------------------------------ */
+
+.cat-node__actions,
+.cat-node__moves {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: opacity 160ms ease;
+
+    ::ng-deep .btn {
+        display: grid;
+        place-items: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        padding: 0;
+        border-radius: 0.4rem;
+        font-size: 0.66rem;
+        line-height: 1;
+    }
+}
+
+/* Nesting controls sit on every row while organizing, so they stay quiet until used. */
+.cat-node__moves ::ng-deep .btn {
+    border: 0;
+    background: transparent;
+    color: var(--dg-muted);
+    box-shadow: none;
+    transition: color 160ms ease, background-color 160ms ease;
+
+    &:hover:not(:disabled) {
+        color: var(--dg-brand);
+        background: rgba(var(--dg-brand-rgb), 0.12);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+
+    &:disabled {
+        color: var(--dg-border);
+        opacity: 1;
+    }
+}
+
+/* Row actions are a pointer affordance; the nesting controls are always on while organizing. */
+.cat-node__actions {
+    opacity: 0;
+}
+
+/* Hover reveal is a pointer affordance - touch devices keep the actions visible. */
+@media (hover: none) {
+    .cat-node__actions {
+        opacity: 1;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .cat-node__actions {
+        opacity: 1;
+    }
+}

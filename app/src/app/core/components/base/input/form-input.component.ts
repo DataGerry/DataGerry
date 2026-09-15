@@ -32,6 +32,11 @@ import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
     standalone: false
 })
 export class FormInputComponent implements ControlValueAccessor {
+  /** Ties the label to the input; unique per instance. */
+  public readonly controlId = `form-input-${ ++FormInputComponent.instances }`;
+
+  private static instances = 0;
+
   @Input() label: string;
   @Input() placeholder: string = '';
   @Input() required: boolean = false;

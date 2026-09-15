@@ -18,9 +18,10 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { finalize, map } from 'rxjs/operators';
 
 import { ApiCallService, resp } from '../../../../../services/api-call.service';
+import { ObjectService } from '../../../../services/object.service';
 import {
     IpamAssignableObjectsParams,
     IpamAssignableObjectsResponse,
@@ -46,6 +47,7 @@ export class IpamOverviewService {
     public servicePrefix: string = 'ipam';
 
     private readonly api = inject(ApiCallService);
+    private readonly objectService = inject(ObjectService);
 
     private readonly jsonHeaders = new HttpHeaders({ 'Content-Type': 'application/json' });
 
@@ -83,7 +85,12 @@ export class IpamOverviewService {
                 { subnet_ids: subnetIds },
                 options
             )
-            .pipe(map(response => response?.body as IpamUnassignSubnetsResponse));
+            .pipe(
+                map(response => response?.body as IpamUnassignSubnetsResponse),
+                // Detaching clears dg-supernet-ref on the subnet objects, which re-shapes the
+                // network tree: the subnets leave the supernet and surface as unassigned.
+                finalize(() => this.objectService.executedAction('update'))
+            );
     }
 
 
@@ -224,7 +231,10 @@ export class IpamOverviewService {
                 { ips, mode },
                 options
             )
-            .pipe(map(response => response?.body as IpamUnassignIpsResponse));
+            .pipe(
+                map(response => response?.body as IpamUnassignIpsResponse),
+                finalize(() => this.objectService.executedAction('update'))
+            );
     }
 
 

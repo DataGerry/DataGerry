@@ -1,22 +1,35 @@
-<cmdb-table
-    [items]="failedImports"
-    [columns]="columns"
-    [sortable]="false"
-    [id]="'failed-imports-table'"
-    [stateEnabled]="false"
-    [searchEnabled]="false"
-    [totalItems]="failedImports.length"
-    [selectEnabled]="false"
-    [loading]="false"
-    [paginationEnabled]="false"
-    [pageSizeEnabled]="false"
-    [toggleable]="false"
-/>
+<div class="failed-list">
+    @for (item of items; track $index) {
+    <article class="failed-card">
+        <header class="failed-card__head">
+            <span class="failed-card__type">{{ item.typeLabel }}</span>
+            @if (item.publicId !== null) {
+            <span class="failed-card__id">#{{ item.publicId }}</span>
+            }
+        </header>
 
-<ng-template #errorTemplate let-data="data">
-    {{data}}
-</ng-template>
+        <ul class="error-chips">
+            @for (error of item.errors; track $index) {
+            <li class="error-chips__item">
+                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                <span>{{ error }}</span>
+            </li>
+            }
+        </ul>
 
-<ng-template #objectTemplate let-data="data">
-    {{data | json}}
-</ng-template>
+        @if (item.values.length > 0) {
+        <div class="failed-card__values">
+            <span class="failed-card__values-label">Submitted values</span>
+            <ul class="value-chips">
+                @for (value of item.values; track $index) {
+                <li class="value-chips__item">
+                    <span class="value-chips__key">{{ value.label }}</span>
+                    <span class="value-chips__val">{{ value.value }}</span>
+                </li>
+                }
+            </ul>
+        </div>
+        }
+    </article>
+    }
+</div>

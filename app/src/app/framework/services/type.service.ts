@@ -28,6 +28,7 @@ import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 import { CmdbType } from '../models/cmdb-type';
 import { LocationFieldUsageResponse } from '../models/location-field-usage';
+import { UsesPortsUsageResponse } from '../models/uses-ports-usage';
 import {
   APIDeleteSingleResponse,
   APIGetMultiResponse,
@@ -170,14 +171,14 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
 
 
     /**
-     * Iterate over the type collection and include object clean status.
+     * Iterate over the type collection and return the overview payload for each type.
      * @param params Instance of CollectionParameters
      * @param active Filter types by activation status. Default: Inactive types are not fetched
      */
-    public getTypesWithCleanStatus(
+    public getTypesOverview(
         params: CollectionParameters = { filter: undefined, limit: 10, sort: 'public_id', order: 1, page: 1 },
         active: boolean = false
-    ): Observable<APIGetMultiResponse<{ type_data: T; clean_status: boolean }>> {
+    ): Observable<APIGetMultiResponse<{ type_data: T }>> {
         const options = this.options;
         let httpParams: HttpParams = new HttpParams();
 
@@ -198,8 +199,8 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
         httpParams = httpParams.set('active', JSON.stringify(active));
         options.params = httpParams;
 
-        return this.api.callGet<Array<{ type_data: T; clean_status: boolean }>>(`${this.servicePrefix}/with_clean_status`, options).pipe(
-            map((apiResponse: HttpResponse<APIGetMultiResponse<{ type_data: T; clean_status: boolean }>>) => {
+        return this.api.callGet<Array<{ type_data: T }>>(`${this.servicePrefix}/overview`, options).pipe(
+            map((apiResponse: HttpResponse<APIGetMultiResponse<{ type_data: T }>>) => {
                 return apiResponse.body;
             })
         );
@@ -218,6 +219,22 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
 
         return this.api.callGet<LocationFieldUsageResponse>(`${this.servicePrefix}/location_field_usage/${publicID}`, options).pipe(
             map((apiResponse: HttpResponse<LocationFieldUsageResponse>) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Reports whether ports of a type still exist.
+     *
+     * @param publicID PublicID of the type
+     * @returns Observable resolving to { in_use, port_count, object_count }
+     */
+    public getUsesPortsUsage(publicID: number): Observable<UsesPortsUsageResponse> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<UsesPortsUsageResponse>(`${this.servicePrefix}/uses_ports_usage/${publicID}`, options).pipe(
+            map((apiResponse: HttpResponse<UsesPortsUsageResponse>) => apiResponse.body)
         );
     }
 

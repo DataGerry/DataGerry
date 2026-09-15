@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import {Component, Input, OnDestroy} from '@angular/core';
+import {Component, inject, Input, OnDestroy} from '@angular/core';
 import { Router } from '@angular/router';
 
 import { finalize, ReplaySubject, takeUntil } from 'rxjs';
@@ -30,6 +30,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { RenderResult } from '../../../models/cmdb-render';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { CableDeleteGuardService } from '../../object-view/ports-overview/services/cable-delete-guard.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -48,6 +49,8 @@ export class ObjectActionsComponent implements OnDestroy {
     public isLoading$ = this.loaderService.isLoading$;
 
     private modalRef: NgbModalRef;
+
+    private readonly cableDeleteGuard = inject(CableDeleteGuardService);
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -80,7 +83,18 @@ export class ObjectActionsComponent implements OnDestroy {
      * @param publicID public_id of object which should be deleted
      */
     public handleDelete(publicID: number){
-        // first check if the object has a location which is parent to child locations
+        // A cable a connection still holds is refused before any delete dialog opens.
+        this.cableDeleteGuard.ensureDeletable(this.renderResult).pipe(takeUntil(this.subscriber))
+        .subscribe((deletable: boolean) => {
+            if (deletable) {
+                this.confirmDelete(publicID);
+            }
+        });
+    }
+
+
+    /** Locations first: a parent of child locations needs the user to decide what goes with it. */
+    private confirmDelete(publicID: number): void {
         this.locationService.getChildren(publicID).pipe(takeUntil(this.locationSubscription))
         .subscribe({
             next: (children: RenderResult[]) => {

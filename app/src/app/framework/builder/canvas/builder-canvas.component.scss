@@ -1,0 +1,117 @@
+@import "./builder-canvas-tokens";
+
+/* --------------------------------------------- ASSEMBLY AREA (RIGHT) ---------------------------------------------- */
+
+#form-container {
+
+  // Empty canvas drop zone.
+  #form-content {
+    position: relative;
+    min-height: 3rem;
+    width: 100%;
+
+    &.empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.9rem;
+      min-height: 16rem;
+      border: 2px dashed $tb-drop-line-strong;
+      border-radius: $tb-r-lg;
+      background: radial-gradient(120% 120% at 50% 0%, $tb-surface-2, $tb-surface);
+      color: $tb-ink-3;
+      transition: all $tb-dur $tb-ease;
+
+      &:before {
+        content: "+";
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 3rem;
+        height: 3rem;
+        border: 1.5px dashed $tb-drop-line-strong;
+        border-radius: 50%;
+        background: #fff;
+        font-size: 1.5rem;
+        font-weight: 400;
+        line-height: 1;
+        color: $tb-ink-4;
+        box-shadow: $tb-sh-sm;
+        transition: all $tb-dur $tb-ease;
+      }
+
+      &:after {
+        content: attr(data-content);
+        position: static;
+        margin: 0;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        text-align: center;
+      }
+
+      &:hover {
+        border-color: $tb-accent-line;
+        background: radial-gradient(120% 120% at 50% 0%, $tb-accent-soft, $tb-surface);
+        color: darken($tb-accent, 14%);
+
+        &:before {
+          border-color: $tb-accent-line;
+          color: $tb-accent;
+        }
+      }
+    }
+  }
+
+  section {
+    margin-top: 1rem;
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  // Live drop-insertion indicator between section cards.
+  .dnd-placeholder {
+    margin: 0.4rem 0;
+    padding: 0.7rem 1rem;
+    border: 2px dashed $tb-accent;
+    border-radius: $tb-r-sm;
+    background: $tb-accent-soft;
+    color: darken($tb-accent, 14%);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: center;
+  }
+}
+
+/* ------------------------------------------------ EMPTY-STATE BALANCE ----------------------------------------------- */
+
+/*
+ * Before the first section is dropped, stretch the drop zone to fill its column so the two
+ * columns line up instead of the palette floating short at the top. The palette side of this
+ * is owned by dg-builder-palette via its `fillHeight` input.
+ */
+.builder-empty {
+
+  #form-container {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #form-content.empty {
+    flex: 1 1 auto;
+  }
+}
+
+/* -------------------------------------------- COLLAPSE PERFORMANCE -------------------------------------------- */
+
+#form-content {
+  .collapsing {
+    transition: none;
+  }
+}

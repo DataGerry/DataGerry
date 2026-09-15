@@ -1,0 +1,222 @@
+@import "./builder-canvas-tokens";
+
+:host {
+  display: block;
+}
+
+// A disabled button must still receive pointer events so its "used by external links" tooltip opens.
+button:disabled,
+button[disabled] {
+  pointer-events: auto;
+}
+
+// Section card shell.
+:host > .card {
+  border: 1px solid $tb-line;
+  border-radius: $tb-r-lg;
+  background: #fff;
+  box-shadow: $tb-sh-md;
+  transition: box-shadow $tb-dur $tb-ease;
+
+  &:hover {
+    box-shadow: $tb-sh-card-hover;
+  }
+
+  > .card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 0.85rem;
+    border-top-left-radius: calc(#{$tb-r-lg} - 1px);
+    border-top-right-radius: calc(#{$tb-r-lg} - 1px);
+    border-bottom: 1px solid $tb-line;
+    background: linear-gradient(180deg, $tb-surface-2, $tb-surface);
+    color: $tb-ink;
+    font-size: 0.9rem;
+    font-weight: 600;
+
+    // Leading section icon becomes a brand-tinted chip with an inset ring.
+    > fa-icon:first-of-type {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 1.7rem;
+      height: 1.7rem;
+      border-radius: 0.45rem;
+      background: linear-gradient(135deg, $tb-accent-soft-2, $tb-accent-soft);
+      box-shadow: inset 0 0 0 1px $tb-accent-line;
+      color: $tb-accent;
+      font-size: 0.78rem;
+    }
+
+    .float-end {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.1rem;
+      margin-left: auto;
+    }
+
+    .btn-link {
+      padding: 0.3rem;
+      border-radius: $tb-r-sm;
+      color: $tb-ink-3;
+      line-height: 1;
+      transition: all $tb-dur $tb-ease;
+
+      &:hover {
+        color: $tb-accent;
+        background: $tb-accent-soft;
+      }
+    }
+  }
+
+  > .collapse > .card-body,
+  > .card-body {
+    padding: 1.1rem;
+
+    > p {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.3rem 0 0.6rem;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: $tb-ink-3;
+
+      &:after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: $tb-line-2;
+      }
+    }
+  }
+}
+
+// Conflict highlight on a section header
+:host > .card > .card-header.highlight-section-header {
+  background: $tb-danger-soft;
+  color: $tb-danger-ink;
+}
+
+// Inner "drop fields here" zone.
+.empty-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 7rem;
+  border: 2px dashed $tb-drop-line;
+  border-radius: $tb-r-md;
+  background: $tb-surface-2;
+  transition: all $tb-dur $tb-ease;
+
+  &:after {
+    content: attr(data-content);
+    position: static;
+    margin: 0;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: $tb-ink-3;
+    text-align: center;
+  }
+}
+
+// Live drop-insertion indicator between field cards.
+.field-drop-placeholder {
+  margin: 0.4rem 0;
+  padding: 0.7rem 1rem;
+  border: 2px dashed $tb-accent;
+  border-radius: $tb-r-sm;
+  background: $tb-accent-soft;
+  color: darken($tb-accent, 14%);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+// Field card.
+.fields {
+  margin-top: 0.6rem;
+}
+
+.fields.card {
+  border: 1px solid $tb-line;
+  border-radius: $tb-r-md;
+  background: #fff;
+  box-shadow: none;
+  transition: border-color $tb-dur $tb-ease, box-shadow $tb-dur $tb-ease;
+
+  &:hover {
+    border-color: $tb-accent-line;
+    box-shadow: $tb-sh-sm;
+  }
+
+  > .card-header {
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    border-top-left-radius: calc(#{$tb-r-md} - 1px);
+    border-top-right-radius: calc(#{$tb-r-md} - 1px);
+    border-bottom: 1px solid $tb-line-2;
+    background: $tb-surface-2;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: $tb-ink-2;
+
+    > span:first-child {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-width: 0;
+
+      fa-icon {
+        color: $tb-ink-3;
+        font-size: 0.8rem;
+      }
+    }
+
+    .btn-link {
+      padding: 0.28rem;
+      border-radius: $tb-r-sm;
+      color: $tb-ink-3;
+      line-height: 1;
+      transition: all $tb-dur $tb-ease;
+
+      &:hover {
+        color: $tb-accent;
+        background: $tb-accent-soft;
+      }
+    }
+  }
+
+  > .card-body {
+    padding: 0.85rem;
+  }
+}
+
+// Locked / predefined field header.
+.fields.card > .card-header.global-section-item {
+  background: $tb-surface;
+  color: $tb-ink-3;
+}
+
+// Conflict highlight on a field header.
+.fields.card > .card-header.highlight-field-header {
+  background: $tb-danger-soft;
+  color: $tb-danger-ink;
+}
+
+.disabled {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.collapsing {
+  transition: none;
+}

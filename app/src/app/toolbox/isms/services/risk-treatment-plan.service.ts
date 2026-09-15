@@ -19,6 +19,8 @@ import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiCallService } from 'src/app/services/api-call.service';
 import { BaseApiService } from 'src/app/core/services/base-api.service';
+import { CollectionParameters } from 'src/app/services/models/api-parameter';
+import { APIGetMultiResponse } from 'src/app/services/models/api-response';
 
 @Injectable({ providedIn: 'root' })
 export class RiskTreatmentPlanService extends BaseApiService<any> {
@@ -29,9 +31,11 @@ export class RiskTreatmentPlanService extends BaseApiService<any> {
     }
 
     /**
-     * Get Risk Treatment Plan List
+     * Get a paginated Risk Treatment Plan report.
+     * Pass `limit: 0` to retrieve the full result set (used for exports).
      */
-    getRiskTreatmentPlanList(): Observable<any[]> {
-        return this.handleGetRequest<any[]>(`${this.servicePrefix}`);
+    getRiskTreatmentPlanList(params: CollectionParameters): Observable<APIGetMultiResponse<any>> {
+        const httpParams = this.buildHttpParams(params);
+        return this.handleGetRequest<APIGetMultiResponse<any>>(this.servicePrefix, httpParams);
     }
 }

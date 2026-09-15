@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
@@ -25,6 +25,8 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
 import { OptionType } from 'src/app/toolbox/isms/models/option-type.enum';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { ExtendableOptionManagerComponent } from 'src/app/core/components/extendable_option_manager/extendable-option-manager.component';
 
 import { Vulnerability } from '../../models/vulnerability.model';
 import { VulnerabilityService } from '../../services/vulnerability.service';
@@ -42,7 +44,8 @@ export class VulnerabilitiesAddComponent implements OnInit {
   public isLoading$ = this.loaderService.isLoading$;
 
   public sourceOptions: ExtendableOption[] = [];
-  public showSourceManager = false;
+
+  private readonly modalService = inject(NgbModal);
 
   public vulnerabilityForm: FormGroup;
   public vulnerability: Vulnerability = {
@@ -190,13 +193,20 @@ export class VulnerabilitiesAddComponent implements OnInit {
 
   /** Open the Source Manager (ExtendableOptionManager) for "source" */
   public openSourceManager(): void {
-    this.showSourceManager = true;
-  }
+    const modalRef = this.modalService.open(ExtendableOptionManagerComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
 
-  /** Close the Source Manager and refresh the local source list */
-  public closeSourceManager(): void {
-    this.showSourceManager = false;
-    this.loadSourceOptions();
+    modalRef.componentInstance.options = this.sourceOptions;
+    modalRef.componentInstance.optionType = OptionType.THREAT_VULNERABILITY;
+    modalRef.componentInstance.modalTitle = 'Manage Vulnerability Sources';
+    modalRef.componentInstance.itemLabel = 'Vulnerability Source';
+    modalRef.componentInstance.itemLabelPlural = 'Vulnerability Sources';
+
+    // Refresh the local source list once the manager is closed
+    modalRef.result.then(() => this.loadSourceOptions(), () => this.loadSourceOptions());
   }
 
   /** Helper for the template to show form errors */

@@ -1,0 +1,49 @@
+<div [formGroup]="form">
+    <div class="row">
+        <div class="mb-3 col-md-12">
+            <label class="mb-1">Identifier<span class="required">*</span>:</label>
+            <div class="input-group">
+                <input [formControl]="nameControl" type="text" class="form-control" name-guideline
+                    [ngClass]="{ 'is-valid': isIdentifierValid && nameControl.valid && (nameControl.dirty || nameControl.touched),
+                     'is-invalid': !isIdentifierValid || (nameControl.invalid && (nameControl.dirty || nameControl.touched))}">
+                <div class="input-group-append">
+                    <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()"
+                        [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
+                        <fa-icon [icon]="['far', 'copy']"></fa-icon>
+                    </button>
+                </div>
+            </div>
+            <cmdb-identifier-hint [control]="nameControl" hint="Use a unique identifier"></cmdb-identifier-hint>
+            @if ((!isIdentifierValid && !nameControl.errors?.reservedPrefix) || (nameControl.errors?.required && (nameControl.dirty || nameControl.touched))) {
+            <div class="d-flex justify-content-end">
+                @if (!isIdentifierValid && !nameControl.errors?.reservedPrefix) {
+                <small class="form-text text-danger text-end">
+                    Identifier must be unique
+                </small>
+                }
+                @if (nameControl.errors?.required) {
+                <small class="form-text text-danger text-end">
+                    Identifier is a required field
+                </small>
+                }
+            </div>
+            }
+            <!-- <div class="clearfix"></div> -->
+        </div>
+        <div class="mb-3 col-md-12">
+            <label class="mb-1">Label<span class="required">*</span>:</label>
+            <input [formControl]="labelControl" type="text" class="form-control" [ngClass]="{ 'is-valid': labelControl.valid && (labelControl.dirty || labelControl.touched),
+                 'is-invalid': labelControl.invalid && (labelControl.dirty || labelControl.touched)}">
+            <small class="form-text text-muted text-start">Static display name</small>
+            @if (labelControl.invalid && (labelControl.dirty || labelControl.touched)) {
+            <div class="invalid-feedback">
+                @if (labelControl.errors?.required) {
+                <div class="text-end">
+                    Label is a required field
+                </div>
+                }
+            </div>
+            }
+        </div>
+    </div>
+</div>

@@ -1,0 +1,135 @@
+<cmdb-table
+  class="ports-table"
+  [id]="'object-ports-table'"
+  [items]="rows"
+  [columns]="columns"
+  [initialVisibleColumns]="visibleColumns"
+  [totalItems]="totalRows"
+  [page]="page"
+  [pageSize]="pageSize"
+  [sort]="sort"
+  [loading]="loading"
+  [selectEnabled]="false"
+  [toggleable]="false"
+  [searchEnabled]="false"
+  [paginationEnabled]="true"
+  [pageSizeEnabled]="true"
+  [emptyMessage]="'No ports to display.'"
+  (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)"
+  (sortChange)="onSortChange($event)">
+</cmdb-table>
+
+<ng-template #nameTemplate let-data="data">
+  @if (data) {
+    <span class="ports-name">{{ data }}</span>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #sideTemplate let-data="data">
+  @if (data) {
+    <span class="ports-badge">{{ data }}</span>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #statusTemplate let-data="data">
+  @if (data) {
+    <span class="ports-badge ports-badge--status">{{ data }}</span>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #connectionTemplate let-item="item">
+  <div class="ports-connection">
+    <span
+      class="ports-state"
+      [class.ports-state--connected]="item.connectionState === connectionState.CABLED"
+      [class.ports-state--paired]="item.connectionState === connectionState.PAIRED">
+      <span class="ports-state__dot" aria-hidden="true"></span>
+      {{ item.connectionLabel }}
+    </span>
+
+    <!-- A panel port can hold a cable and its pairing at once, so the pairing is named as well. -->
+    @if (item.pairedPortName && item.connectionState === connectionState.CABLED) {
+      <small class="ports-connection__pair">Paired with {{ item.pairedPortName }}</small>
+    }
+  </div>
+</ng-template>
+
+<ng-template #valueTemplate let-data="data">
+  @if (data !== null && data !== undefined && data !== '') {
+    <span>{{ data }}</span>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #actionsTemplate let-item="item">
+  @if (hasRowActions(item)) {
+    <div class="ports-row-actions" ngbDropdown container="body" placement="bottom-end">
+      <!-- Native trigger: the ngb toggle needs the focusable host for its ARIA and arrow-key handling. -->
+      <button
+        type="button"
+        class="ports-row-actions__trigger"
+        ngbDropdownToggle
+        title="Port actions"
+        attr.aria-label="Actions for port {{ item.name }}">
+        <i class="fas fa-ellipsis-v" aria-hidden="true"></i>
+      </button>
+
+      <div ngbDropdownMenu class="ports-row-menu" attr.aria-label="Actions for port {{ item.name }}">
+        @if (canConnect && !item.cableConnectionId) {
+          <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onConnectPort(item)">
+            <i class="fas fa-link ports-row-menu__icon" aria-hidden="true"></i>
+            <span>Connect</span>
+          </button>
+        }
+        @if (canEditConnection && item.cableConnectionId) {
+          <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onEditConnection(item)">
+            <i class="fas fa-plug ports-row-menu__icon" aria-hidden="true"></i>
+            <span>Edit cable</span>
+          </button>
+        }
+        @if (canDisconnect && item.cableConnectionId) {
+          <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onDisconnectPort(item)">
+            <i class="fas fa-unlink ports-row-menu__icon" aria-hidden="true"></i>
+            <span>Disconnect</span>
+          </button>
+        }
+        @if (canViewInterfaces) {
+          @if (hasConnectionActions(item)) {
+            <div class="ports-row-menu__divider" role="separator"></div>
+          }
+
+          <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onManageInterfaces(item)">
+            <i class="fas fa-network-wired ports-row-menu__icon" aria-hidden="true"></i>
+            <span>Manage interfaces</span>
+          </button>
+        }
+
+        @if ((hasConnectionActions(item) || canViewInterfaces) && (canEdit || canDelete)) {
+          <div class="ports-row-menu__divider" role="separator"></div>
+        }
+        @if (canEdit) {
+          <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onEditPort(item)">
+            <i class="fas fa-edit ports-row-menu__icon" aria-hidden="true"></i>
+            <span>Edit port</span>
+          </button>
+        }
+        @if (canDelete) {
+          <button type="button" ngbDropdownItem class="ports-row-menu__item ports-row-menu__item--danger" (click)="onDeletePort(item)">
+            <i class="fas fa-trash-alt ports-row-menu__icon" aria-hidden="true"></i>
+            <span>Delete port</span>
+          </button>
+        }
+      </div>
+    </div>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>

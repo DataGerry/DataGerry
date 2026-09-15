@@ -1,3 +1,145 @@
-.min-h{
-  min-height: 15px;
+
+:host {
+    --tree-indent: 1.5rem;
+    /* Distance from a row's left edge to the guide, so the thread drops out of the parent's own
+       toggle/grip column instead of floating to the left of everything. */
+    --tree-thread: 1rem;
+    --tree-line: rgba(15, 23, 42, 0.18);
+    --tree-row-center: 0.95rem;
+
+    display: block;
+}
+
+.dg-tree__list {
+    margin: 0;
+    padding-left: var(--tree-indent);
+    list-style: none;
+}
+
+/* A childless node renders no list in view mode; this only guards leftovers. */
+.dg-tree__list:not(.dg-tree__list--dnd):empty {
+    display: none;
+}
+
+.dg-tree__item {
+    position: relative;
+
+    /* One continuous guide per level, no horizontal ticks. A tick either stops short of the row -
+       and then the guides read as a rail standing beside the tree - or it reaches the icon chip and
+       turns every row into a long dash. The vertical alone carries the nesting. */
+    &::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: calc(var(--tree-thread) - var(--tree-indent));
+        width: 1px;
+        background: var(--tree-line);
+        pointer-events: none;
+    }
+
+    /* The guide ends at the last row of its group instead of running past it, so it reads as
+       structure rather than decoration. */
+    &:last-child::before {
+        bottom: calc(100% - var(--tree-row-center));
+    }
+}
+
+/* A nested group hangs off its parent row, so its guide starts at that row's centre. The root tier
+   has no row above it and simply starts at the top of the list. */
+.dg-tree__list:not(.dg-tree__list--root) > .dg-tree__item:first-child::before {
+    top: calc(var(--tree-row-center) * -1);
+}
+
+/* Pointing at a row lights up the guide of its group and of every group above it, so the ancestry of
+   a deep row can be read at a glance instead of traced along a hairline. Nothing changes at rest. */
+.dg-tree__list:hover > .dg-tree__item::before {
+    background: rgba(var(--dg-brand-rgb), 0.5);
+}
+
+/* ----------------------------------------------- ORGANIZE (DND) ---------------------------------------------------- */
+
+/* Keeps an empty children list hittable so a node can be nested under a childless category.
+   Slim at rest, opened up while a drag is running so the target is easy to hit. */
+.dg-tree__list--dnd {
+    min-height: 0.45rem;
+    border-radius: 0.5rem;
+    transition: background-color 160ms ease, outline-color 160ms ease;
+    outline: 1px dashed transparent;
+    outline-offset: -1px;
+
+    &.dndDragover {
+        background: rgba(var(--dg-brand-rgb), 0.07);
+        outline-color: rgba(var(--dg-brand-rgb), 0.45);
+    }
+}
+
+/* Opened up while a drag runs so the nesting targets are easy to hit; they stay invisible until
+   hovered - the drop preview is what tells the user where the row will land. */
+:host-context(.cat-tree--dragging) .dg-tree__list--dnd {
+    min-height: 1.35rem;
+}
+
+/* The placeholder keeps the item connectors, so it lands in the tree at the exact depth the drop
+   will produce - the user sees the resulting structure instead of a floating bar. Its dashed frame
+   starts at the row edge. */
+.dg-tree__placeholder {
+    list-style: none;
+}
+
+.dg-tree__ghost {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 1.9rem;
+    padding: 0.1rem 0.5rem 0.1rem 0.35rem;
+    border: 1px dashed rgba(var(--dg-brand-rgb), 0.55);
+    border-radius: 0.5rem;
+    background: rgba(var(--dg-brand-rgb), 0.08);
+    color: var(--dg-brand-ink);
+    font-size: 0.84rem;
+}
+
+.dg-tree__ghost-chip {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 0.4rem;
+    background: rgba(var(--dg-brand-rgb), 0.16);
+    color: var(--dg-brand);
+    font-size: 0.68rem;
+}
+
+.dg-tree__ghost-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+/* Only a placeholder alone in a list means the drop nests the row under that category. */
+.dg-tree__ghost-hint {
+    display: none;
+    font-size: 0.68rem;
+    font-weight: 500;
+    opacity: 0.75;
+}
+
+.dg-tree__placeholder:only-child .dg-tree__ghost-hint {
+    display: inline;
+}
+
+/* The row being dragged steps back so the preview reads as its new position. */
+.dg-tree__item.dndDraggingSource {
+    opacity: 0.35;
+}
+
+@media (max-width: 575.98px) {
+    :host {
+        --tree-indent: 1.2rem;
+        --tree-thread: 0.9rem;
+    }
 }

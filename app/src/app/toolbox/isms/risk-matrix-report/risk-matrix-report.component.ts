@@ -145,7 +145,11 @@ export class RiskMatrixReportComponent implements OnInit {
     /* open list of assessments in a modal */
     onCell(ids: number[]): void {
         if (!ids?.length) { return; }
-        const ref = this.modal.open(RiskAssessmentDrilldownModalComponent, { size: 'xl' });
+        const ref = this.modal.open(RiskAssessmentDrilldownModalComponent, {
+            size: 'xl',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         ref.componentInstance.assessmentIds = ids;
     }
 
@@ -159,6 +163,9 @@ export class RiskMatrixReportComponent implements OnInit {
 
         this.loader.show();
         try {
+            /* let the browser paint before the blocking capture */
+            await new Promise<void>(resolve => setTimeout(resolve));
+
             /* snapshot */
             const canvas = await html2canvas(this.reportContent.nativeElement, {
                 backgroundColor: '#ffffff',

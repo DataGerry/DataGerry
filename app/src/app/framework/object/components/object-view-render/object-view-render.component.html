@@ -5,5 +5,15 @@
             [renderForm]="renderForm"
             [renderResult]="renderResult"
         />
+
+        <!-- Ports are not part of the type's sections, so they are appended as one of their own. -->
+        @if (portsAvailable) {
+        <cmdb-ports-overview
+            *permissionLink="[portViewRight]"
+            [objectId]="objectId"
+            [objectLabel]="objectLabel"
+            [manageable]="true"
+        />
+        }
     </div>
 </div>

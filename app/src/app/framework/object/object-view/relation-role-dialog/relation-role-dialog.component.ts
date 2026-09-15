@@ -18,16 +18,16 @@
 import {
   Component,
   Input,
-  Output,
-  EventEmitter,
   OnInit,
   OnDestroy,
   computed,
+  inject,
   ChangeDetectionStrategy,
   ChangeDetectorRef
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
-import { finalize, Subject } from 'rxjs';
+import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
+import { finalize, Subject, takeUntil } from 'rxjs';
 import { CmdbMode } from 'src/app/framework/modes.enum';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CmdbRelation } from 'src/app/framework/models/relation.model';
@@ -39,7 +39,7 @@ import { UserService } from 'src/app/management/services/user.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 
 /**
- * Component for managing relationships between CMDB objects.
+ * Modal for managing relationships between CMDB objects.
  * Supports creating, editing, and viewing relationships based on user selection.
  *
  * Object selection is delegated to the reusable app-object-selector, which
@@ -62,12 +62,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   @Input() mode: CmdbMode = CmdbMode.Create;
   @Input() relationInstance: any = null; // Pre-filled relation instance
 
-  @Output() onConfirm = new EventEmitter<{
-    parentObjID: number;
-    childObjID: number;
-    relationData?: any;
-  }>();
-  @Output() onCancel = new EventEmitter<void>();
+  public readonly activeModal = inject(NgbActiveModal);
 
   public form: FormGroup;
   public relationForm: FormGroup;
@@ -118,6 +113,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     this.initializeForms();
     this.setupVisibility();
     this.initializeSelectors();
+    this.watchAttributeValidity();
     this.cdr.detectChanges();
   }
 
@@ -150,6 +146,13 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
    * Handles confirmation action by emitting selected relation data.
    */
   confirm(): void {
+    if (this.relationForm.invalid) {
+      this.relationForm.markAllAsTouched();
+      this.toastService.error('Please fill in all required fields');
+      this.cdr.markForCheck();
+      return;
+    }
+
     const parentObjID = this.form.get('parent')?.value ?? this.currentObjectID;
     const childObjID = this.form.get('child')?.value ?? this.currentObjectID;
 
@@ -187,7 +190,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
         .subscribe({
           next: (res) => {
             this.toastService.success(`Relation updated successfully`);
-            this.onConfirm.emit({ parentObjID, childObjID, relationData: res });
+            this.activeModal.close({ parentObjID, childObjID, relationData: res });
           },
           error: (err) => {
             this.toastService.error(err?.error?.message);
@@ -200,7 +203,7 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
         .subscribe({
           next: (res) => {
             this.toastService.success(`Relation created successfully`);
-            this.onConfirm.emit({ parentObjID, childObjID, relationData: res });
+            this.activeModal.close({ parentObjID, childObjID, relationData: res });
           },
           error: (err) => {
             this.toastService.error(err?.error?.message);
@@ -216,6 +219,9 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     if (this.mode === CmdbMode.View) {
       return true;
     }
+    if (this.relationForm.invalid) {
+      return true;
+    }
     if (this.chosenRole === 'parent') {
       const childValue = this.form.get('child')?.value;
       return !childValue || childValue === this.currentObjectID;
@@ -227,10 +233,10 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Emits a cancel event to close the dialog.
+   * Dismisses the dialog without persisting anything.
    */
   back(): void {
-    this.onCancel.emit();
+    this.activeModal.dismiss('cancel');
   }
 
   /**
@@ -304,6 +310,16 @@ export class RelationRoleDialogComponent implements OnInit, OnDestroy {
     }
 
     this.cdr.detectChanges();
+  }
+
+  /**
+   * Keeps the confirm button in sync with the attribute form, whose controls
+   * (and their required/regex validators) are added by the field renderers.
+   */
+  private watchAttributeValidity(): void {
+    this.relationForm.statusChanges
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => this.cdr.markForCheck());
   }
 
   /**

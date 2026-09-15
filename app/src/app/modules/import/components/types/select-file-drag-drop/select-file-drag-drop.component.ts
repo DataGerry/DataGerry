@@ -15,10 +15,16 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
+import { Component, EventEmitter, OnDestroy, Output } from '@angular/core';
+import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 
-import { UntypedFormGroup} from '@angular/forms';
+import { ImportTypeEntry } from '../../../models/import-type.models';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+export interface ParsedTypeFile {
+    file: File;
+    types: ImportTypeEntry[];
+}
 
 @Component({
     selector: 'cmdb-select-file-drag-drop',
@@ -26,34 +32,125 @@ import { UntypedFormGroup} from '@angular/forms';
     styleUrls: ['./select-file-drag-drop.component.scss'],
     standalone: false
 })
-export class SelectFileDragDropComponent {
-    @Input() formGroup: UntypedFormGroup;
-    public syntaxError: boolean = false;
+export class SelectFileDragDropComponent implements OnDestroy {
+
+    /** Emitted once the picked file was read and decoded into a list of types. */
+    @Output() public fileParsed = new EventEmitter<ParsedTypeFile>();
+
+    /** Emitted whenever the current selection becomes unusable (removed or not decodable). */
+    @Output() public fileCleared = new EventEmitter<void>();
+
+    public readonly fileForm = new UntypedFormGroup({
+        file: new UntypedFormControl(null, Validators.required)
+    });
+
+    public parsedTypes: ImportTypeEntry[] = [];
+    public parseError = '';
+    public isParsing = false;
+
+    private readonly fileReader = new FileReader();
+    private pendingFile: File | null = null;
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                     LIFE CYCLE                                                     */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+    public constructor() {
+        this.fileReader.onload = () => this.decodeFileContent(this.fileReader.result);
+        this.fileReader.onerror = () => this.rejectFile('The file could not be read. Please try again.');
+    }
 
 
-    uploadFile(event) {
-        const file = event[0];
-        const fileReader = new FileReader();
-        fileReader.readAsText(file, 'UTF-8');
+    public ngOnDestroy(): void {
+        this.abortPendingRead();
+    }
 
-        fileReader.onload = () => {
-            if (typeof fileReader.result === 'string') {
-                this.syntaxError = false;
-                this.formGroup.get('format').setValue(event[0].type);
-                this.formGroup.get('name').setValue(event[0].name);
-                this.formGroup.get('size').setValue(event[0].size);
+/* ------------------------------------------------- GETTER / SETTER ------------------------------------------------ */
 
-                try {
-                    this.formGroup.get('file').setValue(JSON.parse(fileReader.result));
-                } catch (err) {
-                    this.syntaxError = true;
-                    this.formGroup.get('file').setValue(null);
-                }
-            }
-        };
+    public get canContinue(): boolean {
+        return this.parsedTypes.length > 0 && !this.parseError && !this.isParsing;
+    }
 
-        fileReader.onerror = (error) => {
-            this.syntaxError = true;
-        };
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    public onFileSelected(file: File): void {
+        this.abortPendingRead();
+        this.resetState();
+        this.pendingFile = file;
+        this.isParsing = true;
+        this.fileReader.readAsText(file, 'UTF-8');
+    }
+
+
+    public onFileCleared(): void {
+        this.abortPendingRead();
+        this.resetState();
+        this.fileCleared.emit();
+    }
+
+
+    /** A file refused by the dropzone filter must not leave a previously parsed upload behind. */
+    public onFileRejected(): void {
+        this.onFileCleared();
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** Turns the raw file content into the list of types the following steps work on. */
+    private decodeFileContent(content: string | ArrayBuffer | null): void {
+        const file = this.pendingFile;
+
+        if (!file || typeof content !== 'string') {
+            this.rejectFile('The file could not be read. Please try again.');
+            return;
+        }
+
+        let decoded: unknown;
+
+        try {
+            decoded = JSON.parse(content);
+        } catch {
+            this.rejectFile('This file is not valid JSON. Please upload a type export created by DATAGerry.');
+            return;
+        }
+
+        if (!Array.isArray(decoded)) {
+            this.rejectFile('The file must contain a JSON list of types.');
+            return;
+        }
+
+        if (decoded.length === 0) {
+            this.rejectFile('The file does not contain any types.');
+            return;
+        }
+
+        this.isParsing = false;
+        this.parsedTypes = decoded as ImportTypeEntry[];
+        this.fileParsed.emit({ file, types: this.parsedTypes });
+    }
+
+
+    /** Keeps the file visible in the dropzone but blocks the step until a usable file is picked. */
+    private rejectFile(message: string): void {
+        this.isParsing = false;
+        this.parsedTypes = [];
+        this.parseError = message;
+        this.fileCleared.emit();
+    }
+
+
+    private resetState(): void {
+        this.isParsing = false;
+        this.parsedTypes = [];
+        this.parseError = '';
+        this.pendingFile = null;
+    }
+
+
+    /** Keeps a superseded read from resolving onto the newly picked file. */
+    private abortPendingRead(): void {
+        if (this.fileReader.readyState === FileReader.LOADING) {
+            this.fileReader.abort();
+        }
     }
 }

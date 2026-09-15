@@ -60,7 +60,7 @@
           <span>
             <i class="{{item?.type_information?.icon}}"></i>
             {{item?.type_information?.type_label}} #</span>{{item?.object_information?.object_id}}
-          @for (sum of item?.summaries; track sum; let last = $last; let first = $first) {
+          @for (sum of item?.summaries; track $index; let last = $last; let first = $first) {
           <span>
             @if (sum.type != 'date') {
 
@@ -91,7 +91,7 @@
           </div>
           <small>
             <b>Summary:</b>
-            @for (sum of item?.summaries; track sum; let last = $last) {
+            @for (sum of item?.summaries; track $index; let last = $last) {
             <span>
               {{sum.value ? (sum.value | dateFormatter) : 'None'}}
               @if (!last) {

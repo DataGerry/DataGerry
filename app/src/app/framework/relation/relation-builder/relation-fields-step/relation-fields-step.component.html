@@ -10,8 +10,9 @@
     </div>
   </div>
 }
-<cmdb-builder 
-    [relationInstance]="relationInstance"
+<dg-builder-canvas
+    [schema]="schema"
+    [paletteGroups]="paletteGroups"
     [mode]="mode"
     (validChange)="onBuilderValidChange($event)">
-</cmdb-builder>
+</dg-builder-canvas>

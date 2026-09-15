@@ -31,7 +31,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
-import { ValidationService } from '../../services/validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
 import { SpecialTypeSchemaContent, SpecialTypeSchemaMapper } from '../utils/special-type-schema.mapper';
 
 
@@ -55,6 +55,9 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
 
   public lockedSpecialTypeOptions: Array<SpecialTypeOption & { disabled: true }> = [];
 
+  // Edit mode only: the special type the type was created with, rendered as a disabled dropdown.
+  public assignedSpecialTypeOptions: Array<SpecialTypeOption> = [];
+
   private specialTypeSchemaFieldNames: Set<string> = new Set<string>();
   private specialTypeSchemaSectionNames: Set<string> = new Set<string>();
   private previouslySelectedSpecialType: SpecialType | null = null;
@@ -75,7 +78,7 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
         active: this.typeInstance.active,
         icon: this.typeInstance.render_meta.icon,
         ci_explorer_color: instance.ci_explorer_color || '#8896a5',  // fallback
-        special_type: this.mode === CmdbMode.Create ? normalizedSpecialType : null
+        special_type: normalizedSpecialType
       });
     }
   }
@@ -112,6 +115,7 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
       });
     } else if (this.mode === CmdbMode.Edit) {
       this.form.markAllAsTouched();
+      this.showAssignedSpecialType();
     }
     this.form.valueChanges.pipe(takeUntil(this.subscriber)).subscribe((changes: any) => {
       this.assign(changes);
@@ -185,6 +189,51 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   /** Opens the upgrade showcase for IPAM from the locked special-type field. */
   public promptIpamUpgrade(): void {
     this.premiumFeatureService.promptUpgrade(LicenseFeature.Ipam);
+  }
+
+
+  public get hasAssignedSpecialType(): boolean {
+    return this.assignedSpecialTypeOptions.length > 0;
+  }
+
+
+  /**
+   * Edit mode: the special type is fixed once the type exists, so it is shown as a disabled
+   * dropdown carrying the assigned value. The label is resolved from the full special-type list,
+   * because the "available" list no longer offers a type that is already claimed.
+   */
+  private showAssignedSpecialType(): void {
+    const assignedSpecialType = this.normalizeSpecialTypeValue(this.typeInstance?.special_type);
+
+    if (!assignedSpecialType) {
+      return;
+    }
+
+    this.specialType.patchValue(assignedSpecialType, { emitEvent: false });
+    this.specialType.disable({ emitEvent: false });
+    this.assignedSpecialTypeOptions = [this.buildAssignedSpecialTypeOption(assignedSpecialType, '')];
+
+    this.loaderService.show();
+    this.specialTypeService.getAllSpecialTypes().pipe(
+      takeUntil(this.subscriber),
+      finalize(() => this.loaderService.hide())
+    ).subscribe({
+      next: (specialTypes: Record<string, string>) => {
+        const description = (specialTypes ?? {})[assignedSpecialType] ?? '';
+        this.assignedSpecialTypeOptions = [this.buildAssignedSpecialTypeOption(assignedSpecialType, description)];
+      },
+      // The field already shows the raw token, so a failed label lookup is not worth a toast
+      error: () => undefined
+    });
+  }
+
+
+  private buildAssignedSpecialTypeOption(specialType: SpecialType, description: string): SpecialTypeOption {
+    return {
+      value: specialType,
+      label: description ? `${specialType} - ${description}` : specialType,
+      description
+    };
   }
 
 
@@ -318,8 +367,27 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   private setActiveSpecialType(specialType: SpecialType): void {
     this.typeInstance.special_type = specialType;
     this.previouslySelectedSpecialType = specialType;
+
+    if (specialType === SpecialType.RACK) {
+      this.enforceRackParentSelection();
+    }
+
     this.validationService.setSectionHighlightState(false);
     this.validationService.setFieldHighlightState(false);
+  }
+
+
+  /**
+   * A rack carries its mounted objects through their location nodes, so a rack type has to stay
+   * selectable as a parent location.
+   */
+  private enforceRackParentSelection(): void {
+    this.typeInstance.selectable_as_parent = true;
+
+    // The location field config seeds its toggle from the field, so keep both in sync.
+    (this.typeInstance.fields ?? [])
+      .filter((field) => field?.type === 'location')
+      .forEach((field) => field.selectable_as_parent = true);
   }
 
 

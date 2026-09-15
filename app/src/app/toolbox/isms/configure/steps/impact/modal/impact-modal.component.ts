@@ -153,7 +153,11 @@ export class ImpactModalComponent implements OnInit {
                             this.ismsService.getIsmsValidationStatus().subscribe({
                                 next: (status) => {
                                     if (status?.risk_matrix) {
-                                        const modalRef = this.modalService.open(CoreWarningModalComponent, { centered: true });
+                                        const modalRef = this.modalService.open(CoreWarningModalComponent, {
+                                            centered: true,
+                                            windowClass: 'dg-modal-window',
+                                            backdropClass: 'dg-modal-window-backdrop'
+                                        });
                                         modalRef.componentInstance.title = 'Risk Matrix Needs Review';
                                         modalRef.componentInstance.message = 'You have modified the calculation basis for Impact. Please review the Risk Matrix accordingly to reflect these changes.';
                                         modalRef.componentInstance.cancelLabel = 'Continue';

@@ -86,6 +86,7 @@ const routes: Routes = [
         canActivateChild: [PermissionGuard],
         data: {
             breadcrumb: 'Object Groups',
+            right: 'base.framework.objectGroup.view',
             premiumFeature: LicenseFeature.Isms
         },
         loadChildren: () => import('./object_groups/object-groups.module').then(m => m.ObjectGroupsModule),

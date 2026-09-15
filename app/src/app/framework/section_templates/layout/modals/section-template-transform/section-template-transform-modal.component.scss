@@ -1,4 +1,34 @@
-.warning-text{
-    color: red;
-    text-align: center;
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.transform-lead {
+    margin: 0 0 1.1rem;
+    font-size: 0.95rem;
+    color: var(--dg-label);
+}
+
+.transform-callout {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.9rem 1rem;
+    border-radius: var(--dg-radius-md);
+    border: 1px solid rgba(var(--dg-danger-rgb), 0.25);
+    background: rgba(var(--dg-danger-rgb), 0.06);
+
+    &__icon {
+        flex: 0 0 auto;
+        font-size: 1.15rem;
+        color: var(--dg-danger);
+    }
+
+    &__text {
+        font-size: 0.875rem;
+        line-height: 1.4;
+        color: var(--dg-muted);
+    }
 }

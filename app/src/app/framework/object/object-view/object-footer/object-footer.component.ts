@@ -16,11 +16,21 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, inject, Input, OnChanges, SimpleChanges, ChangeDetectorRef } from '@angular/core';
+import { Component, inject, Input, OnChanges, ChangeDetectorRef } from '@angular/core';
 
 import { RenderResult } from '../../../models/cmdb-render';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+
+/** The tabs the footer card can show. */
+type ObjectFooterTab =
+  | 'risk-assessments'
+  | 'references'
+  | 'logs'
+  | 'relation-logs'
+  | 'summaries'
+  | 'metadata'
+  | 'qr';
 
 @Component({
   selector: 'cmdb-object-footer',
@@ -32,6 +42,12 @@ export class ObjectFooterComponent implements OnChanges {
 
   public objectID: number;
   public readonly LicenseFeature = LicenseFeature;
+
+  public activeTab: ObjectFooterTab = 'risk-assessments';
+
+  /** Tab panes mount on first activation so unopened tabs never fire their API calls. */
+  private readonly mountedTabs = new Set<ObjectFooterTab>([this.activeTab]);
+
   private rr: RenderResult;
 
   private readonly premiumFeatureService = inject(PremiumFeatureService);
@@ -45,7 +61,7 @@ export class ObjectFooterComponent implements OnChanges {
   public set renderResult(rr) {
     if (rr !== undefined) {
       this.rr = rr;
-      this.objectID = rr.object_information.object_id;
+      this.setObjectID(rr.object_information.object_id);
     }
   }
 
@@ -55,8 +71,33 @@ export class ObjectFooterComponent implements OnChanges {
 
   private readonly changesRef = inject(ChangeDetectorRef);
 
-  public ngOnChanges(changes: SimpleChanges): void {
-    this.objectID = this.renderResult.object_information.object_id;
+  public ngOnChanges(): void {
+    this.setObjectID(this.renderResult.object_information.object_id);
     this.changesRef.markForCheck();
+  }
+
+  /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+  public selectTab(tab: ObjectFooterTab): void {
+    this.activeTab = tab;
+    this.mountedTabs.add(tab);
+  }
+
+  /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+  public isTabMounted(tab: ObjectFooterTab): boolean {
+    return this.mountedTabs.has(tab);
+  }
+
+  /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+  /** A different object invalidates what the previously opened tabs loaded. */
+  private setObjectID(objectID: number): void {
+    if (this.objectID !== objectID) {
+      this.mountedTabs.clear();
+      this.mountedTabs.add(this.activeTab);
+    }
+
+    this.objectID = objectID;
   }
 }

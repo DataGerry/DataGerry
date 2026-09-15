@@ -1,0 +1,68 @@
+<dg-modal
+    icon="fas fa-trash-can"
+    eyebrow="Category"
+    title="Delete Category"
+    [subtitle]="category?.label"
+    (dismiss)="modal.dismiss('cancel')">
+
+    <p class="delete-lead">
+        Do you want to <b>delete</b> the Category <b>"{{ category?.name }}"</b>?
+    </p>
+
+    <app-warning-alert
+        title="Warning:"
+        message="All types inside this category will be unassigned. This operation cannot be undone!"
+        iconClass="fas fa-triangle-exclamation">
+    </app-warning-alert>
+
+    <form id="deleteCategoryModalForm" [formGroup]="deleteCategoryModalForm" novalidate autocomplete="off">
+        <div class="confirm-field">
+            <label class="confirm-label" for="categoryNameInput">
+                Type in the name: {{ category?.name }}<span class="confirm-required">*</span>
+            </label>
+
+            <input
+                type="text"
+                id="categoryNameInput"
+                formControlName="name"
+                class="form-control"
+                aria-describedby="categoryNameInputHelp"
+                [class.is-valid]="name.valid && (name.dirty || name.touched)"
+                [class.is-invalid]="name.invalid && (name.dirty || name.touched)"
+                required>
+
+            <small class="confirm-hint" id="categoryNameInputHelp">
+                Type in the name of the category to confirm the deletion.
+            </small>
+
+            @if (name.invalid && (name.dirty || name.touched)) {
+            <div class="invalid-feedback">
+                @if (name.errors.required) {
+                <span>Name is required</span>
+                }
+                @if (name.errors.notequal) {
+                <span>Your answer is not equal!</span>
+                }
+            </div>
+            }
+        </div>
+    </form>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        label="Close"
+        type="button"
+        (clicked)="modal.dismiss('cancel')">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-danger"
+        label="Delete"
+        type="button"
+        icon="fas fa-trash-can"
+        [disabled]="deleteCategoryModalForm.invalid"
+        (clicked)="modal.close('delete')">
+    </app-button>
+</dg-modal>

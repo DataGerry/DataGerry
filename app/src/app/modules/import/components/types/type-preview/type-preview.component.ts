@@ -15,8 +15,13 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input } from '@angular/core';
-import { UntypedFormGroup} from '@angular/forms';
+import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
+import { FormControl, FormGroup } from '@angular/forms';
+
+import { Subscription } from 'rxjs';
+
+import { ImportTypeAction, ImportTypeEntry } from '../../../models/import-type.models';
+import { TypePreviewRow, buildTypePreviewRows, filterTypePreviewRows } from './type-preview.row';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -25,28 +30,75 @@ import { UntypedFormGroup} from '@angular/forms';
     styleUrls: ['./type-preview.component.scss'],
     standalone: false
 })
-export class TypePreviewComponent {
-    private fileForm: UntypedFormGroup;
-    public filterTypes: string = '';
+export class TypePreviewComponent implements OnInit, OnChanges, OnDestroy {
 
+    @Input() public types: ImportTypeEntry[] = [];
+    @Input() public action: ImportTypeAction = 'create';
 
-    @Input('data')
-    public set data(value: UntypedFormGroup) {
-        this.fileForm = value;
+    @Output() public actionChange = new EventEmitter<ImportTypeAction>();
+
+    /** Index of the entry the user removed from the upload. */
+    @Output() public typeRemoved = new EventEmitter<number>();
+
+    public readonly previewForm = new FormGroup({
+        action: new FormControl<ImportTypeAction>('create', { nonNullable: true }),
+        search: new FormControl('', { nonNullable: true })
+    });
+
+    public rows: TypePreviewRow[] = [];
+    public visibleRows: TypePreviewRow[] = [];
+
+    private readonly subscriptions = new Subscription();
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+/*                                                     LIFE CYCLE                                                     */
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+    public ngOnInit(): void {
+        this.subscriptions.add(this.actionControl.valueChanges.subscribe((action) => {
+            this.actionChange.emit(action);
+        }));
+
+        this.subscriptions.add(this.searchControl.valueChanges.subscribe(() => this.applySearch()));
     }
 
 
-    public get data() {
-        return this.fileForm;
+    public ngOnChanges(changes: SimpleChanges): void {
+        if (changes['types']) {
+            this.rows = buildTypePreviewRows(this.types);
+            this.applySearch();
+        }
+
+        if (changes['action'] && this.actionControl.value !== this.action) {
+            this.actionControl.setValue(this.action, { emitEvent: false });
+        }
     }
 
 
-    public removeFromFile(index: number) {
-        this.data.get('file').value.splice(index, 1);
+    public ngOnDestroy(): void {
+        this.subscriptions.unsubscribe();
+    }
+
+/* ------------------------------------------------- GETTER / SETTER ------------------------------------------------ */
+
+    public get actionControl(): FormControl<ImportTypeAction> {
+        return this.previewForm.controls.action;
     }
 
 
-    handleChange(evt) {
-        this.data.get('action').setValue(evt.target.value);
+    public get searchControl(): FormControl<string> {
+        return this.previewForm.controls.search;
+    }
+
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    public onRemoveType(row: TypePreviewRow): void {
+        this.typeRemoved.emit(row.index);
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private applySearch(): void {
+        this.visibleRows = filterTypePreviewRows(this.rows, this.searchControl.value);
     }
 }

@@ -274,7 +274,11 @@ export class UsersComponent implements OnInit, OnDestroy {
    * @param user The user whose password should be changed
    */
   public onPasswordChange(user: User): void {
-    this.modalRef = this.modalService.open(UsersPasswdModalComponent, { size: 'lg' });
+    this.modalRef = this.modalService.open(UsersPasswdModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.user = user;
   }
 

@@ -18,10 +18,18 @@
 import { CmdbDao } from './cmdb-dao';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+export interface FieldOption {
+    name: string;
+    label: string;
+}
+
 export interface Field{
     type:string;
     name: string;
     label: string;
+    required?: boolean;
+    options?: FieldOption[];
+    option_type?: string;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */

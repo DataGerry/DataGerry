@@ -26,81 +26,87 @@
 
 <div class="d-flex flex-row justify-content-between align-items-center mb-3">
   <h1 class="text-2xl font-semibold m-0">Risk Assessments</h1>
+  <ng-container *ngTemplateOutlet="exportTemplate"></ng-container>
 </div>
 
 
-<!-- ───────────────── HEADER: filter card + export ───────────────── -->
-<div class="container-fluid p-0 mt-5">
-  <div class="d-flex align-items-start gap-3 px-3 py-3 border-bottom bg-white flex-wrap">
+<!-- ───────────────── FILTER BAR ───────────────── -->
+<section class="ra-filters mt-4" aria-label="Filter risk assessments">
+  <div class="ra-filters__bar">
 
-    <!-- FILTER CARD -->
-    <div class="filter-card card shadow-sm p-3">
+    <span class="ra-filters__label">Filters</span>
 
-      <div class="row g-3">
-
-        <!-- Criterion (always shown) -->
-        <div class="col-12 col-lg-4">
-          <label class="form-label mb-1">Filter by …</label>
-          <select class="form-select form-select-sm" [(ngModel)]="ui.selectedProperty">
-            <option value="" disabled selected>select criterion</option>
-            @for (p of filterDefs; track p) {
-            <option [value]="p.key">{{ p.label }}</option>
-            }
-          </select>
-        </div>
-
-        <!-- Value(s) – rendered only when criterion chosen -->
-        @if (ui.selectedProperty) {
-
-        <div class="col-12 col-lg-4">
-          <label class="form-label mb-1">Value(s)</label>
-          <select class="form-select form-select-sm" multiple [(ngModel)]="ui.selectedValues">
-            @for (v of getValues(ui.selectedProperty); track v) {
-            <option [value]="v">{{ v }}</option>
-            }
-          </select>
-        </div>
-
-        }
-
-        <!-- Buttons (slot always present → width never shifts) -->
-        <div class="col-12 col-lg-4 d-flex gap-2 align-items-end">
-          <button class="btn btn-sm btn-primary flex-grow-1 flex-lg-unset"
-            [disabled]="!ui.selectedProperty || !ui.selectedValues.length" (click)="applyFilter()">
-            Add
-          </button>
-
-          <button class="btn btn-sm btn-outline-secondary flex-grow-1 flex-lg-unset" [disabled]="!hasActiveFilters"
-            (click)="clearFilters()">
-            Clear&nbsp;All
-          </button>
-        </div>
-      </div>
-
-      <!-- Active-filter chips -->
+    <!-- Active filters shown as chips -->
+    <div class="ra-filters__chips">
       @if (hasActiveFilters) {
-      <div class="d-flex flex-wrap gap-1 mt-2">
-        @for (f of activeFilterChips; track f; let i = $index) {
-        <span class="badge rounded-pill text-bg-light">
-          {{ f }}&nbsp;
-          <i class="fas fa-times" role="button" (click)="removeFilter(i)"></i>
-        </span>
-        }
-      </div>
+      @for (f of activeFilterChips; track f; let i = $index) {
+      <span class="ra-chip">
+        <span class="ra-chip__label">{{ f }}</span>
+        <button type="button" class="ra-chip__remove" [attr.aria-label]="'Remove filter ' + f"
+          (click)="removeFilter(i)">
+          <i class="fas fa-times" aria-hidden="true"></i>
+        </button>
+      </span>
+      }
+      <button type="button" class="ra-filters__clear" (click)="clearFilters()">Clear all</button>
+      } @else {
+      <span class="ra-filters__empty">No filters applied yet</span>
       }
     </div>
 
-    <!-- ▸ EXPORT BUTTON (template) -->
-    <ng-container *ngTemplateOutlet="exportTemplate"></ng-container>
+    <!-- Add-filter button + popover -->
+    <div class="ra-filters__add">
+      <button type="button" class="btn btn-sm btn-primary" [attr.aria-expanded]="filterMenuOpen"
+        (click)="toggleFilterMenu()">
+        <i class="fas fa-plus me-1"></i>Add filter
+      </button>
+
+      @if (filterMenuOpen) {
+      <div class="ra-filters__popover" role="group" aria-label="Add filter">
+        <div class="ra-filters__popover-head">
+          <span class="ra-filters__popover-title">Add filter</span>
+          <button type="button" class="ra-filters__popover-close" aria-label="Close" (click)="closeFilterMenu()">
+            <i class="fas fa-times" aria-hidden="true"></i>
+          </button>
+        </div>
+
+        <div class="ra-filters__popover-body">
+          <div class="ra-filters__field">
+            <app-form-select label="Filter by" placeholder="Select criterion" [items]="filterDefs" bindLabel="label"
+              bindValue="key" [(ngModel)]="ui.selectedProperty" (selectedItemChange)="onCriterionChange()">
+            </app-form-select>
+          </div>
+
+          @if (ui.selectedProperty) {
+          <div class="ra-filters__field">
+            <app-form-select label="Value(s)" placeholder="Select value(s)" [items]="valueOptions" bindLabel="label"
+              bindValue="value" [multiple]="true" [enableSelectAll]="true" [(ngModel)]="ui.selectedValues">
+            </app-form-select>
+          </div>
+          } @else {
+          <p class="ra-filters__hint">Choose a criterion to pick its values.</p>
+          }
+        </div>
+
+        <div class="ra-filters__popover-actions">
+          <button type="button" class="btn btn-sm btn-light" (click)="closeFilterMenu()">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary"
+            [disabled]="!ui.selectedProperty || !ui.selectedValues.length" (click)="confirmAddFilter()">
+            Add filter
+          </button>
+        </div>
+      </div>
+      }
+    </div>
   </div>
-</div>
+</section>
 
 
 
 
 
 <cmdb-table [items]="pagedRows" [columns]="columns" [initialVisibleColumns]="initialVisibleColumns" [page]="page"
-  [pageSize]="limit" [totalItems]="totalItems" [loading]="loading" (pageChange)="onPageChange($event)"
+  [pageSize]="limit" [totalItems]="totalItems" [sort]="sort" [loading]="loading" (pageChange)="onPageChange($event)"
   (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
   (searchChange)="onSearchChange($event)">
 

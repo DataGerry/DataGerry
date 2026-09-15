@@ -1,4 +1,4 @@
-/*
+ /*
 * DATAGERRY - OpenSource Enterprise CMDB
 * Copyright (C) 2026 becon GmbH
 *
@@ -64,7 +64,6 @@ export class AuthService<T = any> implements ApiServicePrefix {
 
     // First Step Intro
     private startIntroModal: any = undefined;
-    private stepByStepModal: any = undefined;
 
     private branchInfoModal: any = undefined;
     private profileInfoModal: any = undefined;
@@ -206,13 +205,9 @@ export class AuthService<T = any> implements ApiServicePrefix {
         this.currentUserTokenSubject.next(undefined);
         this.permissionService.clearUserRightStorage();
 
-        // Close Intro-Modal if open
-        if (this.startIntroModal !== undefined) {
-            this.startIntroModal.close();
-        }
-        if (this.stepByStepModal !== undefined) {
-            this.stepByStepModal.close();
-        }
+        // Close every open dialog
+        // so no authenticated overlay lingers over the login page after logout.
+        this.introService.dismissAll();
         this.router.navigate(['/auth']);
     }
 

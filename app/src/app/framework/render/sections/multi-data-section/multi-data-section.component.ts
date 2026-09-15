@@ -27,7 +27,7 @@ import { ObjectService } from 'src/app/framework/services/object.service';
 
 import { BaseSectionComponent } from '../base-section/base-section.component';
 import { Column } from 'src/app/layout/table/table.types';
-import { PreviewModalComponent, PreviewModalValidationResult } from 'src/app/framework/type/builder/modals/preview-modal/preview-modal.component';
+import { PreviewModalComponent, PreviewModalValidationResult } from 'src/app/framework/builder/modals/preview-modal/preview-modal.component';
 import { CmdbMultiDataSection, CmdbType } from 'src/app/framework/models/cmdb-type';
 import { MultiDataSectionEntry, MultiDataSectionFieldValue, MultiDataSectionSet } from 'src/app/framework/models/cmdb-object';
 import { DeleteEntryModalComponent } from '../modals/delete-entry-modal.component';
@@ -41,6 +41,8 @@ import {
     MdsRowValidator,
     MdsRowValidatorHandle
 } from '../multi-data-section/mds-row-validator';
+import { getNextMultiDataId } from './mds-id.util';
+import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -117,6 +119,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
         private modalService: NgbModal,
         private objectService: ObjectService,
         private cdr: ChangeDetectorRef,
+        private fullscreenModalService: FullscreenModalService,
         @Optional() @Inject(MDS_ROW_VALIDATORS) private rowValidators: ReadonlyArray<MdsRowValidator> | null
     ) {
         super();
@@ -470,21 +473,24 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      */
     public onAddRowClicked(): void{
         this.resetModalValues();
-        this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
+        this.modalRef = this.openRowModal();
         this.modalRef.componentInstance.sections = [this.modalSection];
         this.modalRef.componentInstance.saveValues = true;
         this.applyCandidateValidatorToModal(this.modalRef, null);
 
         this.modalRef.result.then((values: any) => {
             if (values){
-                this.addNewValuesToControl(values);
+                // Assign one collision-free id and reuse it for the data row, the table row and
+                // the highest_id counter so the three never drift apart.
+                const newMultiDataID = getNextMultiDataId(this.formatedDataSection);
+                this.addNewValuesToControl(values, newMultiDataID);
 
                 values = this.formatNewValuesForTable(values);
-                values['dg-multiDataRowIndex'] = this.getCurrentHighestMultiDataID();
+                values['dg-multiDataRowIndex'] = newMultiDataID;
 
                 this.tableMultiDataValues.push(values);
                 this.setValuesForPagination();
-                this.incrementCurrentMultiDataID();
+                this.formatedDataSection.highest_id = newMultiDataID;
                 this.calculateCurrentPage("create");
 
                 this.form.markAsDirty();
@@ -499,7 +505,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * @param rowIndex (number): multiDataID of MultiDataSet
      */
     public onRowPreview(rowIndex: number): void {
-        this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
+        this.modalRef = this.openRowModal();
         this.modalRef.componentInstance.activateViewMode = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
     }
@@ -511,7 +517,7 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * @param rowIndex (number): MultiDataID of MultiDataSet
      */
     public onRowEdit(rowIndex: number): void {
-        this.modalRef = this.modalService.open(PreviewModalComponent, { scrollable: true, size: 'lg' });
+        this.modalRef = this.openRowModal();
         this.modalRef.componentInstance.editValues = true;
         this.modalRef.componentInstance.sections = [this.getModalSectionWithRowData(rowIndex)];
         this.applyCandidateValidatorToModal(this.modalRef, rowIndex);
@@ -531,7 +537,14 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
      * @param rowIndex (number): MultiDataID of MultiDataSet
      */
     public onRowDelete(rowIndex: number): void {
-        this.modalRef = this.modalService.open(DeleteEntryModalComponent);
+        this.modalRef = this.modalService.open(
+            DeleteEntryModalComponent,
+            this.fullscreenModalService.withFullscreenContainer({
+                size: 'lg',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            })
+        );
 
         this.modalRef.result.then((deleteConfirm: boolean) => {
             if(deleteConfirm){
@@ -550,6 +563,24 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
     public onPageChange(newPage: number) {
         this.currentPage = newPage;
         this.setValuesForPagination();
+    }
+
+/* ---------------------------------------------- ROW MODAL HELPER -------------------------------------------------- */
+
+    /**
+     * Opens the shared add/preview/edit popup. While a fullscreen element is open the modal has to
+     * be hosted inside it, otherwise the browser never paints it.
+     */
+    private openRowModal(): NgbModalRef {
+        return this.modalService.open(
+            PreviewModalComponent,
+            this.fullscreenModalService.withFullscreenContainer({
+                scrollable: true,
+                size: 'lg',
+                windowClass: 'dg-modal-window',
+                backdropClass: 'dg-modal-window-backdrop'
+            })
+        );
     }
 
 /* ------------------------------------------- ADD NEW TABLE ENTRY HELPER ------------------------------------------- */
@@ -574,12 +605,13 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
     /**
      * Adds the new values to control
-     * 
+     *
      * @param newValues the new values
+     * @param multiDataID the collision-free id assigned to the new row
      */
-    private addNewValuesToControl(newValues: any){
+    private addNewValuesToControl(newValues: any, multiDataID: number){
         let newDataSet: MultiDataSectionSet = {
-            "multi_data_id": this.getCurrentHighestMultiDataID(),
+            "multi_data_id": multiDataID,
             "data": []
         }
 
@@ -837,16 +869,6 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
 
 
     /**
-     * Retrieves the current highest ID for a MultiDataSet
-     *
-     * @returns (number): the current highest ID for a MultiDataSet
-     */
-    getCurrentHighestMultiDataID(): number {
-        return this.formatedDataSection.highest_id;
-    }
-
-
-    /**
      * Resolves the public_id of the object currently being edited so backend validators can
      * exclude it from collision checks. Returns null when the object does not yet exist (create mode).
      */
@@ -941,14 +963,6 @@ export class MultiDataSectionComponent extends BaseSectionComponent implements O
             }
         }
         return null;
-    }
-
-
-    /**
-     * Incrementy the current highest ID for MultiDataSets
-     */
-    incrementCurrentMultiDataID(): void {
-        this.formatedDataSection.highest_id += 1;
     }
 
 /* ------------------------------------------- VIEW/EDIT TABLE ROW HELPER ------------------------------------------- */

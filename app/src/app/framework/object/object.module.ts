@@ -51,6 +51,25 @@ import { IpamTypeDistributionComponent } from './object-view/ipam-overview/compo
 import { IpamSupernetSubnetTableComponent } from './object-view/ipam-overview/components/ipam-supernet-subnet-table/ipam-supernet-subnet-table.component';
 import { IpamUnassignIpModalComponent } from './object-view/ipam-overview/components/ipam-unassign-ip-modal/ipam-unassign-ip-modal.component';
 import { IpamAssignIpModalComponent } from './object-view/ipam-overview/components/ipam-assign-ip-modal/ipam-assign-ip-modal.component';
+import { PortsOverviewComponent } from './object-view/ports-overview/ports-overview.component';
+import { PortsTableComponent } from './object-view/ports-overview/components/ports-table/ports-table.component';
+import { PortFormModalComponent } from './object-view/ports-overview/components/port-form-modal/port-form-modal.component';
+import { PortCreateWizardModalComponent } from './object-view/ports-overview/components/port-create-wizard-modal/port-create-wizard-modal.component';
+import { ConnectionFormModalComponent } from './object-view/ports-overview/components/connection-form-modal/connection-form-modal.component';
+import { InterfaceLinksModalComponent } from './object-view/ports-overview/components/interface-links-modal/interface-links-modal.component';
+import { InterfaceCandidatePickerComponent } from './object-view/ports-overview/components/interface-candidate-picker/interface-candidate-picker.component';
+import { ConnectionEndpointPickerComponent } from './object-view/ports-overview/components/connection-endpoint-picker/connection-endpoint-picker.component';
+import { ChoiceCardGroupComponent } from './object-view/ports-overview/components/choice-card-group/choice-card-group.component';
+import { ObjectOptionPickerComponent } from './object-view/ports-overview/components/object-option-picker/object-option-picker.component';
+import { CableCiPickerComponent } from './object-view/ports-overview/components/cable-ci-picker/cable-ci-picker.component';
+import { RackOverviewComponent } from './object-view/rack-overview/rack-overview.component';
+import { RackElevationComponent } from './object-view/rack-overview/components/rack-elevation/rack-elevation.component';
+import { RackInspectorComponent } from './object-view/rack-overview/components/rack-inspector/rack-inspector.component';
+import { RackTrayComponent } from './object-view/rack-overview/components/rack-tray/rack-tray.component';
+import { RackNotesComponent } from './object-view/rack-overview/components/rack-notes/rack-notes.component';
+import { RackMountModalComponent } from './object-view/rack-overview/components/rack-mount-modal/rack-mount-modal.component';
+import { RackPlacementComponent } from './object-view/rack-overview/components/rack-placement/rack-placement.component';
+import { RackObjectPickerComponent } from './object-view/rack-overview/components/rack-object-picker/rack-object-picker.component';
 import { ObjectActionsComponent } from './components/object-actions/object-actions.component';
 import { ObjectViewMetaComponent } from './components/object-view-meta/object-view-meta.component';
 import { ObjectEditComponent } from './object-edit/object-edit.component';
@@ -80,6 +99,7 @@ import { ObjectBulkChangeCompleteComponent } from './object-bulk-change/object-b
 import { CoreModule } from 'src/app/core/core.module';
 import { RelationRoleDialogComponent } from './object-view/relation-role-dialog/relation-role-dialog.component';
 import { ObjectRelationsComponent } from './object-view/object-relations/object-relations.component';
+import { ObjectTabDirective } from './object-view/object-relations/object-tab.directive';
 import { ObjectRelationTabContentComponent } from './object-view/object-relations/object-relation-tab-content/object-relation-tab-content.component';
 import { ObjectRelationSelectModalComponent } from './object-view/object-relations/object-relation-select-modal/object-relation-select-modal.component';
 import { RelationLogListComponent } from './components/object-relation-log-list/relation-log-list.component';
@@ -109,6 +129,19 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         IpamSupernetSubnetTableComponent,
         IpamUnassignIpModalComponent,
         IpamAssignIpModalComponent,
+        PortsOverviewComponent,
+        PortsTableComponent,
+        PortFormModalComponent,
+        PortCreateWizardModalComponent,
+        ConnectionFormModalComponent,
+        InterfaceLinksModalComponent,
+        RackOverviewComponent,
+        RackElevationComponent,
+        RackInspectorComponent,
+        RackTrayComponent,
+        RackNotesComponent,
+        RackMountModalComponent,
+        RackPlacementComponent,
         ObjectActionsComponent,
         ObjectViewRenderComponent,
         ObjectViewMetaComponent,
@@ -139,6 +172,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         ObjectBulkChangeCompleteComponent,
         RelationRoleDialogComponent,
         ObjectRelationsComponent,
+        ObjectTabDirective,
         ObjectRelationTabContentComponent,
         ObjectRelationSelectModalComponent,
         RelationLogListComponent,
@@ -169,7 +203,13 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         MatIconModule,
         CoreModule,
         RiskAssessmentModule,
-        QRCodeComponent],
+        QRCodeComponent,
+        RackObjectPickerComponent,
+        ConnectionEndpointPickerComponent,
+        ChoiceCardGroupComponent,
+        ObjectOptionPickerComponent,
+        CableCiPickerComponent,
+        InterfaceCandidatePickerComponent],
     exports: [
         ObjectViewRenderComponent,
         ObjectTableActionsComponent,

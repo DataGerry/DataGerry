@@ -2,7 +2,7 @@
 
 <div class="container">
   <div class="row">
-    @for (card of cards; track card) {
+    @for (card of visibleCards; track card) {
     <div class="col-md-3 mb-4">
       <div class="card">
         <a [routerLink]="card.link">

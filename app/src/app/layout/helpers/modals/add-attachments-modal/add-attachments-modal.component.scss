@@ -1,7 +1,13 @@
 @import './src/scss/variables';
 
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 #uploadFileForm {
-  margin: 1em;
 
   #uploadFileContainer, .uploadfiledone{
     background: None;
@@ -40,6 +46,8 @@
 }
 
 .scrollable-container {
-  max-height: 400px; 
+  max-height: 400px;
   overflow-y: auto;
+  margin-top: 1rem;
+  border-radius: var(--dg-radius-md);
 }

@@ -1,0 +1,21 @@
+@import '../../wizard-step';
+
+:host {
+    display: block;
+    @include dg-controls;
+    @include dg-step-actions;
+}
+
+.config-form {
+    max-width: 40rem;
+
+    .form-switch {
+        padding-left: 2.6rem;
+
+        .form-check-input {
+            width: 2.1rem;
+            height: 1.1rem;
+            margin-left: -2.6rem;
+        }
+    }
+}

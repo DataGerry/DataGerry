@@ -10,6 +10,11 @@
             >
 </cmdb-table>
 
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>
+
 <!-- Table templates -->
 <ng-template #activeTemplate let-data="data">
   <div class="text-center">

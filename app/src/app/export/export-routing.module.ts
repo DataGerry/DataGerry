@@ -23,6 +23,7 @@ import { PermissionGuard } from '../modules/auth/guards/permission.guard';
 import { ExportTypesComponent } from './export-types/export-types.component';
 import { ExportComponent } from './export.component';
 import { ExportObjectsComponent } from './export-objects/export-objects.component';
+import { ExportCsvTemplatesComponent } from './export-csv-templates/export-csv-templates.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const routes: Routes = [
@@ -40,7 +41,7 @@ const routes: Routes = [
         canActivate: [PermissionGuard],
         data: {
             breadcrumb: 'Objects',
-            right: 'base.export.type.*'
+            right: 'base.export.object.*'
         },
         component: ExportObjectsComponent
     },
@@ -52,6 +53,15 @@ const routes: Routes = [
             right: 'base.export.type.*'
         },
         component: ExportTypesComponent
+    },
+    {
+        path: 'csv-templates',
+        canActivate: [PermissionGuard],
+        data: {
+            breadcrumb: 'CSV Templates',
+            right: 'base.export.object.*'
+        },
+        component: ExportCsvTemplatesComponent
     }
 ];
 

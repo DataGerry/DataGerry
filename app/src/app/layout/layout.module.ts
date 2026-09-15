@@ -72,6 +72,7 @@ import { IpamTreeComponent } from './structure/sidebar/ipam-tree/ipam-tree.compo
 import { SidebarCategoryComponent } from './structure/sidebar/sidebar-category.component';
 import { ContentHeaderComponent } from './components/content-header/content-header.component';
 import { ActiveBadgeComponent } from './helpers/active-badge/active-badge.component';
+import { SpecialTypeBadgeComponent } from './helpers/special-type-badge/special-type-badge.component';
 import { AddAttachmentsModalComponent } from './helpers/modals/add-attachments-modal/add-attachments-modal.component';
 import { GeneralModalComponent } from './helpers/modals/general-modal/general-modal.component';
 import { LocationsModalComponent } from './helpers/modals/locations-modal/locations-modal.component';
@@ -105,6 +106,7 @@ import { CoreModule } from '../core/core.module';
         SidebarCategoryComponent,
         ContentHeaderComponent,
         ActiveBadgeComponent,
+        SpecialTypeBadgeComponent,
         IntroComponent,
         TypeLabelComponent,
         FooterComponent,
@@ -151,6 +153,7 @@ import { CoreModule } from '../core/core.module';
         FooterComponent,
         ContentHeaderComponent,
         ActiveBadgeComponent,
+        SpecialTypeBadgeComponent,
         TypeLabelComponent,
         IconPickerComponent,
         ChartsComponent,

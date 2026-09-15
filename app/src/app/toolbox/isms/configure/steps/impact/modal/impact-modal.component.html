@@ -1,13 +1,10 @@
-<div class="modal-header">
-  <h4 class="modal-title">{{ isEditMode ? 'Edit Impact' : 'Add Impact' }}</h4>
-  <button type="button" class="close" aria-label="Close" (click)="onCancel()">
-    <span aria-hidden="true">×</span>
-  </button>
-</div>
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <dg-modal
+    icon="fas fa-bolt"
+    eyebrow="ISMS"
+    [title]="isEditMode ? 'Edit Impact' : 'Add Impact'"
+    (dismiss)="onCancel()">
 
-
-<div class="modal-body">
-  <form [formGroup]="form" (ngSubmit)="onSubmit()">
     <!-- Name (required) -->
     <div class="mb-3">
       <label for="impactName" class="form-label">
@@ -73,16 +70,21 @@
 
     </div>
 
-    <div class="modal-footer">
-      <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
-      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-        @if (!isSubmitting) {
-        <span>{{ isEditMode ? 'Save Changes' : 'Add Impact' }}</span>
-        }
-        @if (isSubmitting) {
-        <span class="spinner-border spinner-border-sm"></span>
-        }
-      </button>
-    </div>
-  </form>
-</div>
+    <app-button
+      dgModalFooter
+      [bootstrapClass]="'btn-secondary'"
+      label="Cancel"
+      type="button"
+      (clicked)="onCancel()">
+    </app-button>
+
+    <button dgModalFooter type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+      @if (!isSubmitting) {
+      <span>{{ isEditMode ? 'Save Changes' : 'Add Impact' }}</span>
+      }
+      @if (isSubmitting) {
+      <span class="spinner-border spinner-border-sm"></span>
+      }
+    </button>
+  </dg-modal>
+</form>

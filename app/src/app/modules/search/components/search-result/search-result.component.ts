@@ -50,7 +50,11 @@ export class SearchResultComponent implements OnDestroy {
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
     public openPreview() {
-        this.modalRef = this.modalService.open(SearchResultPreviewComponent, { size: 'lg' });
+        this.modalRef = this.modalService.open(SearchResultPreviewComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.renderResult = this.searchResult.result;
     }
 }

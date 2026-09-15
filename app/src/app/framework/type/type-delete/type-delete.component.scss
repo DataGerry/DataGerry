@@ -1,16 +1,5 @@
 @import 'src/scss/variables';
 
-#deleteTypeModalForm{
-  small{
-    float: left;
-  }
-}
-.invalid-feedback, .valid-feedback{
-  div{
-    float: right;
-  }
-}
-
 .disabled {
   pointer-events: none;
 }
@@ -22,46 +11,4 @@
 
 .back-button {
   margin-right: 10px;
-}
-
-
-.relation-impact-warning {
-  --warning-accent: #e94d18;
-  --warning-bg: rgba(233, 77, 24, 0.05);
-  
-  border-left: 3px solid var(--warning-accent);
-  background: var(--warning-bg);
-  border-radius: 4px;
-  padding: 1rem;
-  margin: 1rem 0;
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-
-  .warning-icon {
-    color: var(--warning-accent);
-    font-size: 1.25rem;
-    min-width: 24px;
-  }
-
-  .warning-text {
-    color: #6b7280;
-    font-size: 0.9rem;
-    line-height: 1.4;
-    
-    strong {
-      color: var(--warning-accent);
-    }
-  }
-}
-
-.modal-body {
-  .mb-3 {
-    margin-top: 1.5rem;
-  }
-  
-  .required {
-    color: #dc3545;
-    font-weight: bold;
-  }
 }

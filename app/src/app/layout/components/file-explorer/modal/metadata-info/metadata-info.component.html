@@ -1,86 +1,86 @@
-<div class="modal-content">
-  <div class="modal-header" style="background-color: #e94d18; color: #FFFFFF;">
-    <h4 class="modal-title">
-      <i class="fas fa-info-circle"></i> Metadata Info
-    </h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close"
-      (click)="activeModal.dismiss(true)"></button>
-  </div>
-  <div class="modal-body">
-    <div class="row g-0">
-      <div class="col-md-3 text-center">
-        <i class="display-4" [ngClass]="fileElement.filename | fileExtension"></i>
-      </div>
-      <div class="col-md-9">
-        <form>
-          <fieldset>
-            <legend>Basic</legend>
-            <div class="mb-3 row">
-              <label for="colForFilename" class="col-sm-3 col-form-label col-form-label-sm">Filename</label>
-              <div class="col-sm-9">
-                <input type="text" [value]="fileElement.filename" [disabled]="true" class="form-control form-control-sm"
-                  id="colForFilename" placeholder="">
-              </div>
-            </div>
-            <div class="mb-3 row">
-              <label for="colForType" class="col-sm-3 col-form-label col-form-label-sm">Type</label>
-              <div class="col-sm-9">
-                <input type="text" [value]="fileElement?.metadata.mime_type" [disabled]="true"
-                  class="form-control form-control-sm" id="colForType" placeholder="">
-              </div>
-            </div>
-            <div class="mb-3 row">
-              <label for="colForSize" class="col-sm-3 col-form-label col-form-label-sm">Size</label>
-              <div class="col-sm-9">
-                <input type="text" [value]="fileElement?.size | fileSize" [disabled]="true"
-                  class="form-control form-control-sm" id="colForSize" placeholder="">
-              </div>
-            </div>
-            <div class="mb-3 row">
-              <label for="colForFilename" class="col-sm-3 col-form-label col-form-label-sm">Path</label>
-              <div class="col-sm-9">
-                <cmdb-folder-path-viewer [selectedFileFolder]="selectedFileFolder"
-                  [folderTree]="folderTree"></cmdb-folder-path-viewer>
-              </div>
-            </div>
-          </fieldset>
-          <fieldset>
-            <legend>Metadata</legend>
-            <div class="mb-3 row">
-              <label class="col-sm-3 col-form-label col-form-label-sm">Reference</label>
-              <div class="col-sm-9 pre-scrollable">
-                @for (objRefId of refId; track objRefId) {
+<dg-modal
+    icon="fas fa-circle-info"
+    eyebrow="File Explorer"
+    title="Metadata Info"
+    (dismiss)="activeModal.dismiss(true)">
 
-                <abbr title="Forwarding to the referenced object" class="initialism">
-                  <a [routerLink]="['/framework/object/view/', objRefId]" target="_blank" rel="noopener noreferrer">
-                    #{{objRefId}}
-                  </a>
-                </abbr>
+    <div class="meta-hero">
+        <span class="meta-hero__icon">
+            <i [class]="fileElement.filename | fileExtension" aria-hidden="true"></i>
+        </span>
 
-                }
-              </div>
-            </div>
-            <div class="mb-3 row">
-              <label for="colForModifier" class="col-sm-3 col-form-label col-form-label-sm">Modifier</label>
-              <div class="col-sm-9">
-                <input type="text" class="form-control form-control-sm" id="colForModifier" placeholder=""
-                  [value]="username" [disabled]="true">
-              </div>
-            </div>
-            <div class="mb-3 row">
-              <label for="colForDate" class="col-sm-3 col-form-label col-form-label-sm">Modify</label>
-              <div class="col-sm-9">
-                <input type="text" class="form-control form-control-sm" id="colForDate" placeholder=""
-                  [value]="fileElement.upload_date.$date | date: 'dd/MM/yyyy - HH:mm:ss'" [disabled]="true">
-              </div>
-            </div>
-          </fieldset>
-
-        </form>
-      </div>
+        <span class="meta-hero__name">{{ fileElement.filename }}</span>
     </div>
-  </div>
-  <div class="modal-footer">
-    <button type="button" class="btn btn-warning" (click)="activeModal.close(true)">Close</button>
-  </div>
-</div>
+
+    <section class="meta-section">
+        <h3 class="meta-section__title">Basic</h3>
+
+        <dl class="meta-list">
+            <div class="meta-item">
+                <dt class="meta-item__label">Type</dt>
+                <dd class="meta-item__value">{{ fileElement?.metadata.mime_type }}</dd>
+            </div>
+
+            <div class="meta-item">
+                <dt class="meta-item__label">Size</dt>
+                <dd class="meta-item__value">{{ fileElement?.size | fileSize }}</dd>
+            </div>
+
+            <div class="meta-item">
+                <dt class="meta-item__label">Path</dt>
+                <dd class="meta-item__value meta-item__value--path">
+                    <cmdb-folder-path-viewer
+                        [selectedFileFolder]="selectedFileFolder"
+                        [folderTree]="folderTree">
+                    </cmdb-folder-path-viewer>
+                </dd>
+            </div>
+        </dl>
+    </section>
+
+    <section class="meta-section">
+        <h3 class="meta-section__title">Metadata</h3>
+
+        <dl class="meta-list">
+            <div class="meta-item">
+                <dt class="meta-item__label">Reference</dt>
+                <dd class="meta-item__value">
+                    <span class="meta-refs">
+                        @for (objRefId of refId; track objRefId) {
+                        <a
+                            class="meta-ref"
+                            title="Forwarding to the referenced object"
+                            [routerLink]="['/framework/object/view/', objRefId]"
+                            target="_blank"
+                            rel="noopener noreferrer">
+                            #{{ objRefId }}
+                        </a>
+                        } @empty {
+                        <span class="meta-item__empty">No references</span>
+                        }
+                    </span>
+                </dd>
+            </div>
+
+            <div class="meta-item">
+                <dt class="meta-item__label">Modifier</dt>
+                <dd class="meta-item__value">{{ username }}</dd>
+            </div>
+
+            <div class="meta-item">
+                <dt class="meta-item__label">Modify</dt>
+                <dd class="meta-item__value">
+                    {{ fileElement.upload_date.$date | date: 'dd/MM/yyyy - HH:mm:ss' }}
+                </dd>
+            </div>
+        </dl>
+    </section>
+
+    <app-button
+        dgModalFooter
+        bootstrapClass="btn-secondary"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.close(true)">
+    </app-button>
+</dg-modal>

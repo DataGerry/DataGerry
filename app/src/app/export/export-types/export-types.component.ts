@@ -1,12 +1,14 @@
-import { Component, OnInit, Output } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { TypeService } from '../../framework/services/type.service';
 import { CmdbType } from '../../framework/models/cmdb-type';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
-import { DatePipe } from '@angular/common';
-import { FileSaverService } from 'ngx-filesaver';
+import { HttpResponse } from '@angular/common/http';
 import { FileService } from '../export.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
+import { ExportKind } from 'src/app/core/models/export-download.model';
 import { finalize } from 'rxjs';
+import { ExportTypeOption } from './export-type-option.model';
 
 @Component({
     selector: 'cmdb-export-types',
@@ -16,31 +18,36 @@ import { finalize } from 'rxjs';
 })
 export class ExportTypesComponent implements OnInit {
 
-    public typeList: CmdbType[] = [];
+    public typeOptions: ExportTypeOption[] = [];
     public formatList: any[] = [{ id: 0, label: 'json', icon: 'file-code' }];
     public formExport: UntypedFormGroup;
     public isSubmitted: boolean;
     public isLoading$ = this.loaderService.isLoading$;
 
     constructor(private typeService: TypeService, private exportService: FileService,
-        private datePipe: DatePipe, private fileSaverService: FileSaverService,  private loaderService: LoaderService) {
+        private exportDownloadService: ExportDownloadService, private loaderService: LoaderService) {
         this.formExport = new UntypedFormGroup({
-            type: new UntypedFormControl(null, Validators.required),
+            types: new UntypedFormControl([], Validators.required),
             format: new UntypedFormControl(null, Validators.required)
         });
     }
 
+/* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
         this.loaderService.show();
         this.typeService.getTypeList().pipe(finalize(() => this.loaderService.hide())).subscribe((typeList: CmdbType[]) => {
-            this.typeList = typeList;
+            this.typeOptions = (typeList ?? []).map((type: CmdbType) => ({
+                public_id: type.public_id,
+                label: `${type.label} #${type.public_id}`
+            }));
         });
     }
 
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
-    get type() {
-        return this.formExport.get('type');
+    get types() {
+        return this.formExport.get('types');
     }
 
 
@@ -49,38 +56,41 @@ export class ExportTypesComponent implements OnInit {
     }
 
 
-    private resetForm() {
-        this.formExport.reset();
-        this.formExport.markAsPristine();
-        this.formExport.markAsUntouched();
-        this.formExport.markAsDirty();
-    }
-
-
     public export() {
-        this.isSubmitted = false;
+        this.isSubmitted = true;
+
         if (!this.formExport.valid) {
             return false;
         }
 
+        const typeIDs: number[] = this.types.value ?? [];
+        const fileExtension: any = this.format.value;
 
-        const typeID = this.formExport.get('type').value;
-        const fileExtension: any = this.formExport.get('format').value;
+        // An empty selection would collapse the route onto /export/type/ and export the whole catalogue
+        if (typeIDs.length === 0 || fileExtension == null) {
+            return false;
+        }
 
         // Reset FormGroup
         this.resetForm();
 
-        if (fileExtension != null && typeID != null) {
-            this.loaderService.show();
-            this.exportService.callExportTypeRoute('export/type/' + typeID.toString()).pipe(finalize(() => this.loaderService.hide()))
-                .subscribe(res => this.downLoadFile(res));
-        }
+        this.loaderService.show();
+        this.exportService.callExportTypeRoute('export/type/' + typeIDs.join(','))
+            .pipe(finalize(() => this.loaderService.hide()))
+            .subscribe(res => this.downLoadFile(res));
     }
 
 
-    public downLoadFile(data: any) {
-        const timestamp = this.datePipe.transform(new Date(), 'MM_dd_yyyy_hh_mm_ss');
-        this.fileSaverService.save(data.body, timestamp + '.json');
+    public downLoadFile(response: HttpResponse<Blob>) {
+        this.exportDownloadService.save(response, { kind: ExportKind.Types, extension: 'json' });
     }
 
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private resetForm() {
+        this.formExport.reset({ types: [], format: null });
+        this.formExport.markAsPristine();
+        this.formExport.markAsUntouched();
+        this.isSubmitted = false;
+    }
 }

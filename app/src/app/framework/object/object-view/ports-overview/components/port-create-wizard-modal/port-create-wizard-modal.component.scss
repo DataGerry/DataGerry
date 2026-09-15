@@ -1,0 +1,136 @@
+/* ng-bootstrap renders this component inside .modal-content, so the host sits between it (a flex
+   column capped to the viewport) and the shell. It has to be a shrinkable flex column itself, or the
+   body cannot scroll and the footer is pushed out of view. */
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.port-wizard {
+    display: block;
+    min-height: 18rem;
+
+    /* The navigation bar ends on the step labels, so the step's own content has to start clear of
+       them. Only the visible step is styled: archwizard hides the others with [hidden], and a rule
+       that also matched them would outrank that and stack all four steps on top of each other. */
+    aw-wizard-step:not([hidden]) {
+        display: block;
+        padding-top: 1rem;
+    }
+
+    &__lead {
+        max-width: 74ch;
+        margin: 0 0 1.1rem;
+        color: var(--dg-muted);
+        font-size: 0.875rem;
+        line-height: 1.5;
+
+        code {
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            background: rgba(15, 23, 42, 0.06);
+            color: var(--dg-ink);
+            white-space: nowrap;
+        }
+    }
+
+    &__subhead {
+        margin: 1.4rem 0 0.75rem;
+        color: var(--dg-label);
+        font-size: 0.85rem;
+        font-weight: 650;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+}
+
+/* Step 4: what the server will create. */
+.preview-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+
+    &__item {
+        flex: 0 1 auto;
+        min-width: 9rem;
+        padding: 0.6rem 0.85rem;
+        border: 1px solid var(--dg-border);
+        border-radius: 10px;
+        background: var(--dg-surface);
+
+        dt {
+            color: var(--dg-muted);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        dd {
+            margin: 0;
+            color: var(--dg-ink);
+            font-size: 1.1rem;
+            font-weight: 650;
+        }
+    }
+}
+
+.preview-face {
+    margin-bottom: 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--dg-border);
+    border-radius: 10px;
+
+    &__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.6rem;
+    }
+
+    &__title {
+        margin: 0;
+        color: var(--dg-ink);
+        font-size: 0.9rem;
+        font-weight: 650;
+    }
+
+    &__count {
+        color: var(--dg-muted);
+        font-size: 0.85rem;
+    }
+
+    &__names {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    &__problem {
+        margin: 0.6rem 0 0;
+        color: var(--dg-danger);
+        font-size: 0.85rem;
+    }
+}
+
+.preview-chip {
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--dg-border);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--dg-ink);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+
+    &--more {
+        border-style: dashed;
+        color: var(--dg-muted);
+    }
+}

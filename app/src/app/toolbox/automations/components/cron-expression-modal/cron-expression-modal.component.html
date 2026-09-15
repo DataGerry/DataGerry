@@ -1,9 +1,9 @@
-<div class="modal-header">
-  <h4 class="modal-title">Set Cron Job</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="onCancel()"></button>
-</div>
+<dg-modal
+  icon="fas fa-clock"
+  eyebrow="Automation"
+  title="Set Cron Job"
+  (dismiss)="onCancel()">
 
-<div class="modal-body">
   @if (automationName) {
   <div class="automation-info">
     <i class="fas fa-robot"></i>
@@ -125,11 +125,11 @@
     </div>
     }
   </form>
-</div>
 
-<div class="modal-footer">
-  <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
-  <button type="button" class="btn btn-success" (click)="onSubmit()" [disabled]="form.invalid">
-    Save
-  </button>
-</div>
+  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="onCancel()">
+  </app-button>
+
+  <app-button dgModalFooter [bootstrapClass]="'btn-success'" label="Save" type="button" [disabled]="form.invalid"
+    (clicked)="onSubmit()">
+  </app-button>
+</dg-modal>

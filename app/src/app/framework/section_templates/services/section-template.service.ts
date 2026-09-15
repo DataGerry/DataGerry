@@ -16,10 +16,10 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable } from '@angular/core';
-import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 
-import { map } from 'rxjs/operators';
-import { Observable } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
+import { Observable, of, throwError } from 'rxjs';
 
 import { ApiCallService, ApiServicePrefix, resp } from 'src/app/services/api-call.service';
 
@@ -27,6 +27,7 @@ import { CmdbSectionTemplate } from '../../models/cmdb-section-template';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
 import { APIGetMultiResponse, APIUpdateSingleResponse } from 'src/app/services/models/api-response';
 import { RenderResult } from '../../models/cmdb-render';
+import { VirtualSectionTemplate } from '../models/virtual-section-template.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 export const COOCKIENAME = 'onlyActiveObjCookie';
 
@@ -136,6 +137,21 @@ export class SectionTemplateService<T = CmdbSectionTemplate | RenderResult> impl
         return this.api.callGet<R[]>(`${ this.servicePrefix }/${ publicID }`, options).pipe(
             map((apiResponse) => {
                 return apiResponse.body;
+            })
+        );
+    }
+
+
+    /**
+     * Retrieves the virtual section templates
+     */
+    public getVirtualSectionTemplates(): Observable<VirtualSectionTemplate[]> {
+        const options = { ...this.options, params: new HttpParams() };
+
+        return this.api.callGet<VirtualSectionTemplate[]>(`${ this.servicePrefix }/virtual/`, options).pipe(
+            map((apiResponse: HttpResponse<VirtualSectionTemplate[]>) => apiResponse.body ?? []),
+            catchError((error: HttpErrorResponse) => {
+                return error.status === 403 || error.status === 404 ? of([]) : throwError(() => error);
             })
         );
     }

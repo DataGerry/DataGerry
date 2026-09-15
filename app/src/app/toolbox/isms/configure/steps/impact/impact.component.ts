@@ -141,7 +141,11 @@ export class ImpactComponent implements OnInit {
       // Don't assign defaultCalculationBasis if it's a decimal
       this.defaultCalculationBasis = undefined;
     }   
-    const modalRef = this.modalService.open(ImpactModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(ImpactModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.existingCalculationBases = this.impacts.map(i => i.calculation_basis);
     modalRef.componentInstance.defaultCalculationBasis = this.defaultCalculationBasis;
 
@@ -161,7 +165,11 @@ export class ImpactComponent implements OnInit {
    * Opens edit impact modal with pre-filled data.
    */
   public editImpact(item: Impact): void {
-    const modalRef = this.modalService.open(ImpactModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(ImpactModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.impact = { ...item };
     modalRef.result.then(
       (result) => {
@@ -178,7 +186,11 @@ export class ImpactComponent implements OnInit {
    * Opens delete confirmation modal and deletes the impact on confirm.
    */
   public deleteImpact(item: Impact): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Impact';
     modalRef.componentInstance.item = item;
     modalRef.componentInstance.itemType = 'Impact';

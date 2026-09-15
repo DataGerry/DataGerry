@@ -1,15 +1,10 @@
-<div class="modal-header">
-  <h4 class="modal-title">
-    {{ isEditMode ? 'Edit Risk Class' : 'Add Risk Class' }}
-  </h4>
-  <!-- "X" close button -->
-  <button type="button" class="close" (click)="onCancel()">
-    <span aria-hidden="true">×</span>
-  </button>
-</div>
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <dg-modal
+    icon="fas fa-tags"
+    eyebrow="ISMS"
+    [title]="isEditMode ? 'Edit Risk Class' : 'Add Risk Class'"
+    (dismiss)="onCancel()">
 
-<div class="modal-body">
-  <form [formGroup]="form" (ngSubmit)="onSubmit()">
     <!-- Row: Name & Color side by side -->
     <div class="row mb-3">
       <!-- NAME (Required) -->
@@ -58,21 +53,23 @@
       </div>
     </div>
 
-    <!-- Modal Footer -->
-    <div class="modal-footer">
-      <button type="button" class="btn btn-secondary" (click)="onCancel()">
-        Cancel
-      </button>
-      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-        @if (!isSubmitting) {
-        <span>
-          {{ isEditMode ? 'Save Changes' : 'Add Risk Class' }}
-        </span>
-        }
-        @if (isSubmitting) {
-        <span class="spinner-border spinner-border-sm"></span>
-        }
-      </button>
-    </div>
-  </form>
-</div>
+    <app-button
+      dgModalFooter
+      [bootstrapClass]="'btn-secondary'"
+      label="Cancel"
+      type="button"
+      (clicked)="onCancel()">
+    </app-button>
+
+    <button dgModalFooter type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+      @if (!isSubmitting) {
+      <span>
+        {{ isEditMode ? 'Save Changes' : 'Add Risk Class' }}
+      </span>
+      }
+      @if (isSubmitting) {
+      <span class="spinner-border spinner-border-sm"></span>
+      }
+    </button>
+  </dg-modal>
+</form>

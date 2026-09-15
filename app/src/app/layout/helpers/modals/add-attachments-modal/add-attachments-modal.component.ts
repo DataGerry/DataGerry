@@ -167,7 +167,10 @@ export class AddAttachmentsModalComponent implements OnInit, OnDestroy {
   }
 
   private replaceFileModal(filename: string) {
-    const modalComponent = this.modalService.open(GeneralModalComponent);
+    const modalComponent = this.modalService.open(GeneralModalComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalComponent.componentInstance.title = `Replace ${filename}`;
     modalComponent.componentInstance.modalIcon = 'question-circle';
     modalComponent.componentInstance.modalMessage = `${filename} already exists. Do you want to replace it?`;

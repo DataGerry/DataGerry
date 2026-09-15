@@ -62,7 +62,7 @@ const routes: Routes = [
         canActivate: [PermissionGuard],
         data: {
             breadcrumb: 'Threats',
-           
+            right: 'base.isms.import.add'
         },
         component: ImportThreatComponent
     },
@@ -71,7 +71,7 @@ const routes: Routes = [
         canActivate: [PermissionGuard],
         data: {
             breadcrumb: 'Vulnerabilities',
-           
+            right: 'base.isms.import.add'
         },
         component: ImportVulnerabilityComponent
     },
@@ -80,7 +80,7 @@ const routes: Routes = [
         canActivate: [PermissionGuard],
         data: {
             breadcrumb: 'Risks',
-           
+            right: 'base.isms.import.add'
         },
         component: ImportRiskComponent
     },
@@ -89,7 +89,7 @@ const routes: Routes = [
         canActivate: [PermissionGuard],
         data: {
             breadcrumb: 'Controls',
-           
+            right: 'base.isms.import.add'
         },
         component: ImportControlMeasureComponent
     }
