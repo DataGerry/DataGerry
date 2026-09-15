@@ -117,11 +117,6 @@
 </div>
 
 
-@if (showCategoryManager) {
-<app-extendable-option-manager [options]="categoryOptions" [optionType]="'RISK'" [modalTitle]="'Manage Categories'"
-  [itemLabel]="'Category'" [itemLabelPlural]="'Categories'" (close)="closeCategoryManager()">
-</app-extendable-option-manager>
-}
 
 <!-- Loading Spinner -->
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data...">

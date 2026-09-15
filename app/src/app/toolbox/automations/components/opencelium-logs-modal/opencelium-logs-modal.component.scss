@@ -31,45 +31,18 @@ $dg-primary-color: #e94d18;
   min-height: 100vh !important;
   border-radius: 0 !important;
 }
-.modal-header {
-  background: linear-gradient(195deg,
-    color.scale($dg-primary-color, $lightness: -5%),
-    $dg-primary-color) !important;
-  color: white !important;
-  padding: 1.5rem 2rem !important;
-  border-bottom: none !important;
-  min-height: 72px !important;
-  display: flex !important;
-  align-items: center;
-  justify-content: space-between;
-
-  .modal-title {
-    font-weight: 600 !important;
-    font-size: 1.25rem !important;
-    margin: 0 !important;
-    color: white !important;
-  }
-
-  .btn-close-white {
-    filter: brightness(0) invert(1) !important;
-    opacity: 0.9 !important;
-
-    &:hover {
-      opacity: 1 !important;
-    }
-  }
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-.modal-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
+// Maximize / restore, projected into the shell header's action slot
 .btn-action {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  color: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  color: var(--dg-muted);
   border-radius: 6px;
   padding: 0.35rem 0.5rem;
   display: inline-flex;
@@ -79,18 +52,26 @@ $dg-primary-color: #e94d18;
 }
 
 .btn-action:hover {
-  border-color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(15, 23, 42, 0.45);
+  color: var(--dg-label);
 }
 
-.modal-body {
-  padding: 2rem !important;
-  background: white !important;
-  min-height: calc(90vh - 100px) !important;
-  max-height: calc(90vh - 140px) !important;
-  overflow: auto !important;
+.oc-logs-body {
+  min-height: calc(90vh - 100px);
+  max-height: calc(90vh - 140px);
+  overflow: auto;
 }
 
-:host ::ng-deep .oc-logs-modal.oc-logs-fullscreen .modal-body {
+:host ::ng-deep .oc-logs-modal.oc-logs-fullscreen .oc-logs-body {
   min-height: calc(100vh - 100px) !important;
   max-height: calc(100vh - 140px) !important;
+}
+
+/*
+ * setFullscreen() sets an inline height of 100vh on .modal-content but no max-height,
+ * so the shell's `max-height: calc(100vh - 3.5rem)` would otherwise cap fullscreen short.
+ * Scoped to this modal's window classes.
+ */
+::ng-deep .oc-logs-modal.oc-logs-fullscreen .modal-content {
+  max-height: 100vh !important;
 }

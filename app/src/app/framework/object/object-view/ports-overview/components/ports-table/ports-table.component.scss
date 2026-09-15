@@ -1,0 +1,170 @@
+:host {
+    display: block;
+    width: 100%;
+}
+
+.ports-table {
+    display: block;
+    width: 100%;
+}
+
+/* Keep the wide port list inside the attributes card instead of pushing the layout sideways. */
+.ports-table ::ng-deep .table-container {
+    overflow-x: auto;
+}
+
+.ports-name {
+    font-weight: 500;
+    color: var(--dg-ink);
+}
+
+.ports-badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.4;
+    background-color: rgba(var(--dg-brand-rgb), 0.08);
+    color: var(--dg-brand-ink);
+    border: 1px solid rgba(var(--dg-brand-rgb), 0.18);
+}
+
+.ports-badge--status {
+    background-color: var(--dg-surface);
+    color: var(--dg-label);
+    border-color: var(--dg-border);
+}
+
+.ports-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--dg-muted);
+}
+
+.ports-state__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background-color: var(--dg-faint);
+}
+
+.ports-state--connected {
+    color: var(--dg-ink);
+
+    .ports-state__dot {
+        background-color: var(--dg-success);
+    }
+}
+
+/* A panel pairing is a connection, but not a cable - it reads as a state, not as an achievement. */
+.ports-state--paired {
+    color: var(--dg-label);
+
+    .ports-state__dot {
+        background-color: var(--dg-brand);
+    }
+}
+
+.ports-connection {
+    display: grid;
+    gap: 0.1rem;
+
+    &__pair {
+        color: var(--dg-muted);
+        font-size: 0.72rem;
+        line-height: 1.3;
+    }
+}
+
+.ports-muted {
+    color: var(--dg-faint);
+}
+
+.ports-row-actions {
+    display: inline-flex;
+    justify-content: center;
+}
+
+.ports-row-actions__trigger {
+    border: none;
+    background: transparent;
+    padding: 0.25rem 0.5rem;
+    color: #6b7280;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    line-height: 1;
+    transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+
+    &:hover,
+    &.show {
+        background-color: #f3f4f6;
+        color: #1f2937;
+    }
+
+    &:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+    }
+}
+
+/* The menu is rendered in the body, so it is styled outside the component's encapsulation. */
+::ng-deep .ports-row-menu.dropdown-menu {
+    min-width: 10rem;
+    padding: 0.25rem 0;
+    border-radius: 0.375rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    border: 1px solid #e5e7eb;
+
+    .ports-row-menu__item {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.5rem 0.875rem;
+        font-size: 0.875rem;
+        line-height: 1.25;
+        background-color: transparent;
+        border: none;
+        text-align: left;
+        cursor: pointer;
+        transition: background-color 0.12s ease-in-out, color 0.12s ease-in-out;
+
+        &:hover,
+        &:focus {
+            background-color: #f3f4f6;
+            color: #1f2937;
+            outline: none;
+        }
+    }
+
+    .ports-row-menu__icon {
+        width: 1rem;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    .ports-row-menu__divider {
+        height: 1px;
+        margin: 0.25rem 0;
+        background-color: #e5e7eb;
+    }
+
+    .ports-row-menu__item--danger {
+        color: #b91c1c;
+
+        &:hover,
+        &:focus {
+            background-color: #fee2e2;
+            color: #991b1b;
+            outline: none;
+        }
+
+        &:active {
+            background-color: #fecaca;
+            color: #7f1d1d;
+        }
+    }
+}

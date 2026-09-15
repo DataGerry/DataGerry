@@ -1,15 +1,10 @@
-<div class="modal-header">
-  <h4 class="modal-title">
-    {{ isEditMode ? 'Edit Likelihood' : 'Add Likelihood' }}
-  </h4>
-  <!-- Textual "×" close button -->
-  <button type="button" class="close" (click)="onCancel()">
-    <span aria-hidden="true">×</span>
-  </button>
-</div>
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <dg-modal
+    icon="fas fa-percent"
+    eyebrow="ISMS"
+    [title]="isEditMode ? 'Edit Likelihood' : 'Add Likelihood'"
+    (dismiss)="onCancel()">
 
-<div class="modal-body">
-  <form [formGroup]="form" (ngSubmit)="onSubmit()">
     <!-- Name Field -->
     <div class="mb-3">
       <label for="likelihoodName" class="form-label">
@@ -69,17 +64,21 @@
 
     </div>
 
-    <!-- Modal Footer -->
-    <div class="modal-footer">
-      <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
-      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-        @if (!isSubmitting) {
-        <span>{{ isEditMode ? 'Save Changes' : 'Add Likelihood' }}</span>
-        }
-        @if (isSubmitting) {
-        <span class="spinner-border spinner-border-sm"></span>
-        }
-      </button>
-    </div>
-  </form>
-</div>
+    <app-button
+      dgModalFooter
+      [bootstrapClass]="'btn-secondary'"
+      label="Cancel"
+      type="button"
+      (clicked)="onCancel()">
+    </app-button>
+
+    <button dgModalFooter type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
+      @if (!isSubmitting) {
+      <span>{{ isEditMode ? 'Save Changes' : 'Add Likelihood' }}</span>
+      }
+      @if (isSubmitting) {
+      <span class="spinner-border spinner-border-sm"></span>
+      }
+    </button>
+  </dg-modal>
+</form>

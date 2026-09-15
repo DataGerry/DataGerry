@@ -1,36 +1,40 @@
-<div class="modal-header bg-primary text-white">
-  <h4 class="modal-title">Preview Document</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
-</div>
+<dg-modal
+    icon="fas fa-file-pdf"
+    eyebrow="Document"
+    title="Preview Document"
+    subtitle="Pick the object the preview should be rendered for."
+    (dismiss)="cancel()">
 
-<div class="modal-body">
-  <label class="form-label">Select Object</label>
-  <app-object-selector
-    [typeIds]="typeIds"
-    [multiple]="false"
-    [includeFields]="false"
-    [closeOnSelect]="true"
-    [useInlineLoader]="true"
-    (fullSelectionChange)="onObjectSelectionChange($event)">
-  </app-object-selector>
+    <div class="preview-object">
+        <label class="form-label">Select Object</label>
+        <app-object-selector
+            [typeIds]="typeIds"
+            [multiple]="false"
+            [includeFields]="false"
+            [closeOnSelect]="true"
+            [useInlineLoader]="true"
+            (fullSelectionChange)="onObjectSelectionChange($event)">
+        </app-object-selector>
 
-  <small class="form-text text-muted mt-2 d-block">
-    Choose the object that should be used to generate the preview document.
-  </small>
-</div>
+        <small class="form-text text-muted mt-2 d-block">
+            Choose the object that should be used to generate the preview document.
+        </small>
+    </div>
 
-<div class="modal-footer">
-  <app-button
-    [bootstrapClass]="'btn-secondary'"
-    label="Cancel"
-    type="button"
-    (clicked)="cancel()">
-  </app-button>
-  <app-button
-    [bootstrapClass]="'btn-success'"
-    label="Preview"
-    type="button"
-    [disabled]="!selectedObject"
-    (clicked)="preview()">
-  </app-button>
-</div>
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Cancel"
+        type="button"
+        (clicked)="cancel()">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-success'"
+        label="Preview"
+        type="button"
+        [disabled]="!selectedObject"
+        (clicked)="preview()">
+    </app-button>
+</dg-modal>

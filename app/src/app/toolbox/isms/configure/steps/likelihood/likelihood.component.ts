@@ -160,7 +160,11 @@ export class LikelihoodsComponent implements OnInit {
       // Don't assign defaultCalculationBasis if it's a decimal
       this.defaultCalculationBasis = undefined;
     }    
-    const modalRef = this.modalService.open(LikelihoodModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(LikelihoodModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.existingCalculationBases = this.likelihoods.map(i => parseFloat(i.calculation_basis as any));
     modalRef.componentInstance.defaultCalculationBasis = this.defaultCalculationBasis;
     // No input => add mode
@@ -179,7 +183,11 @@ export class LikelihoodsComponent implements OnInit {
    * Opens edit likelihood modal with pre-filled data.
    */
   public editLikelihood(item: Likelihood): void {
-    const modalRef = this.modalService.open(LikelihoodModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(LikelihoodModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.likelihood = { ...item };
     modalRef.result.then(
       (result) => {
@@ -196,7 +204,11 @@ export class LikelihoodsComponent implements OnInit {
    * Opens delete confirmation modal and deletes the likelihood on confirm.
    */
   public deleteLikelihood(item: Likelihood): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Likelihood';
     modalRef.componentInstance.item = item;
     modalRef.componentInstance.itemType = 'Likelihood';

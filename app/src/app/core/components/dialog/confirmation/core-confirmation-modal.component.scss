@@ -1,0 +1,15 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.confirmation-lead {
+    font-size: 0.95rem;
+    color: var(--dg-label);
+
+    &:not(:last-child) {
+        margin-bottom: 1.1rem;
+    }
+}

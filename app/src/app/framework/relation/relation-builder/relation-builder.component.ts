@@ -19,7 +19,7 @@
 import { Component, Input, OnDestroy, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 
-import { finalize, Observable, ReplaySubject, Subscription } from 'rxjs';
+import { finalize } from 'rxjs';
 
 import { ToastService } from '../../../layout/toast/toast.service';
 
@@ -28,7 +28,8 @@ import { CmdbMode } from '../../modes.enum';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { CmdbRelation } from '../../models/relation.model';
 import { RelationService } from '../../services/relaion.service';
-import { ValidationService } from '../../type/services/validation.service';
+import { ValidationService } from 'src/app/framework/builder/services/validation.service';
+import { BuilderWizardBlockingState } from 'src/app/framework/builder/wizard/builder-wizard-blocking.state';
 
 @Component({
     selector: 'cmdb-relation-builder',
@@ -37,30 +38,21 @@ import { ValidationService } from '../../type/services/validation.service';
     standalone: false
 })
 export class RelationBuilderComponent implements OnInit, OnDestroy {
-  private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
-  private subscriptions = new Subscription();
-
   @Input() public relationInstance: CmdbRelation;
   @Input() public mode: CmdbMode = CmdbMode.Create;
   @Input() public stepIndex: number = 0;
   @Input() public availableTypes: any[] = [];
   public modes = CmdbMode;
 
-  public relations: CmdbRelation[] = [];
+  public types: any[] = [];
 
-  public types: any[] = []; 
-  public isSectionHighlighted: boolean = false;
-  public isFieldHighlighted: boolean = false;
-  public disableFields: boolean = false;
-  public isSectionWithoutFields: boolean = false;
+  /** Canvas states that block Save. */
+  public readonly blocking = new BuilderWizardBlockingState(this.validationService);
 
   public basicValid: boolean = true;
   public contentValid: boolean = true;
   public metaValid: boolean = true;
   public accessValid: boolean = true;
-
-  public isValid$: Observable<boolean>;
-  public isSectionValid$: Observable<boolean>;
 
   public isLoading$ = this.loaderService.isLoading$;
   public readonly isEditMode = this.route.snapshot.routeConfig?.path?.startsWith('edit') ?? false;
@@ -80,49 +72,29 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    // Load types for preview display
-
-    // Setup validation state subscriptions
-    this.validationService.isSectionHighlighted$.subscribe((highlighted) => {
-      setTimeout(() => this.isSectionHighlighted = highlighted);
-    });
-
-    this.validationService.isFieldHighlighted$.subscribe((highlighted) => {
-      setTimeout(() => this.isFieldHighlighted = highlighted);
-    });
-
-    this.validationService.disableFields$.subscribe((disable) => {
-      setTimeout(() => this.disableFields = disable);
-    });
-
-    this.validationService.isSectionWithoutField$.subscribe((disabledSection) => {
-      setTimeout(() => this.isSectionWithoutFields = disabledSection);
-    });
-
-    this.isValid$ = this.validationService.getIsValid();
-    this.isSectionValid$ = this.validationService.overallSectionValidity();
-
-
-    // If creating new
     if (this.mode === CmdbMode.Create) {
       this.relationInstance = new CmdbRelation();
     }
   }
 
   ngOnDestroy(): void {
-    this.subscriber?.next();
-    this.subscriber?.complete();
-    this.subscriptions?.unsubscribe();
+    this.blocking.destroy();
   }
 
 
 
+  /**
+   * Flattens the sections for the API. A section's fields are field objects while the builder has
+   * hydrated them and plain names otherwise, so both shapes have to survive the round trip.
+   */
   private formatSections(sections: any[]): any[] {
-    return sections.map(section => ({
+    return (sections ?? []).map(section => ({
       type: section.type,
       name: section.name,
       label: section.label,
-      fields: section.fields.map(field => field.name)
+      fields: (section.fields ?? []).map(field =>
+        typeof field === 'object' && field !== null ? field.name : field
+      )
     }));
   }
 
@@ -181,7 +153,7 @@ export class RelationBuilderComponent implements OnInit, OnDestroy {
   }
 
   saveRelation(): void {
-    if (!this.basicValid || !this.contentValid || this.isSectionHighlighted || this.isFieldHighlighted || this.disableFields || !this.isSectionWithoutFields) {
+    if (!this.basicValid || !this.contentValid || this.blocking.blocked) {
       this.toast.error('Mandatory fields are missing. Please complete all required fields.');
       return;
   }

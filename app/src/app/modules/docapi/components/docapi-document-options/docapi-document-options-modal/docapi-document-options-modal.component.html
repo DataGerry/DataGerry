@@ -1,9 +1,10 @@
-<div class="modal-header">
-    <h4 class="modal-title">Document Options</h4>
-    <button type="button" class="btn-close btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
-</div>
+<dg-modal
+    icon="fas fa-sliders"
+    eyebrow="Document"
+    title="Document Options"
+    subtitle="Page setup, cover page, table of contents, header and footer."
+    (dismiss)="cancel()">
 
-<div class="modal-body">
     <ul class="nav nav-tabs options-tabs">
         <li class="nav-item">
             <button class="nav-link" type="button" [class.active]="activeTab === 'margins'"
@@ -66,14 +67,11 @@
         </div>
         }
     </div>
-</div>
 
-<div class="modal-footer">
-
-    <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
+    <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="cancel()">
     </app-button>
 
-    <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" [disabled]="isApplyDisabled"
-        (clicked)="apply()">
+    <app-button dgModalFooter [bootstrapClass]="'btn-success'" label="Apply" type="button"
+        [disabled]="isApplyDisabled" (clicked)="apply()">
     </app-button>
-</div>
+</dg-modal>

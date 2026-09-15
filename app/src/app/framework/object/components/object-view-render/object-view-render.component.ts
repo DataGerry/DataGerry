@@ -20,6 +20,7 @@ import { UntypedFormGroup } from '@angular/forms';
 
 import { CmdbMode } from '../../../modes.enum';
 import { RenderResult } from '../../../models/cmdb-render';
+import { PORT_VIEW_RIGHT } from '../../object-view/ports-overview/models/ports-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -35,10 +36,31 @@ export class ObjectViewRenderComponent {
     public renderForm: UntypedFormGroup;
     public fieldsGroups: UntypedFormGroup;
 
+    public readonly portViewRight = PORT_VIEW_RIGHT;
+
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public constructor() {
         this.renderForm = new UntypedFormGroup({});
         this.fieldsGroups = new UntypedFormGroup({});
+    }
+
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public get objectId(): number | null {
+        return this.renderResult?.object_information?.object_id ?? null;
+    }
+
+    /** Ports are a section of their own, shown only for a type that declares `uses_ports`. */
+    public get portsAvailable(): boolean {
+        return this.renderResult?.type_information?.uses_ports === true;
+    }
+
+
+    /** Subtitle of the add-port modal. */
+    public get objectLabel(): string {
+        const label = this.renderResult?.type_information?.type_label ?? '';
+
+        return this.objectId == null ? label : `${ label } #${ this.objectId }`;
     }
 }

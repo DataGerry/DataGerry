@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, NgZone, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { BehaviorSubject, forkJoin, Observable, ReplaySubject } from 'rxjs';
 import { CmdbCategory, CmdbCategoryNode, CmdbCategoryTree } from '../models/cmdb-category';
 import { CategoryService } from '../services/category.service';
@@ -31,6 +31,17 @@ import { UserSetting } from '../../management/user-settings/models/user-setting'
 import { convertResourceURL, UserSettingsService } from '../../management/user-settings/services/user-settings.service';
 import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
+
+/**
+ * Distance to the edge of the tree viewport that starts the auto scroll while dragging.
+ */
+const DRAG_SCROLL_EDGE = 44;
+
+/**
+ * Pixels the tree viewport moves per animation frame while auto scrolling.
+ */
+const DRAG_SCROLL_STEP = 12;
 
 @Component({
     selector: 'cmdb-category',
@@ -38,14 +49,13 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     styleUrls: ['./category.component.scss'],
     standalone: false
 })
-export class CategoryComponent implements OnInit, OnDestroy {
+export class CategoryComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /**
    * HTML ID of the table.
    * Used for user settings and table-states
    */
   public readonly id: string = 'category-list-table';
-
 
   /**
    * Global unsubscriber for http calls to the rest backend.
@@ -64,14 +74,51 @@ export class CategoryComponent implements OnInit, OnDestroy {
   public categoryTree: CmdbCategoryTree;
 
   /**
-   * Current display mode
+   * Tree that is actually rendered. Equals the full tree unless a filter is active.
    */
-  private displayMode: Observable<CmdbMode>;
+  public visibleTree: CmdbCategoryTree;
 
   /**
-   * Current display mode subject
+   * True while the user rearranges the tree by drag and drop.
    */
-  private displayModeSubject: BehaviorSubject<CmdbMode> = new BehaviorSubject<CmdbMode>(CmdbMode.View);
+  public organizing: boolean = false;
+
+  /**
+   * True as soon as a drag and drop changed the tree but nothing was saved yet.
+   */
+  public hasPendingChanges: boolean = false;
+
+  /**
+   * Current filter term of the tree.
+   */
+  public searchTerm: string = '';
+
+  /**
+   * Category being dragged right now. Drives the drop preview and the open drop zones.
+   */
+  public draggedNode: CmdbCategoryNode;
+
+  /**
+   * Public IDs of all nodes whose children are currently hidden.
+   */
+  public readonly collapsedNodes: Set<number> = new Set<number>();
+
+  /**
+   * True when at least one category has children. Only then a collapse control makes sense.
+   */
+  public hasNestedCategories: boolean = false;
+
+  /**
+   * Scrollable tree viewport, used for the auto scroll while dragging.
+   */
+  @ViewChild('treeScroll') private treeScrollRef: ElementRef<HTMLElement>;
+
+  /**
+   * Current auto scroll direction: -1 up, 0 idle, 1 down.
+   */
+  private autoScrollDirection: number = 0;
+
+  private autoScrollFrame: number = 0;
 
   /**
    * Table datas
@@ -95,14 +142,32 @@ export class CategoryComponent implements OnInit, OnDestroy {
     return this.tableStateSubject.getValue() as TableState;
   }
 
+  /**
+   * Mode handed to the tree. Only the organize state decides it, not the route.
+   */
+  public get treeMode(): CmdbMode {
+    return this.organizing ? CmdbMode.Edit : CmdbMode.View;
+  }
+
+  public get hasCategories(): boolean {
+    return this.categoryTree?.length > 0;
+  }
+
+  public get isFiltered(): boolean {
+    return this.searchTerm.trim().length > 0;
+  }
+
+  public get isEverythingExpanded(): boolean {
+    return this.collapsedNodes.size === 0;
+  }
+
   constructor(private categoryService: CategoryService, private route: ActivatedRoute, private sidebarService: SidebarService,
               private router: Router, private userSettingsService: UserSettingsService<UserSetting, TableStatePayload>,
               private indexDB: UserSettingsDBService<UserSetting, TableStatePayload>,
-              private loaderService: LoaderService
+              private loaderService: LoaderService, private toastService: ToastService, private zone: NgZone
             ) {
     this.categories = [];
-    this.displayMode = this.displayModeSubject.asObservable();
-    this.displayModeSubject.next(this.route.snapshot.data.mode);
+    this.organizing = this.route.snapshot.data.mode === CmdbMode.Edit;
     this.route.data.pipe(takeUntil(this.unSubscribe)).subscribe((data: Data) => {
       if (data.userSetting) {
         const userSettingPayloads = (data.userSetting as UserSetting<TableStatePayload>).payloads
@@ -120,6 +185,189 @@ export class CategoryComponent implements OnInit, OnDestroy {
       }
     });
   }
+
+  /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
+  public ngOnInit(): void {
+    this.tableColumnBuilder();
+    this.watchCategoryTree();
+    this.loadCategories();
+  }
+
+  public ngAfterViewInit(): void {
+    // dragover fires continuously, so it stays outside Angular instead of triggering change detection per event.
+    this.zone.runOutsideAngular(() => {
+      this.treeScrollRef?.nativeElement.addEventListener('dragover', this.handleTreeDragOver);
+    });
+  }
+
+  public ngOnDestroy(): void {
+    this.treeScrollRef?.nativeElement.removeEventListener('dragover', this.handleTreeDragOver);
+    this.stopAutoScroll();
+    this.unSubscribe?.next();
+    this.unSubscribe?.complete();
+  }
+
+  /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+  public onAddCategory(): void {
+    this.router.navigate(['/framework/category/add']);
+  }
+
+  public startOrganize(): void {
+    this.searchTerm = '';
+    this.collapsedNodes.clear();
+    this.hasPendingChanges = false;
+    this.organizing = true;
+    this.visibleTree = this.categoryTree;
+  }
+
+  /**
+   * Drops every local reorder by reloading the tree from the backend.
+   */
+  public cancelOrganize(): void {
+    this.organizing = false;
+    this.hasPendingChanges = false;
+    this.endDragState();
+    this.sidebarService.loadCategoryTree();
+  }
+
+  /**
+   * Rest caller updates every category in tree
+   */
+  public onSave(): void {
+    const observers = this.saveTree(this.categoryTree);
+
+    if (observers.length === 0) {
+      this.organizing = false;
+      this.hasPendingChanges = false;
+      return;
+    }
+
+    this.loaderService.show();
+    forkJoin(observers).pipe(takeUntil(this.unSubscribe), finalize(() => this.loaderService.hide())).subscribe({
+      next: () => {
+        this.organizing = false;
+        this.hasPendingChanges = false;
+        this.endDragState();
+        this.toastService.success('The category structure was saved.');
+        this.sidebarService.loadCategoryTree();
+        this.loadCategories();
+      },
+      error: () => this.toastService.error('The category structure could not be saved. Please try again.')
+    });
+  }
+
+  public onTreeReorder(): void {
+    this.hasPendingChanges = true;
+  }
+
+  /**
+   * ngx-drag-drop stops the dragstart event at the row, so the drag state comes from the tree
+   * itself instead of a listener on the viewport.
+   */
+  public onTreeDragStarted(node: CmdbCategoryNode): void {
+    this.draggedNode = node;
+  }
+
+  /**
+   * A node was removed inside the tree, so tree and list have to be reloaded.
+   */
+  public onTreeChange(): void {
+    this.sidebarService.loadCategoryTree();
+    this.loadCategories();
+  }
+
+  public onSearchInput(event: Event): void {
+    this.searchTerm = (event.target as HTMLInputElement).value;
+    this.collapsedNodes.clear();
+    this.applyTreeFilter();
+  }
+
+  public clearSearch(): void {
+    this.searchTerm = '';
+    this.applyTreeFilter();
+  }
+
+  public toggleAllNodes(): void {
+    if (this.collapsedNodes.size === 0) {
+      this.collectParentIDs(this.categoryTree).forEach(publicID => this.collapsedNodes.add(publicID));
+    } else {
+      this.collapsedNodes.clear();
+    }
+  }
+
+  /**
+   * Ends a drag: stops the auto scroll and removes drag state ngx-drag-drop leaves behind.
+   */
+  public onTreeDragEnd(): void {
+    this.endDragState();
+  }
+
+  /**
+   * On table sort change.
+   * Reload all objects.
+   *
+   * @param sort
+   */
+  public onSortChange(sort: Sort): void {
+    this.sort = sort;
+    this.apiParameters.sort = sort.name;
+    this.apiParameters.order = sort.order;
+    this.loadCategories();
+  }
+
+  /**
+   * On table state reset.
+   * Resets the table state
+   */
+  public onStateReset(): void {
+    this.sort = { name: 'public_id', order: SortDirection.DESCENDING } as Sort;
+    this.apiParameters.sort = this.sort.name;
+    this.apiParameters.order = this.sort.order;
+    this.apiParameters.limit = 10;
+    this.apiParameters.page = 1;
+  }
+
+  /**
+   * On Table state select.
+   * Sets the current table state to the selected table state
+   * @param state
+   */
+  public onStateSelect(state: TableState): void {
+    this.tableStateSubject.next(state);
+    this.apiParameters.page = this.tableState.page;
+    this.apiParameters.limit = this.tableState.pageSize;
+    this.sort = this.tableState.sort;
+    for (const col of this.tableColumns) {
+      col.hidden = !this.tableState.visibleColumns.includes(col.name);
+    }
+    this.loadCategories();
+  }
+
+  /**
+   * On table page change.
+   * Reload all objects.
+   *
+   * @param page
+   */
+  public onPageChange(page: number) {
+    this.apiParameters.page = page;
+    this.loadCategories();
+  }
+
+  /**
+   * On table page size change.
+   * Reload all objects.
+   *
+   * @param limit
+   */
+  public onPageSizeChange(limit: number): void {
+    this.apiParameters.limit = limit;
+    this.loadCategories();
+  }
+
+  /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
   private tableColumnBuilder(): void {
 
@@ -194,112 +442,56 @@ export class CategoryComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Load category tree from the backend.
+   * The sidebar owns the category tree, so the page follows its state instead of loading its own copy.
    */
-  private loadCategoryTree(): void {
-    this.displayMode.subscribe(() => {
-      this.sidebarService.categoryTree.asObservable().pipe(takeUntil(this.unSubscribe))
-        .subscribe((categoryTree: CmdbCategoryTree) => {
-          this.categoryTree = categoryTree;
+  private watchCategoryTree(): void {
+    this.sidebarService.categoryTree.asObservable().pipe(takeUntil(this.unSubscribe))
+      .subscribe((categoryTree: CmdbCategoryTree) => {
+        this.categoryTree = categoryTree;
+        this.hasNestedCategories = this.collectParentIDs(categoryTree).length > 0;
+        this.applyTreeFilter();
       });
-    });
   }
 
   /**
-   * Will generate all needed data for cmdb-table.
+   * Keeps a category when it matches itself or has a matching descendant.
    */
-  private dataLoader(): void {
-    this.tableColumnBuilder();
-    this.loadCategoryTree();
-    this.loadCategories();
-  }
+  private applyTreeFilter(): void {
+    const term = this.searchTerm.trim().toLowerCase();
 
-  public ngOnInit(): void {
-    this.dataLoader();
-  }
-
-  /**
-   * On table sort change.
-   * Reload all objects.
-   *
-   * @param sort
-   */
-  public onSortChange(sort: Sort): void {
-    this.sort = sort;
-    this.apiParameters.sort = sort.name;
-    this.apiParameters.order = sort.order;
-    this.loadCategories();
-  }
-
-  /**
-   * On table state reset.
-   * Resets the table state
-   */
-  public onStateReset(): void {
-    this.sort = { name: 'public_id', order: SortDirection.DESCENDING } as Sort;
-    this.apiParameters.sort = this.sort.name;
-    this.apiParameters.order = this.sort.order;
-    this.apiParameters.limit = 10;
-    this.apiParameters.page = 1;
-  }
-
-  /**
-   * On Table state select.
-   * Sets the current table state to the selected table state
-   * @param state
-   */
-  public onStateSelect(state: TableState): void {
-    this.tableStateSubject.next(state);
-    this.apiParameters.page = this.tableState.page;
-    this.apiParameters.limit = this.tableState.pageSize;
-    this.sort = this.tableState.sort;
-    for (const col of this.tableColumns) {
-      col.hidden = !this.tableState.visibleColumns.includes(col.name);
+    if (!term || this.organizing) {
+      this.visibleTree = this.categoryTree;
+      return;
     }
-    this.loadCategories();
+
+    this.visibleTree = this.filterNodes(this.categoryTree, term);
   }
 
-  /**
-   * On table page change.
-   * Reload all objects.
-   *
-   * @param page
-   */
-  public onPageChange(page: number) {
-    this.apiParameters.page = page;
-    this.loadCategories();
+  private filterNodes(nodes: CmdbCategoryTree, term: string): CmdbCategoryTree {
+    const matches: Array<CmdbCategoryNode> = [];
+
+    for (const node of nodes ?? []) {
+      const children = this.filterNodes(node.children, term);
+      const isMatch = node.category.label.toLowerCase().includes(term);
+
+      if (isMatch || children.length > 0) {
+        matches.push({ category: node.category, children, types: node.types });
+      }
+    }
+
+    return matches;
   }
 
-  /**
-   * On table page size change.
-   * Reload all objects.
-   *
-   * @param limit
-   */
-  public onPageSizeChange(limit: number): void {
-    this.apiParameters.limit = limit;
-    this.loadCategories();
-  }
+  private collectParentIDs(nodes: CmdbCategoryTree): Array<number> {
+    const parents: Array<number> = [];
 
-  public ngOnDestroy(): void {
-    this.unSubscribe?.next();
-    this.unSubscribe?.complete();
-  }
+    for (const node of nodes ?? []) {
+      if (node.children?.length > 0) {
+        parents.push(node.category.public_id, ...this.collectParentIDs(node.children));
+      }
+    }
 
-  public get mode(): CmdbMode {
-    return this.displayModeSubject.getValue();
-  }
-
-  /**
-   * Rest caller updates every category in tree
-   */
-  public onSave(): void {
-    this.loaderService.show()
-    const observers = this.saveTree(this.categoryTree);
-    forkJoin(observers).pipe(finalize(() => this.loaderService.hide())).subscribe(() => {
-      this.sidebarService.loadCategoryTree();
-      this.dataLoader();
-    });
+    return parents;
   }
 
   /**
@@ -326,8 +518,79 @@ export class CategoryComponent implements OnInit, OnDestroy {
     return observers;
   }
 
-  public onTreeChange(): void {
-    this.sidebarService.loadCategoryTree();
-    this.dataLoader();
+  private endDragState(): void {
+    this.draggedNode = null;
+    this.stopAutoScroll();
+    this.clearStaleDragState();
+  }
+
+  /**
+   * ngx-drag-drop has no auto scroll, so dragging towards an edge of the tree viewport moves it here.
+   */
+  private readonly handleTreeDragOver = (event: DragEvent): void => {
+    const viewport = this.treeScrollRef?.nativeElement;
+
+    if (!viewport || viewport.scrollHeight <= viewport.clientHeight) {
+      this.autoScrollDirection = 0;
+      return;
+    }
+
+    const bounds = viewport.getBoundingClientRect();
+
+    if (event.clientY < bounds.top + DRAG_SCROLL_EDGE) {
+      this.autoScrollDirection = -1;
+    } else if (event.clientY > bounds.bottom - DRAG_SCROLL_EDGE) {
+      this.autoScrollDirection = 1;
+    } else {
+      this.autoScrollDirection = 0;
+    }
+
+    this.ensureAutoScroll();
+  };
+
+  private ensureAutoScroll(): void {
+    if (this.autoScrollFrame || this.autoScrollDirection === 0) {
+      return;
+    }
+
+    this.zone.runOutsideAngular(() => {
+      const step = () => {
+        const viewport = this.treeScrollRef?.nativeElement;
+
+        if (!viewport || this.autoScrollDirection === 0) {
+          this.autoScrollFrame = 0;
+          return;
+        }
+
+        viewport.scrollTop += this.autoScrollDirection * DRAG_SCROLL_STEP;
+        this.autoScrollFrame = requestAnimationFrame(step);
+      };
+
+      this.autoScrollFrame = requestAnimationFrame(step);
+    });
+  }
+
+  private stopAutoScroll(): void {
+    this.autoScrollDirection = 0;
+
+    if (this.autoScrollFrame) {
+      cancelAnimationFrame(this.autoScrollFrame);
+      this.autoScrollFrame = 0;
+    }
+  }
+
+  /**
+   * ngx-drag-drop skips its own cleanup when a drop lands on a nested dropzone, which leaves the
+   * highlight and the placeholder of the passed zones behind. Both are recreated on the next drag.
+   */
+  private clearStaleDragState(): void {
+    const viewport = this.treeScrollRef?.nativeElement;
+
+    if (!viewport) {
+      return;
+    }
+
+    viewport.querySelectorAll('.dndDragover').forEach(element => element.classList.remove('dndDragover'));
+    viewport.querySelectorAll('.dg-tree__placeholder').forEach(element => element.remove());
   }
 }

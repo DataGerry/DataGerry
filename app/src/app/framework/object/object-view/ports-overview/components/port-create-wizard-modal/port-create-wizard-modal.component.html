@@ -1,0 +1,272 @@
+<dg-modal
+  icon="fas fa-ethernet"
+  eyebrow="Ports"
+  title="Create ports"
+  [subtitle]="objectLabel"
+  (dismiss)="activeModal.dismiss()">
+
+  <aw-wizard class="port-wizard" dgStepper [navBarLayout]="'large-empty-symbols'">
+
+    <aw-wizard-step stepId="1" stepTitle="Device type" [canExit]="canExitStep"
+      (stepEnter)="onStepEnter(0)">
+      <ng-template awWizardStepSymbol>
+        <i class="fas fa-server" aria-hidden="true"></i>
+      </ng-template>
+
+      <p class="port-wizard__lead">This decides how the ports are named and paired.</p>
+
+      <cmdb-choice-card-group
+        name="deviceKind"
+        groupLabel="Device type"
+        [choices]="deviceKinds"
+        [selected]="form.controls.deviceKind.value"
+        (choiceSelected)="onSelectDeviceKind($event)">
+      </cmdb-choice-card-group>
+    </aw-wizard-step>
+
+    <aw-wizard-step stepId="2" stepTitle="Naming" [canExit]="canExitStep"
+      (stepEnter)="onStepEnter(1)">
+      <ng-template awWizardStepSymbol>
+        <i class="fas fa-font" aria-hidden="true"></i>
+      </ng-template>
+
+      <form [formGroup]="form" novalidate autocomplete="off">
+        @if (isPatchPanel) {
+          <p class="port-wizard__lead">
+            A panel needs two names, one per side, and they have to differ:
+            <code>&#123;prefix&#125;-F&#123;n:02&#125;</code> and
+            <code>&#123;prefix&#125;-R&#123;n:02&#125;</code> give PP1-F01 and PP1-R01.
+            <code>&#123;prefix&#125;</code> and <code>&#123;slot&#125;</code> take the values below.
+          </p>
+        } @else {
+          <p class="port-wizard__lead">
+            One name, numbered for you: <code>Gi0/&#123;n&#125;</code> gives Gi0/1, Gi0/2 -
+            <code>&#123;n:02&#125;</code> gives 01, 02. <code>&#123;prefix&#125;</code> and
+            <code>&#123;slot&#125;</code> take the values below.
+          </p>
+        }
+
+        <app-form-input
+          [label]="isPatchPanel ? 'Name of the front ports' : 'Name of the ports'"
+          [placeholder]="isPatchPanel ? 'e.g. {prefix}-F{n:02}' : 'e.g. Gi0/{n}'"
+          [required]="true"
+          [errorMessage]="errorOf('syntax')"
+          formControlName="syntax">
+        </app-form-input>
+
+        @if (isPatchPanel) {
+          <app-form-input
+            label="Name of the rear ports"
+            placeholder="e.g. {prefix}-R{n:02}"
+            [required]="true"
+            [errorMessage]="errorOf('rearSyntax')"
+            formControlName="rearSyntax">
+          </app-form-input>
+        }
+
+        <div class="row">
+          <div class="col-md-6">
+            <app-form-input
+              label="Prefix (optional)"
+              placeholder="e.g. PP1"
+              formControlName="prefix">
+            </app-form-input>
+          </div>
+          <div class="col-md-6">
+            <app-form-input
+              label="Slot (optional)"
+              placeholder="e.g. 1"
+              formControlName="slot">
+            </app-form-input>
+          </div>
+        </div>
+      </form>
+    </aw-wizard-step>
+
+    <aw-wizard-step stepId="3" stepTitle="Count &amp; numbering" [canExit]="canExitStep"
+      (stepEnter)="onStepEnter(2)">
+      <ng-template awWizardStepSymbol>
+        <i class="fas fa-list-ol" aria-hidden="true"></i>
+      </ng-template>
+
+      <form [formGroup]="form" novalidate autocomplete="off">
+        <p class="port-wizard__lead">
+          @if (isPatchPanel) {
+            Per side - a panel gets this many front and as many rear ports.
+          } @else {
+            How many ports, and the number to start from.
+          }
+        </p>
+
+        <div class="row">
+          <div class="col-md-6">
+            <app-form-input
+              label="How many ports"
+              type="number"
+              placeholder="e.g. 24"
+              [required]="true"
+              [errorMessage]="errorOf('count')"
+              formControlName="count">
+            </app-form-input>
+          </div>
+          <div class="col-md-6">
+            <app-form-input
+              label="Start counting at"
+              type="number"
+              placeholder="e.g. 1"
+              [required]="true"
+              [errorMessage]="errorOf('startIndex')"
+              formControlName="startIndex">
+            </app-form-input>
+          </div>
+        </div>
+
+        <h3 class="port-wizard__subhead">Applied to every port</h3>
+
+        <div class="row">
+          <div class="col-md-6">
+            <app-form-select
+              label="Port type"
+              placeholder="Select a port type..."
+              bindLabel="label"
+              bindValue="name"
+              [items]="portTypeOptions"
+              formControlName="portType">
+            </app-form-select>
+          </div>
+          <div class="col-md-6">
+            <app-form-select
+              label="Speed"
+              placeholder="Select a speed..."
+              bindLabel="label"
+              bindValue="name"
+              [items]="speedOptions"
+              formControlName="speed">
+            </app-form-select>
+          </div>
+        </div>
+
+        <app-form-select
+          label="Status"
+          placeholder="Select a status..."
+          bindLabel="label"
+          bindValue="name"
+          [items]="statusOptions"
+          formControlName="status">
+        </app-form-select>
+
+        <app-form-textarea
+          label="Description"
+          placeholder="Optional"
+          [rows]="2"
+          [errorMessage]="errorOf('description')"
+          formControlName="description">
+        </app-form-textarea>
+      </form>
+    </aw-wizard-step>
+
+    <aw-wizard-step stepId="4" stepTitle="Preview &amp; create" (stepEnter)="onStepEnter(3)">
+      <ng-template awWizardStepSymbol>
+        <i class="fas fa-clipboard-check" aria-hidden="true"></i>
+      </ng-template>
+
+      @if (previewError) {
+        <app-warning-alert title="The preview could not be built:" [message]="previewError"></app-warning-alert>
+      }
+
+      @if (preview.hasCollisions) {
+        <app-warning-alert
+          title="These names cannot be created:"
+          message="Go back and change the name, the prefix or the start number.">
+        </app-warning-alert>
+      }
+
+      @if (preview.faces.length) {
+        @if (!preview.hasCollisions) {
+          <p class="port-wizard__lead">Nothing is created until you confirm.</p>
+        }
+
+        <dl class="preview-summary">
+          <div class="preview-summary__item">
+            <dt>Device type</dt>
+            <dd>{{ selectedKindLabel }}</dd>
+          </div>
+          <div class="preview-summary__item">
+            <dt>Ports</dt>
+            <dd>{{ preview.totalPorts }}</dd>
+          </div>
+          @if (isPatchPanel) {
+            <div class="preview-summary__item">
+              <dt>Internal connections</dt>
+              <dd>{{ preview.internalConnections }}</dd>
+            </div>
+          }
+        </dl>
+
+        @for (face of preview.faces; track face.title) {
+          <section class="preview-face">
+            <header class="preview-face__head">
+              <h3 class="preview-face__title">{{ face.title }}</h3>
+              <span class="preview-face__count">{{ face.count }} &middot; {{ face.range }}</span>
+            </header>
+
+            <ul class="preview-face__names">
+              @for (name of face.names; track name) {
+                <li class="preview-chip">{{ name }}</li>
+              }
+              @if (face.hiddenNames) {
+                <li class="preview-chip preview-chip--more">+{{ face.hiddenNames }} more</li>
+              }
+            </ul>
+
+            @if (face.duplicates.length) {
+              <p class="preview-face__problem">
+                Generated more than once: {{ face.duplicates.join(', ') }}. Add
+                <code>&#123;n&#125;</code> to the syntax.
+              </p>
+            }
+            @if (face.existing.length) {
+              <p class="preview-face__problem">
+                Already taken on this object: {{ face.existing.join(', ') }}.
+              </p>
+            }
+          </section>
+        }
+      } @else if (!previewError) {
+        <p class="port-wizard__lead">Working out the names...</p>
+      }
+    </aw-wizard-step>
+  </aw-wizard>
+
+  @if (stepIndex > 0) {
+    <app-button
+      dgModalFooter
+      label="Back"
+      icon="fas fa-arrow-left"
+      bootstrapClass="btn-secondary"
+      title="Back to the previous step"
+      (clicked)="onBack()">
+    </app-button>
+  }
+
+  <app-button
+    dgModalFooter
+    label="Cancel"
+    bootstrapClass="btn-secondary"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
+
+  <app-button
+    dgModalFooter
+    [label]="primaryLabel"
+    [icon]="primaryIcon"
+    bootstrapClass="btn-success"
+    [disabled]="primaryDisabled"
+    (clicked)="onPrimary()">
+  </app-button>
+</dg-modal>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

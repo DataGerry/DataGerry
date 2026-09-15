@@ -1,7 +1,7 @@
 <div [attr.id]="id" #container class="dg-table table-container">
     <!-- <table-loading *ngIf="loadingEnabled" [loading]="loading"></table-loading> -->
 
-    <div class="table-header d-flex mb-3" *ngIf="pageSizeEnabled || stateEnabled || toggleable || searchEnabled">
+    <div class="table-header d-flex align-items-center mb-3" *ngIf="pageSizeEnabled || stateEnabled || toggleable || searchEnabled">
         <div class="me-auto" *ngIf="pageSizeEnabled">
             <table-page-size
                 [pageSize]="pageSize"
@@ -42,10 +42,12 @@
             />
         </div>
 
-        <div *ngIf="columnSearchEnabled" class="btn-group me-1 ms-1 border-end">
-            <button class="btn btn-secondary btn-sm" type="button" (click)="onColumnSearchVisibilityChange()">
-                <i class="fas fa-filter"></i> Filter
-            </button>
+        <div *ngIf="columnSearchEnabled" class="table-column-search me-1 ms-1 border-end">
+            <div class="btn-group">
+                <button class="btn btn-secondary btn-sm" type="button" (click)="onColumnSearchVisibilityChange()">
+                    <i class="fas fa-filter"></i> Filter
+                </button>
+            </div>
         </div>
 
         <div class="table-search ms-1" *ngIf="searchEnabled">

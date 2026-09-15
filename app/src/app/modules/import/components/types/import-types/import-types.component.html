@@ -1,41 +1,107 @@
-<form id="uploadfileform" [formGroup]="fileForm">
-    <aw-wizard [navBarLayout]="'large-empty-symbols'">
-        <aw-wizard-step stepId="1" stepTitle="Select file">
-            <ng-template awWizardStepSymbol>
-                <i class="fas fa-file-code"></i>
-            </ng-template>
-            <cmdb-select-file-drag-drop [formGroup]="fileForm"/>
-        </aw-wizard-step>
+<div class="import-page">
+    <header class="import-page__header">
+        <span class="import-page__icon" aria-hidden="true">
+            <i class="fas fa-file-import"></i>
+        </span>
+        <div class="import-page__heading">
+            <h1 class="import-page__title">Import types</h1>
+            <p class="import-page__subtitle">
+                Upload a type export, review the entries and import them as new or updated types.
+            </p>
+        </div>
+    </header>
 
-        <aw-wizard-step stepId="2" stepTitle="Preview">
-            <ng-template awWizardStepSymbol>
-                <i class="fas fa-clipboard-check"></i>
-            </ng-template>
-            <cmdb-type-preview [data]="fileForm"/>
-            <button class="btn btn-primary prev" type="button" awPreviousStep>
-                <i class="fas fa-angle-double-left"></i> Previous step
-            </button>
-            <button
-                class="btn btn-primary next"
-                type="submit"
-                awNextStep
-                [disabled]="fileForm.invalid"
-                (click)="importTypeFile()"
-            >
-                Import File <i class="fas fa-angle-double-right"></i>
-            </button>
-        </aw-wizard-step>
+    <div class="row import-page__body">
+        <div class="col-12 col-xl-9">
+            <div class="import-canvas">
+                <aw-wizard dgStepper [navBarLayout]="'large-empty-symbols'">
+                    <aw-wizard-step stepId="1" stepTitle="Select file" [canExit]="canLeaveWithTypes"
+                        (stepEnter)="onFileStepEnter()">
+                        <ng-template awWizardStepSymbol>
+                            <i class="fas fa-file-code"></i>
+                        </ng-template>
+                        <cmdb-select-file-drag-drop (fileParsed)="onFileParsed($event)"
+                            (fileCleared)="onFileCleared()" />
+                    </aw-wizard-step>
 
-        <aw-wizard-step stepId="5" stepTitle="Complete">
-            <ng-template awWizardStepSymbol>
-                <i class="fas fa-save"></i>
-            </ng-template>
-            <cmdb-import-type-complete [errorHandling]="errorHandling" [done]="done"/>
-        </aw-wizard-step>
-    </aw-wizard>
-</form>
+                    <aw-wizard-step stepId="2" stepTitle="Preview" [canExit]="canLeaveWithTypes">
+                        <ng-template awWizardStepSymbol>
+                            <i class="fas fa-clipboard-check"></i>
+                        </ng-template>
+                        <cmdb-type-preview [types]="parsedTypes" [action]="action"
+                            (actionChange)="onActionChange($event)" (typeRemoved)="onTypeRemoved($event)" />
+                    </aw-wizard-step>
 
-<app-loading-popup 
-  [isVisible]="isLoading$ | async"
-  message="We're Processing the Data..."
-></app-loading-popup>
+                    <aw-wizard-completion-step stepId="3" stepTitle="Complete" awEnableBackLinks>
+                        <ng-template awWizardStepSymbol>
+                            <i class="fas fa-save"></i>
+                        </ng-template>
+                        <cmdb-import-type-complete [fileName]="fileName" [typeCount]="parsedTypes.length"
+                            [action]="action" [importResponse]="importResponse" [isImporting]="isImporting"
+                            (startImportEmitter)="startImport()" />
+                    </aw-wizard-completion-step>
+                </aw-wizard>
+            </div>
+        </div>
+
+        <div class="col-12 col-xl-3">
+            <aside class="import-summary">
+                <section class="summary-card">
+                    <h2 class="summary-card__head">
+                        <i class="fas fa-file" aria-hidden="true"></i> File
+                    </h2>
+                    <dl class="summary-card__body">
+                        <div class="summary-row">
+                            <dt>Format</dt>
+                            <dd>JSON</dd>
+                        </div>
+                        <div class="summary-row">
+                            <dt>File</dt>
+                            <dd>{{ fileName || '—' }}</dd>
+                        </div>
+                        <div class="summary-row">
+                            <dt>Size</dt>
+                            <dd>{{ fileSize !== undefined ? (fileSize | fileSize) : '—' }}</dd>
+                        </div>
+                    </dl>
+                </section>
+
+                <section class="summary-card">
+                    <h2 class="summary-card__head">
+                        <i class="fas fa-layer-group" aria-hidden="true"></i> Types
+                    </h2>
+                    <dl class="summary-card__body">
+                        <div class="summary-row">
+                            <dt>Ready to import</dt>
+                            <dd>{{ parsedTypes.length }}</dd>
+                        </div>
+                        <div class="summary-row">
+                            <dt>Mode</dt>
+                            <dd>{{ action === 'update' ? 'Update' : 'Create' }}</dd>
+                        </div>
+                    </dl>
+                </section>
+
+                @if (importResponse) {
+                <section class="summary-card">
+                    <h2 class="summary-card__head">
+                        <i class="fas fa-list-check" aria-hidden="true"></i> Result
+                    </h2>
+                    <dl class="summary-card__body">
+                        <div class="summary-row">
+                            <dt>{{ action === 'update' ? 'Updated' : 'Imported' }}</dt>
+                            <dd>{{ importResponse.success_imports }}</dd>
+                        </div>
+                        <div class="summary-row">
+                            <dt>Failed</dt>
+                            <dd>{{ importResponse.failed_imports.length }}</dd>
+                        </div>
+                    </dl>
+                </section>
+                }
+            </aside>
+        </div>
+    </div>
+</div>
+
+<app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

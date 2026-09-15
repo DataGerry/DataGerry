@@ -1,0 +1,90 @@
+<dg-modal
+  icon="fas fa-ethernet"
+  eyebrow="Ports"
+  [title]="title"
+  [subtitle]="objectLabel"
+  (dismiss)="activeModal.dismiss()">
+
+  <form class="port-form-modal__form" [formGroup]="form" novalidate autocomplete="off" (ngSubmit)="onSubmit()">
+    <div class="row">
+      <div class="col-md-8">
+        <app-form-input
+          label="Port name"
+          placeholder="e.g. Gi0/1"
+          [required]="true"
+          [errorMessage]="errorOf('name')"
+          formControlName="name">
+        </app-form-input>
+      </div>
+      <div class="col-md-4">
+        <app-form-input
+          label="Port number"
+          type="number"
+          placeholder="e.g. 1"
+          [errorMessage]="errorOf('portNumber')"
+          formControlName="portNumber">
+        </app-form-input>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-6">
+        <app-form-select
+          label="Port type"
+          placeholder="Select a port type..."
+          bindLabel="label"
+          bindValue="name"
+          [items]="portTypeOptions"
+          formControlName="portType">
+        </app-form-select>
+      </div>
+      <div class="col-md-6">
+        <app-form-select
+          label="Speed"
+          placeholder="Select a speed..."
+          bindLabel="label"
+          bindValue="name"
+          [items]="speedOptions"
+          formControlName="speed">
+        </app-form-select>
+      </div>
+    </div>
+
+    <app-form-select
+      label="Status"
+      placeholder="Select a status..."
+      bindLabel="label"
+      bindValue="name"
+      [items]="statusOptions"
+      formControlName="status">
+    </app-form-select>
+
+    <app-form-textarea
+      label="Description"
+      placeholder="What is this port used for?"
+      [rows]="3"
+      [errorMessage]="errorOf('description')"
+      formControlName="description">
+    </app-form-textarea>
+  </form>
+
+  <app-button
+    dgModalFooter
+    label="Cancel"
+    bootstrapClass="btn-secondary"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
+
+  <app-button
+    dgModalFooter
+    [label]="submitLabel"
+    [icon]="isEdit ? 'fas fa-save' : 'fas fa-plus'"
+    bootstrapClass="btn-success"
+    (clicked)="onSubmit()">
+  </app-button>
+</dg-modal>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

@@ -125,7 +125,11 @@ export class AttachmentsListModalComponent implements OnInit {
    * or new files form local File Explorer
    */
   public addAttachments() {
-    this.modalRef = this.modalService.open(FilemanagerModalComponent, { size: 'xl' });
+    this.modalRef = this.modalService.open(FilemanagerModalComponent, {
+      size: 'xl',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.localMetadata = this.metadata;
     this.modalRef.result.then(() => {
       setTimeout(() => {

@@ -20,21 +20,25 @@ import { RouterModule, Routes } from '@angular/router';
 import { CategoryOverviewComponent } from './components/category-overview/category-overview.component';
 import { CategoryFormComponent } from './components/category-form/category-form.component';
 
+// Report categories have no own right family, they are managed under the report rights
 const routes: Routes = [
     {
         path: 'categories',
         component: CategoryOverviewComponent,
         data: {
-            breadcrumb: 'Categories'
+            breadcrumb: 'Categories',
+            right: 'base.framework.report.view'
         }
     },
     {
         path: 'categories/add',
-        component: CategoryFormComponent
+        component: CategoryFormComponent,
+        data: { right: 'base.framework.report.add' }
     },
     {
         path: 'categories/edit/:categoryID',
-        component: CategoryFormComponent
+        component: CategoryFormComponent,
+        data: { right: 'base.framework.report.edit' }
     }
 ];
 

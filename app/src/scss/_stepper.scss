@@ -1,0 +1,146 @@
+@import 'variables';
+
+$dg-step-size: 2.5rem;
+$dg-step-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+/* A settled step: solid marker. */
+@mixin dg-step-solid($color, $color-rgb) {
+    --dg-step-bg: #{$color};
+    --dg-step-border: #{$color};
+    --dg-step-ink: #fff;
+    --dg-step-shadow: 0 8px 20px -14px rgba(#{$color-rgb}, 0.55);
+}
+
+/* The step the user is on: outlined marker with a soft ring, so "where I am" reads
+   independently of the colour that encodes the step's state. */
+@mixin dg-step-selected($color, $color-rgb) {
+    --dg-step-bg: #fff;
+    --dg-step-border: #{$color};
+    --dg-step-ink: #{$color};
+    --dg-step-shadow: 0 0 0 4px rgba(#{$color-rgb}, 0.16), 0 10px 22px -14px rgba(#{$color-rgb}, 0.4);
+}
+
+aw-wizard.dg-stepper {
+
+    aw-wizard-navigation-bar.horizontal.large-empty-symbols ul.steps-indicator {
+        padding: calc(#{$dg-step-size} + 0.95rem) 0 0.25rem;
+
+        li {
+            /* Upcoming step. The symbol carries the state here, so it stays readable (>= 3:1) while
+               the outline itself is kept quiet. */
+            --dg-step-bg: #fff;
+            --dg-step-border: var(--dg-border);
+            --dg-step-ink: var(--dg-muted);
+            --dg-step-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+            --dg-step-label: var(--dg-muted);
+            --dg-step-label-weight: 500;
+            --dg-step-line: var(--dg-border);
+
+            &.done,
+            &.completed {
+                @include dg-step-solid(var(--dg-success), var(--dg-success-rgb));
+                --dg-step-label: var(--dg-label);
+                --dg-step-line: rgba(var(--dg-success-rgb), 0.45);
+            }
+
+            &.current {
+                @include dg-step-selected(var(--dg-success), var(--dg-success-rgb));
+                --dg-step-label: var(--dg-ink);
+                --dg-step-label-weight: 650;
+            }
+
+            .step-indicator {
+                /* Above the connector: the line ends on the marker's centre line, so it has to stay
+                   hidden behind it - also while the marker is lifted on hover or ringed as current. */
+                z-index: 1;
+                top: calc(#{$dg-step-size} * -1);
+                left: calc(50% - #{$dg-step-size} / 2);
+                width: $dg-step-size;
+                height: $dg-step-size;
+                line-height: calc(#{$dg-step-size} - 4px);
+                font-size: 0.95rem;
+                border: 2px solid var(--dg-step-border);
+                background-color: var(--dg-step-bg);
+                color: var(--dg-step-ink);
+                box-shadow: var(--dg-step-shadow);
+                transition: transform 200ms $dg-step-ease, border-color 200ms $dg-step-ease,
+                    background-color 200ms $dg-step-ease, color 200ms $dg-step-ease,
+                    box-shadow 200ms $dg-step-ease;
+            }
+
+            a .label {
+                padding-top: 0.7rem;
+                color: var(--dg-step-label);
+                font-size: 0.9rem;
+                font-weight: var(--dg-step-label-weight);
+                line-height: 1.2;
+                text-transform: none;
+                transition: color 200ms $dg-step-ease;
+            }
+
+            /* Connector. The library draws it 1px thin and half a marker below our centre line, so it
+               is repositioned here instead of adding a second pseudo element on top of it. */
+            &:not(:last-child):after {
+                top: calc(#{$dg-step-size} / -2);
+                left: calc(50% + #{$dg-step-size} / 2);
+                width: calc(100% - #{$dg-step-size});
+                height: 2px;
+                border-radius: 2px;
+                background-color: var(--dg-step-line);
+                transition: background-color 300ms $dg-step-ease;
+            }
+
+            /* Revisitable steps. The library re-colours markers per state on hover, hence repeating
+               our own colours here at a specificity that outranks it. */
+            &.navigable:not(.current) a:hover {
+                .step-indicator {
+                    border-color: var(--dg-step-border);
+                    background-color: var(--dg-step-bg);
+                    color: var(--dg-step-ink);
+                    transform: translateY(-2px);
+                }
+
+                .label {
+                    color: var(--dg-ink);
+                }
+            }
+
+            &.navigable a:focus-visible .step-indicator {
+                outline: none;
+                box-shadow: 0 0 0 0.2rem rgba(var(--dg-brand-rgb), 0.45);
+            }
+        }
+    }
+
+    /* Validity tone: colour answers "is this step valid", not "have I been here yet". Used by forms
+       that validate every step up front, such as the type builder. Matched through `:where()` so
+       picking a tone adds no weight and the failing-step rules below stay on top of it. */
+    &:where(.dg-stepper--validity)
+        aw-wizard-navigation-bar.horizontal.large-empty-symbols
+        ul.steps-indicator
+        li:not(.current) {
+        @include dg-step-solid(var(--dg-success), var(--dg-success-rgb));
+        --dg-step-label: var(--dg-label);
+        --dg-step-line: rgba(var(--dg-success-rgb), 0.45);
+    }
+
+    /* Failing steps, addressed by their 1-based position through the directive's `invalidSteps`. */
+    @for $position from 1 through 10 {
+        &[data-invalid-steps~='#{$position}']
+            aw-wizard-navigation-bar.horizontal.large-empty-symbols
+            ul.steps-indicator
+            li:nth-child(#{$position}) {
+            --dg-step-label: var(--dg-danger);
+            --dg-step-label-weight: 600;
+            --dg-step-line: var(--dg-border);
+
+            &:not(.current) {
+                @include dg-step-solid(var(--dg-danger), var(--dg-danger-rgb));
+            }
+
+            &.current {
+                @include dg-step-selected(var(--dg-danger), var(--dg-danger-rgb));
+            }
+        }
+    }
+}

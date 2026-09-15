@@ -10,4 +10,13 @@ export interface ControlMeasure {
     is_applicable?: boolean;
     reason?: string;
   }
-  
+
+/**
+ * Result of a bulk delete request for controls. Controls that are still
+ * assigned to control measure assignments (CMAs) are reported in `in_use`
+ * and are not deleted.
+ */
+export interface ControlMeasureBulkDeleteResult {
+    successfully: number[];
+    in_use: number[];
+  }

@@ -18,7 +18,7 @@
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { ControlMeasure } from '../models/control-measure.model';
+import { ControlMeasure, ControlMeasureBulkDeleteResult } from '../models/control-measure.model';
 import {
   APIGetMultiResponse,
   APIInsertSingleResponse,
@@ -54,5 +54,17 @@ export class ControlMeasureService extends BaseApiService<ControlMeasure> {
 
   deleteControlMeasure(id: number): Observable<APIDeleteSingleResponse<ControlMeasure>> {
     return this.handleDeleteRequest<APIDeleteSingleResponse<ControlMeasure>>(`${this.servicePrefix}/${id}`);
+  }
+
+  /**
+   * Delete multiple controls at once. Controls that are still assigned to a
+   * control measure assignment (CMA) are not deleted and are returned in the
+   * `in_use` list of the response.
+   * @param publicIds control public ids to delete
+   */
+  deleteControlMeasures(publicIds: number[]): Observable<ControlMeasureBulkDeleteResult> {
+    return this.handleDeleteRequest<ControlMeasureBulkDeleteResult>(
+      `${this.servicePrefix}/delete/${publicIds.join(',')}`
+    );
   }
 }

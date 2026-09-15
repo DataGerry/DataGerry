@@ -13,6 +13,9 @@
 .object-select-wrapper {
   position: relative;
   display: grid;
+  /* minmax(0, 1fr): without it the track grows to the selected label's width and
+     the control overflows narrow containers instead of truncating. */
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: .5rem;
 }

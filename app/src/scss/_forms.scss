@@ -54,6 +54,8 @@ $ng-select-selected: lighten($ng-select-highlight, 30) !default;
 $ng-select-marked: lighten($ng-select-highlight, 40) !default;
 $ng-select-box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075), 0 0 0 3px rgba(0, 126, 255, 0.1) !default;
 $ng-select-placeholder: lighten($ng-select-primary-text, 40) !default;
+/* An unavailable option still has to be read - it is usually the label that says why it is unavailable. */
+$ng-select-option-disabled: lighten($ng-select-primary-text, 26) !default;
 $ng-select-height: 36px !default;
 $ng-select-value-padding-left: 10px !default;
 $ng-select-value-font-size: 0.9em !default;
@@ -335,7 +337,13 @@ $ng-select-value-font-size: 0.9em !default;
       color: rgba(0, 0, 0, .87);
       padding: 8px 10px;
 
-      &.ng-option-selected, &.ng-option-selected.ng-option-marked {
+      /*
+       * The tints belong to an option that can be acted on. A disabled one keeps the plain background
+       * instead: the brand fill under muted text leaves the label unreadable, and an option that
+       * cannot be picked has no business looking picked either.
+       */
+      &.ng-option-selected:not(.ng-option-disabled),
+      &.ng-option-selected.ng-option-marked:not(.ng-option-disabled) {
         color: $ng-select-primary-text;
         background-color: $ng-select-selected;
 
@@ -344,13 +352,15 @@ $ng-select-value-font-size: 0.9em !default;
         }
       }
 
-      &.ng-option-marked {
+      &.ng-option-marked:not(.ng-option-disabled) {
         background-color: $ng-select-marked;
         color: $ng-select-primary-text;
       }
 
       &.ng-option-disabled {
-        color: lighten($ng-select-primary-text, 60);
+        background-color: $ng-select-bg;
+        color: $ng-select-option-disabled;
+        cursor: default;
       }
 
       &.ng-option-child {

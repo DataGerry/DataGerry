@@ -20,11 +20,11 @@ import { WebhookService } from '../../services/webhook.service';
 import { Webhook } from '../../models/webhook.model';
 import { Router } from '@angular/router';
 import { ToastService } from 'src/app/layout/toast/toast.service';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { DeleteConfirmationModalComponent } from '../modal/delete-confirmation-modal.component';
+import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { debounceTime, finalize, Subject, Subscription } from 'rxjs';
 import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
 @Component({
     selector: 'app-webhook-overview',
@@ -36,9 +36,10 @@ export class WebhookOverviewComponent implements OnInit {
     private readonly webhookService = inject(WebhookService);
     private readonly router = inject(Router);
     private readonly toast = inject(ToastService);
-    private readonly modalService = inject(NgbModal);
+    private readonly deleteModalService = inject(DeleteModalService);
     private readonly loaderService = inject(LoaderService);
     private readonly filterBuilderService = inject(FilterBuilderService);
+    private readonly permissionService = inject(PermissionService);
 
     public webhooks: Webhook[] = [];
     public totalWebhooks: number = 0;
@@ -62,6 +63,10 @@ export class WebhookOverviewComponent implements OnInit {
         { name: 'url' },
     ];
 
+    /** Keeps the actions column out of the table when no row action is available */
+    private readonly canUseRowActions =
+        this.hasWebhookRight('base.framework.webhook.edit') || this.hasWebhookRight('base.framework.webhook.delete');
+
     /* --------------------------------------------------- LIFECYCLE METHODS -------------------------------------------------- */
 
     ngOnInit(): void {
@@ -75,9 +80,15 @@ export class WebhookOverviewComponent implements OnInit {
             { display: 'ID', name: 'public_id_str', data: 'public_id', searchable: true, sortable: true, style: { width: '80px', 'text-align': 'center' } },
             { display: 'Name', name: 'name', data: 'name', sortable: true },
             { display: 'URL', name: 'url', data: 'url', sortable: true },
-            { display: 'Status', name: 'active', data: 'active', sortable: false, template: this.statusTemplate, style: { width: '140px', 'text-align': 'center' } },
-            { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '80px', 'text-align': 'center' } },
+            { display: 'Status', name: 'active', data: 'active', sortable: false, template: this.statusTemplate, style: { width: '140px', 'text-align': 'center' } }
         ];
+
+        if (this.canUseRowActions) {
+            this.columns.push(
+                { display: 'Actions', name: 'actions', template: this.actionsTemplate, sortable: false, style: { width: '80px', 'text-align': 'center' } }
+            );
+        }
+
         this.loadWebhooks();
     }
 
@@ -178,39 +189,23 @@ export class WebhookOverviewComponent implements OnInit {
 
 
     /**
-     * Opens the Delete Report modal and deletes the report if confirmed.
-     * @param report - The report to delete.
+     * Opens the delete confirmation modal and deletes the webhook once confirmed.
+     * @param webhook - The webhook to delete.
      */
     public onDeleteWebhook(webhook: any): void {
-        this.openDeleteModal(
-            webhook,
-            `Delete Webhook: ${webhook.name}`,
-            `Do you want to delete the webhook "${webhook.name}"? This action cannot be undone.`
-        );
+        this.deleteModalService.confirmDelete({
+            title: 'Delete Webhook',
+            itemType: 'Webhook',
+            itemName: webhook.name,
+            warningMessage: 'This will delete this webhook and its associated data. This action cannot be undone!',
+            warningIconClass: 'fas fa-exclamation-triangle',
+            onConfirm: () => this.deleteWebhook(webhook.public_id)
+        });
     }
 
+    /* --------------------------------------------------- PRIVATE FUNCTIONS -------------------------------------------------- */
 
-    /**
-     * Opens a delete confirmation modal for the specified item.
-     * Passes the item details and a descriptive title to the modal, and deletes the item upon confirmation.
-     * @param item - The item to be deleted.
-     * @param title - The title to display in the modal.
-     * @param description - The description to display in the modal (currently unused in the code).
-     */
-    public openDeleteModal(item: any, title: string, description: string): void {
-        const modalRef = this.modalService.open(DeleteConfirmationModalComponent, { size: 'lg' });
-        modalRef.componentInstance.title = title;
-        modalRef.componentInstance.item = item;
-        modalRef.componentInstance.itemType = 'Webhook';
-        modalRef.componentInstance.itemName = item.name;
-
-        modalRef.result.then(
-            (result) => {
-                if (result === 'confirmed') {
-                    this.deleteWebhook(item.public_id);
-                }
-            },
-            () => { }
-        );
+    private hasWebhookRight(right: string): boolean {
+        return this.permissionService.hasRight(right) || this.permissionService.hasExtendedRight(right);
     }
 }

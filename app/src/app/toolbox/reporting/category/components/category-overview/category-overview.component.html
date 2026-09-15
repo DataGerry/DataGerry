@@ -13,7 +13,7 @@
 
   <div class="btn-group text-end">
     <button type="submit" class="btn btn-success btn-sm submit-report d-flex align-items-center"
-      (click)="openAddCategoryModal()">
+      *permissionLink="'base.framework.report.add'" (click)="openAddCategoryModal()">
       <i class="fas fa-plus me-2 icon-margin" title="Add Category"></i> Add Category
     </button>
   </div>
@@ -25,10 +25,12 @@
 
 <ng-template #actionsTemplate let-item="item">
   @if (!item.predefined) {
-  <i class="far fa-edit icon-margin btn-edit" title="Edit Category" (click)="openEditCategoryModal(item)"></i>
+  <i class="far fa-edit icon-margin btn-edit" *permissionLink="'base.framework.report.edit'" title="Edit Category"
+    (click)="openEditCategoryModal(item)"></i>
   }
   @if (!item.predefined) {
-  <i class="far fa-trash-alt btn-delete" title="Delete Category" (click)="openDeleteCategoryModal(item)"></i>
+  <i class="far fa-trash-alt btn-delete" *permissionLink="'base.framework.report.delete'" title="Delete Category"
+    (click)="openDeleteCategoryModal(item)"></i>
   }
 </ng-template>
 

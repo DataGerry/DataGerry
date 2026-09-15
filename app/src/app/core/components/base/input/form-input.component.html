@@ -1,6 +1,6 @@
 <div class="mb-3">
     @if (label) {
-<label class="form-label mb-1 mt-3">
+<label class="form-label" [attr.for]="controlId">
       {{ label }}
       @if (required) {
 <span class="text-danger">*</span>
@@ -8,8 +8,11 @@
     </label>
 }
     <input
+      [id]="controlId"
       [type]="type"
       class="form-control"
+      [attr.aria-invalid]="errorMessage ? true : null"
+      [attr.aria-describedby]="errorMessage ? controlId + '-error' : null"
       [disabled]="disabled"
       [placeholder]="placeholder"
       [value]="value"
@@ -20,7 +23,7 @@
       [class.text-muted]="readonly"
     />
     @if (errorMessage) {
-<div class="invalid-feedback d-block">
+<div class="invalid-feedback d-block" [id]="controlId + '-error'">
       {{ errorMessage }}
     </div>
 }

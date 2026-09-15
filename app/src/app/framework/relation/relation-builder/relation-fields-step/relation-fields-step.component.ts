@@ -21,6 +21,14 @@ import { ReplaySubject } from 'rxjs';
 import { CmdbRelation } from '../../../models/relation.model';
 import { RelationBuilderStepComponent } from '../relation-builder-step.component';
 import { CmdbMode } from 'src/app/framework/modes.enum';
+import { BuilderSchemaAdapter } from 'src/app/framework/builder/schema/builder-schema.adapter';
+import { RelationSchemaAdapter } from 'src/app/framework/builder/schema/relation-schema.adapter';
+import { SectionControl } from 'src/app/framework/builder/controls/section.control';
+import { BASIC_CONTROLS } from 'src/app/framework/builder/controls/basic-controls';
+import {
+  BuilderPaletteGroup,
+  paletteItemsFromControls
+} from 'src/app/framework/builder/palette/builder-palette.model';
 
 @Component({
     selector: 'cmdb-relation-fields-step',
@@ -30,7 +38,14 @@ import { CmdbMode } from 'src/app/framework/modes.enum';
 })
 export class RelationFieldsStepComponent extends RelationBuilderStepComponent implements OnInit, DoCheck, OnDestroy {
 
-  @Input() public relationInstance!: CmdbRelation;
+  public schema: BuilderSchemaAdapter | null = null;
+
+  @Input('relationInstance')
+  public set RelationInstance(instance: CmdbRelation) {
+    this.relationInstance = instance;
+    this.schema = instance ? new RelationSchemaAdapter(instance) : null;
+  }
+
   @Input() public mode: CmdbMode;
 
   private subscriber: ReplaySubject<void> = new ReplaySubject<void>();
@@ -39,6 +54,24 @@ export class RelationFieldsStepComponent extends RelationBuilderStepComponent im
   public builderValid: boolean = true;
   public CmdbMode = CmdbMode;
   public initialFieldsPresent: boolean = false;
+
+  private readonly structureItems = paletteItemsFromControls([new SectionControl()]);
+  private readonly basicItems = paletteItemsFromControls(BASIC_CONTROLS);
+
+  /** Relations offer a plain section plus the basic controls - no templates, no special controls. */
+  public readonly paletteGroups: Array<BuilderPaletteGroup> = [
+    {
+      id: 'structureControls',
+      label: 'Structure Controls',
+      lockMode: 'draggable-attr',
+      items: this.structureItems
+    },
+    {
+      id: 'basicControls',
+      label: 'Basic Controls',
+      items: this.basicItems
+    }
+  ];
 
   constructor(
     private differs: KeyValueDiffers,

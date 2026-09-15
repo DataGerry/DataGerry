@@ -1,0 +1,16 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.form-label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--dg-label);
+}
+
+.move-group__name {
+    vertical-align: middle;
+}

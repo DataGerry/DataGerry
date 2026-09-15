@@ -15,11 +15,14 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, OnInit, Output, SimpleChanges } from '@angular/core';
 import { Router } from '@angular/router';
 
+import { CmdbType } from 'src/app/framework/models/cmdb-type';
 import { ImporterConfig, ImporterFile, ImportResponse } from '../../../models/import-object.models';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+type ImportOutcome = 'success' | 'partial' | 'failed' | 'empty';
 
 @Component({
     selector: 'cmdb-import-complete',
@@ -27,9 +30,10 @@ import { ImporterConfig, ImporterFile, ImportResponse } from '../../../models/im
     styleUrls: ['./import-complete.component.scss'],
     standalone: false
 })
-export class ImportCompleteComponent implements OnInit {
+export class ImportCompleteComponent implements OnInit, OnChanges {
     @Input() public importFile: ImporterFile = {} as ImporterFile;
     @Input() public importerConfig: ImporterConfig = {} as ImporterConfig;
+    @Input() public typeInstance: CmdbType;
 
     @Input() public parserConfig: any = {};
     @Input() public parsedData: any = undefined;
@@ -38,6 +42,11 @@ export class ImportCompleteComponent implements OnInit {
     @Input() public isImporting = false;
 
     @Output() startImportEmitter: EventEmitter<any>;
+
+    // Derived view state for the import result banner and failed-objects section.
+    public outcome: ImportOutcome = 'empty';
+    public importedCount = 0;
+    public failedCount = 0;
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
@@ -50,6 +59,13 @@ export class ImportCompleteComponent implements OnInit {
         this.importResponse = undefined;
     }
 
+
+    public ngOnChanges(changes: SimpleChanges): void {
+        if (changes['importResponse']) {
+            this.buildImportResult();
+        }
+    }
+
 /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
 
     public onStartImport() {
@@ -59,5 +75,26 @@ export class ImportCompleteComponent implements OnInit {
 
     public onListRedirect() {
         this.router.navigate(['/framework/object/type/', this.importerConfig.type_id]);
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ------------------------------------------------ */
+
+    private buildImportResult(): void {
+        this.importedCount = this.importResponse?.success_imports ?? 0;
+        this.failedCount = this.importResponse?.failed_imports?.length ?? 0;
+        this.outcome = this.resolveOutcome(this.importedCount, this.failedCount);
+    }
+
+
+    private resolveOutcome(imported: number, failed: number): ImportOutcome {
+        if (imported === 0 && failed === 0) {
+            return 'empty';
+        }
+
+        if (failed === 0) {
+            return 'success';
+        }
+
+        return imported === 0 ? 'failed' : 'partial';
     }
 }

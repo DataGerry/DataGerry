@@ -22,6 +22,7 @@ import { ActivatedRoute } from '@angular/router';
 import { CmdbMode } from '../../modes.enum';
 import { TypeService } from '../../services/type.service';
 import { LocationFieldDeletionService } from '../services/location-field-deletion.service';
+import { PortsUsageService } from '../services/ports-usage.service';
 
 @Component({
     selector: 'cmdb-type-edit',
@@ -50,16 +51,19 @@ export class TypeEditComponent implements OnDestroy {
     private typeService: TypeService,
     private route: ActivatedRoute,
     private locationFieldDeletion: LocationFieldDeletionService,
+    private portsUsage: PortsUsageService,
   ) {
     this.route.queryParams.subscribe(params => {
       this.stepIndex = params.stepIndex || 0;
     });
     this.typeInstance = this.route.snapshot.data.type as CmdbType;
     this.locationFieldDeletion.prime(this.typeInstance);
+    this.portsUsage.prime(this.typeInstance);
   }
 
   ngOnDestroy(): void {
     this.locationFieldDeletion.clear();
+    this.portsUsage.clear();
   }
 
 }

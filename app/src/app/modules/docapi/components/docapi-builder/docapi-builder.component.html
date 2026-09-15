@@ -87,6 +87,7 @@
             (clicked)="previousStep()"
         ></app-button>
         <app-button
+            *permissionLink="saveRight"
             label="Save"
             [type]="'button'"
             bootstrapClass="btn-success next"

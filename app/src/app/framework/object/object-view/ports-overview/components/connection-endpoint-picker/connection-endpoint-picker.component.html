@@ -1,0 +1,35 @@
+<div class="endpoint-picker__row">
+  <cmdb-object-option-picker
+    label="Device at the far end"
+    placeholder="Type to search devices..."
+    [typeIds]="portCapableTypeIds()"
+    [required]="true"
+    [appendTo]="appendTo()"
+    [formControl]="deviceControl"
+    (objectSelected)="onDeviceSelected($event)">
+  </cmdb-object-option-picker>
+
+  <app-form-select
+    label="Port at the far end"
+    [placeholder]="deviceControl.value ? 'Select a port...' : 'Pick a device first'"
+    bindLabel="option_label"
+    bindValue="portId"
+    groupBy="group"
+    dropdownDirection="auto"
+    [items]="portOptions()"
+    [required]="true"
+    [disabled]="!portOptions().length"
+    [errorMessage]="errorMessage()"
+    [appendTo]="appendTo()"
+    [formControl]="portControl">
+  </app-form-select>
+</div>
+
+<small class="endpoint-picker__hint form-text text-muted">
+  <i class="fas fa-circle-info" aria-hidden="true"></i>
+  <span>Only devices with ports are listed, and a port that already has a cable is not offered.</span>
+</small>
+
+@if (portNotice(); as notice) {
+  <app-warning-alert title="No free port:" [message]="notice"></app-warning-alert>
+}

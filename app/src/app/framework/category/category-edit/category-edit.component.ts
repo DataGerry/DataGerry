@@ -17,7 +17,8 @@
 */
 
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { forkJoin, Subscription } from 'rxjs';
+import { finalize } from 'rxjs/operators';
 import { CmdbType } from '../../models/cmdb-type';
 import { CategoryService } from '../../services/category.service';
 import { TypeService } from '../../services/type.service';
@@ -26,6 +27,8 @@ import { CmdbCategory } from '../../models/cmdb-category';
 import { CmdbMode } from '../../modes.enum';
 import { SidebarService } from '../../../layout/services/sidebar.service';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
+import { LoaderService } from 'src/app/core/services/loader.service';
+import { ToastService } from '../../../layout/toast/toast.service';
 
 @Component({
     selector: 'cmdb-category-edit',
@@ -39,49 +42,60 @@ export class CategoryEditComponent implements OnInit, OnDestroy {
   public publicID: number;
   public mode: CmdbMode = CmdbMode.Edit;
 
-  private categoryServiceSubscription: Subscription = new Subscription();
-  private typeUnAssignedSubscription: Subscription = new Subscription();
-  private typeAssignedSubscription: Subscription = new Subscription();
+  private categoryLoadSubscription: Subscription = new Subscription();
   private categorySubmitSubscription: Subscription = new Subscription();
 
   public category: CmdbCategory;
   public unAssignedTypes: CmdbType[] = [];
   public assignedTypes: CmdbType[] = [];
 
+  public isLoading$ = this.loaderService.isLoading$;
+
   constructor(private categoryService: CategoryService, private typeService: TypeService,
-              private router: Router, private route: ActivatedRoute, private sidebarService: SidebarService) {
+              private router: Router, private route: ActivatedRoute, private sidebarService: SidebarService,
+              private loaderService: LoaderService, private toastService: ToastService) {
     this.route.params.subscribe((params: Params) => {
       this.publicID = Number(params.publicID);
     });
   }
 
   public ngOnInit(): void {
-    this.categoryServiceSubscription = this.categoryService.getCategory(this.publicID).subscribe((category: CmdbCategory) => {
-      this.category = category;
+    this.loaderService.show();
 
-    });
-    this.typeAssignedSubscription = this.typeService.getTypeListByCategory(this.publicID).subscribe((types: CmdbType[]) => {
-      this.assignedTypes = types;
-    });
-
-    this.typeUnAssignedSubscription = this.typeService.getUncategorizedTypes().subscribe((apiResponse: APIGetMultiResponse<CmdbType>) => {
-      this.unAssignedTypes = apiResponse.results;
-    });
+    // Loaded together so the category and its type lists reach the form in the same change detection run.
+    this.categoryLoadSubscription = forkJoin({
+      category: this.categoryService.getCategory(this.publicID),
+      assigned: this.typeService.getTypeListByCategory(this.publicID),
+      unassigned: this.typeService.getUncategorizedTypes()
+    }).pipe(finalize(() => this.loaderService.hide()))
+      .subscribe({
+        next: (result: { category: CmdbCategory, assigned: CmdbType[], unassigned: APIGetMultiResponse<CmdbType> }) => {
+          this.category = result.category;
+          this.assignedTypes = result.assigned ?? [];
+          this.unAssignedTypes = (result.unassigned?.results as Array<CmdbType>) ?? [];
+        },
+        error: (error) => this.toastService.error(error?.error?.message)
+      });
   }
 
   public ngOnDestroy(): void {
-    this.categoryServiceSubscription?.unsubscribe();
-    this.typeUnAssignedSubscription?.unsubscribe();
-    this.typeAssignedSubscription?.unsubscribe();
+    this.categoryLoadSubscription?.unsubscribe();
     this.categorySubmitSubscription?.unsubscribe();
   }
 
   public onSave(category: CmdbCategory): void {
     if (this.formValid) {
-      this.categorySubmitSubscription = this.categoryService.updateCategory(category).subscribe(() => {
-        this.sidebarService.loadCategoryTree();
-        this.router.navigate(['/', 'framework', 'category']);
-      });
+      this.loaderService.show();
+
+      this.categorySubmitSubscription = this.categoryService.updateCategory(category)
+        .pipe(finalize(() => this.loaderService.hide()))
+        .subscribe({
+          next: () => {
+            this.sidebarService.loadCategoryTree();
+            this.router.navigate(['/', 'framework', 'category']);
+          },
+          error: (error) => this.toastService.error(error?.error?.message)
+        });
     }
   }
 

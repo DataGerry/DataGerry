@@ -196,7 +196,10 @@ export class DocapiListComponent implements OnInit, OnDestroy {
 
 
     public delDocTemplate(publicId: number): void {
-        this.modalRef = this.modalService.open(GeneralModalComponent);
+        this.modalRef = this.modalService.open(GeneralModalComponent, {
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.title = 'Delete Document Template';
         this.modalRef.componentInstance.modalMessage = 'Are you sure you want to delete this Document Template?';
         this.modalRef.componentInstance.buttonDeny = 'Cancel';

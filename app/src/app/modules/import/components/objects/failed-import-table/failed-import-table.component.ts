@@ -15,10 +15,23 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { Component, Input, OnChanges, SimpleChanges } from '@angular/core';
 
-import { Column } from '../../../../../layout/table/table.types';
+import { CmdbType } from 'src/app/framework/models/cmdb-type';
+import { ImportFailedEntry, ImportObjectField } from '../../../models/import-object.models';
 /* ------------------------------------------------------------------------------------------------------------------ */
+
+interface FailedValue {
+    label: string;
+    value: string;
+}
+
+interface FailedObjectView {
+    typeLabel: string;
+    publicId: number | null;
+    errors: string[];
+    values: FailedValue[];
+}
 
 @Component({
     selector: 'cmdb-failed-import-table',
@@ -26,33 +39,56 @@ import { Column } from '../../../../../layout/table/table.types';
     styleUrls: ['./failed-import-table.component.scss'],
     standalone: false
 })
-export class FailedImportTableComponent implements OnInit {
+export class FailedImportTableComponent implements OnChanges {
 
-  @Input() failedImports: any = [];
+    @Input() public failedImports: ImportFailedEntry[] = [];
+    @Input() public typeInstance: CmdbType;
 
-  @ViewChild('errorTemplate', {static : true}) errorTemplate: TemplateRef<any>;
-  @ViewChild('objectTemplate', {static : true}) objectTemplate: TemplateRef<any>;
-
-  public columns: Column[] = [];
+    public items: FailedObjectView[] = [];
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    ngOnInit() {
-        this.columns = [
-        {
-            display: 'Error Message',
-            name: 'error_message',
-            data: 'error_message',
-            template: this.errorTemplate
-        },
-        {
-            display: 'Object',
-            name: 'object',
-            data: 'obj',
-            template: this.objectTemplate
+    public ngOnChanges(changes: SimpleChanges): void {
+        if (changes['failedImports'] || changes['typeInstance']) {
+            this.items = (this.failedImports ?? []).map((entry) => this.toView(entry));
         }
-        ] as Array<Column>;
+    }
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ------------------------------------------------ */
+
+    private toView(entry: ImportFailedEntry): FailedObjectView {
+        const failed = entry?.failed_object ?? {};
+
+        return {
+            typeLabel: failed.type_label || this.typeInstance?.label || 'Object',
+            publicId: typeof failed.public_id === 'number' ? failed.public_id : null,
+            errors: entry?.errors ?? [],
+            values: this.collectValues(failed.fields ?? [])
+        };
+    }
+
+
+    private collectValues(fields: ImportObjectField[]): FailedValue[] {
+        return fields
+            .filter((field) => this.hasValue(field?.value))
+            .map((field) => ({ label: this.fieldLabel(field.name), value: this.formatValue(field.value) }));
+    }
+
+
+    private hasValue(value: any): boolean {
+        return value !== null && value !== undefined && value !== '';
+    }
+
+
+    private formatValue(value: any): string {
+        return typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
+
+
+    private fieldLabel(name: string): string {
+        const match = this.typeInstance?.fields?.find((field) => field?.name === name);
+        return match?.label || name;
     }
 }

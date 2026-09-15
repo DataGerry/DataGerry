@@ -1,0 +1,228 @@
+:host {
+    display: block;
+}
+
+.color-picker {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 1rem;
+}
+
+/* ----------------------------------------------------- LABEL ----------------------------------------------------- */
+
+.color-picker__req {
+    margin-left: 0.15rem;
+    color: var(--dg-danger);
+}
+
+/* ----------------------------------------------------- FIELD ------------------------------------------------------ */
+
+.color-picker__field {
+    display: flex;
+    align-items: stretch;
+    border: var(--bs-border-width, 1px) solid var(--bs-border-color, var(--dg-border));
+    border-radius: var(--bs-border-radius, 0.375rem);
+    background: var(--bs-body-bg, #fff);
+    overflow: hidden;
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+
+    &:focus-within {
+        border-color: var(--dg-brand);
+        box-shadow: var(--dg-focus-ring);
+    }
+
+    &--invalid {
+        border-color: var(--dg-danger);
+    }
+
+    &--disabled {
+        opacity: 0.65;
+    }
+}
+
+.color-picker__swatch {
+    flex: 0 0 auto;
+    width: 2.6rem;
+    border: none;
+    border-right: var(--bs-border-width, 1px) solid var(--bs-border-color, var(--dg-border));
+    cursor: pointer;
+
+    &:disabled {
+        cursor: not-allowed;
+    }
+
+    &--empty {
+        background-color: var(--dg-surface-tint, var(--dg-surface));
+        background-image:
+            linear-gradient(45deg, var(--dg-border) 25%, transparent 25%, transparent 75%, var(--dg-border) 75%),
+            linear-gradient(45deg, var(--dg-border) 25%, transparent 25%, transparent 75%, var(--dg-border) 75%);
+        background-size: 0.7rem 0.7rem;
+        background-position: 0 0, 0.35rem 0.35rem;
+    }
+}
+
+
+.color-picker__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--bs-body-color, var(--dg-ink));
+    padding: 0.375rem 0.75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+
+    &:disabled {
+        cursor: not-allowed;
+    }
+}
+
+/* ----------------------------------------------------- MENU ------------------------------------------------------- */
+.color-picker__menu {
+    /* Wide enough that the sliders are worth dragging; the preset grid spreads to match. */
+    min-width: 17rem;
+    padding: 0.9rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+    box-shadow: var(--dg-shadow-modal);
+}
+
+.color-picker__grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    justify-items: center;
+    gap: 0.55rem;
+    margin-bottom: 0.85rem;
+}
+
+.color-picker__preset {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 50%;
+    color: #fff;
+    font-size: 0.65rem;
+    cursor: pointer;
+    transition: box-shadow 120ms ease;
+
+    &:hover {
+        box-shadow: 0 0 0 2px var(--dg-surface), 0 0 0 3px var(--dg-border);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+
+    &--active {
+        box-shadow: 0 0 0 2px var(--dg-surface), 0 0 0 3px var(--dg-brand);
+    }
+
+    i {
+        text-shadow: 0 0 2px rgba(0, 0, 0, 0.45);
+    }
+}
+
+.color-picker__custom {
+    display: grid;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--dg-border);
+    font-size: 0.8rem;
+    color: var(--dg-ink);
+
+    app-button {
+        justify-self: end;
+    }
+}
+
+.color-picker__custom-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-weight: 600;
+}
+
+.color-picker__custom-swatch {
+    display: block;
+    width: 1.4rem;
+    height: 1.4rem;
+    border: 1px solid var(--dg-border);
+    border-radius: 50%;
+}
+
+.color-picker__channel {
+    display: grid;
+    grid-template-columns: 4.4rem 1fr;
+    align-items: center;
+    gap: 0.5rem;
+
+    label {
+        margin: 0;
+        color: var(--dg-muted);
+        font-size: 0.75rem;
+    }
+}
+
+/* A colour bar the full width of the popover, 24px tall so it is a usable pointer target, painted
+   with the gradient it produces. */
+.color-picker__range {
+    width: 100%;
+    height: 1.5rem;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--dg-border);
+    border-radius: 0.35rem;
+    background: var(--dg-surface);
+    appearance: none;
+    cursor: pointer;
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--dg-focus-ring);
+    }
+
+    &--hue {
+        background: linear-gradient(to right,
+            #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+    }
+
+    /* Firefox paints a track of its own over the gradient. */
+    &::-moz-range-track {
+        background: transparent;
+        border: none;
+    }
+
+    &::-webkit-slider-thumb {
+        width: 0.6rem;
+        height: 1.25rem;
+        border: 1px solid rgba(0, 0, 0, 0.55);
+        border-radius: 0.2rem;
+        background: #fff;
+        appearance: none;
+    }
+
+    &::-moz-range-thumb {
+        width: 0.6rem;
+        height: 1.25rem;
+        border: 1px solid rgba(0, 0, 0, 0.55);
+        border-radius: 0.2rem;
+        background: #fff;
+    }
+}
+
+/* ----------------------------------------------------- ERROR ------------------------------------------------------ */
+.color-picker__error {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.35rem 0 0;
+    color: var(--dg-danger);
+    font-size: 0.8rem;
+}

@@ -35,4 +35,9 @@ export class LocationsModalComponent {
   @Input() cancelButton = 'Cancel';
 
   public readonly activeModal = inject(NgbActiveModal);
+
+  /** The modal shell expects a Font Awesome class, callers pass a bare icon name. */
+  public get iconClass(): string {
+    return `fas fa-${this.modalIcon}`;
+  }
 }

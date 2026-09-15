@@ -21,49 +21,54 @@ import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { UntypedFormControl } from '@angular/forms';
 
 import { Observable, timer, Subject } from 'rxjs';
-import { catchError, map, switchMap, finalize } from 'rxjs/operators';
+import { catchError, map, switchMap } from 'rxjs/operators';
 
 import { ApiCallService, ApiServicePrefix, resp } from '../../services/api-call.service';
 
 import { CmdbLocation } from '../models/cmdb-location';
 import { RenderResult } from '../models/cmdb-render';
 import { CollectionParameters } from '../../services/models/api-parameter';
-import { APIGetMultiResponse, APIUpdateSingleResponse } from '../../services/models/api-response';
+import { APIGetMultiResponse } from '../../services/models/api-response';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-// export const checkLocationExistsValidator = (locationService: LocationService, time: number = 500) => {
-//   return (control: UntypedFormControl) => {
-//     return timer(time).pipe(switchMap(() => {
-//       return locationService.getLocation(+control.value).pipe(
-//         map((response) => {
-//           if (response === null) {
-//             return { locationExists: true };
-//           } else {
-//             return null;
-//           }
-//         }),
-//         catchError((e) => {
-//           return new Promise(resolve => {
-//             if (e.status === 403) {
-//               resolve({ locationProtected: true });
-//             }
-//             resolve({ locationExists: true });
-//           });
-//         })
-//       );
-//     }));
-//   };
-// };
-
-// export const httpLocationObserveOptions = {
-//   headers: new HttpHeaders({
-//     'Content-Type': 'application/json'
-//   }),
-//   observe: resp
-// };
 
 export const PARAMETER = 'params';
 export const COOCKIENAME = 'onlyActiveObjCookie';
+
+/**
+ * A single level of the sidebar location tree as returned by the lazy tree endpoints
+ */
+export interface LocationTreeNode {
+    public_id: number;
+    name: string;
+    parent: number;
+    object_id: number;
+    type_icon: string;
+    type_selectable?: boolean;
+    has_children: boolean;
+}
+
+/**
+ * A node of the location tree search result (`/tree/search`).
+ */
+export interface LocationTreeSearchNode {
+    public_id: number;
+    name: string;
+    parent: number;
+    object_id: number;
+    icon: string;
+    type_selectable?: boolean;
+    children?: LocationTreeSearchNode[];
+}
+
+/**
+ * A node returned by `/tree/path/<public_id>`: the root level with the ancestor chain of a single
+ * location materialised inline. Nodes on the path carry their `children`; off-path siblings omit the
+ * key and stay collapsed for lazy loading, exactly like {@link LocationTreeNode}.
+ */
+export interface LocationTreePathNode extends LocationTreeNode {
+    children?: LocationTreePathNode[];
+}
 
 @Injectable({
   providedIn: 'root'
@@ -92,29 +97,6 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                   CRUD - SECTION                                                   */
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-
-/* -------------------------------------------------- CRUD - CREATE ------------------------------------------------- */
-
-
-    /**
-     * Creates and stores a CmdbLocation in the database
-     * 
-     * @param objectInstance (CmdbLocation): location which should be crated
-     * @returns Observable<any>
-     */
-    public postLocation(params): Observable<any> {
-
-      const postOptions = this.options;
-      postOptions.params = new HttpParams();
-
-      return this.api.callPost<CmdbLocation>(this.servicePrefix + '/', params , postOptions).pipe(
-          map((apiResponse) => {
-          return apiResponse.body;
-          }),
-          finalize(() => this.executedAction('create'))
-      );
-  }
 
 
 /* --------------------------------------------------- CRUD - READ -------------------------------------------------- */
@@ -197,6 +179,72 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
             map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
                 return apiResponse.body;
             })
+        );
+    }
+
+
+    /**
+     * Retrieves the first level of the location tree (the direct children of the root location).
+     * 
+     * @returns Observable<LocationTreeNode[]> the root level nodes, each flagged with has_children
+     */
+    public getTreeRoots(): Observable<LocationTreeNode[]> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<LocationTreeNode[]>(`${ this.servicePrefix }/tree/roots`, options).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Retrieves the direct children of a single location for lazy tree expansion.
+     *
+     * @param publicID (int): public_id of the location whose children should be loaded
+     * @returns Observable<LocationTreeNode[]> the child nodes, each flagged with has_children
+     */
+    public getTreeChildren(publicID: number): Observable<LocationTreeNode[]> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<LocationTreeNode[]>(`${ this.servicePrefix }/tree/${ publicID }/children`, options).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Retrieves the location tree pre-expanded down to a single location: all root nodes plus the
+     * materialised ancestor chain of the target, so a deeply nested selection can be revealed without
+     * expanding each level by hand. Off-path nodes are returned collapsed for lazy loading.
+     *
+     * @param publicID (int): public_id of the location to reveal
+     * @returns Observable<LocationTreePathNode[]> the root level with the target's path expanded
+     */
+    public getTreePath(publicID: number): Observable<LocationTreePathNode[]> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callGet<LocationTreePathNode[]>(`${ this.servicePrefix }/tree/path/${ publicID }`, options).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
+
+    /**
+     * Searches the location tree, returning a fully materialised forest of the matches together with
+     * their ancestor path, so the result can be rendered fully expanded without any lazy loading.
+     *
+     * @param query (string): the search term
+     * @returns Observable<LocationTreeSearchNode[]> the matching subtrees
+     */
+    public searchTree(query: string): Observable<LocationTreeSearchNode[]> {
+        const options = this.options;
+        options.params = new HttpParams().set('query', query);
+
+        return this.api.callGet<LocationTreeSearchNode[]>(`${ this.servicePrefix }/tree/search`, options).pipe(
+            map((apiResponse) => apiResponse.body)
         );
     }
 
@@ -302,68 +350,48 @@ export class LocationService<T = CmdbLocation | RenderResult> implements ApiServ
 
 /* -------------------------------------------------- CRUD - UPDATE ------------------------------------------------- */
 
-    /**
-     * Updates a CmdbLocation in the database
-     * 
-     * @param publicID (int): public_id of the location
-     * @param objectInstance (CmdbLocation): the data which should be updated
-     * @param httpOptions httpObserveOptions
-     * @returns Observable<any>
-     */
-    public updateLocationForObject(params): Observable<any> {
-
-        const putOptions = this.options;
-        putOptions.params = new HttpParams();
-
-        return this.api.callPut<T>(`${ this.servicePrefix }/update_location`, params, putOptions).pipe(
-            map((apiResponse: HttpResponse<APIUpdateSingleResponse<T>>) => {
-                return apiResponse.body;
-            }),
-            finalize(() => this.executedAction('update'))
-        );
-    }
-
-
-/* -------------------------------------------------- CRUD - DELETE ------------------------------------------------- */
 
     /**
-     * Deletes a location from the database with the given public_id
-     * 
-     * @param publicID (int): public_id of location which should be deleted
-     * @returns Observable<any>
+     * Re-parents a single location by moving the object behind it under a new parent location.
+     *
+     * @param objectID (int): object_id of the location to move
+     * @param parentPublicID (int): public_id of the target parent location (1 = root / top level)
+     * @returns Observable<{ object_id: number; parent: number }>
      */
-
-    //TODO: not implemented on backend - start
-    // public deleteLocation(publicID: any): Observable<any> {
-        
-
-    //     const options = this.options;
-    //     options.params = new HttpParams();
-
-    //     return this.api.callDelete(`${ this.servicePrefix }/${ publicID }`, options).pipe(
-    //         map((apiResponse) => {
-    //             return apiResponse.body;
-    //         })
-    //     );
-    // }
-
-    /**
-     * Deletes a location from the database where the object_id matches the given objectID
-     * 
-     * @param objectID publicID of object for which the location should be deleted
-     * @returns Observable<any>
-     */
-    public deleteLocationForObject(objectID: any): Observable<any> {
+    public moveLocation(objectID: number, parentPublicID: number): Observable<{ object_id: number; parent: number }> {
         const options = this.options;
         options.params = new HttpParams();
 
-        return this.api.callDelete(`${ this.servicePrefix }/${ objectID }/object`, options).pipe(
-            map((apiResponse) => {
-                return apiResponse.body;
-            }),
-            finalize(() => this.executedAction('delete'))
+        return this.api.callPatch<{ object_id: number; parent: number }>(
+            `${ this.servicePrefix }/${ objectID }/parent`,
+            { parent: parentPublicID },
+            options
+        ).pipe(
+            map((apiResponse) => apiResponse.body)
         );
     }
+
+
+    /**
+     * Re-parents several locations at once by moving the given objects under a new parent location.
+     *
+     * @param objectIDs (int[]): object_ids of the locations to move
+     * @param parentPublicID (int): public_id of the target parent location (1 = root / top level)
+     * @returns Observable<{ object_ids: number[]; parent: number }>
+     */
+    public moveLocations(objectIDs: number[], parentPublicID: number): Observable<{ object_ids: number[]; parent: number }> {
+        const options = this.options;
+        options.params = new HttpParams();
+
+        return this.api.callPatch<{ object_ids: number[]; parent: number }>(
+            `${ this.servicePrefix }/parents`,
+            { object_ids: objectIDs, parent: parentPublicID },
+            options
+        ).pipe(
+            map((apiResponse) => apiResponse.body)
+        );
+    }
+
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                   HELPER SECTION                                                   */

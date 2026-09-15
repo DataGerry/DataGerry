@@ -1,23 +1,40 @@
 @if (tree) {
-@if (mode == 2) {
-<ul class="dnd drop-zone" [ngClass]="tree.length == 0 ? 'min-h': ''" dndDropzone (dndDrop)="onDrop($event, tree)">
-  <li class="drop-zone p-2" dndPlaceholderRef data-content=" "></li>
-  @for (node of tree; track node; let i = $index) {
-  <li [dndDraggable]="node" dndEffectAllowed="move" (dndMoved)="onDragged(node, tree, 'move')">
-    <cmdb-category-node [mode]="mode" [node]="node"
-      (change)="change.emit($event)">{{node.category.label}}</cmdb-category-node>
-    <cmdb-category-tree [mode]="mode" [tree]="node.children" (change)="change.emit($event)"></cmdb-category-tree>
-  </li>
+  @if (isOrganizing) {
+    <ul class="dg-tree__list dg-tree__list--dnd" [class.dg-tree__list--root]="root" dndDropzone dndEffectAllowed="move" (dndDrop)="onDrop($event, tree)">
+      <li class="dg-tree__item dg-tree__placeholder" dndPlaceholderRef>
+        <span class="dg-tree__ghost">
+          <span class="dg-tree__ghost-chip"><i [class]="draggedIcon" aria-hidden="true"></i></span>
+          <span class="dg-tree__ghost-label">{{ draggedLabel }}</span>
+          <span class="dg-tree__ghost-hint">nested here</span>
+        </span>
+      </li>
+      @for (node of tree; track node.category.public_id) {
+        <li class="dg-tree__item" [dndDraggable]="node" dndEffectAllowed="move"
+            (dndStart)="onDragStart(node)" (dndMoved)="onDragged(node, tree, 'move')">
+          <cmdb-category-node [mode]="mode" [node]="node"
+                              [canIndent]="$index > 0" [canOutdent]="!!parentNode"
+                              [indentHint]="indentHint($index)" [outdentHint]="outdentHint()"
+                              (indent)="onIndent(node, $index)" (outdent)="onOutdent(node, $index)"
+                              (change)="change.emit($event)"></cmdb-category-node>
+          <cmdb-category-tree [mode]="mode" [tree]="node.children" [collapsed]="collapsed"
+                              [parentNode]="node" [parentTree]="tree" [draggedNode]="draggedNode"
+                              (change)="change.emit($event)" (reorder)="reorder.emit()"
+                              (dragStarted)="dragStarted.emit($event)"></cmdb-category-tree>
+        </li>
+      }
+    </ul>
+  } @else {
+    <ul class="dg-tree__list" [class.dg-tree__list--root]="root">
+      @for (node of tree; track node.category.public_id) {
+        <li class="dg-tree__item">
+          <cmdb-category-node [mode]="mode" [node]="node" [collapsed]="isCollapsed(node)"
+                              (toggle)="onToggle(node)" (change)="change.emit($event)"></cmdb-category-node>
+          @if (node.children?.length && !isCollapsed(node)) {
+            <cmdb-category-tree [mode]="mode" [tree]="node.children" [collapsed]="collapsed"
+                                (change)="change.emit($event)"></cmdb-category-tree>
+          }
+        </li>
+      }
+    </ul>
   }
-</ul>
-} @else {
-<ul>
-  @for (node of tree; track node; let i = $index) {
-  <li>
-    <cmdb-category-node [mode]="mode" [node]="node">{{node.category.label}}</cmdb-category-node>
-    <cmdb-category-tree [mode]="mode" [tree]="node.children"></cmdb-category-tree>
-  </li>
-  }
-</ul>
-}
 }

@@ -17,7 +17,7 @@
 */
 import { HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable, map, shareReplay } from 'rxjs';
+import { Observable, catchError, map, shareReplay, throwError } from 'rxjs';
 import { ApiCallService, ApiServicePrefix, resp } from 'src/app/services/api-call.service';
 import { SpecialType, SpecialTypeSchema } from '../models/special-type';
 
@@ -38,6 +38,7 @@ export class SpecialTypeService implements ApiServicePrefix {
 
     private schemaCache = new Map<SpecialType, Observable<SpecialTypeSchema>>();
     private schemaSnapshotCache = new Map<SpecialType, SpecialTypeSchema>();
+    private allSpecialTypes$: Observable<Record<string, string>> | null = null;
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -46,17 +47,32 @@ export class SpecialTypeService implements ApiServicePrefix {
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
+    /**
+     * The special types no CmdbType has claimed yet, mapped to their display label.
+     */
     public getAvailableSpecialTypes(): Observable<Record<string, string>> {
-        const options = {
-            ...this.options,
-            params: new HttpParams().set('available', 'true')
-        };
+        return this.fetchSpecialTypes(new HttpParams().set('available', 'true'));
+    }
 
-        return this.api.callGet<Record<string, string>>(`${this.servicePrefix}/`, options).pipe(
-            map((response: HttpResponse<Record<string, string>>) => {
-                return this.extractResponseBody<Record<string, string>>(response.body) ?? {};
-            })
-        );
+
+    /**
+     * Every special type mapped to its display label, including the ones already assigned to a type.
+     * Used to label existing special types (type list, read-only fields), where the "available" list
+     * would no longer contain them. The result is static, so it is cached for the session.
+     */
+    public getAllSpecialTypes(): Observable<Record<string, string>> {
+        if (!this.allSpecialTypes$) {
+            this.allSpecialTypes$ = this.fetchSpecialTypes(new HttpParams()).pipe(
+                catchError((error) => {
+                    // Drop the cache so a failed lookup does not stick for the rest of the session
+                    this.allSpecialTypes$ = null;
+                    return throwError(() => error);
+                }),
+                shareReplay(1)
+            );
+        }
+
+        return this.allSpecialTypes$;
     }
 
 
@@ -88,6 +104,17 @@ export class SpecialTypeService implements ApiServicePrefix {
     }
 
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private fetchSpecialTypes(params: HttpParams): Observable<Record<string, string>> {
+        const options = { ...this.options, params };
+
+        return this.api.callGet<Record<string, string>>(`${this.servicePrefix}/`, options).pipe(
+            map((response: HttpResponse<Record<string, string>>) => {
+                return this.extractResponseBody<Record<string, string>>(response.body) ?? {};
+            })
+        );
+    }
+
 
     private extractResponseBody<T>(responseBody: unknown): T {
         if (responseBody && typeof responseBody === 'object' && 'result' in responseBody) {

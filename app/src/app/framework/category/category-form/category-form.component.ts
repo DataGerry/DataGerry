@@ -15,8 +15,8 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { UntypedFormArray, UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 
 import { ReplaySubject, Subscription } from 'rxjs';
@@ -28,9 +28,16 @@ import { CmdbMode } from '../../modes.enum';
 import { CmdbCategory } from '../../models/cmdb-category';
 import { CmdbType } from '../../models/cmdb-type';
 import { DndDropEvent, DropEffect } from 'ngx-drag-drop';
+import { WizardComponent } from '@rg-software/angular-archwizard';
 import { CollectionParameters } from '../../../services/models/api-parameter';
 import { takeUntil } from 'rxjs/operators';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
+
+/**
+ * Font awesome classes are the only accepted icon values, so anything with
+ * unexpected characters falls back to the default folder icon.
+ */
+const ICON_CLASS_PATTERN = /^[a-z0-9\s-]+$/i;
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -109,13 +116,27 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
     return this.tempAssignedTypes;
   }
 
+  // Current search term of the unassigned types list
+  public typeSearch: string = '';
+
+  // Unassigned types matching the current search term. Rendered instead of the master list.
+  public filteredUnassignedTypes: CmdbType[] = [];
+
   public effect: DropEffect = 'move';
   public readonly fallBackIcon = 'far fa-folder-open';
+  public readonly fallBackTypeIcon = 'far fa-clone';
+
+  @ViewChild(WizardComponent) private wizard: WizardComponent;
+
+  // Stable references, so the stepper input is not fed a new array on every change detection run.
+  private readonly detailsStepInvalid: readonly number[] = [1];
+  private readonly allStepsValid: readonly number[] = [];
 
 /* --------------------------------------------------- LIFE CYLCLE -------------------------------------------------- */
     public constructor(private categoryService: CategoryService,
                        private toast: ToastService,
-                       private route:ActivatedRoute) {
+                       private route:ActivatedRoute,
+                       private router: Router) {
 
         this.categoryForm = new UntypedFormGroup({
             name: new UntypedFormControl('', Validators.required),
@@ -135,6 +156,9 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
             this.name.setAsyncValidators(checkCategoryExistsValidator(this.categoryService));
         } else if (CmdbMode.Edit === this.mode) {
             this.name.disable({ onlySelf: true });
+            // onlySelf skips the parent update, so the group would keep the required
+            // identifier's INVALID status and the wizard could never leave step one.
+            this.categoryForm.updateValueAndValidity();
         }
 
         this.valueChangeSubscription = this.categoryForm.statusChanges.subscribe(() => {
@@ -191,6 +215,10 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
 
                 this.assignedTypes = buffer;
         }
+
+        if (changes.unAssignedTypes !== undefined) {
+            this.applyTypeFilter();
+        }
     }
 
 
@@ -215,12 +243,55 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
     }
 
 
+    public onTypeSearchInput(event: Event): void {
+        this.typeSearch = (event.target as HTMLInputElement).value;
+        this.applyTypeFilter();
+    }
+
+
+    public clearTypeSearch(): void {
+        this.typeSearch = '';
+        this.applyTypeFilter();
+    }
+
+
+    /**
+     * Click alternative to dragging a type into the category.
+     */
+    public clickAssignType(item: CmdbType): void {
+        const index: number = this.unAssignedTypes.indexOf(item);
+
+        if (index === -1) {
+            return;
+        }
+
+        this.unAssignedTypes.splice(index, 1);
+        this.assignedTypes.push(item);
+        this.types.push(new UntypedFormControl(item.public_id));
+        this.types.markAsDirty();
+        this.applyTypeFilter();
+    }
+
+
     public clickRemoveAssignedType(item: CmdbType): void {
         const index: number = this.assignedTypes.indexOf(item);
 
         this.assignedTypes.splice(index, 1);
         this.unAssignedTypes.push(item);
         this.types.removeAt(index);
+        this.types.markAsDirty();
+        this.applyTypeFilter();
+    }
+
+
+    /**
+     * Drop target for types dragged back out of the category. The order of the
+     * unassigned pool carries no meaning, so the type is appended.
+     */
+    public onDropToSource(event: DndDropEvent): void {
+        this.unAssignedTypes.push(event.data);
+        this.types.markAsDirty();
+        this.applyTypeFilter();
     }
 
 
@@ -236,6 +307,9 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
         if (control) {
             this.types.insert(index, new UntypedFormControl(event.data.public_id));
         }
+
+        this.types.markAsDirty();
+        this.applyTypeFilter();
     }
 
 
@@ -247,6 +321,8 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
             if (control) {
                 this.types.removeAt(index);
             }
+
+            this.applyTypeFilter();
         }
     }
 
@@ -256,13 +332,26 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
     }
 
 
+    public onCancel(): void {
+        this.router.navigate(['/', 'framework', 'category']);
+    }
+
+
     public onSubmit(): void {
         this.categoryForm.markAllAsTouched();
 
-        if (this.categoryForm.valid) {
-            this.$category = Object.assign(this.$category, this.categoryForm.getRawValue() as CmdbCategory);
-            this.submitEmitter.emit(this.$category);
+        if (!this.categoryForm.valid) {
+            return;
         }
+
+        // Enter on the details step continues the wizard instead of saving halfway through.
+        if (!this.isOnLastStep) {
+            this.wizard.navigation.goToStep(this.wizard, this.wizard.currentStepIndex + 1);
+            return;
+        }
+
+        this.$category = Object.assign(this.$category, this.categoryForm.getRawValue() as CmdbCategory);
+        this.submitEmitter.emit(this.$category);
     }
 
 /* --------------------------------------------------- API SECTION -------------------------------------------------- */
@@ -309,9 +398,100 @@ export class CategoryFormComponent implements OnInit, OnChanges, OnDestroy {
         return this.categoryForm.get('types') as UntypedFormArray;
     }
 
+/* ---------------------------------------------- TEMPLATE ACCESSORS ------------------------------------------------ */
+
+    public get isEditMode(): boolean {
+        return this.mode === CmdbMode.Edit;
+    }
+
+
+    /**
+     * Gate for leaving the details step. Reads the group, not the name control,
+     * because the identifier is disabled - and therefore never valid - in edit mode.
+     */
+    public get isDetailsValid(): boolean {
+        return this.categoryForm.valid;
+    }
+
+
+    public get invalidSteps(): readonly number[] {
+        return this.name.invalid && (this.name.dirty || this.name.touched)
+            ? this.detailsStepInvalid
+            : this.allStepsValid;
+    }
+
+
+    public get pageTitle(): string {
+        if (this.isEditMode) {
+            return `Edit category: ${this.category?.label ?? ''}`.trim();
+        }
+
+        if (this.mode === CmdbMode.View) {
+            return `Category: ${this.category?.label ?? ''}`.trim();
+        }
+
+        return 'Add a new category';
+    }
+
+
+    public get saveBlockedHint(): string {
+        return this.name.errors?.categoryExists
+            ? 'That identifier is already in use.'
+            : 'An identifier is required before saving.';
+    }
+
+
+    public get iconPreview(): string {
+        return this.safeIcon(this.icon?.value, this.fallBackIcon);
+    }
+
+
+    public get hasUnassignedTypes(): boolean {
+        return this.unAssignedTypes?.length > 0;
+    }
+
+
+    public get isTypeSearchActive(): boolean {
+        return this.typeSearch.trim().length > 0;
+    }
+
+
+    public typeIcon(type: CmdbType): string {
+        return this.safeIcon(type?.render_meta?.icon, this.fallBackTypeIcon);
+    }
+
 /* ------------------------------------------------ HELPER FUNCTIONS ------------------------------------------------ */
 
     public findAssignedTypeByIndex(idx: number): CmdbType | undefined {
         return this.assignedTypes[this.assignedTypes.findIndex(x => x.public_id === idx)];
+    }
+
+
+    /**
+     * Recalculates the rendered source list. Called whenever the search term or
+     * the master list of unassigned types changes.
+     */
+    private applyTypeFilter(): void {
+        const source: CmdbType[] = this.unAssignedTypes ?? [];
+        const term: string = this.typeSearch.trim().toLowerCase();
+
+        this.filteredUnassignedTypes = term
+            ? source.filter((type: CmdbType) => this.matchesSearchTerm(type, term))
+            : source;
+    }
+
+
+    private matchesSearchTerm(type: CmdbType, term: string): boolean {
+        return `${type?.label ?? ''} ${type?.name ?? ''} ${type?.public_id ?? ''}`.toLowerCase().includes(term);
+    }
+
+
+    private get isOnLastStep(): boolean {
+        return !this.wizard || this.wizard.currentStepIndex >= this.wizard.wizardSteps.length - 1;
+    }
+
+
+    private safeIcon(value: string, fallback: string): string {
+        return value && ICON_CLASS_PATTERN.test(value) ? value : fallback;
     }
 }

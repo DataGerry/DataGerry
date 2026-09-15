@@ -30,7 +30,7 @@ import { AuthModule } from '../../modules/auth/auth.module';
 import { TypeRoutingModule } from './type-routing.module';
 import { LayoutModule } from '../../layout/layout.module';
 import { RenderModule } from '../render/render.module';
-import { BuilderModule } from './builder/builder.module';
+import { BuilderKernelModule } from '../builder/builder-kernel.module';
 import { TableModule } from '../../layout/table/table.module';
 import { UsersModule } from '../../management/users/users.module';
 
@@ -42,16 +42,9 @@ import { TypeEditComponent } from './type-edit/type-edit.component';
 import { TypeMetaStepComponent } from './type-builder/type-meta-step/type-meta-step.component';
 import { TypeDeleteComponent, TypeDeleteConfirmModalComponent } from './type-delete/type-delete.component';
 import { TypeComponent } from './type.component';
-import { CleanupModalComponent } from './modals/cleanup-modal/cleanup-modal.component';
-import { CleanButtonComponent } from './components/clean-button/clean-button.component';
 import { TypeAclStepComponent } from './type-builder/type-acl-step/type-acl-step.component';
 import { GroupsAclTabsComponent } from './type-builder/type-acl-step/groups-acl-tabs/groups-acl-tabs.component';
 import { TypeTableActionsComponent } from './components/type-table-actions/type-table-actions.component';
-import {
-  TypeBuilderStepComponent,
-  TypeBuilderStepValidStatusComponent
-} from './type-builder/type-builder-step.component';
-import { TypePreviewStepComponent } from './type-builder/type-preview-step/type-preview-step.component';
 import { CoreModule } from 'src/app/core/core.module';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -66,14 +59,9 @@ import { CoreModule } from 'src/app/core/core.module';
         TypeDeleteComponent,
         TypeDeleteConfirmModalComponent,
         TypeComponent,
-        CleanupModalComponent,
-        CleanButtonComponent,
         TypeAclStepComponent,
         GroupsAclTabsComponent,
-        TypeTableActionsComponent,
-        TypeBuilderStepComponent,
-        TypeBuilderStepValidStatusComponent,
-        TypePreviewStepComponent,
+        TypeTableActionsComponent
     ],
     imports: [
         CommonModule,
@@ -84,7 +72,7 @@ import { CoreModule } from 'src/app/core/core.module';
         QRCodeComponent,
         NgSelectModule,
         RenderModule,
-        BuilderModule,
+        BuilderKernelModule,
         FormsModule,
         NgbModule,
         FontAwesomeModule,

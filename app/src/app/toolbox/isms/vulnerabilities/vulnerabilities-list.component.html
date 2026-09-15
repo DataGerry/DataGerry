@@ -1,17 +1,28 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Vulnerabilities</h2>
-  <!-- Add button -->
-  <button class="btn btn-sm btn-success" (click)="onAddNew()" *permissionLink="'base.isms.vulnerability.add'">
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <div class="d-flex align-items-center gap-2">
+    <!-- Delete selected button -->
+    <button class="btn btn-sm btn-danger" *permissionLink="'base.isms.vulnerability.delete'"
+      [disabled]="!selectedVulnerabilities.length" (click)="onDeleteSelected()" title="Delete selected vulnerabilities">
+      <i class="far fa-trash-alt"></i> Delete Selected
+      @if (selectedVulnerabilities.length) {
+        <span class="badge bg-light text-dark ms-1">{{ selectedVulnerabilities.length }}</span>
+      }
+    </button>
+    <!-- Add button -->
+    <button class="btn btn-sm btn-success" (click)="onAddNew()" *permissionLink="'base.isms.vulnerability.add'">
+      <i class="fas fa-plus"></i> Add
+    </button>
+  </div>
 </div>
 <hr />
 
 <cmdb-table [items]="threats" [columns]="columns" [page]="page" [sort]="sort" [id]="'threats-table'"
-  [emptyMessage]="'No Vulnerabilities found.'" [totalItems]="totalThreats" [selectEnabled]="false" [loading]="loading"
+  [emptyMessage]="'No Vulnerabilities found.'" [totalItems]="totalThreats" [selectEnabled]="true"
+  [selectedItems]="selectedVulnerabilities" [loading]="loading"
   [pageSize]="limit" [toggleable]="true" [initialVisibleColumns]="initialVisibleColumns"
   (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)" (sortChange)="onSortChange($event)"
-  (searchChange)="onSearchChange($event)">
+  (searchChange)="onSearchChange($event)" (selectedChange)="onSelectedChange($event)">
 </cmdb-table>
 
 <!-- Action Template -->

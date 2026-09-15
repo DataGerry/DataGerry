@@ -227,6 +227,12 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
 
             });
 
+            // The location is created by the backend from the dg_location field; its label
+            // rides along as location_name and is only sent when a parent was selected.
+            if (this.parentID) {
+                this.objectInstance.location_name = this.locationService.locationTreeName;
+            }
+
             let newID = null;
             this.objectService.postObject(this.objectInstance).pipe(takeUntil(this.subscriber),
             finalize(() => {
@@ -236,39 +242,15 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
                 .subscribe({
                     next: newObjectID => {
                         newID = newObjectID;
-                        this.createLocation(newID);
                     },
                     error: (e) => {
                         this.toastService.error(e?.error?.message)
                     },
                     complete: () => {
+                        this.locationService.locationTreeName = "";
                         this.router.navigate(['/framework/object/view/' + newID]);
                         this.sidebarService.updateTypeCounter(this.typeInstance.public_id);
                         this.toastService.success(`Object ${newID} was created succesfully!`);
-                    }
-                });
-        }
-    }
-
-
-    private createLocation(newObjectID: number) {
-        let params = {
-            "object_id": newObjectID,
-            "parent": this.parentID,
-            "name": this.locationService.locationTreeName,
-            "type_id": this.objectInstance.type_id
-        }
-
-        if (this.parentID) {
-            this.locationService.postLocation(params).pipe(
-                finalize(() => this.loaderService.hide())
-            )
-                .subscribe({
-                    next: () => {
-                        this.locationService.locationTreeName = "";
-                    },
-                    error: error => {
-                        this.toastService.error(error?.error?.message);
                     }
                 });
         }

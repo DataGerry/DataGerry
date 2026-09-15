@@ -1,33 +1,45 @@
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">Section Template ID: {{sectionTemplate.public_id}}</h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.close(0)">
-    </button>
-  </div>
+<dg-modal
+    icon="fas fa-trash-can"
+    eyebrow="Section template"
+    [title]="'Delete Section Template: ' + sectionTemplate.public_id"
+    [subtitle]="sectionTemplate.label"
+    (dismiss)="activeModal.close(0)">
 
-<div class="modal-body">
-    <div id="delete-message">
-        Do you want to <b>delete</b> the section template <b>"{{sectionTemplate.label}}"</b>?
-        <br>
-        <br>
-        @if (sectionTemplate.is_global) {
+    <p class="delete-lead">
+        Do you want to <b>delete</b> the section template <b>"{{ sectionTemplate.label }}"</b>?
+    </p>
 
-            This action affects <b>{{templateCounts.types}} types</b> and <b>{{templateCounts.objects}} objects</b>!
-        
-}
-    </div>
     @if (sectionTemplate.is_global) {
-
-        <br>
-        <div class="warning-text">
-            This will delete this section and its fields from all types and corresponding objects.
-            <br>
-            This action can't be undone!
+    <div class="delete-callout" role="alert">
+        <i class="fas fa-triangle-exclamation delete-callout__icon" aria-hidden="true"></i>
+        <div class="delete-callout__text">
+            <p>
+                This action affects <b>{{ templateCounts.types }} types</b> and
+                <b>{{ templateCounts.objects }} objects</b>!
+            </p>
+            <p>
+                This will delete this section and its fields from all types and corresponding objects.
+                <br>
+                This action can't be undone!
+            </p>
         </div>
-    
-}
-</div>
+    </div>
+    }
 
-<div class="modal-footer">
-    <button type="button" class="btn btn-warning" (click)="activeModal.close(0)">Close</button>
-    <button type="submit" class="btn btn-danger" (click)="activeModal.close(sectionTemplate.public_id)">Delete</button>
-</div>
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.close(0)">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-danger'"
+        label="Delete"
+        type="button"
+        icon="fas fa-trash-can"
+        (clicked)="activeModal.close(sectionTemplate.public_id)">
+    </app-button>
+</dg-modal>

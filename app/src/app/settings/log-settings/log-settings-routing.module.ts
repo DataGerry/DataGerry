@@ -26,14 +26,16 @@ const routes: Routes = [
   {
     path: '',
     data: {
-      breadcrumb: 'Overview'
+      breadcrumb: 'Overview',
+      right: 'base.framework.log.view'
     },
     component: LogSettingsComponent
   },
   {
     path: 'objects',
     data: {
-      breadcrumb: 'Objects'
+      breadcrumb: 'Objects',
+      right: 'base.framework.log.view'
     },
     resolve: {
       userSetting: UserSettingsResolver,

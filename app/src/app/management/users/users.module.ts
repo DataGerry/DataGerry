@@ -28,6 +28,7 @@ import { LayoutModule } from '../../layout/layout.module';
 import { TableModule } from '../../layout/table/table.module';
 import { AclModule } from 'src/app/modules/acl/acl.module';
 import { RenderModule } from '../../framework/render/render.module';
+import { CoreModule } from 'src/app/core/core.module';
 
 import { UserViewComponent } from './user-view/user-view.component';
 import { UsersPasswdModalComponent } from './modals/users-passwd-modal/users-passwd-modal.component';
@@ -81,6 +82,7 @@ import { UserTableListComponent } from './components/user-table-list/user-table-
         TableModule,
         AclModule,
         RenderModule,
+        CoreModule
     ]
 })
 export class UsersModule {}

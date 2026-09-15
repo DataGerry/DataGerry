@@ -33,6 +33,11 @@
           <span class="assistant-option__box">
             <span class="assistant-option__icon"><i class="fas fa-cube" aria-hidden="true"></i></span>
             <span class="assistant-option__label">{{ branchProfileNames[profileName] }}</span>
+            @if (isNewProfile(profileName)) {
+            <span class="assistant-tag">
+              <span class="assistant-tag__dot" aria-hidden="true"></span>New feature
+            </span>
+            }
             <span class="assistant-option__check" aria-hidden="true"><i class="fas fa-check"></i></span>
           </span>
         </label>

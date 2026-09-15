@@ -1,16 +1,34 @@
-<div class="modal-header bg-primary text-white">
-    <h4 class="modal-title">Section Template ID: {{sectionTemplate.public_id}}</h4>
-    <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.close(0)">
-    </button>
-    </div>
-  <div class="modal-body">
-        Do you want to <b>transform</b> the section template <b>"{{sectionTemplate.label}}"</b> into a <b>Global Section Template</b>?
-        <br>
-        <br>
-        <div class="warning-text">This action can't be undone!</div>
-  </div>
+<dg-modal
+    icon="fas fa-globe"
+    eyebrow="Section template"
+    [title]="'Transform Section Template: ' + sectionTemplate.public_id"
+    [subtitle]="sectionTemplate.label"
+    (dismiss)="activeModal.close(0)">
 
-  <div class="modal-footer">
-    <button type="button" class="btn btn-outline-dark" (click)="activeModal.close(0)">Close</button>
-    <button type="submit" class="btn btn-success" (click)="activeModal.close(sectionTemplate.public_id)">Confirm</button>
-</div>
+    <p class="transform-lead">
+        Do you want to <b>transform</b> the section template <b>"{{ sectionTemplate.label }}"</b> into a
+        <b>Global Section Template</b>?
+    </p>
+
+    <div class="transform-callout" role="alert">
+        <i class="fas fa-triangle-exclamation transform-callout__icon" aria-hidden="true"></i>
+        <span class="transform-callout__text">This action can't be undone!</span>
+    </div>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-secondary'"
+        label="Close"
+        type="button"
+        (clicked)="activeModal.close(0)">
+    </app-button>
+
+    <app-button
+        dgModalFooter
+        [bootstrapClass]="'btn-success'"
+        label="Confirm"
+        type="button"
+        icon="fas fa-globe"
+        (clicked)="activeModal.close(sectionTemplate.public_id)">
+    </app-button>
+</dg-modal>

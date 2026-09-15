@@ -1,3 +1,5 @@
+@import "src/scss/variables";
+
 .risk-box {
     display: flex;
     justify-content: center;
@@ -17,17 +19,169 @@
     font-size: 0.85rem;
     padding: 2px 6px;
   }
-  
-/* Fixed size for stable layout */
-.filter-card {
-  width: 900px;         /* horizontal footprint */
-  max-width: 100%;      /* still shrinks on tiny screens */
-  min-height: 160px;    /* enough space even when Value(s) appears */
+
+/* =====================================================================
+ *  FILTER BAR  (chips + "Add filter" popover)
+ * ===================================================================*/
+.ra-filters {
+  border: 1px solid #e9ecef;
+  border-radius: 0.5rem;
+  background: #fff;
+  padding: 0.625rem 0.875rem;
+  margin-bottom: 1.25rem;
+
+  &__bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+  }
+
+  &__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #374151;
+  }
+
+  &__chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 auto;
+  }
+
+  &__empty {
+    font-size: 0.8125rem;
+    color: #9ca3af;
+  }
+
+  &__clear {
+    padding: 0 0.25rem;
+    border: 0;
+    background: transparent;
+    font-size: 0.75rem;
+    color: #6b7280;
+    text-decoration: underline;
+    cursor: pointer;
+
+    &:hover { color: $primary; }
+  }
+
+  &__add {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  &__popover {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    z-index: 1050;
+    width: 24rem;
+    max-width: calc(100vw - 2rem);
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    box-shadow: 0 18px 42px -16px rgba(15, 23, 42, 0.35);
+  }
+
+  &__popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f1f3f5;
+  }
+
+  &__popover-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  &__popover-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.375rem;
+    color: #6b7280;
+    background: transparent;
+    cursor: pointer;
+    transition: color 180ms ease, background-color 180ms ease;
+
+    &:hover {
+      color: #1f2937;
+      background: #f1f3f5;
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 0.2rem rgba(233, 77, 24, 0.35);
+    }
+  }
+
+  &__popover-body {
+    padding: 0.875rem 1rem 0.25rem;
+  }
+
+  &__hint {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: #9ca3af;
+  }
+
+  &__popover-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid #f1f3f5;
+  }
 }
 
-/* Keep Add / Clear buttons same width on large screens */
-@media (min-width: 992px) {
-  .filter-card .btn {
-    width: 90px;
+/* Active-filter chip */
+.ra-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.35rem 0.2rem 0.65rem;
+  font-size: 0.75rem;
+  color: #374151;
+  background: #f1f3f5;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+
+  &__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: #6b7280;
+    background: transparent;
+    cursor: pointer;
+    transition: color 180ms ease, background-color 180ms ease;
+
+    &:hover {
+      color: $primary;
+      background: rgba(233, 77, 24, 0.12);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 0.2rem rgba(233, 77, 24, 0.35);
+    }
+
+    i {
+      font-size: 0.7rem;
+    }
   }
 }

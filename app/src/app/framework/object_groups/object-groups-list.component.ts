@@ -181,7 +181,7 @@ export class ObjectGroupsListComponent implements OnInit {
    */
   onView(group: ObjectGroup): void {
     this.router.navigate(['framework/object_groups/view', group.public_id], {
-      state: { group, isViewMode: true }
+      state: { group }
     });
   }
   
@@ -192,7 +192,7 @@ export class ObjectGroupsListComponent implements OnInit {
    */
   onEdit(group: ObjectGroup): void {
     this.router.navigate(['framework/object_groups/edit', group.public_id], {
-      state: { group, isViewMode: false }
+      state: { group }
     });
   }
   
@@ -204,7 +204,11 @@ export class ObjectGroupsListComponent implements OnInit {
    * @returns void  
    */
   public onDelete(item: ObjectGroup): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Object Group';
     modalRef.componentInstance.item = item;
     modalRef.componentInstance.itemType = 'Object Group';

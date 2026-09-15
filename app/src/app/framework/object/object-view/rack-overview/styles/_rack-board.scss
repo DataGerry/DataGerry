@@ -1,0 +1,29 @@
+/* Rack › board — the scrolling surface the drawing sits on. It is the elevation host. */
+
+:host {
+  display: block;
+  padding: 1.1rem 1rem;
+  background: $paper;
+  border: 1px solid $hairline;
+  border-radius: $radius-card;
+  box-shadow: $shadow-card;
+  overflow-x: auto;
+
+  /*
+   * The drawing is centred by `margin: auto` on a max-content row, not by `justify-content` on the
+   * scroll container: centring a flex container that overflows pushes its start out of reach, which
+   * clips the left rail instead of letting it scroll.
+   */
+  /*
+   * Zoom, not a transform: it resizes the layout box, so the board keeps scrolling and centring the
+   * drawing at any factor. A browser without it simply draws the elevation at its natural size.
+   */
+  .rack-board__inner {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    width: max-content;
+    margin: 0 auto;
+    zoom: var(--rack-zoom, 100%);
+  }
+}

@@ -1,37 +1,12 @@
-// profile-delete-modal.component.scss
-.delete-warning-content {
-    .lead {
-      font-size: 1.1rem;
-      margin-bottom: 1.5rem;
-      color: #6B7280;
-    }
-  }
-  
-  .relation-impact-warning {
-    --warning-accent: #e94d18;
-    --warning-bg: rgba(233, 77, 24, 0.05);
-    
-    border-left: 4px solid var(--warning-accent);
-    background: var(--warning-bg);
-    border-radius: 4px;
-    padding: 1rem;
+:host {
     display: flex;
-    gap: 1rem;
-    align-items: center;
-  
-    .warning-icon {
-      color: var(--warning-accent);
-      font-size: 1.5rem;
-    }
-  
-    .warning-text {
-      color: #6B7280;
-      font-size: 0.95rem;
-      line-height: 1.4;
-      
-      strong {
-        color: var(--warning-accent);
-        font-weight: 600;
-      }
-    }
-  }
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.delete-lead {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--dg-label);
+}

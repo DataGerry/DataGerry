@@ -1,0 +1,33 @@
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.delete-lead {
+    margin: 0 0 1rem;
+    font-size: 0.95rem;
+    color: var(--dg-label);
+}
+
+.confirm-label {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--dg-label);
+}
+
+.confirm-required {
+    margin-left: 0.15rem;
+    color: var(--dg-danger);
+}
+
+.confirm-hint {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--dg-muted);
+}

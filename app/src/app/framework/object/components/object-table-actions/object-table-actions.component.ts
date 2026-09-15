@@ -30,6 +30,7 @@ import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+import { CableDeleteGuardService } from '../../object-view/ports-overview/services/cable-delete-guard.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -71,6 +72,7 @@ export class ObjectTableActionsComponent implements OnDestroy {
     private readonly modalService = inject(NgbModal);
     private readonly toastService = inject(ToastService);
     private readonly premiumFeatureService = inject(PremiumFeatureService);
+    private readonly cableDeleteGuard = inject(CableDeleteGuardService);
 
 
     public ngOnDestroy(): void {
@@ -93,7 +95,12 @@ export class ObjectTableActionsComponent implements OnDestroy {
             return;
         }
 
-        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, { size: 'lg', scrollable: true });
+        this.modalRef = this.modalService.open(ObjectPreviewModalComponent, {
+            size: 'xl',
+            scrollable: true,
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.renderResult = this.result;
     }
 
@@ -104,7 +111,18 @@ export class ObjectTableActionsComponent implements OnDestroy {
             return;
         }
 
-        // first check if the object has a location which is parent to child locations
+        // A cable a connection still holds is refused before any delete dialog opens.
+        this.cableDeleteGuard.ensureDeletable(this.result).pipe(takeUntil(this.subscriber))
+        .subscribe((deletable: boolean) => {
+            if (deletable) {
+                this.confirmDelete(publicID);
+            }
+        });
+    }
+
+
+    /** Locations first: a parent of child locations needs the user to decide what goes with it. */
+    private confirmDelete(publicID: number): void {
         this.locationService.getChildren(publicID).pipe(takeUntil(this.locationSubscription))
         .subscribe({
             next: (children: RenderResult[]) => {
@@ -122,7 +140,11 @@ export class ObjectTableActionsComponent implements OnDestroy {
 
 
     public deleteObject(publicID: number) {
-        this.modalRef = this.modalService.open(ObjectDeleteModalComponent, { size: 'lg' });
+        this.modalRef = this.modalService.open(ObjectDeleteModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
         this.modalRef.componentInstance.publicID = this.result.object_information.object_id;
 
         this.modalRef.result.then((response: any) => {

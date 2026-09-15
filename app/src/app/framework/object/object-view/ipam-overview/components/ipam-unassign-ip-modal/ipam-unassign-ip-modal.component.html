@@ -1,31 +1,24 @@
-<div class="modal-header bg-primary text-white">
-  <h4 class="modal-title">{{ headerText }}</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="activeModal.dismiss('cancel')"></button>
-</div>
+<dg-modal icon="fas fa-link-slash" eyebrow="IPAM" [title]="headerText" (dismiss)="activeModal.dismiss('cancel')">
 
-<div class="modal-body">
   <p class="ipam-unassign-modal__question">What would you like to unassign?</p>
 
   <div class="ipam-unassign-modal__options" role="radiogroup" aria-label="Unassign option">
     @for (option of options; track option.value) {
-      <div
-        class="ipam-unassign-modal__option"
-        [class.ipam-unassign-modal__option--selected]="modeControl.value === option.value"
-        (click)="modeControl.setValue(option.value)">
-        <app-radio
-          name="unassignMode"
-          [id]="'unassign-mode-' + option.value"
-          [label]="option.label"
-          [value]="option.value"
-          [formControl]="modeControl">
-        </app-radio>
-        <p class="ipam-unassign-modal__option-description">{{ option.description }}</p>
-      </div>
+    <div class="ipam-unassign-modal__option"
+      [class.ipam-unassign-modal__option--selected]="modeControl.value === option.value"
+      (click)="modeControl.setValue(option.value)">
+      <app-radio name="unassignMode" [id]="'unassign-mode-' + option.value" [label]="option.label"
+        [value]="option.value" [formControl]="modeControl">
+      </app-radio>
+      <p class="ipam-unassign-modal__option-description">{{ option.description }}</p>
+    </div>
     }
   </div>
-</div>
 
-<div class="modal-footer">
-  <button type="button" class="btn btn-outline-dark" (click)="activeModal.dismiss('cancel')">Cancel</button>
-  <button type="button" class="btn btn-danger" (click)="confirm()">Unassign</button>
-</div>
+  <app-button dgModalFooter [bootstrapClass]="'btn-secondary'" label="Cancel" type="button"
+    (clicked)="activeModal.dismiss('cancel')">
+  </app-button>
+
+  <app-button dgModalFooter [bootstrapClass]="'btn-danger'" label="Unassign" type="button" (clicked)="confirm()">
+  </app-button>
+</dg-modal>

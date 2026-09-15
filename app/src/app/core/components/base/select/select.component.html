@@ -1,6 +1,6 @@
 <div class="mb-3" (keydown)="$event.stopPropagation()">
   @if (label) {
-<label class="form-label">
+<label class="form-label" [attr.for]="controlId">
     {{ label }}
     @if (required) {
 <span class="text-danger">*</span>
@@ -8,9 +8,11 @@
   </label>
 }
 
-  <ng-select [items]="items" [bindLabel]="bindLabel" [bindValue]="bindValue" [multiple]="multiple"
+  <ng-select [labelForId]="controlId" [items]="items" [bindLabel]="bindLabel" [bindValue]="bindValue"
+    [multiple]="multiple"
     [placeholder]="placeholder" [disabled]="disabled" [clearable]="true" [(ngModel)]="value"
-    [dropdownPosition]="dropdownDirection" (change)="onValueChange($event)" (blur)="onTouched()" [groupBy]="groupBy">
+    [dropdownPosition]="dropdownDirection" [appendTo]="appendTo" (change)="onValueChange($event)" (blur)="onTouched()"
+    [groupBy]="groupBy" [loading]="loading" [typeahead]="typeahead" (scrollToEnd)="scrolledToEnd.emit()">
     @if (showSelectAllToggle) {
 
       <ng-template ng-header-tmp>
@@ -35,4 +37,10 @@
     
 }
   </ng-select>
+
+  @if (errorMessage) {
+    <div class="invalid-feedback d-block" [id]="controlId + '-error'">
+      {{ errorMessage }}
+    </div>
+  }
 </div>

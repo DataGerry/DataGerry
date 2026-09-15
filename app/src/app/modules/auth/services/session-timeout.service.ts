@@ -166,7 +166,10 @@ export class SessionTimeoutService implements OnDestroy {
    * @private
    */
   private notifyPossibleTimeout() {
-    this.notificationModalRef = this.modal.open(SessionTimeoutModalComponent);
+    this.notificationModalRef = this.modal.open(SessionTimeoutModalComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.notificationModalRef.componentInstance.remainingTime$ = this.sessionTimeoutRemaining;
     this.notificationModalRef.result.then(
       (result) => {

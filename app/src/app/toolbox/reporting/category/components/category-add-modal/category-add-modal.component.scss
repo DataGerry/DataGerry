@@ -1,4 +1,27 @@
-.modal-header{
-    background-color: #e94d18;
-    color: #FFFFFF
+:host {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.category-modal__lead {
+    margin: 0 0 1.1rem;
+    font-size: 0.95rem;
+    color: var(--dg-label);
+}
+
+.form-group {
+    margin-bottom: 0;
+
+    label {
+        margin-bottom: 0.35rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--dg-label);
+    }
+}
+
+.invalid-feedback {
+    display: block;
 }

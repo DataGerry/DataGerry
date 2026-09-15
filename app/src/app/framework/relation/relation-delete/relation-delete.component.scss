@@ -1,16 +1,5 @@
 @import 'src/scss/variables';
 
-#deleteTypeModalForm{
-  small{
-    float: left;
-  }
-}
-.invalid-feedback, .valid-feedback{
-  div{
-    float: right;
-  }
-}
-
 .disabled {
   pointer-events: none;
 }
@@ -28,7 +17,7 @@
 .deletion-warning {
   --warning-color: #e94d18;
   --warning-bg: rgba(233, 77, 24, 0.08);
-  
+
   background: var(--warning-bg);
   border: 1px solid rgba(233, 77, 24, 0.15);
   color: var(--warning-color);
@@ -39,7 +28,7 @@
   align-items: center;
   font-size: 0.9rem;
   transition: all 0.2s ease;
-  
+
   i {
     font-size: 1.1em;
     margin-right: 3px;

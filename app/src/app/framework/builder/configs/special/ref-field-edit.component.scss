@@ -1,0 +1,50 @@
+/*
+ * The summary table has six columns inside the field editor panel, and an empty ng-select carries no
+ * intrinsic width. Left to auto layout the type column collapses to the arrow while the summary line
+ * takes everything, so the widths are declared instead of negotiated.
+ */
+.summaries-table {
+    table-layout: fixed;
+
+    .summary-col-index {
+        width: 2.75rem;
+    }
+
+    .summary-col-type {
+        width: 26%;
+    }
+
+    .summary-col-label {
+        width: 4rem;
+    }
+
+    .summary-col-fields {
+        width: 30%;
+    }
+
+    .summary-col-actions {
+        width: 3.5rem;
+    }
+
+    th,
+    td {
+        vertical-align: middle;
+    }
+
+    /*
+     * ng-select sizes its panel to the control, which here is narrower than the type labels it lists.
+     * Let the panel grow past the cell up to a readable width and wrap what still does not fit.
+     */
+    ::ng-deep .ng-dropdown-panel {
+        width: max-content;
+        min-width: 100%;
+        max-width: 18rem;
+        z-index: 1100;
+
+        .ng-option {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+        }
+    }
+}

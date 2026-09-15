@@ -127,7 +127,10 @@ export class FileViewListComponent implements OnChanges {
   }
 
   public renameFile(value: any) {
-    const folderModal = this.modalService.open(RenameDialogComponent);
+    const folderModal = this.modalService.open(RenameDialogComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     folderModal.componentInstance.selectedFileFolder = new BehaviorSubject<any>(value);
     folderModal.result.then((result) => {
       if (result) {
@@ -139,7 +142,10 @@ export class FileViewListComponent implements OnChanges {
   }
 
   public moveFile(value: FileElement) {
-    const folderModal = this.modalService.open(MoveDialogComponent);
+    const folderModal = this.modalService.open(MoveDialogComponent, {
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.updateSelectedFileList(value);
     folderModal.result.then((result) => {
       if (result) {

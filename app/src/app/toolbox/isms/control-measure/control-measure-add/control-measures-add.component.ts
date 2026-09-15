@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { finalize } from 'rxjs/operators';
@@ -30,6 +30,8 @@ import { ControlMeasure } from '../../models/control-measure.model';
 import { ExtendableOptionService } from 'src/app/toolbox/isms/services/extendable-option.service';
 import { ExtendableOption } from 'src/app/framework/models/object-group.model';
 import { ControlMeasureService } from '../../services/control-measure.service';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { ExtendableOptionManagerComponent } from 'src/app/core/components/extendable_option_manager/extendable-option-manager.component';
 
 export const CONTROL_MEASURE = 'CONTROL_MEASURE';
 export const IMPLEMENTATION_STATE = 'IMPLEMENTATION_STATE';
@@ -63,9 +65,7 @@ export class ControlMeasuresAddComponent implements OnInit {
   public sourceOptions: ExtendableOption[] = [];
   public implementationStateOptions: ExtendableOption[] = [];
 
-  // Manage modals
-  public showSourceManager = false;
-  public showImplementationStateManager = false;
+  private readonly modalService = inject(NgbModal);
 
   constructor(
     private fb: FormBuilder,
@@ -255,19 +255,35 @@ export class ControlMeasuresAddComponent implements OnInit {
    * Manage Extendable Option Modals
    * ------------------------------------------------------------------ */
   public openSourceManager(): void {
-    this.showSourceManager = true;
-  }
-  public closeSourceManager(): void {
-    this.showSourceManager = false;
-    this.loadSourceOptions();
+    const modalRef = this.modalService.open(ExtendableOptionManagerComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
+
+    modalRef.componentInstance.options = this.sourceOptions;
+    modalRef.componentInstance.optionType = CONTROL_MEASURE;
+    modalRef.componentInstance.modalTitle = 'Manage Control Measure Sources';
+    modalRef.componentInstance.itemLabel = 'Control Measure Source';
+    modalRef.componentInstance.itemLabelPlural = 'Control Measure Sources';
+
+    modalRef.result.then(() => this.loadSourceOptions(), () => this.loadSourceOptions());
   }
 
   public openImplementationStateManager(): void {
-    this.showImplementationStateManager = true;
-  }
-  public closeImplementationStateManager(): void {
-    this.showImplementationStateManager = false;
-    this.loadImplementationStateOptions();
+    const modalRef = this.modalService.open(ExtendableOptionManagerComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
+
+    modalRef.componentInstance.options = this.implementationStateOptions;
+    modalRef.componentInstance.optionType = IMPLEMENTATION_STATE;
+    modalRef.componentInstance.modalTitle = 'Manage Implementation States';
+    modalRef.componentInstance.itemLabel = 'Implementation State';
+    modalRef.componentInstance.itemLabelPlural = 'Implementation States';
+
+    modalRef.result.then(() => this.loadImplementationStateOptions(), () => this.loadImplementationStateOptions());
   }
 
   /* ------------------------------------------------------------------

@@ -6,7 +6,7 @@
         <i [ngClass]="iconFormGroup.get('icon')?.value"></i>
       </span>
       <input id="iconInput" type="text" name="icon" class="form-control" formControlName="icon"
-        [iconPicker]="preSelectedIcon" [ipPosition]="'bottom'" [ipIconPack]="['fa5']" [ipPlaceHolder]="'Choose an icon'"
+        [iconPicker]="preSelectedIcon" [ipPosition]="'bottom'" [ipIconPack]="['fa5', 'fa6']" [ipPlaceHolder]="'Choose an icon'"
         [ipFallbackIcon]="fallbackIcon" (iconPickerSelect)="onIconPickerSelect($event)" readonly />
     </div>
   </div>

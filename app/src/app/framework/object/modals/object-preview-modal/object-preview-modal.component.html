@@ -1,19 +1,13 @@
-<div class="modal-header" style="background-color: #e94d18; color: white;">
-  <h4 class="modal-title">Preview</h4>
-  <button 
-    type="button" 
-    class="btn-close" 
-    aria-label="Close" 
-    style="filter: invert(1) brightness(200%);" 
-    (click)="activeModal.dismiss()">
-  </button>
-</div>
-<div class="modal-body">
-  <div class="renderForm">
-    <cmdb-render [renderResult]="renderResult" [mode]="mode" [renderForm]="formGroupDummy"></cmdb-render>
-  </div>
-</div>
-<div class="modal-footer">
-  <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="activeModal.close()">
-  </app-button>
-</div>
+<dg-modal
+    icon="fas fa-eye"
+    [eyebrow]="renderResult?.type_information?.type_label"
+    title="Preview"
+    (dismiss)="activeModal.dismiss()">
+
+    <div class="renderForm">
+        <cmdb-render [renderResult]="renderResult" [mode]="mode" [renderForm]="formGroupDummy"></cmdb-render>
+    </div>
+
+    <app-button dgModalFooter label="Cancel" type="button" bootstrapClass="btn-secondary"
+        (clicked)="activeModal.close()"></app-button>
+</dg-modal>

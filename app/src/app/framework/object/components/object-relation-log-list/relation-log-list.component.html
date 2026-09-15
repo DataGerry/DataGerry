@@ -47,15 +47,6 @@
   </span>
 </ng-template>
 
-<!-- Changes Popup -->
-@if (showChangesModal) {
-<app-changes-modal
- 
-  [log]="selectedLog"
-  (close)="closeChangesModal()"
-></app-changes-modal>
-}
-
 <!-- Show the loading popup -->
 <app-loading-popup 
   [isVisible]="isLoading$ | async"

@@ -1,4 +1,6 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
+import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
+
 import { RelationLog } from 'src/app/framework/services/relation-log.service';
 
 @Component({
@@ -9,9 +11,12 @@ import { RelationLog } from 'src/app/framework/services/relation-log.service';
 })
 export class ChangesModalComponent {
   @Input() log: RelationLog;
-  @Output() close = new EventEmitter<void>();
 
   objectKeys = Object.keys;
+
+  public readonly activeModal = inject(NgbActiveModal);
+
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
   hasCreateChanges(): boolean {
     return this.log?.action === 'CREATE' && 

@@ -17,11 +17,14 @@
 */
 import {
   Component,
+  DestroyRef,
+  ElementRef,
   inject,
   Input,
   OnInit,
   ViewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
   FormArray,
@@ -78,6 +81,8 @@ type Expanded = Record<'top' | 'before' | 'treatment' | 'after' | 'audit', boole
 })
 export class RiskAssessmentAddComponent implements OnInit {
   private readonly location = inject(Location);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('treatmentBlock')
   private treatmentBlock!: RiskAssessmentTreatmentComponent;
@@ -158,6 +163,25 @@ export class RiskAssessmentAddComponent implements OnInit {
   readonly expandedSections: Expanded = {
     top: true, before: false, treatment: false, after: false, audit: false
   };
+
+  /** Tracks which sections currently contain missing/invalid required fields. */
+  readonly invalidSections: Expanded = {
+    top: false, before: false, treatment: false, after: false, audit: false
+  };
+
+  /** Set once the user attempts to save; drives the "required fields missing" badges. */
+  submitAttempted = false;
+  private invalidSectionTrackingStarted = false;
+
+  /** Maps each collapsible section to the required controls it owns. */
+  private readonly requiredControlsBySection: Record<keyof Expanded, string[]> = {
+    top:       ['risk_id', 'object_id_ref_type', 'object_id'],
+    before:    ['risk_owner_id', 'risk_assessment_date'],
+    treatment: ['control_measure_assignments'],
+    after:     [],
+    audit:     []
+  };
+
   readonly loading$ = new BehaviorSubject<boolean>(false);
 
   /* ══════════════════════════════════════════════════════════════════════════
@@ -204,7 +228,19 @@ export class RiskAssessmentAddComponent implements OnInit {
 
     // Prevent saving in view mode
     if (this.isView) return;
-  
+
+    // Block the backend call when required fields are missing and guide the
+    // user to them, even if they live inside a collapsed section.
+    if (this.form.invalid) {
+      this.form.markAllAsTouched();
+      this.submitAttempted = true;
+      this.startInvalidSectionTracking();
+      this.refreshInvalidSections();
+      this.revealFirstInvalidSection();
+      this.toast.error('Please fill in all required fields before saving.');
+      return;
+    }
+
     const payload = this.form.getRawValue() as RiskAssessment;
     delete payload.naming; // Remove naming object from payload
   
@@ -257,6 +293,67 @@ export class RiskAssessmentAddComponent implements OnInit {
   }
 
   /* ══════════════════════════════════════════════════════════════════════════
+   *  Required-field guidance
+   * ══════════════════════════════════════════════════════════════════════════ */
+
+  /*
+  * Recomputes which sections currently have missing/invalid required fields.
+  * @returns {void}
+  */
+  private refreshInvalidSections(): void {
+    (Object.keys(this.invalidSections) as (keyof Expanded)[]).forEach(section => {
+      this.invalidSections[section] = this.sectionIsInvalid(section);
+    });
+  }
+
+  /*
+  * Expands every section that has a missing required field and scrolls to the first one.
+  * @returns {void}
+  */
+  private revealFirstInvalidSection(): void {
+    const order: (keyof Expanded)[] = ['top', 'before', 'treatment', 'after', 'audit'];
+    let firstInvalid: keyof Expanded | null = null;
+
+    for (const section of order) {
+      if (this.invalidSections[section]) {
+        this.expandedSections[section] = true;
+        firstInvalid = firstInvalid ?? section;
+      }
+    }
+
+    if (firstInvalid) {
+      const target = this.host.nativeElement.querySelector(
+        `[data-section="${firstInvalid}"]`
+      ) as HTMLElement | null;
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  /*
+  * Keeps the section badges in sync with the form while the user fixes fields.
+  * @returns {void}
+  */
+  private startInvalidSectionTracking(): void {
+    if (this.invalidSectionTrackingStarted) return;
+    this.invalidSectionTrackingStarted = true;
+
+    this.form.statusChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refreshInvalidSections());
+  }
+
+  /*
+  * Returns true when any required control owned by the section is invalid.
+  * @returns {boolean}
+  */
+  private sectionIsInvalid(section: keyof Expanded): boolean {
+    return this.requiredControlsBySection[section].some(name => {
+      const control = this.form.get(name);
+      return !!control && control.invalid;
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
    *  Helpers
    * ══════════════════════════════════════════════════════════════════════════ */
 
@@ -284,8 +381,8 @@ export class RiskAssessmentAddComponent implements OnInit {
       /* ── BEFORE ── */
       risk_calculation_before: riskCalcGroup(),
       risk_assessor_id: null,
-      risk_owner_id_ref_type: [null, Validators.required],
-      risk_owner_id: null,
+      risk_owner_id_ref_type: [null],
+      risk_owner_id: [null, Validators.required],
       interviewed_persons: [[]],
       risk_assessment_date: [null, Validators.required],
       additional_info: '',

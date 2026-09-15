@@ -1,0 +1,16 @@
+/*
+ * Rack inspector styles. A manifest only, over the shared partial library in ../../styles.
+ *
+ * The card is this component's host, so the shell can size it in the side column without reaching
+ * into the template.
+ *
+ *   rack-tokens ............ palette, radii, shadows, easing. Must stay first.
+ *   rack-inspector ......... the panel itself: header, placement figures, detail rows, action band
+ *   rack-buttons ........... the icon control in the panel header
+ *   rack-buttons-action .... the action band, which restyles the shared app-button
+ */
+
+@import "../../styles/rack-tokens";
+@import "../../styles/rack-inspector";
+@import "../../styles/rack-buttons";
+@import "../../styles/rack-buttons-action";

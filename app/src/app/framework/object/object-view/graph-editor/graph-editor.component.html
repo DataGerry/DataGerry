@@ -93,8 +93,8 @@
                 <div>
                   <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" (clicked)="applyFilters()">
                   </app-button>
-                  <app-button [bootstrapClass]="'btn-secondary ms-2'" label="Save as Profile" type="button"
-                    (clicked)="saveCurrentFiltersAsProfile()">
+                  <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary ms-2'"
+                    label="Save as Profile" type="button" (clicked)="saveCurrentFiltersAsProfile()">
                   </app-button>
                   <app-button [bootstrapClass]="'btn-outline-danger ms-2'" label="Clear" type="button"
                     (clicked)="clearFilters()">
@@ -136,8 +136,8 @@
                   (clicked)="applyProfile()" [disabled]="!selectedProfileId">
                 </app-button>
 
-                <app-button [bootstrapClass]="'btn-secondary'" label="Manage Profiles" type="button"
-                  (clicked)="openProfileManager()">
+                <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary'"
+                  label="Manage Profiles" type="button" (clicked)="openProfileManager()">
                 </app-button>
 
                 <app-button [bootstrapClass]="'btn-outline-danger'" label="Clear" type="button"

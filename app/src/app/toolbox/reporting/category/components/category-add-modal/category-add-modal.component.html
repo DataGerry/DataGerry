@@ -1,36 +1,42 @@
-<div class="modal-header">
-  <h4 class="modal-title">{{ mode === 'add' ? 'Add New Category' : mode === 'edit' ? 'Edit Category' : 'Delete Category'
-    }}</h4>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="modal.dismiss('Cross click')">
-  </button>
-</div>
-<div class="modal-body">
-  @if (mode !== 'delete') {
+<dg-modal [icon]="modalIcon" eyebrow="Report category" [title]="modalTitle" (dismiss)="modal.dismiss('Cross click')">
 
-  <form [formGroup]="addCategoryForm">
-    <div class="mb-3">
-      <label for="categoryName">Category Name</label>
-      <input id="categoryName" type="text" class="form-control" formControlName="name">
-    </div>
-  </form>
+  @if (mode === 'delete') {
+
+  <p class="category-modal__lead">
+    Do you want to <b>delete</b> the category <b>"{{ categoryData.name }}"</b>?
+  </p>
+
+  <app-warning-alert message="This action cannot be undone."></app-warning-alert>
 
   } @else {
 
-  <p>Are you sure you want to delete <strong>{{ categoryData.name }}</strong>?</p>
+  <form [formGroup]="addCategoryForm">
+    <div class="form-group">
+      <label for="categoryName">Category Name</label>
+      <input id="categoryName" type="text" class="form-control" formControlName="name"
+        placeholder="Enter a category name" [class.is-invalid]="nameControl.invalid && nameControl.touched">
+      @if (nameControl.invalid && nameControl.touched) {
+      <div class="invalid-feedback">Please enter at least 3 characters.</div>
+      }
+    </div>
+  </form>
 
   }
 
-</div>
-<div class="modal-footer">
-  <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
-  @if (mode !== 'delete') {
-  <button type="button" class="btn btn-primary" [disabled]="!addCategoryForm.valid" (click)="onSubmit()">
-    {{ mode === 'add' ? 'Add' : 'Update' }}
-  </button>
-  }
-  @if (mode === 'delete') {
-  <button type="button" class="btn btn-danger" (click)="onSubmit()">Delete</button>
-  }
-</div>
+  <div dgModalFooter class="dg-modal-actions">
+    <app-button [bootstrapClass]="'btn-secondary'" label="Cancel" type="button" (clicked)="modal.dismiss()">
+    </app-button>
+
+    @if (mode === 'delete') {
+    <app-button [bootstrapClass]="'btn-danger'" label="Delete" type="button" icon="fas fa-trash-can"
+      (clicked)="onSubmit()">
+    </app-button>
+    } @else {
+    <app-button [bootstrapClass]="'btn-primary'" [label]="mode === 'add' ? 'Add' : 'Update'" type="button"
+      [disabled]="!addCategoryForm.valid" (clicked)="onSubmit()">
+    </app-button>
+    }
+  </div>
+</dg-modal>
 
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

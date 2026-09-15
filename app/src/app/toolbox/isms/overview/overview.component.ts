@@ -24,8 +24,10 @@
 
 import { Component, inject, OnInit, ChangeDetectorRef } from "@angular/core";
 import { LoaderService } from "src/app/core/services/loader.service";
+import { PermissionService } from "src/app/modules/auth/services/permission.service";
 import { ToastService } from "src/app/layout/toast/toast.service";
 import { IsmsConfigValidation } from "../models/isms-config-validation.model";
+import { IsmsOverviewCard } from "../models/isms-overview-card.model";
 import { ISMSService } from "../services/isms.service";
 import { finalize } from "rxjs";
 
@@ -41,12 +43,13 @@ export class OverviewComponent implements OnInit {
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly loaderService = inject(LoaderService);
   private readonly toastService = inject(ToastService);
+  private readonly permissionService = inject(PermissionService);
 
   public validationStatus: boolean = false;
   public isLoading$ = this.loaderService.isLoading$;
 
 
-  public cards = [
+  public cards: IsmsOverviewCard[] = [
     {
       title: 'Configure ISMS Settings',
       icon: 'fas fa-cogs',
@@ -56,29 +59,37 @@ export class OverviewComponent implements OnInit {
     {
       title: 'Risks',
       icon: 'fas fa-exclamation-triangle',
-      link: '/isms/risks'
+      link: '/isms/risks',
+      right: 'base.isms.risk.view'
     },
     {
       title: 'Controls',
       icon: 'fas fa-shield-alt',
-      link: '/isms/control-measures'
+      link: '/isms/control-measures',
+      right: 'base.isms.controlMeasure.view'
     },
     {
       title: 'Threats',
       icon: 'fas fa-bolt',
-      link: '/isms/threats'
+      link: '/isms/threats',
+      right: 'base.isms.threat.view'
     },
     {
       title: 'Vulnerabilities',
       icon: 'fas fa-bug',
-      link: '/isms/vulnerabilities'
+      link: '/isms/vulnerabilities',
+      right: 'base.isms.vulnerability.view'
     },
     {
       title: 'Reports',
       icon: 'fas fa-file-alt',
-      link: '/isms/reports'
+      link: '/isms/reports',
+      right: 'base.isms.report.view'
     }
   ];
+
+  // Mirrors the route guards so a card is only shown when its target would actually open.
+  public visibleCards: IsmsOverviewCard[] = this.cards.filter(card => this.canOpen(card));
 
 
   ngOnInit(): void {
@@ -107,6 +118,15 @@ export class OverviewComponent implements OnInit {
         this.toastService.error(err?.error?.message)
       }
     });
+  }
+
+
+  private canOpen(card: IsmsOverviewCard): boolean {
+    if (!card.right) {
+      return true;
+    }
+
+    return this.permissionService.hasRight(card.right) || this.permissionService.hasExtendedRight(card.right);
   }
 
 }

@@ -64,7 +64,11 @@ export class RightTableGroupsCellComponent implements OnDestroy {
   private readonly modalService = inject(NgbModal);
 
   public openGroupListModal(): void {
-    this.modalRef = this.modalService.open(RightGroupsModalComponent, {size: 'lg'});
+    this.modalRef = this.modalService.open(RightGroupsModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     this.modalRef.componentInstance.right = this.right;
   }
 

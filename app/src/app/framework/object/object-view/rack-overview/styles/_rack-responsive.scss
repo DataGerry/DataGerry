@@ -1,0 +1,69 @@
+/*
+ * Rack › responsive (shell) — breakpoint overrides for what the shell owns. Imported last: these
+ * rely on source order to win. The elevation carries its own, imported last there for the same reason.
+ */
+
+@media (max-width: 1399.98px) {
+  .rack-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Below the drawing now, so it has nothing to stick to and the cards sit beside each other. */
+  .rack-side {
+    position: static;
+    flex-direction: row;
+    align-items: flex-start;
+    max-height: none;
+    overflow: visible;
+
+    .rack-inspector,
+    .rack-tray,
+    .rack-notes {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    /* Nothing bounds the column here, so the tray is back to its own cap and needs no floor. */
+    .rack-tray {
+      min-height: 0;
+    }
+  }
+}
+
+@media (max-width: 991.98px) {
+  .rack-view {
+    --rack-u: 1.5rem;
+    --rack-face: 14rem;
+  }
+
+  .rack-board {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+@media (max-width: 767.98px) {
+  /*
+   * Not enough room for one row of clusters. They wrap instead, so what goes is the chrome between
+   * them - the caption on the switch and the rule that separated it from the zoom - rather than a
+   * control, and the two halves of the bar stay whole on the lines they land on.
+   */
+  .rack-cluster__label,
+  .rack-header__divider {
+    display: none;
+  }
+
+  /* Too narrow for the cards abreast: they go back to sitting one above the other. */
+  .rack-side {
+    flex-direction: column;
+
+    .rack-inspector,
+    .rack-tray {
+      flex: 0 1 auto;
+    }
+
+    .rack-notes {
+      flex: none;
+    }
+  }
+}

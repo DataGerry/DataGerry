@@ -1,9 +1,9 @@
 <form [formGroup]="configForm">
     <div class="mb-3 row">
-        <label class="col-3 col-form-label">
+        <label class="col-sm-3 col-form-label">
             Delimiter:
         </label>
-        <div class="col-9">
+        <div class="col-sm-9">
             <input name="delimiter" type="text" class="form-control" formControlName="delimiter">
             <span class="form-text text-muted">
                 The delimiting character
@@ -12,10 +12,10 @@
     </div>
 
     <div class="mb-3 row">
-        <label class="col-3 col-form-label">
+        <label class="col-sm-3 col-form-label">
             Newline:
         </label>
-        <div class="col-9">
+        <div class="col-sm-9">
             <input name="newline" type="text" class="form-control" formControlName="newline">
             <span class="form-text text-muted">
                 Default: empty - The newline sequence Must be one of \r, \n, or \r\n
@@ -24,10 +24,10 @@
     </div>
 
     <div class="mb-3 row">
-        <label class="col-3 col-form-label">
+        <label class="col-sm-3 col-form-label">
             Quote Char:
         </label>
-        <div class="col-9">
+        <div class="col-sm-9">
             <input name="quoteChar" type="text" class="form-control" formControlName="quoteChar">
             <span class="form-text text-muted">
                 The character used to quote fields
@@ -36,10 +36,10 @@
     </div>
 
     <div class="mb-3 row">
-        <label class="col-3 col-form-label">
+        <label class="col-sm-3 col-form-label">
             Escape Char:
         </label>
-        <div class="col-9">
+        <div class="col-sm-9">
             <input name="escapeChar" type="text" class="form-control" formControlName="escapeChar">
             <span class="form-text text-muted">
                 The character used to escape the quote character within a field
@@ -48,16 +48,17 @@
     </div>
 
     <div class="mb-3 row">
-        <label class="col-3 col-form-label">
+        <label class="col-sm-3 col-form-label">
             Header:
         </label>
-        <div class="col-9">
+        <div class="col-sm-9">
             <div class="form-check form-switch">
                 <input id="header" name="header" type="checkbox" class="form-check-input" formControlName="header">
                 <label class="form-check-label" for="header"></label>
             </div>
             <span class="form-text text-muted">
-                If true, the first row of parsed data will be interpreted as field names
+                If true, the first row of parsed data will be interpreted as field names, and columns matching your
+                type's fields are mapped automatically
             </span>
         </div>
     </div>

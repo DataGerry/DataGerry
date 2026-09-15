@@ -85,19 +85,15 @@
     @if (showModal) {
     <div class="modal-backdrop" (click)="closeModal()">
       <div class="modal-content" (click)="$event.stopPropagation()">
-        <div class="modal-header">
-          <h3>Select Risk Class</h3>
-          <!-- <div class="modal-subheader">{{ selectedCell?.calculated_value }}</div> -->
-          <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="closeModal()">
-          </button>
-        </div>
-        <div class="risk-class-options">
-          @for (rc of riskClasses; track rc) {
-          <div class="risk-class-option" [style.backgroundColor]="rc.color" (click)="assignRiskClass(rc)">
-            <span class="risk-class-label" [style.color]="getTextColor(rc.color)">{{ rc.name }}</span>
+        <dg-modal icon="fas fa-tags" eyebrow="ISMS" title="Select Risk Class" (dismiss)="closeModal()">
+          <div class="risk-class-options">
+            @for (rc of riskClasses; track rc) {
+            <div class="risk-class-option" [style.backgroundColor]="rc.color" (click)="assignRiskClass(rc)">
+              <span class="risk-class-label" [style.color]="getTextColor(rc.color)">{{ rc.name }}</span>
+            </div>
+            }
           </div>
-          }
-        </div>
+        </dg-modal>
       </div>
     </div>
     }

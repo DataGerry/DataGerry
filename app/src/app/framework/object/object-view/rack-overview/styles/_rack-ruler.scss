@@ -1,0 +1,58 @@
+/* Rack › ruler — the U numbering beside the posts, and where it sits in each view. */
+
+.rack-tick {
+  display: grid;
+  place-items: center;
+  position: relative;
+  font-size: 0.65rem;
+  color: $ink-4;
+  font-variant-numeric: tabular-nums;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 4px;
+    height: 1px;
+    background: $hairline;
+  }
+
+  &::before {
+    left: 3px;
+  }
+
+  &::after {
+    right: 3px;
+  }
+
+  &--major {
+    color: $ink-2;
+    font-weight: 600;
+
+    &::before,
+    &::after {
+      width: 7px;
+      background: $ink-4;
+    }
+  }
+}
+
+/* Split shows one ruler between the cabinets; a single face gets one on each of its posts. */
+.rack-grid[data-view='split'] .rack-tick {
+  grid-column: 2;
+}
+
+.rack-grid[data-view='split'] .rack-tick--mirror {
+  display: none;
+}
+
+.rack-grid[data-view='front'] .rack-tick,
+.rack-grid[data-view='rear'] .rack-tick {
+  grid-column: 1;
+}
+
+.rack-grid[data-view='front'] .rack-tick--mirror,
+.rack-grid[data-view='rear'] .rack-tick--mirror {
+  grid-column: 3;
+}

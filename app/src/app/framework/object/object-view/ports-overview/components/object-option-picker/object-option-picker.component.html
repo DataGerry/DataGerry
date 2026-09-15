@@ -1,0 +1,17 @@
+<app-form-select
+  bindLabel="option_label"
+  bindValue="public_id"
+  groupBy="group"
+  dropdownDirection="auto"
+  [label]="label()"
+  [placeholder]="placeholder()"
+  [required]="required()"
+  [errorMessage]="errorMessage()"
+  [items]="options()"
+  [loading]="isFetching()"
+  [typeahead]="searchTerms$"
+  [appendTo]="appendTo()"
+  [formControl]="objectControl"
+  (selectedItemChange)="onOptionSelected($event)"
+  (scrolledToEnd)="onScrollEnd()">
+</app-form-select>

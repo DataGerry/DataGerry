@@ -442,7 +442,9 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
     private openExternalObjectsModal(editor: TinyMceEditor): void {
         const modalRef = this.modalService.open(ExternalObjectSelectorModalComponent, {
             size: 'xl',
-            backdrop: 'static'
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.result
@@ -458,8 +460,10 @@ export class DocapiDocumentOptionsModalComponent implements OnInit {
 
     private openRelationTemplateModal(editor: TinyMceEditor): void {
         const modalRef = this.modalService.open(RelationTemplateSelectorModalComponent, {
-            size: 'lg',
-            backdrop: 'static'
+            size: 'xl',
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
         });
 
         modalRef.componentInstance.rootTypeId = this.templateTypeId;

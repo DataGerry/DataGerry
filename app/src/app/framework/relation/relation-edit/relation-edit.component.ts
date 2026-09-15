@@ -23,7 +23,7 @@ import { CmdbRelation, RelationSection } from '../../models/relation.model';
 import { RelationService } from '../../services/relaion.service';
 
 @Component({
-    selector: 'cmdb-type-edit',
+    selector: 'cmdb-relation-edit',
     templateUrl: './relation-edit.component.html',
     styleUrls: ['./relation-edit.component.scss'],
     standalone: false

@@ -1,0 +1,35 @@
+<div class="failed-list">
+    @for (item of items; track $index) {
+    <article class="failed-card">
+        <header class="failed-card__head">
+            <span class="failed-card__label">{{ item.label }}</span>
+            @if (item.publicId !== null) {
+            <span class="failed-card__id">#{{ item.publicId }}</span>
+            }
+            <span class="failed-card__name">{{ item.name }}</span>
+        </header>
+
+        <ul class="error-chips">
+            @for (error of item.errors; track $index) {
+            <li class="error-chips__item">
+                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                <span>{{ error }}</span>
+            </li>
+            }
+        </ul>
+
+        @if (item.meta.length > 0) {
+        <div class="failed-card__meta">
+            <ul class="value-chips">
+                @for (entry of item.meta; track entry.label) {
+                <li class="value-chips__item">
+                    <span class="value-chips__key">{{ entry.label }}</span>
+                    <span class="value-chips__val">{{ entry.value }}</span>
+                </li>
+                }
+            </ul>
+        </div>
+        }
+    </article>
+    }
+</div>

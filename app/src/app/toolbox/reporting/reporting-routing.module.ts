@@ -24,10 +24,14 @@ import { RunReportComponent } from './report/components/run-report/run-report.co
 const routes: Routes = [
     {
         path: '',
-        redirectTo: 'reports/overview',
+        redirectTo: 'overview',
         pathMatch: 'full'
     },
-    { path: 'run/:id', component: RunReportComponent }
+    {
+        path: 'run/:id',
+        component: RunReportComponent,
+        data: { right: 'base.framework.report.view' }
+    }
 ];
 
 @NgModule({

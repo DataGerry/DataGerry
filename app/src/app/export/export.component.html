@@ -1,5 +1,5 @@
-<div *permissionLink="['base.export.type.*', 'base.export.object.*']" class="row g-3">
-    <div class="col-md-6">
+<div class="row g-3">
+    <div class="col-md-4" *permissionLink="'base.export.object.*'">
       <div class="card h-100">
         <a routerLink="/export/objects/" class="text-decoration-none">
           <div class="dash-card primary">
@@ -9,8 +9,8 @@
         </a>
       </div>
     </div>
-  
-    <div class="col-md-6">
+
+    <div class="col-md-4" *permissionLink="'base.export.type.*'">
       <div class="card h-100">
         <a routerLink="/export/types/" class="text-decoration-none">
           <div class="dash-card primary">
@@ -20,5 +20,16 @@
         </a>
       </div>
     </div>
+
+    <div class="col-md-4" *permissionLink="'base.export.object.*'">
+      <div class="card h-100">
+        <a routerLink="/export/csv-templates/" class="text-decoration-none">
+          <div class="dash-card primary">
+            <i class="fas fa-file-csv"></i>
+            <span class="text-title">Export CSV Templates</span>
+          </div>
+        </a>
+      </div>
+    </div>
   </div>
-  
+

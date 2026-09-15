@@ -55,6 +55,14 @@
                 [renderForm]="renderForm"
             />
 
+            <!-- Ports are not part of the type's sections, so they are appended as one of their own. -->
+            @if (portsAvailable) {
+            <cmdb-ports-overview
+                *permissionLink="[portViewRight]"
+                [objectId]="portsObjectId"
+            />
+            }
+
             <hr/>
 
             <form [formGroup]="commitForm" class="renderForm needs-validation" novalidate autocomplete="off">

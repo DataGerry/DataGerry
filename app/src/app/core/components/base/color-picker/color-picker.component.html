@@ -1,0 +1,132 @@
+<div class="color-picker">
+    @if (label) {
+    <label class="form-label" [attr.for]="controlId">
+        {{ label }}
+        @if (required) {
+        <span class="color-picker__req" aria-hidden="true">*</span>
+        }
+    </label>
+    }
+
+    <div
+        ngbDropdown
+        #dd="ngbDropdown"
+        container="body"
+        (openChange)="onPopoverToggle($event)"
+        class="color-picker__field"
+        [class.color-picker__field--invalid]="!!errorMessage"
+        [class.color-picker__field--disabled]="disabled">
+
+        <button
+            #swatchToggle
+            type="button"
+            ngbDropdownToggle
+            class="color-picker__swatch"
+            [class.color-picker__swatch--empty]="!swatchColor"
+            [style.background-color]="swatchColor"
+            [disabled]="disabled"
+            [attr.aria-label]="swatchColor ? 'Change colour, current ' + value : 'Pick a colour'"
+            title="Pick a colour">
+        </button>
+
+        <input
+            [id]="controlId"
+            type="text"
+            class="color-picker__input"
+            [placeholder]="placeholder"
+            [value]="value"
+            [disabled]="disabled"
+            [attr.aria-invalid]="errorMessage ? true : null"
+            [attr.aria-describedby]="errorMessage ? controlId + '-error' : null"
+            (input)="onTextInput($event)"
+            (blur)="onBlur()">
+
+        <div ngbDropdownMenu class="color-picker__menu" role="group" aria-label="Colour palette">
+            <div class="color-picker__grid">
+                @for (preset of presets; track preset) {
+                <button
+                    type="button"
+                    class="color-picker__preset"
+                    [style.background-color]="preset"
+                    [class.color-picker__preset--active]="preset === value"
+                    [attr.aria-label]="'Choose ' + preset"
+                    [attr.aria-pressed]="preset === value"
+                    (click)="onPickPreset(preset, dd)">
+                    @if (preset === value) {
+                    <i class="fas fa-check" aria-hidden="true"></i>
+                    }
+                </button>
+                }
+            </div>
+
+            <div class="color-picker__custom">
+                <div class="color-picker__custom-head">
+                    <span class="color-picker__custom-label">Custom colour</span>
+                    <span
+                        class="color-picker__custom-swatch"
+                        [style.background-color]="customColor"
+                        [attr.aria-label]="'Slider colour ' + customColor"
+                        role="img"></span>
+                </div>
+
+                <div class="color-picker__channel">
+                    <label [attr.for]="controlId + '-hue'">Hue</label>
+                    <input
+                        #hueSlider
+                        [id]="controlId + '-hue'"
+                        type="range"
+                        min="0"
+                        max="360"
+                        class="color-picker__range color-picker__range--hue"
+                        [disabled]="disabled"
+                        [value]="custom.hue"
+                        (input)="onCustomChannel('hue', $event)">
+                </div>
+
+                <div class="color-picker__channel">
+                    <label [attr.for]="controlId + '-saturation'">Saturation</label>
+                    <input
+                        [id]="controlId + '-saturation'"
+                        type="range"
+                        min="0"
+                        max="100"
+                        class="color-picker__range"
+                        [disabled]="disabled"
+                        [style.background]="saturationTrack"
+                        [value]="custom.saturation"
+                        (input)="onCustomChannel('saturation', $event)">
+                </div>
+
+                <div class="color-picker__channel">
+                    <label [attr.for]="controlId + '-lightness'">Lightness</label>
+                    <input
+                        [id]="controlId + '-lightness'"
+                        type="range"
+                        min="0"
+                        max="100"
+                        class="color-picker__range"
+                        [disabled]="disabled"
+                        [style.background]="lightnessTrack"
+                        [value]="custom.lightness"
+                        (input)="onCustomChannel('lightness', $event)">
+                </div>
+
+                <app-button
+                    label="Use this colour"
+                    bootstrapClass="btn-success btn-sm"
+                    [disabled]="disabled"
+                    padding="0.25rem 0.7rem"
+                    title="Apply the slider colour and close the palette"
+                    (clicked)="onUseCustom(dd)">
+                </app-button>
+            </div>
+        </div>
+    </div>
+
+    @if (errorMessage) {
+    <p class="color-picker__error" [id]="controlId + '-error'" role="alert">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        {{ errorMessage }}
+    </p>
+    }
+</div>

@@ -1,49 +1,50 @@
-<div class="modal-header">
-  <h5 class="modal-title">Insert Report</h5>
-  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
-</div>
+<dg-modal
+    icon="fas fa-chart-column"
+    eyebrow="Document"
+    title="Insert Report"
+    [scrollBody]="false"
+    (dismiss)="cancel()">
 
-<div class="modal-body">
-  <div class="report-modal-grid">
-    <aside class="report-sidebar">
-      <app-form-select label="Report" [items]="reports" bindLabel="name" bindValue="public_id"
-        [(ngModel)]="selectedReportId" (selectedItemChange)="onReportSelected($event)" [disabled]="loadingReports"
-        placeholder="Select a report">
-      </app-form-select>
-    </aside>
+    <div class="report-modal-grid">
+        <aside class="report-sidebar">
+            <app-form-select label="Report" [items]="reports" bindLabel="name" bindValue="public_id"
+                [(ngModel)]="selectedReportId" (selectedItemChange)="onReportSelected($event)"
+                [disabled]="loadingReports" placeholder="Select a report">
+            </app-form-select>
+        </aside>
 
-    <section class="report-content">
-      @if (!selectedReportId) {
-      <div class="empty-state">
-        Select a report to preview its results.
-      </div>
-      }
-      @if (selectedReportId) {
-      <div class="table-scroll-wrapper">
-        <app-run-report [reportId]="selectedReportId" [typeId]="selectedReport?.type_id"
-          [selectedFields]="selectedReport?.selected_fields" [mdsMode]="selectedReport?.mds_mode" [previewMode]="true"
-          [showHeader]="false" [showActions]="false" [showGoBack]="false" [showExport]="false"
-          [enablePagination]="false" [enableSearch]="false" [enableSorting]="false" [enablePageSize]="false"
-          [enableInfo]="false">
-        </app-run-report>
-      </div>
-      }
+        <section class="report-content">
+            @if (!selectedReportId) {
+            <div class="empty-state">
+                Select a report to preview its results.
+            </div>
+            }
+            @if (selectedReportId) {
+            <div class="table-scroll-wrapper">
+                <app-run-report [reportId]="selectedReportId" [typeId]="selectedReport?.type_id"
+                    [selectedFields]="selectedReport?.selected_fields" [mdsMode]="selectedReport?.mds_mode"
+                    [previewMode]="true" [showHeader]="false" [showActions]="false" [showGoBack]="false"
+                    [showExport]="false" [enablePagination]="false" [enableSearch]="false" [enableSorting]="false"
+                    [enablePageSize]="false" [enableInfo]="false">
+                </app-run-report>
+            </div>
+            }
 
-      @if (previewTemplate) {
-      <div class="template-preview">
-        <span class="template-label">Preview generated template:</span>
-        <code>{{ previewTemplate }}</code>
-      </div>
-      }
-    </section>
-  </div>
-</div>
+            @if (previewTemplate) {
+            <div class="template-preview">
+                <span class="template-label">Preview generated template:</span>
+                <code>{{ previewTemplate }}</code>
+            </div>
+            }
+        </section>
+    </div>
 
-<div class="modal-footer">
-  <app-button label="Cancel" type="button" [bootstrapClass]="'btn-secondary'" (clicked)="cancel()"></app-button>
-  <app-button label="Insert Template" type="button" [bootstrapClass]="'btn-success'" [disabled]="!previewTemplate"
-    (clicked)="insert()">
-  </app-button>
-</div>
+    <app-button dgModalFooter label="Cancel" type="button" [bootstrapClass]="'btn-secondary'" (clicked)="cancel()">
+    </app-button>
+
+    <app-button dgModalFooter label="Insert Template" type="button" [bootstrapClass]="'btn-success'"
+        [disabled]="!previewTemplate" (clicked)="insert()">
+    </app-button>
+</dg-modal>
 
 <app-loading-popup [isVisible]="isLoading$ | async" message="We're Processing the Data..."></app-loading-popup>

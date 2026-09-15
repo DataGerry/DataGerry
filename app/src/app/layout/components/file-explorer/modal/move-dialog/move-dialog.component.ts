@@ -25,6 +25,10 @@ import { FileElement } from '../../model/file-element';
 import { APIGetMultiResponse } from '../../../../../services/models/api-response';
 import {CollectionParameters} from "../../../../../services/models/api-parameter";
 
+// The scrolling modal body would clip an inline dropdown.
+const DROPDOWN_HOST = '.dg-modal-window';
+
+
 @Component({
     selector: 'cmdb-move-dialog',
     templateUrl: './move-dialog.component.html',
@@ -35,6 +39,7 @@ export class MoveDialogComponent implements OnInit {
 
   public basicForm: UntypedFormGroup;
   public destinationFolder: FileElement[] = [];
+  public readonly DROPDOWN_HOST = DROPDOWN_HOST;
   private readonly defaultApiParameter: CollectionParameters = {page: 1, limit: 100, order: 1};
 
   private readonly fileService = inject(FileService);

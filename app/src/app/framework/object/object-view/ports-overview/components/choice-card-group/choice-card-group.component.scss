@@ -1,0 +1,59 @@
+.choice-cards {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.choice-card {
+    display: grid;
+    position: relative;
+    align-content: start;
+    gap: 0.35rem;
+
+    /* The radio sits in the top right corner, so the text keeps clear of it. */
+    padding: 1rem 2.4rem 1rem 1.1rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+    background: #fff;
+    cursor: pointer;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+
+    &:hover {
+        border-color: rgba(var(--dg-success-rgb), 0.5);
+    }
+
+    /* The input carries the focus, so the card has to show it. */
+    &:focus-within {
+        outline: 2px solid var(--dg-success);
+        outline-offset: 2px;
+    }
+
+    &--selected {
+        border-color: var(--dg-success);
+        box-shadow: 0 0 0 3px rgba(var(--dg-success-rgb), 0.14);
+    }
+
+    &__input {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        accent-color: var(--dg-success);
+    }
+
+    &__icon {
+        color: var(--dg-success);
+        font-size: 1.25rem;
+    }
+
+    &__label {
+        color: var(--dg-ink);
+        font-size: 0.9rem;
+        font-weight: 650;
+    }
+
+    &__text {
+        color: var(--dg-muted);
+        font-size: 0.82rem;
+        line-height: 1.45;
+    }
+}

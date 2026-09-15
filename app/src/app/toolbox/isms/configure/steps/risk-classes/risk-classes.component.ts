@@ -151,7 +151,11 @@ export class RiskClassesComponent implements OnInit {
    */
   public addRiskClass(): void {
 
-    const modalRef = this.modalService.open(RiskClassModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(RiskClassModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.sort = this.totalRiskClasses
     // No input => the modal knows it's creating a new record
     modalRef.result.then(
@@ -171,7 +175,11 @@ export class RiskClassesComponent implements OnInit {
    * Opens modal to EDIT an existing Risk Class.
    */
   public editRiskClass(item: RiskClass): void {
-    const modalRef = this.modalService.open(RiskClassModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(RiskClassModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     // Pass existing item => the modal is in edit mode
     modalRef.componentInstance.riskClass = { ...item };
     modalRef.result.then(
@@ -191,7 +199,11 @@ export class RiskClassesComponent implements OnInit {
    * Deletes a Risk Class after user confirms in CoreDeleteConfirmationModalComponent.
    */
   public onDeleteRiskClass(item: RiskClass): void {
-    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, { size: 'lg' });
+    const modalRef = this.modalService.open(CoreDeleteConfirmationModalComponent, {
+      size: 'lg',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
     modalRef.componentInstance.title = 'Delete Risk Class';
     modalRef.componentInstance.item = item;
     modalRef.componentInstance.itemType = 'Risk Class';

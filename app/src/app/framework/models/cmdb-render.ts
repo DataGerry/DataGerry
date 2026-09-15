@@ -55,6 +55,7 @@ export class RenderResult {
         version: string;
         icon: string;
         acl: AccessControlList;
+        uses_ports?: boolean;
     };
 
     public fields: any[];

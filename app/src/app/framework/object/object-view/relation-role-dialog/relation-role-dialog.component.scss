@@ -1,380 +1,256 @@
-@use "sass:color";
-
-
-$dg-primary-color: #e94d18;
-$dg-selected-background-color: #cccccc;
-$dg-hover-background-color: #bfbfbf;
-$dg-error-message-color: #dc3545;
-
-.modal-backdrop.show {
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-}
-
-.modal.show .modal-dialog {
-  max-width: 1200px;
-  margin: 2rem auto;
-  height: calc(100vh - 4rem) !important;
+:host {
   display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
-  .modal-content {
-    border: none;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-        border: 1px solid rgba(255, 255, 255, 0.4);
+/* ---------------------------------------------------- LAYOUT ------------------------------------------------------- */
 
-    .modal-header {
-      background: linear-gradient(195deg,
-            color.scale($dg-primary-color, $lightness: -5%),
-            $dg-primary-color );
-        color: white;
-        padding: 1.5rem 2rem;
-        border-bottom: none;
+/* Two panes inside the shell body: configuration on the left, relation fields on
+   the right. The right pane width is driven by --content-width (drag handle). */
+.relation-layout {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: min(420px, 50vh);
+  margin: -0.35rem -0.25rem 0;
 
-      .modal-title {
-        font-weight: 600;
-        letter-spacing: -0.25px;
-        font-size: 1.25rem;
-      }
+  &.is-resizing {
+    cursor: col-resize;
+    user-select: none;
+  }
+}
 
-      .close {
-        color: rgba(white, 0.9);
-        text-shadow: none;
-        transition: opacity 0.2s ease;
-        font-size: 1.75rem;
-        
-        &:hover {
-          opacity: 0.8;
-        }
-      }
-    }
+.relation-sidebar {
+  flex: 1 1 auto;
+  min-width: 240px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.35rem 1.25rem 0.35rem 0.25rem;
+}
 
-    .modal-body {
-      padding: 0;
-      display: flex;
-      height: calc(100% - 140px);
+.relation-main {
+  flex: 0 0 var(--content-width, clamp(360px, 55%, 920px));
+  min-width: 320px;
+  max-width: 920px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.35rem 0.25rem 0.35rem 1.5rem;
+}
 
-      &.is-resizing {
-        user-select: none;
-        cursor: col-resize;
-      }
+.relation-sidebar,
+.relation-main {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, 0.15) transparent;
 
-      .modal-layout {
-        display: contents;
-      }
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
 
-      /* Left Sidebar - Dropdowns */
-      .modal-sidebar {
-        padding: 2rem;
-        background: rgba(#f8f9fa, 0.8);
-        border-right: 1px solid rgba(#dee2e6, 0.3);
-        overflow-y: auto;
-        flex: 1 1 auto;
-        min-width: 240px;
+  &::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: rgba(15, 23, 42, 0.15);
+  }
+}
 
-        .config-section {
-          margin-bottom: 2rem;
-          padding: 1.5rem;
-          background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+/* The divider between the panes is the drag handle itself; the grip sits on the
+   line and an invisible strip around it widens the grab area. */
+.content-resize-handle {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  width: 1px;
+  background: var(--dg-hairline);
+  cursor: col-resize;
+  touch-action: none;
+  transition: background 150ms ease;
 
-          .config-heading {
-            color: $dg-primary-color;
-            font-size: 1rem;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -0.4rem;
+    right: -0.4rem;
+  }
 
-            i {
-              font-size: 1.1rem;
-              color: rgba($dg-primary-color, 0.8);
-            }
-          }
+  .resize-grip {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 6px;
+    height: 2.75rem;
+    border-radius: 999px;
+    background: var(--dg-brand);
+    box-shadow: 0 0 0 3px #fff;
+    transform: translate(-50%, -50%);
+    transition: height 150ms ease;
+  }
 
-          .form-group {
-            margin-bottom: 1.5rem;
+  &:hover {
+    background: rgba(var(--dg-brand-rgb), 0.35);
 
-            .input-label {
-              font-weight: 500;
-              color: #4a4a4a;
-              font-size: 0.9rem;
-              margin-bottom: 0.5rem;
-            }
-
-            .form-control {
-              background: white;
-              border: 1px solid rgba(#dee2e6, 0.5);
-              border-radius: 8px;
-              padding: 0.75rem 1rem;
-              font-size: 0.9rem;
-              transition: border-color 0.2s ease;
-
-              &:disabled {
-                background: #f8f9fa;
-                color: #6c757d;
-              }
-            }
-
-            .selection-error {
-              color: $dg-error-message-color;
-              font-size: 0.85rem;
-              margin-top: 0.5rem;
-              display: flex;
-              align-items: center;
-              gap: 0.5rem;
-
-              i {
-                font-size: 0.9rem;
-              }
-            }
-          }
-
-          ng-select {
-            .ng-select-container {
-              border-radius: 8px;
-              border: 1px solid rgba(#dee2e6, 0.5);
-              min-height: 42px;
-              transition: all 0.2s ease;
-
-              &:hover {
-                border-color: $dg-primary-color;
-              }
-            }
-
-            .ng-dropdown-panel {
-              border: 1px solid rgba($dg-primary-color, 0.1);
-              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            }
-          }
-          
-        }
-      }
-
-      /* Right Content - Basic Structure Only */
-      .modal-content-main {
-        padding: 2rem;
-        overflow-y: auto;
-        background: white;
-        flex: 0 0 var(--content-width, clamp(360px, 60%, 920px));
-        min-width: 320px;
-        max-width: 920px;
-        position: relative;
-      }
-
-      .content-resize-handle {
-        position: absolute;
-        left: -6px;
-        top: 0;
-        bottom: 0;
-        width: 12px;
-        cursor: col-resize;
-        background: linear-gradient(
-          180deg,
-          rgba($dg-primary-color, 0.08),
-          rgba($dg-primary-color, 0.18),
-          rgba($dg-primary-color, 0.08)
-        );
-        border-radius: 6px;
-        transition: background 0.2s ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        &:hover {
-          background: linear-gradient(
-            180deg,
-            rgba($dg-primary-color, 0.14),
-            rgba($dg-primary-color, 0.28),
-            rgba($dg-primary-color, 0.14)
-          );
-        }
-
-        .resize-grip {
-          width: 12px !important;
-          height: 48px;
-          border-radius: 999px;
-          background: #e94d18;
-          box-shadow: inset 0 0 0 1px rgba($dg-primary-color, 0.15);
-        }
-      }
-    }
-
-    .modal-footer {
-      border-top: 1px solid rgba(#dee2e6, 0.3);
-      padding: 1.25rem 2rem;
-      background: white;
+    .resize-grip {
+      height: 3.5rem;
     }
   }
 }
 
-/* Custom Scrollbars */
-.modal-sidebar::-webkit-scrollbar,
-.modal-content-main::-webkit-scrollbar {
-  width: 8px;
-  background: rgba(#dee2e6, 0.1);
-}
+/* ------------------------------------------------- CONFIGURATION --------------------------------------------------- */
 
-.modal-sidebar::-webkit-scrollbar-thumb,
-.modal-content-main::-webkit-scrollbar-thumb {
-  background: rgba($dg-primary-color, 0.2);
-  border-radius: 4px;
-}
+.config-section {
+  padding: 1rem 1.1rem 0.35rem;
+  border: 1px solid var(--dg-border);
+  border-radius: var(--dg-radius-md);
+  background: #fff;
 
-/* Responsive Design */
-@media (max-width: 992px) {
-  .modal.show .modal-dialog {
-    margin: 1rem;
-    max-width: calc(100% - 2rem);
-
-    .modal-content {
-      .modal-body {
-        flex-direction: column;
-
-        .modal-sidebar {
-          border-right: none;
-          border-bottom: 1px solid rgba(#dee2e6, 0.3);
-          max-height: 50vh;
-        }
-
-        .content-resize-handle {
-          display: none;
-        }
-
-        .modal-content-main {
-          max-height: 50vh;
-        }
-      }
-    }
+  & + .config-section {
+    margin-top: 1rem;
   }
 }
 
-@media (max-width: 576px) {
-  .modal.show .modal-dialog {
-    .modal-content {
-      border-radius: 12px;
+.config-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--dg-ink);
 
-      .modal-header {
-        padding: 1.25rem;
-      }
-
-      .modal-body {
-        .modal-sidebar,
-        .modal-content-main {
-          padding: 1.5rem;
-        }
-      }
-
-      .modal-footer {
-        padding: 1rem;
-        
-        .btn {
-          padding: 0.75rem 1.25rem;
-        }
-      }
-    }
+  i {
+    font-size: 0.95rem;
+    color: var(--dg-brand);
   }
 }
+
+.config-content {
+  .form-label {
+    margin-bottom: 0.35rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--dg-label);
+  }
+
+  .form-control:disabled {
+    background: var(--dg-surface);
+    color: var(--dg-muted);
+  }
+}
+
+/* ---------------------------------------------------- CONTENT ------------------------------------------------------ */
 
 .empty-attributes-state {
-    text-align: center;
-    padding: 3rem 2rem;
-    background: rgba(white, 0.9);
-    border-radius: 8px;
-    margin: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 2.5rem 2rem;
+  border: 1px dashed var(--dg-border);
+  border-radius: var(--dg-radius-md);
+  background: var(--dg-surface-tint);
+  text-align: center;
+
+  .empty-icon {
+    margin-bottom: 0.85rem;
+    font-size: 2rem;
+    color: var(--dg-faint);
+  }
+
+  h4 {
+    margin-bottom: 0.4rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--dg-label);
+  }
+
+  .text-muted {
+    max-width: 400px;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--dg-muted);
+  }
+}
+
+.bidirectional-section {
+  margin-top: 1.25rem;
+
+  .relation-status {
+    padding: 0.9rem 1.1rem 1rem;
+    border: 1px solid var(--dg-border);
+    border-radius: var(--dg-radius-md);
+  }
+
+  .status-legend {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    min-height: 200px;
-  
-    .empty-icon {
-      font-size: 2.5rem;
-      color: #808080;
-      margin-bottom: 1rem;
-      opacity: 0.8;
-    }
-  
-    h4 {
-      color: #808080;
-      margin-bottom: 0.5rem;
-      font-weight: 500;
-    }
-  
-    .text-muted {
-      color: #808080;
-      font-size: 0.95rem;
-      max-width: 400px;
-      line-height: 1.5;
+    gap: 0.5rem;
+    float: none;
+    width: auto;
+    margin: 0 0 0.6rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dg-label);
+
+    i {
+      color: var(--dg-brand);
     }
   }
 
-.parent-select, .child-select {
-  
-  // Make selected value wrap to multiple lines
-  ::ng-deep .ng-select-container {
-    // Allow container to grow in height
-    min-height: 38px !important;
-    height: auto !important;
-    
-    .ng-value-container {
-      // Allow value container to wrap
-      height: auto !important;
-      min-height: 36px !important;
-      
-      .ng-value {
-        // Make selected value wrap
-        max-width: 100% !important;
-        
-        .ng-value-label {
-          // Allow text to wrap to next line
-          white-space: normal !important;
-          word-wrap: break-word !important;
-          word-break: break-word !important;
-          overflow: visible !important;
-          text-overflow: clip !important;
-          line-height: 1.4 !important;
-          display: block !important;
-          max-width: 100% !important;
-        }
-      }
-    }
-    
-    // Adjust arrow position for multi-line
-    .ng-arrow-wrapper {
-      align-self: flex-start !important;
-      margin-top: 8px !important;
-    }
-    
-    // Adjust clear button position if present
-    .ng-clear-wrapper {
-      align-self: flex-start !important;
-      margin-top: 6px !important;
+  .status-label {
+    margin-bottom: 0.25rem;
+    font-size: 0.8125rem;
+    color: var(--dg-muted);
+  }
+
+  .status-value {
+    margin: 0;
+  }
+
+  .status-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.06);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--dg-muted);
+
+    &.active {
+      background: rgba(var(--dg-success-rgb), 0.12);
+      color: var(--dg-success);
     }
   }
-  
-  // Make dropdown options wrap to multiple lines
-  ::ng-deep .ng-dropdown-panel {
-    .ng-option {
-      // Allow option text to wrap
-      white-space: normal !important;
-      word-wrap: break-word !important;
-      word-break: break-word !important;
-      line-height: 1.35 !important;
-      min-height: auto !important;
-      height: auto !important;
-      overflow: visible !important;
-      text-overflow: clip !important;
-      padding-top: 0.45rem !important;
-      padding-bottom: 0.45rem !important;
-    }
+}
 
-    .ng-optgroup {
-      white-space: normal !important;
-      line-height: 1.3 !important;
-    }
+/* -------------------------------------------------- RESPONSIVE ----------------------------------------------------- */
+
+@media (max-width: 991.98px) {
+  .relation-layout {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .relation-sidebar {
+    max-height: 45vh;
+    padding: 0.35rem 0.25rem 1rem;
+  }
+
+  .relation-main {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
+    padding: 1rem 0.25rem 0.35rem;
+    border-top: 1px solid var(--dg-hairline);
+  }
+
+  .content-resize-handle {
+    display: none;
   }
 }
