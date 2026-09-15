@@ -40,6 +40,7 @@ import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.s
 import { CI_EXPLORER_EDIT_RIGHT } from 'src/app/framework/models/ci-explorer.model';
 import { RelationService } from 'src/app/framework/services/relaion.service';
 import { TypeService } from 'src/app/framework/services/type.service';
+import { ToastService } from 'src/app/layout/toast/toast.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
@@ -91,7 +92,8 @@ type ShortcutAction = (typeof KEYBOARD_SHORTCUTS)[keyof typeof KEYBOARD_SHORTCUT
     GraphDataService,
     GraphLayoutService,
     GraphViewportService,
-    GraphExpansionService
+    GraphExpansionService,
+    ConnectionTrackerService
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false
@@ -157,6 +159,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
     resetZoom: () => this.resetZoom()
   };
   private readonly permissionService = inject(PermissionService);
+  private readonly toastService = inject(ToastService);
 
   /** `*permissionLink` only hides the buttons, so both profile write paths re-check the right. */
   private readonly canEditProfiles = this.permissionService.hasRight(CI_EXPLORER_EDIT_RIGHT)
@@ -388,13 +391,15 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   }
 
   selectAsRootNode(): void {
-    if (this.selectedNode) {
-      this.rootNodeId = this.selectedNode.id;
-      this.store.rootNodeId = this.rootNodeId;
-      this.rootNodeSelected.emit(this.rootNodeId);
-      this.store.load();
-    }
     this.contextMenuVisible = false;
+    const node = this.selectedNode;
+
+    if (!node || node.id === this.rootNodeId) {
+      return;
+    }
+
+    // The host navigates on this and re-binds rootNodeId, which reloads the graph.
+    this.rootNodeSelected.emit(node.id);
   }
 
   setSelectedAsRoot(): void {
@@ -457,9 +462,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
       this.profiles,
       this.selectedProfileId,
       this.store.typesFilter,
-      this.store.relationsFilter,
-      () => undefined,
-      () => undefined
+      this.store.relationsFilter
     );
 
     this.store.typesFilter = result.typesFilter;
@@ -493,19 +496,14 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
       this.store.typesFilter,
       this.store.relationsFilter,
       () => this.hasActiveFilters(),
-      () => undefined
+      message => this.toastService.info(message)
     );
   }
 
   /* ------------------------------------------------ EXPORT / CHROME ------------------------------------------------- */
 
   exportGraphAsImage(): void {
-    this.exportService.exportGraphAsImage(
-      this.canvas?.element.nativeElement,
-      this.loaderService,
-      () => undefined,
-      () => undefined
-    );
+    void this.exportService.exportGraphAsImage(this.canvas?.element.nativeElement, this.loaderService);
   }
 
   async toggleFullscreen(): Promise<void> {
@@ -653,19 +651,16 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   }
 
   private loadFilterOptions(): void {
-    this.profileService.loadFilterOptions(
-      this.typeService,
-      this.relationService,
-      this.loaderService,
-      () => undefined
-    ).subscribe({
-      next: result => {
-        this.typeOptionList = result.types;
-        this.relationOptionList = result.relations;
-        this.cdr.markForCheck();
-      },
-      error: () => undefined
-    });
+    this.profileService.loadFilterOptions(this.typeService, this.relationService, this.loaderService)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: result => {
+          this.typeOptionList = result.types;
+          this.relationOptionList = result.relations;
+          this.cdr.markForCheck();
+        },
+        error: err => this.toastService.error(err?.error?.message || 'Could not load the filter options.')
+      });
   }
 
   private loadProfiles(): void {
@@ -677,7 +672,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
           this.store.profiles = profiles;
           this.cdr.markForCheck();
         },
-        error: () => undefined
+        error: err => this.toastService.error(err?.error?.message || 'Could not load the filter profiles.')
       });
   }
 
