@@ -28,10 +28,13 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import TypesManager
+from cmdb.manager import ExtendableOptionsManager, TypesManager
+from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.models.extendable_option_model import OptionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.special_type_routes import (
     check_special_type_exist,
+    get_cable_type_values,
     get_special_types,
     get_special_type_schema,
 )
@@ -214,3 +217,72 @@ def test_schema_unexpected_error_maps_to_500(flask_app: Flask) -> None:
             _call_schema(flask_app, f'special_type={VALID_SPECIAL_TYPE}')
 
     assert exc_info.value.code == HTTP_SERVER_ERROR
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the CABLE branch's option lookup                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+CABLE_TYPE_VALUES: list[str] = ['Cat6a', 'OM4']
+
+
+def test_only_the_cable_branch_reads_the_option_list(flask_app: Flask) -> None:
+    """
+    Every other blueprint is static, so it must cost no database read
+
+    A lookup running for all of them would make the special-type dialog query the option collection
+    on every request for a schema that cannot use the answer.
+    """
+    with patch(f'{ROUTE_PATH}.get_cable_type_values') as values, \
+         patch(f'{ROUTE_PATH}.SchemaProvider') as provider_cls, \
+         patch(f'{ROUTE_PATH}.DefaultResponse'):
+        _call_schema(flask_app, f'special_type={VALID_SPECIAL_TYPE}')
+
+    values.assert_not_called()
+    assert provider_cls.return_value.get_schema.call_args.args[1] is None
+
+
+def test_the_cable_branch_hands_the_option_values_to_the_provider(flask_app: Flask) -> None:
+    """
+    The caller reads the values and passes them in
+
+    That split is what keeps SchemaProvider a pure function with no manager behind it.
+    """
+    with patch(f'{ROUTE_PATH}.get_cable_type_values', return_value=CABLE_TYPE_VALUES), \
+         patch(f'{ROUTE_PATH}.SchemaProvider') as provider_cls, \
+         patch(f'{ROUTE_PATH}.DefaultResponse'):
+        _call_schema(flask_app, f'special_type={SpecialType.CABLE.value}')
+
+    assert provider_cls.return_value.get_schema.call_args.args[1] == CABLE_TYPE_VALUES
+
+
+def _call_cable_type_values(values: list[str]) -> tuple[list[str], MagicMock]:
+    """Drives get_cable_type_values against an ExtendableOptionsManager answering with ``values``"""
+    options_manager = MagicMock(spec=ExtendableOptionsManager)
+    options_manager.get_option_values.return_value = values
+
+    with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=options_manager) as provider:
+        result = get_cable_type_values(MagicMock())
+
+    assert provider.call_args.args[0] is ManagerType.EXTENDABLE_OPTIONS
+
+    return result, options_manager
+
+
+def test_get_cable_type_values_asks_the_options_manager_for_the_cable_list() -> None:
+    """The CABLE_TYPE list and no other - a PORT_SPEED value in a cable select would be nonsense"""
+    result, options_manager = _call_cable_type_values(CABLE_TYPE_VALUES)
+
+    assert result == CABLE_TYPE_VALUES
+    options_manager.get_option_values.assert_called_once_with(OptionType.CABLE_TYPE.value)
+
+
+def test_get_cable_type_values_passes_an_empty_list_through() -> None:
+    """
+    A customer may have deleted every CABLE_TYPE option
+
+    The empty list reaches the blueprint unchanged, which creates an empty select rather than a
+    refusal or a silent fallback to the predefined values.
+    """
+    result, _ = _call_cable_type_values([])
+
+    assert result == []

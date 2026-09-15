@@ -36,12 +36,6 @@ class DatabaseConnectionError(DataBaseError):
     """
 
 
-class ServerTimeoutError(DataBaseError):
-    """
-    Server timeout error if connection is lost
-    """
-
-
 class DatabaseAlreadyExistsError(DataBaseError):
     """
     Error when database already exists
@@ -90,9 +84,9 @@ class GetIndexesError(DataBaseError):
     """
 
 
-class NoDocumentFoundError(DataBaseError):
+class DropIndexError(DataBaseError):
     """
-    Error if no document was found
+    Raised when an index of a collection could not be dropped
     """
 
 

@@ -14,13 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides the ManagerProvider
+Provides the `ManagerProvider`, its `ManagerType` enum and the registry the two share
+
+`ManagerProvider.get_manager(ManagerType.X, request_user)` is how every REST route obtains a
+manager bound to the database that is correct for the requesting user. `MANAGER_CLASSES` is the
+`ManagerType -> class` registry behind it and is exported so tests (and any future tooling) can
+assert its integrity from the package path. See `manager_provider.py` for the registry contract
+and the three steps to register a new manager
 """
-from .manager_provider import ManagerProvider
+from .manager_provider import MANAGER_CLASSES, ManagerProvider
 from .manager_type_enum import ManagerType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'MANAGER_CLASSES',
     'ManagerProvider',
     'ManagerType',
 ]

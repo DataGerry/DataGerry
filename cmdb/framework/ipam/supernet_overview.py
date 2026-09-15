@@ -694,16 +694,22 @@ def load_subnets_for_supernet(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     supernet_public_id: int,
+    projection: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Returns every SUBNET CmdbObject whose 'dg-supernet-ref' points at the given supernet
 
-    Returns an empty list when no SUBNET CmdbType is defined yet
+    Returns an empty list when no SUBNET CmdbType is defined yet.
+
+    `projection` defaults to the whole document because the overview computes per-subnet usage
+    from it; the sidebar tree passes its own narrow projection, since a tree node reads two keys
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         supernet_public_id (int): public_id of the supernet object
+        projection (dict[str, Any] | None): Optional Mongo projection limiting the loaded fields.
+            None loads the whole document
 
     Returns:
         list[dict[str, Any]]: SUBNET CmdbObject documents linked to the supernet
@@ -723,7 +729,7 @@ def load_subnets_for_supernet(
         },
     }
 
-    return objects_manager.find_objects(criteria, as_dict=True)
+    return objects_manager.find_objects(criteria, as_dict=True, projection=projection)
 
 
 def _count_used_ips_per_subnet(

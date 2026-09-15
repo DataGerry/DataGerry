@@ -27,17 +27,15 @@ single delete, the ``update_changed_fields`` pipeline) is tested directly.
 from typing import Any
 from unittest.mock import MagicMock
 
-from cmdb.manager.object_relations_manager import (
-    ObjectRelationsManager,
-    RELATION_ID_FIELD,
-    RELATION_PARENT_ID_FIELD,
-    RELATION_CHILD_ID_FIELD,
-    RELATION_PARENT_TYPE_ID_FIELD,
-    RELATION_CHILD_TYPE_ID_FIELD,
-    FIELD_VALUES_FIELD,
-    PUBLIC_ID_FIELD,
+import pytest
+
+from cmdb.manager.object_relations_manager import ObjectRelationsManager
+from cmdb.models.object_relation_model import (
+    CmdbObjectRelation,
+    ObjectRelationKey,
+    ObjectRelationRole,
 )
-from cmdb.models.object_relation_model import CmdbObjectRelation
+from cmdb.errors.manager.object_relations_manager import ObjectRelationsManagerIterationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 OBJECT_RELATION_PUBLIC_ID: int = 42
@@ -120,7 +118,10 @@ class TestGetRelatedRelations:
     def test_finds_with_related_query(self) -> None:
         """The method queries find() with the related-relations query and returns a list."""
         mgr = _mock_manager()
-        query = {'$or': [{RELATION_PARENT_ID_FIELD: PARENT_OBJECT_ID}, {RELATION_CHILD_ID_FIELD: PARENT_OBJECT_ID}]}
+        query = {'$or': [
+            {ObjectRelationKey.RELATION_PARENT_ID.value: PARENT_OBJECT_ID},
+            {ObjectRelationKey.RELATION_CHILD_ID.value: PARENT_OBJECT_ID},
+        ]}
         mgr.get_related_relations_query.return_value = query
         mgr.find.return_value = [SAMPLE_OBJECT_RELATION]
 
@@ -141,8 +142,8 @@ class TestGetRelatedRelationsQuery:
 
         assert result == {
             '$or': [
-                {RELATION_PARENT_ID_FIELD: PARENT_OBJECT_ID},
-                {RELATION_CHILD_ID_FIELD: PARENT_OBJECT_ID},
+                {ObjectRelationKey.RELATION_PARENT_ID.value: PARENT_OBJECT_ID},
+                {ObjectRelationKey.RELATION_CHILD_ID.value: PARENT_OBJECT_ID},
             ]
         }
 
@@ -160,7 +161,7 @@ class TestUpdateObjectRelation:
         ObjectRelationsManager.update_object_relation(mgr, OBJECT_RELATION_PUBLIC_ID, data)
 
         mgr.update_item.assert_called_once_with(OBJECT_RELATION_PUBLIC_ID, data)
-        assert data[PUBLIC_ID_FIELD] == OBJECT_RELATION_PUBLIC_ID
+        assert data[ObjectRelationKey.PUBLIC_ID.value] == OBJECT_RELATION_PUBLIC_ID
 
     def test_serializes_model_instance_then_pins(self) -> None:
         """A CmdbObjectRelation instance is serialized to json and its identity pinned to the URL id."""
@@ -172,7 +173,7 @@ class TestUpdateObjectRelation:
         called_id, called_data = mgr.update_item.call_args.args
         assert called_id == OBJECT_RELATION_PUBLIC_ID
         assert isinstance(called_data, dict)
-        assert called_data[PUBLIC_ID_FIELD] == OBJECT_RELATION_PUBLIC_ID
+        assert called_data[ObjectRelationKey.PUBLIC_ID.value] == OBJECT_RELATION_PUBLIC_ID
 
 
 # ------------------------------------------------ delete_object_relation -------------------------------------------- #
@@ -203,8 +204,8 @@ class TestDeleteInvalidatedObjectRelations:
 
         mgr.delete_many.assert_called_once_with({
             '$and': [
-                {RELATION_ID_FIELD: RELATION_ID},
-                {RELATION_PARENT_TYPE_ID_FIELD: {'$in': invalid_ids}},
+                {ObjectRelationKey.RELATION_ID.value: RELATION_ID},
+                {ObjectRelationKey.RELATION_PARENT_TYPE_ID.value: {'$in': invalid_ids}},
             ]
         })
 
@@ -217,10 +218,111 @@ class TestDeleteInvalidatedObjectRelations:
 
         mgr.delete_many.assert_called_once_with({
             '$and': [
-                {RELATION_ID_FIELD: RELATION_ID},
-                {RELATION_CHILD_TYPE_ID_FIELD: {'$in': invalid_ids}},
+                {ObjectRelationKey.RELATION_ID.value: RELATION_ID},
+                {ObjectRelationKey.RELATION_CHILD_TYPE_ID.value: {'$in': invalid_ids}},
             ]
         })
+
+
+    def test_an_empty_id_list_issues_no_delete(self) -> None:
+        """
+        Nothing to invalidate costs no round trip
+
+        A '$in' over an empty list matches nothing, so the delete could only ever report zero - the
+        same early return the port and cascade managers make.
+        """
+        mgr = _mock_manager()
+
+        ObjectRelationsManager.delete_invalidated_object_relations(mgr, RELATION_ID, [], True)
+
+        mgr.delete_many.assert_not_called()
+
+
+# ------------------------------------------------------- the relation tabs ----------------------------------------- #
+
+class TestRelationTabs:
+    """
+    The two reads behind the lazily-loaded relation tabs
+
+    Both wrap whatever the database raises into the manager's own iteration error - the tab strip is
+    loaded on its own, so a failure here has to be reportable as this surface's failure rather than
+    escaping as a driver exception.
+    """
+
+    def test_the_tabs_come_from_one_aggregation(self) -> None:
+        """The descriptors are computed server-side, not by loading the instances"""
+        mgr = _mock_manager()
+        mgr.aggregate.return_value = iter([{'relation_id': RELATION_ID}])
+
+        tabs = ObjectRelationsManager.get_relation_tabs(mgr, PARENT_OBJECT_ID)
+
+        assert tabs == [{'relation_id': RELATION_ID}]
+        mgr.aggregate.assert_called_once()
+
+    def test_a_failing_tab_aggregation_is_wrapped(self) -> None:
+        """A database failure surfaces as the manager's own error type"""
+        mgr = _mock_manager()
+        mgr.aggregate.side_effect = RuntimeError('boom')
+
+        with pytest.raises(ObjectRelationsManagerIterationError):
+            ObjectRelationsManager.get_relation_tabs(mgr, PARENT_OBJECT_ID)
+
+    @pytest.mark.parametrize(
+        'role, side_field',
+        [(ObjectRelationRole.PARENT.value, ObjectRelationKey.RELATION_PARENT_ID.value),
+         (ObjectRelationRole.CHILD.value, ObjectRelationKey.RELATION_CHILD_ID.value)],
+        ids=['parent', 'child'],
+    )
+    def test_the_role_picks_the_side(self, role: str, side_field: str) -> None:
+        """A tab is (relation_id, role), and the role is which side of the relation the object is on"""
+        mgr = _mock_manager()
+        mgr.count_documents.return_value = 2
+        mgr.find.return_value = []
+
+        ObjectRelationsManager.get_relation_tab_instances(mgr, PARENT_OBJECT_ID, RELATION_ID, role)
+
+        assert mgr.find.call_args.kwargs['criteria'] == {
+            ObjectRelationKey.RELATION_ID.value: RELATION_ID,
+            side_field: PARENT_OBJECT_ID,
+        }
+
+    def test_an_unknown_role_is_refused(self) -> None:
+        """
+        The two sides are a choice, not a default
+
+        Reading anything that is not 'parent' as 'child' would answer a typo with the OTHER tab's
+        instances - a wrong result that looks like a valid one. The route validates the parameter too;
+        this is the manager's own contract.
+        """
+        mgr = _mock_manager()
+
+        with pytest.raises(ObjectRelationsManagerIterationError):
+            ObjectRelationsManager.get_relation_tab_instances(mgr, PARENT_OBJECT_ID, RELATION_ID, 'bogus')
+
+        mgr.count_documents.assert_not_called()
+        mgr.find.assert_not_called()
+
+    def test_the_total_is_the_group_count_not_the_page(self) -> None:
+        """The badge counts the whole group; only the requested page is materialised"""
+        mgr = _mock_manager()
+        mgr.count_documents.return_value = 17
+        mgr.find.return_value = [SAMPLE_OBJECT_RELATION]
+
+        instances, total = ObjectRelationsManager.get_relation_tab_instances(
+            mgr, PARENT_OBJECT_ID, RELATION_ID, ObjectRelationRole.PARENT.value, limit=1,
+        )
+
+        assert (instances, total) == ([SAMPLE_OBJECT_RELATION], 17)
+
+    def test_a_failing_instance_read_is_wrapped(self) -> None:
+        """A database failure surfaces as the manager's own error type"""
+        mgr = _mock_manager()
+        mgr.count_documents.side_effect = RuntimeError('boom')
+
+        with pytest.raises(ObjectRelationsManagerIterationError):
+            ObjectRelationsManager.get_relation_tab_instances(
+                mgr, PARENT_OBJECT_ID, RELATION_ID, ObjectRelationRole.PARENT.value,
+            )
 
 
 # ----------------------------------------------------- update_changed_fields --------------------------------------- #
@@ -251,10 +353,10 @@ class TestUpdateChangedFields:
         ObjectRelationsManager.update_changed_fields(mgr, RELATION_ID, {'added': ['new'], 'removed': ['old']})
 
         criteria, pipeline = mgr.update_many.call_args.args
-        assert criteria == {RELATION_ID_FIELD: RELATION_ID}
+        assert criteria == {ObjectRelationKey.RELATION_ID.value: RELATION_ID}
         assert mgr.update_many.call_args.kwargs == {'plain': True}
 
-        set_stage = pipeline[0]['$set'][FIELD_VALUES_FIELD]['$concatArrays']
+        set_stage = pipeline[0]['$set'][ObjectRelationKey.FIELD_VALUES.value]['$concatArrays']
         filter_cond = set_stage[0]['$filter']['cond']
         appended = set_stage[1]
 

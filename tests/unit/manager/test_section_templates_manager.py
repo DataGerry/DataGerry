@@ -39,8 +39,10 @@ from cmdb.models.object_model import (
 )
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.errors.manager.section_templates_manager import (
     SectionTemplatesManagerInsertError,
+    SectionTemplatesManagerIterationError,
     SectionTemplatesManagerGetError,
     SectionTemplatesManagerUpdateError,
     SectionTemplatesManagerDeleteError,
@@ -406,6 +408,37 @@ def test_handle_section_template_changes_applies_to_each_consuming_type() -> Non
     assert applied_types == [type_a, type_b]
 
 
+def test_handle_section_template_changes_reports_applied_and_skipped_type_ids() -> None:
+    """
+    The caller is told which types took the change and which could not
+
+    A type can list the template without carrying its section; propagation cannot reach it, so it
+    is reported as skipped instead of being counted as updated
+    """
+    mock_self = MagicMock()
+    type_a, type_b = MagicMock(public_id=1), MagicMock(public_id=2)
+    mock_self.get_types_using_template.return_value = [type_a, type_b]
+    mock_self.get_fields_diff.return_value = {'added': [], 'deleted': []}
+    mock_self._apply_template_changes_to_type.side_effect = [True, False]
+    current = MagicMock(is_global=True)
+
+    with patch(f'{PATH}.CmdbSectionTemplate.to_json', return_value={'name': 't', 'label': 'Old', 'fields': []}):
+        result = SectionTemplatesManager.handle_section_template_changes(mock_self, {'name': 't'}, current)
+
+    assert result == {'applied': [1], 'skipped': [2]}
+
+
+def test_handle_section_template_changes_reports_nothing_for_a_non_global_template() -> None:
+    """The report is empty rather than absent, so a caller can read it unconditionally"""
+    mock_self = MagicMock()
+
+    result = SectionTemplatesManager.handle_section_template_changes(
+        mock_self, {'name': 't'}, MagicMock(is_global=False),
+    )
+
+    assert result == {'applied': [], 'skipped': []}
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         get_global_template_usage_count                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -428,7 +461,20 @@ def test_get_global_template_usage_count_counts_types_and_objects() -> None:
     counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
 
     assert counts == {'types': 2, 'objects': 7}
-    mock_self.objects_manager.count_documents.assert_called_once_with({CmdbObjectKey.TYPE_ID: {"$in": [1, 2]}})
+    mock_self.objects_manager.count_documents.assert_called_once_with(
+        {CmdbObjectKey.TYPE_ID.value: {"$in": [1, 2]}},
+    )
+
+
+def test_get_global_template_usage_count_skips_the_object_count_without_consuming_types() -> None:
+    """No consuming type means no objects can carry the section - the count query is not run"""
+    mock_self = MagicMock()
+    mock_self.types_manager.get_distinct.return_value = []
+
+    counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+    assert counts == {'types': 0, 'objects': 0}
+    mock_self.objects_manager.count_documents.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -496,21 +542,43 @@ def test_cleanup_global_section_templates_strips_template_from_each_type() -> No
     assert fake.render_meta.summary.fields == ['keep']
     assert fake.render_meta.sections == []
     mock_self.cleanup_global_section_objects.assert_called_once()
+    mock_self.cleanup_global_section_reports.assert_called_once_with(fake, {'f1', 'f2'})
     mock_self.types_manager.update_type.assert_called_once_with(TYPE_ID, fake)
 
 
-def test_cleanup_global_section_templates_skips_type_without_the_section() -> None:
-    """A type that no longer carries the section is left unchanged (no object cleanup, no persist)"""
+def test_cleanup_global_section_templates_is_a_noop_without_consumers() -> None:
+    """No type uses the template - nothing is read, written or cleaned
+
+    Relied on by updater_20260824: its first pass calls this unconditionally, including on databases
+    where the retired template was never attached to anything.
+    """
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = []
+
+    SectionTemplatesManager.cleanup_global_section_templates(mock_self, SECTION_NAME)
+
+    mock_self.cleanup_global_section_objects.assert_not_called()
+    mock_self.cleanup_global_section_reports.assert_not_called()
+    mock_self.types_manager.update_type.assert_not_called()
+
+
+def test_cleanup_global_section_templates_persists_the_prune_for_a_type_without_the_section() -> None:
+    """
+    A type listing the template but carrying no section keeps the prune - it used to be thrown away
+
+    The reference was removed from global_template_ids in memory and the loop then skipped the
+    persist, so the type went on listing a template that no longer exists on every later boot. There
+    is nothing to clean up on its objects, but the reference itself has to go.
+    """
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[])
     mock_self.get_types_using_template.return_value = [fake]
 
     SectionTemplatesManager.cleanup_global_section_templates(mock_self, SECTION_NAME)
 
-    # global_template_ids is still pruned, but no object cleanup / persist runs
     assert SECTION_NAME not in fake.global_template_ids
     mock_self.cleanup_global_section_objects.assert_not_called()
-    mock_self.types_manager.update_type.assert_not_called()
+    mock_self.types_manager.update_type.assert_called_once_with(TYPE_ID, fake)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -521,7 +589,7 @@ def test_cleanup_global_section_from_type_uses_the_live_section_when_present() -
     mock_self = MagicMock()
     section = _FakeSection(SECTION_NAME, ['f1'], SectionType.MDS_SECTION.value)
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [{FieldKey.NAME.value: 'f1'}], ['f1'], sections=[section])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 
@@ -537,7 +605,7 @@ def test_cleanup_global_section_from_type_falls_back_to_snapshot_hints() -> None
     """When the section is already gone, the caller's snapshot hints drive the object cleanup"""
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [{FieldKey.NAME.value: 'f1'}], ['f1'], sections=[])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(
         mock_self, TYPE_ID, SECTION_NAME,
@@ -553,7 +621,7 @@ def test_cleanup_global_section_from_type_noops_when_section_gone_and_no_hints()
     """No live section and no snapshot hints means nothing is persisted or cleaned"""
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[])
-    mock_self.types_manager.get_type.return_value = fake
+    mock_self.types_manager.get_type_instance.return_value = fake
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 
@@ -564,7 +632,7 @@ def test_cleanup_global_section_from_type_noops_when_section_gone_and_no_hints()
 def test_cleanup_global_section_from_type_noops_when_type_missing() -> None:
     """A type that does not exist short-circuits without any further work"""
     mock_self = MagicMock()
-    mock_self.types_manager.get_type.return_value = None
+    mock_self.types_manager.get_type_instance.return_value = None
 
     SectionTemplatesManager.cleanup_global_section_from_type(mock_self, TYPE_ID, SECTION_NAME)
 
@@ -602,16 +670,33 @@ def test_apply_template_changes_to_type_rewrites_section_and_materializes_diff()
     mock_self.types_manager.update_type.assert_called_once_with(TYPE_ID, fake)
 
 
+def test_apply_template_changes_to_type_keeps_the_section_label_when_it_did_not_change() -> None:
+    """An empty label diff means 'unchanged' - it must not overwrite the section label with ''"""
+    mock_self = MagicMock()
+    section = _FakeSection(SECTION_NAME, ['old'])
+    section.label = 'Kept'
+    fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[section])
+    current = MagicMock(type=SectionType.SECTION.value, name=SECTION_NAME)
+
+    applied = SectionTemplatesManager._apply_template_changes_to_type(
+        mock_self, fake, {'name': SECTION_NAME, 'fields': []}, {'added': [], 'deleted': []}, '', current,
+    )
+
+    assert applied is True
+    assert section.label == 'Kept'
+
+
 def test_apply_template_changes_to_type_skips_a_type_without_the_section() -> None:
-    """A type that no longer carries the section is left untouched"""
+    """A type that no longer carries the section is left untouched and reported as not applied"""
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[])
     current = MagicMock(type=SectionType.SECTION.value, name=SECTION_NAME)
 
-    SectionTemplatesManager._apply_template_changes_to_type(
+    applied = SectionTemplatesManager._apply_template_changes_to_type(
         mock_self, fake, {'name': SECTION_NAME, 'label': 'x', 'fields': []}, {'added': [], 'deleted': []}, 'x', current,
     )
 
+    assert applied is False
     mock_self.types_manager.update_type.assert_not_called()
     mock_self.set_new_global_template_fields.assert_not_called()
 
@@ -668,6 +753,19 @@ def test_get_section_template_wraps_errors() -> None:
         SectionTemplatesManager.get_section_template(mock_self, TYPE_ID)
 
 
+def test_update_section_template_serialises_a_model_instance_before_writing() -> None:
+    """A CmdbSectionTemplate argument is converted to its json form - the model itself is not stored"""
+    mock_self = MagicMock()
+    instance = CmdbSectionTemplate.from_data(dict(_VALID_TEMPLATE))
+
+    SectionTemplatesManager.update_section_template(mock_self, TYPE_ID, instance)
+
+    mock_self.update.assert_called_once()
+    written = mock_self.update.call_args.kwargs['data']
+    assert written == CmdbSectionTemplate.to_json(instance)
+    assert mock_self.update.call_args.kwargs['criteria'] == {'public_id': TYPE_ID}
+
+
 def test_update_section_template_wraps_errors() -> None:
     """A base-manager update failure is wrapped as SectionTemplatesManagerUpdateError"""
     mock_self = MagicMock()
@@ -684,3 +782,100 @@ def test_delete_section_template_wraps_errors() -> None:
 
     with pytest.raises(SectionTemplatesManagerDeleteError):
         SectionTemplatesManager.delete_section_template(mock_self, TYPE_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          cleanup_global_section_reports                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_cleanup_global_section_reports_strips_the_fields_from_the_types_reports() -> None:
+    """The type's reports are read once and handed to the ReportsManager with the removed field names
+
+    Without this the template-removal path would leave every report of the type selecting and
+    filtering on fields that no longer exist: it rewrites the type through types_manager.update_type,
+    so the type-update route's realignment never runs.
+    """
+    mock_self = MagicMock()
+    a_type = MagicMock(public_id=TYPE_ID)
+    stored_reports = [{'public_id': 5}]
+    mock_self.objects_manager.get_many_from_other_collection.return_value = stored_reports
+
+    SectionTemplatesManager.cleanup_global_section_reports(mock_self, a_type, {'f1', 'f2'})
+
+    mock_self.objects_manager.get_many_from_other_collection.assert_called_once_with(
+        CmdbReport.COLLECTION, type_id=TYPE_ID,
+    )
+    mock_self.reports_manager.strip_removed_fields_from_reports.assert_called_once_with(
+        stored_reports, {'f1', 'f2'}, a_type,
+    )
+
+
+def test_cleanup_global_section_reports_still_delegates_without_reports() -> None:
+    """A type with no reports still delegates - the manager owns the no-op decision"""
+    mock_self = MagicMock()
+    mock_self.objects_manager.get_many_from_other_collection.return_value = []
+
+    SectionTemplatesManager.cleanup_global_section_reports(mock_self, MagicMock(public_id=TYPE_ID), {'f1'})
+
+    mock_self.reports_manager.strip_removed_fields_from_reports.assert_called_once()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    __init__                                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_init_composes_the_three_collaborator_managers_on_the_same_database() -> None:
+    """The propagation collaborators are built from the same connection/database as the manager"""
+    dbm = MagicMock()
+
+    with patch(f'{PATH}.TypesManager') as types_cls, \
+         patch(f'{PATH}.ObjectsManager') as objects_cls, \
+         patch(f'{PATH}.ReportsManager') as reports_cls, \
+         patch(f'{PATH}.BaseManager.__init__', return_value=None) as base_init:
+        manager = SectionTemplatesManager(dbm, 'a-database')
+
+    types_cls.assert_called_once_with(dbm, 'a-database')
+    objects_cls.assert_called_once_with(dbm, 'a-database')
+    reports_cls.assert_called_once_with(dbm, 'a-database')
+    base_init.assert_called_once_with(CmdbSectionTemplate.COLLECTION, dbm, 'a-database')
+    assert manager.types_manager is types_cls.return_value
+    assert manager.objects_manager is objects_cls.return_value
+    assert manager.reports_manager is reports_cls.return_value
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     iterate                                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_iterate_converts_the_aggregation_result_into_section_templates() -> None:
+    """The raw documents are converted to CmdbSectionTemplates and the total is carried through"""
+    mock_self = MagicMock()
+    mock_self.iterate_query.return_value = ([dict(_VALID_TEMPLATE)], 5)
+    builder_params, user, permission = MagicMock(), MagicMock(), MagicMock()
+
+    result = SectionTemplatesManager.iterate(mock_self, builder_params, user, permission)
+
+    mock_self.iterate_query.assert_called_once_with(builder_params, user, permission)
+    assert result.total == 5
+    assert result.count == 1
+    assert isinstance(result.results[0], CmdbSectionTemplate)
+
+
+def test_iterate_wraps_errors() -> None:
+    """A failing aggregation is wrapped as SectionTemplatesManagerIterationError"""
+    mock_self = MagicMock()
+    mock_self.iterate_query.side_effect = RuntimeError('boom')
+
+    with pytest.raises(SectionTemplatesManagerIterationError):
+        SectionTemplatesManager.iterate(mock_self, MagicMock())
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        get_types_using_template                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_get_types_using_template_queries_the_global_template_id_list() -> None:
+    """Consumers are found by the template NAME recorded in the type's global_template_ids"""
+    mock_self = MagicMock()
+    mock_self.types_manager.find_types.return_value = ['a-type']
+
+    result = SectionTemplatesManager.get_types_using_template(mock_self, SECTION_NAME)
+
+    assert result == ['a-type']
+    mock_self.types_manager.find_types.assert_called_once_with({'global_template_ids': SECTION_NAME})

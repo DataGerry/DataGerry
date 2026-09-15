@@ -29,6 +29,11 @@ The route function carries auth decorators that abort outside a real session, so
 unwraps the decorator chain via __wrapped__ and calls the bare handler inside a Flask
 test_request_context. build_supernet_overview and ManagerProvider.get_manager are patched at
 the route module path so no DB or business logic runs
+
+The final section pins the error mapping every route shares: an HTTPException raised by a builder
+(the 400s / 404s the framework layer aborts with) propagates untouched, while any other exception is
+logged and turned into a 500. Those two arms decide whether a client sees the framework's message or
+a generic server error, so each route is checked separately.
 """
 from typing import Any, Callable
 import csv
@@ -37,7 +42,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import BadRequest, HTTPException
+from werkzeug.exceptions import BadRequest, HTTPException, NotFound
 
 from cmdb.models.special_type_model.ipam_constants import (
     IpamPagination,
@@ -224,9 +229,10 @@ def test_export_route_returns_csv_attachment_download(
     assert response.data == content
 
     disposition: str = response.headers['Content-Disposition']
-    assert disposition.startswith('attachment; filename=')
+    # Quoted like every other export in the repo
+    assert disposition.startswith('attachment; filename="')
     assert f'supernet_{SUPERNET_PUBLIC_ID}_subnets_' in disposition
-    assert disposition.endswith('.csv')
+    assert disposition.endswith('.csv"')
 
     mock_build.assert_called_once()
 
@@ -376,3 +382,77 @@ def test_unassign_route_passes_builder_aborts_through(flask_app: Flask) -> None:
             bare(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
 
     assert exc_info.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        unassign_subnets_route - request body guard                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('body', ['not-json-at-all', '{"subnet_ids": [', '[1, 2, 3]', ''])
+def test_unassign_route_aborts_400_for_a_non_object_body(flask_app: Flask, body: str) -> None:
+    """A body that is not a JSON object is rejected here, not reported as a missing 'subnet_ids'"""
+    bare = _unwrap(unassign_subnets_route)
+
+    with patch(f'{ROUTE_PATH}.unassign_subnets_from_supernet') as mock_unassign, \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context('/overview/7/subnets/unassign', method='POST',
+                                        data=body, content_type='application/json'):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
+
+    assert exc_info.value.code == 400
+    mock_unassign.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              shared error mapping                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+ERROR_MAPPING_CASES: list[tuple[str, Any, str, dict[str, Any]]] = [
+    ('build_supernet_overview', get_supernet_overview, '/overview/7', {'public_id': SUPERNET_PUBLIC_ID}),
+    ('build_supernet_subnet_children', get_supernet_subnet_children, '/overview/7/subnets/children/9',
+     {'public_id': SUPERNET_PUBLIC_ID, 'subnet_id': 9}),
+    ('build_supernet_subnets_csv', export_supernet_subnets, '/overview/7/subnets/export',
+     {'public_id': SUPERNET_PUBLIC_ID}),
+    ('build_invalid_subnets_overview', get_invalid_subnet_overview, '/overview/7/subnets/invalid',
+     {'public_id': SUPERNET_PUBLIC_ID}),
+    ('unassign_subnets_from_supernet', unassign_subnets_route, '/overview/7/subnets/unassign',
+     {'public_id': SUPERNET_PUBLIC_ID}),
+]
+
+ERROR_MAPPING_IDS: list[str] = [case[0] for case in ERROR_MAPPING_CASES]
+
+
+@pytest.mark.parametrize('builder_name, route, path, kwargs', ERROR_MAPPING_CASES, ids=ERROR_MAPPING_IDS)
+def test_an_unexpected_builder_failure_becomes_500(
+    flask_app: Flask, builder_name: str, route: Any, path: str, kwargs: dict[str, Any],
+) -> None:
+    """Any non-HTTP exception from the framework layer is logged and mapped onto a 500"""
+    bare = _unwrap(route)
+    method = 'POST' if 'unassign' in path else 'GET'
+    json_body = {IpamUnassignKey.SUBNET_IDS.value: [9]} if method == 'POST' else None
+
+    with patch(f'{ROUTE_PATH}.{builder_name}', side_effect=RuntimeError('boom')), \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context(path, method=method, json=json_body):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock(), **kwargs)
+
+    assert exc_info.value.code == 500
+
+
+@pytest.mark.parametrize('builder_name, route, path, kwargs', ERROR_MAPPING_CASES, ids=ERROR_MAPPING_IDS)
+def test_an_http_exception_from_a_builder_propagates_untouched(
+    flask_app: Flask, builder_name: str, route: Any, path: str, kwargs: dict[str, Any],
+) -> None:
+    """The framework's own 400 / 404 aborts reach the client instead of being masked as a 500"""
+    bare = _unwrap(route)
+    method = 'POST' if 'unassign' in path else 'GET'
+    json_body = {IpamUnassignKey.SUBNET_IDS.value: [9]} if method == 'POST' else None
+    not_found = NotFound('Supernet with public_id 7 was not found!')
+
+    with patch(f'{ROUTE_PATH}.{builder_name}', side_effect=not_found), \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context(path, method=method, json=json_body):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock(), **kwargs)
+
+    assert exc_info.value is not_found

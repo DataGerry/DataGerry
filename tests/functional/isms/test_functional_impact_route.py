@@ -30,7 +30,13 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.isms_manager.impact_manager import ImpactManager
 from cmdb.manager.license_manager.license_service import LicenseService
-from cmdb.models.isms_model import IsmsImpact, IsmsRiskAssessment
+from cmdb.models.isms_model import (
+    IsmsImpact,
+    IsmsLikelihood,
+    IsmsRiskAssessment,
+    IsmsRiskClass,
+    IsmsRiskMatrix,
+)
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
 from cmdb.errors.manager.impact_manager import (
@@ -63,6 +69,9 @@ ALL_IMPACT_IDS: list[int] = [
 ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
 
 BASIS_DEFAULT: float = 1.5
+
+# The likelihood seeded for the risk-matrix regeneration test
+MATRIX_LIKELIHOOD_ID: int = 97590
 BASIS_OTHER: float = 2.5
 
 
@@ -107,6 +116,93 @@ def _insert_risk_assessment_using_impact(database_manager: MongoDatabaseManager,
     })
 
 
+class TestImpactWithoutADescriptionCanBeSaved:
+    """
+    An impact created without a description must survive a round trip
+
+    ``description`` is optional, so a POST that omits it stores nothing; the list route answers
+    ``to_json``, which emits every declared key, so the frontend receives ``description: null`` and its
+    edit modal patches that straight into the form it later saves. The schema used to refuse the null
+    with 'null value not allowed', so such an impact could not be edited at all.
+    """
+
+    def test_the_list_answers_null_and_accepts_it_back(self, rest_api) -> None:
+        """The exact chain, end to end: created without one, answered as null, saved unchanged."""
+        assert rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))\
+            .status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+        listed = rest_api.get(f'{ROUTE_URL}/?limit=0')
+
+        assert listed.status_code == HTTPStatus.OK
+        answered = next(impact for impact in listed.get_json()['results']
+                        if impact['public_id'] == IMPACT_ID_FOR_GET)
+        assert answered['description'] is None
+
+        # What the frontend sends back is what it was given
+        response = rest_api.put(f'{ROUTE_URL}/{IMPACT_ID_FOR_GET}', json=answered)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_an_explicit_null_description_is_accepted_on_create(self, rest_api) -> None:
+        """The write half of the same rule."""
+        payload = _impact_payload(IMPACT_ID_FOR_GET)
+        payload['description'] = None
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=payload)\
+            .status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+
+class TestTheRiskMatrixIsRegeneratedWithoutRiskClasses:
+    """
+    Creating an impact builds the grid even when no IsmsRiskClass exists yet
+
+    ``calculate_risk_matrix`` used to require at least one risk class - which is not an input to the
+    calculation - and no risk-class route recalculates, so configuring risk classes LAST left the grid
+    permanently empty while the config wizard reported that step complete.
+    """
+
+    def test_the_grid_is_written_with_no_risk_classes_configured(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """One impact and one likelihood are enough for a one-cell grid."""
+        risk_classes = database_manager.get_collection(IsmsRiskClass.COLLECTION, database_name)
+        likelihoods = database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)
+        matrix = database_manager.get_collection(IsmsRiskMatrix.COLLECTION, database_name)
+        removed_risk_classes = list(risk_classes.find({}, {'_id': 0}))
+        removed_likelihoods = list(likelihoods.find({}, {'_id': 0}))
+        stored_matrix = matrix.find_one({'public_id': 1}, {'_id': 0})
+        try:
+            risk_classes.delete_many({})
+            likelihoods.delete_many({})
+            likelihoods.insert_one({'public_id': MATRIX_LIKELIHOOD_ID, 'name': 'Rare',
+                                    'calculation_basis': 2.0, 'description': None})
+
+            response = rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+            grid = matrix.find_one({'public_id': 1})['risk_matrix']
+            assert len(grid) == 1
+            assert grid[0]['risk_class_id'] == 0
+            assert grid[0]['calculated_value'] == round(2.0 * BASIS_DEFAULT, 2)
+        finally:
+            likelihoods.delete_one({'public_id': MATRIX_LIKELIHOOD_ID})
+            if removed_risk_classes:
+                risk_classes.insert_many(removed_risk_classes)
+            if removed_likelihoods:
+                likelihoods.insert_many(removed_likelihoods)
+            if stored_matrix:
+                matrix.replace_one({'public_id': 1}, stored_matrix, upsert=True)
+
+
+class TestZeroWeightIsRefused:
+    """The B4 fix: this scale accepted a zero weight while its twin axis refused one."""
+
+    def test_a_zero_calculation_basis_returns_400(self, rest_api) -> None:
+        """Aligned with the likelihood scale and with both frontend forms' nonZeroValidator."""
+        payload = _impact_payload(IMPACT_ID_FOR_GET, basis=0.0)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code == HTTPStatus.BAD_REQUEST
+
+
 class TestPostImpact:
     """POST /isms/impacts/ creates an IsmsImpact with its business-rule guards."""
 
@@ -120,8 +216,10 @@ class TestPostImpact:
 
     def test_missing_name_returns_400(self, rest_api) -> None:
         """A POST without the required name fails schema validation with 400."""
-        assert rest_api.post(f'{ROUTE_URL}/', json={'calculation_basis': BASIS_DEFAULT}).status_code \
-            == HTTPStatus.BAD_REQUEST
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json={'calculation_basis': BASIS_DEFAULT},
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_non_float_basis_returns_400(self, rest_api) -> None:
         """A calculation_basis that cannot be coerced to float returns 400."""
@@ -288,3 +386,87 @@ class TestErrorMapping:
         monkeypatch.setattr(ImpactManager, 'delete_item', _raiser(ImpactManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{IMPACT_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created item cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(ImpactManager, 'insert_item', lambda *_a, **_k: IMPACT_ID_FOR_GET)
+        monkeypatch.setattr(ImpactManager, 'get_item', lambda *_a, **_k: None)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created item surfaces as 400."""
+        monkeypatch.setattr(ImpactManager, 'insert_item', lambda *_a, **_k: IMPACT_ID_FOR_GET)
+        monkeypatch.setattr(ImpactManager, 'get_item', _raiser(ImpactManagerGetError('boom')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{IMPACT_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ImpactManager, 'get_item', _raiser(ImpactManagerGetError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}', json=_impact_payload(IMPACT_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'get_item', lambda *_a, **_k: {'public_id': IMPACT_ID_FOR_UPDATE})
+        monkeypatch.setattr(ImpactManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}', json=_impact_payload(IMPACT_ID_FOR_UPDATE),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ImpactManager, 'get_item', _raiser(ImpactManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{IMPACT_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ImpactManager, 'get_item', lambda *_a, **_k: {'public_id': IMPACT_ID_FOR_DELETE})
+        monkeypatch.setattr(ImpactManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{IMPACT_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+    def test_update_with_changed_basis_takes_follow_up_path(self, rest_api, monkeypatch,
+                                                           database_manager: MongoDatabaseManager,
+                                                           database_name: str) -> None:
+        """Updating with a new calculation_basis succeeds via the risk-assessment follow-up path."""
+        _insert_impact(database_manager, database_name, IMPACT_ID_FOR_UPDATE)
+        # ignore whatever other impacts exist in the shared test DB - only the changed-basis path matters
+        monkeypatch.setattr(ImpactManager, 'impact_calculation_basis_exists', lambda *_a, **_k: False)
+
+        response = rest_api.put(f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}',
+                                json=_impact_payload(IMPACT_ID_FOR_UPDATE, BASIS_OTHER))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)

@@ -55,30 +55,34 @@ class LoginResponse(BaseAPIResponse):
         super().__init__(OperationType.GET)
 
 
-    def make_response(self, status: int = 200) -> Response:
+    def make_response(self, *args: Any, status: int = 200, **kwargs: Any) -> Response:
         """
         Creates a valid HTTP response containing the login data
 
         Args:
+            *args (Any): Unused; kept so every response answers to the same call
             status (int, optional): HTTP status code for the response. Defaults to 200
+            **kwargs (Any): Unused; kept so every response answers to the same call
 
         Returns:
             Response: An HTTP response instance containing the login data
         """
-        response: Response = self.make_api_response(self.export(), status)
-
-        return response
+        return self.make_api_response(self.export(), status)
 
 
     def export(self) -> dict[str, Any]:
         """
         Exports the login response data as a dictionary
 
+        The login payload carries **no envelope keys**: it is the token exchange rather than a
+        resource read, and the Angular login flow reads the four keys directly
+
         Returns:
             dict: A dictionary containing user data and authentication token details
         """
         return {
-            'user': CmdbUser.to_json(self.user),
+            # to_public_json, never to_json: the stored password digest must not leave the server
+            'user': CmdbUser.to_public_json(self.user),
             'token': self.token.decode('UTF-8'),
             'token_issued_at': self.token_issued_at,
             'token_expire': self.token_expire

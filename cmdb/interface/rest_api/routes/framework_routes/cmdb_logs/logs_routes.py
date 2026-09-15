@@ -20,6 +20,20 @@ Exposes the single-log read, the list endpoints (logs by object, deleted-action 
 object-still-exists vs object-deleted split via the framework.objects join) plus the
 corresponding-edit-log lookup and single-log delete. Every handler delegates its query work to
 ``LogsManager``; the list handlers share ``logs_helper.build_object_logs_response``.
+
+Two properties of the underlying collection shape these routes:
+
+    - ``framework.logs`` is keyed by ``log_type`` and holds every log kind that is not stored in its
+      own collection. In practice only ``CmdbObjectLog`` is written there today, but the queries
+      filter on ``log_type`` anyway and the handlers must not assume an object-log field (such as
+      ``object_id``) exists on a document they read by public_id alone
+    - it only ever grows - one document per object create / edit / delete, each carrying a rendered
+      snapshot of the object - so the read paths depend on the indexes ``CmdbMetaLog`` declares
+      (``object_id`` + ``log_time``, and ``log_type`` + ``action``) rather than on a scan
+
+Every list route accepts the standard collection parameters. NOTE that ``filter`` is currently parsed
+but NOT applied to the query (discussion-backlog item): the frontend's log-table search therefore has
+no effect server-side.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -118,8 +132,10 @@ def get_logs_with_existing_objects(params: CollectionParameters, request_user: C
         query = logs_manager.query_builder.prepare_log_query()
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
+    except HTTPException as http_err:
+        raise http_err
     except BaseManagerIterationError as err:
-        LOGGER.debug("[get_logs_with_existing_objects] BaseManagerIterationError: %s", err, exc_info=True)
+        LOGGER.error("[get_logs_with_existing_objects] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve existing ObjectLogs from database!")
     except Exception as err:
         LOGGER.error("[get_logs_with_existing_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
@@ -151,8 +167,10 @@ def get_logs_with_deleted_objects(params: CollectionParameters, request_user: Cm
         query = logs_manager.query_builder.prepare_log_query(False)
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
+    except HTTPException as http_err:
+        raise http_err
     except BaseManagerIterationError as err:
-        LOGGER.debug("[get_logs_with_deleted_objects]BaseManagerIterationError: %s", err, exc_info=True)
+        LOGGER.error("[get_logs_with_deleted_objects] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Logs of deleted Objects from database!")
     except Exception as err:
         LOGGER.error("[get_logs_with_deleted_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
@@ -187,8 +205,10 @@ def get_object_delete_logs(params: CollectionParameters, request_user: CmdbUser)
         }
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
+    except HTTPException as http_err:
+        raise http_err
     except BaseManagerIterationError as err:
-        LOGGER.debug("[get_object_delete_logs] BaseManagerIterationError: %s", err, exc_info=True)
+        LOGGER.error("[get_object_delete_logs] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the deleted object logs from database!")
     except Exception as err:
         LOGGER.error("[get_object_delete_logs] Exception: %s. Type: %s", err, type(err), exc_info=True)
@@ -221,8 +241,10 @@ def get_logs_by_object(object_id: int, params: CollectionParameters, request_use
         query: dict[str, Any] = {LogKey.OBJECT_ID.value: object_id}
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
+    except HTTPException as http_err:
+        raise http_err
     except BaseManagerIterationError as err:
-        LOGGER.debug("[get_logs_by_object] BaseManagerIterationError: %s", err, exc_info=True)
+        LOGGER.error("[get_logs_by_object] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve logs for Object with ID:{object_id}!")
     except Exception as err:
         LOGGER.error("[get_logs_by_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
@@ -259,9 +281,17 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
         if not selected_log:
             abort(404, f"The Log with ID:{public_id} was not found!")
 
+        source_object_id = selected_log.get(LogKey.OBJECT_ID.value)
+
+        # The collection is shared by log_type, so a document read by public_id alone is not
+        # guaranteed to be an object log. Without this the missing key raised a KeyError into the
+        # catch-all and answered 500 instead of naming the problem
+        if source_object_id is None:
+            abort(400, f"The Log with ID:{public_id} does not belong to an Object!")
+
         query: dict[str, Any] = {
             LogKey.LOG_TYPE.value: CmdbObjectLog.__name__,
-            LogKey.OBJECT_ID.value: selected_log[LogKey.OBJECT_ID.value],
+            LogKey.OBJECT_ID.value: source_object_id,
             LogKey.ACTION.value: LogAction.EDIT.value,
             LogQueryOperator.NOR.value: [{
                 LogKey.PUBLIC_ID.value: public_id
@@ -280,7 +310,7 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
         LOGGER.error("[get_corresponding_object_logs] BaseManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve corresponding logs for ID:{public_id}!")
     except BaseManagerIterationError as err:
-        LOGGER.debug("[get_corresponding_object_logs] BaseManagerIterationError: %s", err, exc_info=True)
+        LOGGER.error("[get_corresponding_object_logs] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, f"Failed to iterate corresponding logs for ID:{public_id}!")
     except Exception as err:
         LOGGER.error("[get_corresponding_object_logs] Exception: %s. Type: %s", err, type(err), exc_info=True)
@@ -305,7 +335,8 @@ def delete_log(public_id: int, request_user: CmdbUser) -> Response:
                        500 on any unexpected failure
 
     Returns:
-        Response: A DefaultResponse wrapping the delete result count
+        Response: A DefaultResponse wrapping True when the log was deleted (the manager reports the
+                  acknowledged delete as a boolean, not as a count)
     """
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
@@ -327,5 +358,5 @@ def delete_log(public_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[delete_log] BaseManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the log with the ID:{public_id}!")
     except Exception as err:
-        LOGGER.debug("[delete_log] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        LOGGER.error("[delete_log] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f"An internal server error occured while deleting Log with ID:{public_id}!")

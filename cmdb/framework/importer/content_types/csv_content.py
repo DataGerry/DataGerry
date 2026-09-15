@@ -23,6 +23,6 @@ class CSVContent(BaseContent):
     """
     Identifier for Comma-Separated Values files
     """
-    ICON = 'fas fa-file-csv'
-    CONTENT_TYPE = 'text/csv'
-    FILE_TYPE = 'csv'
+    ICON: str = 'fas fa-file-csv'
+    CONTENT_TYPE: str = 'text/csv'
+    FILE_TYPE: str = 'csv'

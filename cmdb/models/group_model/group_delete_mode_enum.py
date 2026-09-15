@@ -23,10 +23,12 @@ class GroupDeleteMode(BaseStrEnum):
     """
     Represents the deletion mode for a group
 
+    Omitting the parameter entirely is how a caller asks for "delete the group, leave its members
+    alone" - there is no member for that, and the group route treats a missing action as such
+
     Attributes:
-        NONE: No deletion action is performed
-        MOVE: The group's content is moved before deletion
-        DELETE: The group is permanently deleted
+        MOVE: The group's members are reassigned to another group before it is deleted
+        DELETE: The group's members are deleted along with it
     """
     MOVE = 'MOVE'
     DELETE = 'DELETE'

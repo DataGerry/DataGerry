@@ -24,7 +24,7 @@ returns independent dicts per call so callers can mutate safely. Inherited is_va
 """
 from typing import Any
 
-from cmdb.utils.validation_error import ValidationErrorKey, build_error
+from cmdb.utils import ValidationErrorKey, build_error
 # -------------------------------------------------------------------------------------------------------------------- #
 
 

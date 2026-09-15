@@ -23,12 +23,17 @@ keys, since that is the path the routes hit for column sorting in the object lis
 """
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from cmdb.manager.query_builder.base_query_builder import BaseQueryBuilder
 from cmdb.manager.query_builder.builder_parameters import BuilderParameters
 from cmdb.manager.query_builder.query_builder_constants import SortPipeline
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
+
+MODULE_PATH: str = 'cmdb.manager.query_builder.base_query_builder'
 
 PUBLIC_ID_FIELD: str = 'public_id'
 TIEBREAK_ORDER: int = 1
@@ -132,3 +137,64 @@ class TestPlainSortPipeline:
 
         with pytest.raises(ValueError):
             BaseQueryBuilder().build(params)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             count + the builder protocol                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCount:
+    """`count` wraps the query in a $count stage, ACL-filtered when a user and permission are given."""
+
+    def test_appends_a_count_stage(self) -> None:
+        """The caller reads a single 'total' out of the result, so the stage has to be last."""
+        query = BaseQueryBuilder().count(EMPTY_CRITERIA)
+
+        assert query[-1] == {'$count': 'total'}
+
+    def test_without_a_user_the_query_carries_no_acl_stages(self) -> None:
+        """An internal count has no requesting user; adding ACL stages would filter against nobody."""
+        query = BaseQueryBuilder().count(EMPTY_CRITERIA)
+
+        assert not any('type_id' in str(stage) for stage in query)
+
+    def test_the_acl_filter_precedes_the_count(self) -> None:
+        """
+        A total counted before the ACL filter is the wrong number
+
+        It is what a pager divides into pages, so counting rows the user may not read would show
+        them page links to nothing.
+        """
+        user = MagicMock()
+
+        with patch(f'{MODULE_PATH}.build_acl_pipeline', return_value=[{'$match': {'acl': True}}]) as acl:
+            query = BaseQueryBuilder().count(EMPTY_CRITERIA, user, AccessControlPermission.READ)
+
+        acl.assert_called_once_with(user, AccessControlPermission.READ)
+        assert query.index({'$match': {'acl': True}}) < query.index({'$count': 'total'})
+
+    @pytest.mark.parametrize('user, permission', [
+        (None, AccessControlPermission.READ),
+        (MagicMock(), None),
+        (None, None),
+    ], ids=['no-user', 'no-permission', 'neither'])
+    def test_both_are_required_for_the_acl_stages(self, user, permission) -> None:
+        """Half an ACL filter is not a weaker filter - it is one that matches on the wrong thing."""
+        with patch(f'{MODULE_PATH}.build_acl_pipeline') as acl:
+            BaseQueryBuilder().count(EMPTY_CRITERIA, user, permission)
+
+        acl.assert_not_called()
+
+
+class TestTheBuilderProtocol:
+    """`__len__` is declared abstract on `Builder`, so every concrete builder has to implement it."""
+
+    def test_an_empty_builder_has_no_stages(self) -> None:
+        """`len(builder)` is the stage count, which is 0 before anything is built."""
+        assert len(BaseQueryBuilder()) == 0
+
+    def test_it_reports_the_number_of_stages(self) -> None:
+        """Removing this method makes the class abstract and uninstantiable - it is not dead code."""
+        builder = BaseQueryBuilder()
+        builder.count(EMPTY_CRITERIA)
+
+        assert len(builder) == len(builder.query)

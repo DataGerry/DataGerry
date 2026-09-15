@@ -14,21 +14,35 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Cross-wiring of the IPAM SpecialType reference fields
+Cross-wiring (and un-wiring) of the IPAM SpecialType reference fields
 
 Whenever a SUPERNET, SUBNET or VLAN SpecialType is created, the reference fields linking them
 (Subnet -> Supernet, VLAN -> Subnet) and the 'dg-ipam-interface' section template (-> Subnet) must
 have their 'ref_types' lists populated with the new type's public_id. This module owns that wiring
 so both the CmdbType REST routes and the DataGerry assistant can apply identical behavior without
 the framework layer depending on the interface/route layer.
+
+Deleting a type needs the inverse, split across two functions with no overlap:
+
+* ``cleanup_type_references_from_all_types`` strips the deleted id from **every CmdbType** field that
+  references it - one server-side statement, and it covers the materialized copies of section-template
+  fields (e.g. 'dg-interface-subnet') because a section template is copied into its host type when the
+  section is added;
+* ``cleanup_special_type_template_references`` strips it from the **'dg-ipam-interface' section
+  template itself**, the one document the type-level sweep cannot reach.
+
+Both the wiring and the un-wiring of that template propagate the change through
+``handle_section_template_changes``, so a type that already inlined the section has its stored field
+definition refreshed either way.
+
+Only one CmdbType may carry a given SpecialType (enforced by the type routes and the type import), so
+looking a SpecialType up with ``get_one_by`` always addresses the one type that exists.
 """
-from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Callable
 import copy
 
 from cmdb.manager import TypesManager, SectionTemplatesManager
 
-from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
@@ -39,12 +53,16 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
 )
 from cmdb.models.type_model.field_key_enum import FieldKey
-from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
+# Mongo path of a field-level 'ref_types' entry inside a CmdbType's 'fields' array, used to select and
+# to strip the referencing types in one statement
+TYPE_FIELD_REF_TYPES_PATH: str = f'{TypeSchemaKey.FIELDS.value}.{FieldKey.REF_TYPES.value}'
+ALL_TYPE_FIELDS_REF_TYPES_PATH: str = f'{TypeSchemaKey.FIELDS.value}.$[].{FieldKey.REF_TYPES.value}'
 
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     PURE HELPERS                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def ensure_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) -> bool:
@@ -76,131 +94,6 @@ def ensure_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) 
     return False
 
 
-def handle_special_types(
-    types_manager: TypesManager,
-    special_type: SpecialType,
-    section_templates_manager: SectionTemplatesManager,
-    special_type_id: int
-) -> None:
-    """
-    Cross-wires the reference fields of IPAM SpecialTypes (SUPERNET, SUBNET, VLAN) and the
-    'dg-ipam-interface' section template so their 'ref_types' lists include each newly created
-    or updated SpecialType. Idempotent: no write happens when 'ref_types' is already correct
-
-    When the SUBNET case mutates the 'dg-ipam-interface' section template, the propagation
-    hook 'handle_section_template_changes' is invoked afterwards so every CmdbType that has
-    already inlined the section gets its materialized 'dg-interface-subnet' field's
-    'ref_types' refreshed. Without that step a SUBNET created (or recreated) after a user
-    type already attached the IPAM interface section would never reach the type's stored
-    field definition, since section templates are copied at apply-time and not linked
-
-    Args:
-        types_manager (TypesManager): db interface for CmdbTypes
-        special_type (SpecialType): The SpecialType of the CmdbType that triggered the wiring
-        section_templates_manager (SectionTemplatesManager): db interface for section templates
-        special_type_id (int): public_id of the CmdbType carrying 'special_type'
-    """
-    if special_type == SpecialType.SUPERNET:
-        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
-            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET},
-        )
-
-        if not subnet_type:
-            return
-
-        updated: bool = ensure_ref_type(
-            subnet_type[TypeSchemaKey.FIELDS], SubnetField.PARENT_SUPERNET, special_type_id,
-        )
-
-        if updated:
-            types_manager.update_type(subnet_type[CmdbObjectKey.PUBLIC_ID], subnet_type)
-
-    elif special_type == SpecialType.SUBNET:
-        interface_template: dict[str, Any] | None = section_templates_manager.get_one_by(
-            {SectionKey.NAME: IpamSection.INTERFACE}
-        )
-
-        if interface_template:
-            # Snapshot the pre-mutation state so handle_section_template_changes can diff
-            # the template against its prior version when propagating into user types
-            current_template_model: CmdbSectionTemplate = CmdbSectionTemplate.from_data(
-                copy.deepcopy(interface_template),
-            )
-
-            tpl_updated: bool = ensure_ref_type(
-                interface_template[SectionKey.FIELDS], InterfaceField.SUBNET, special_type_id,
-            )
-
-            if tpl_updated:
-                section_templates_manager.update_section_template(
-                    interface_template[CmdbObjectKey.PUBLIC_ID], interface_template,
-                )
-                # Propagate the new ref_types into every CmdbType that has already
-                # inlined the 'dg-ipam-interface' section; section templates are
-                # copied at apply-time, so without this call the materialized
-                # 'dg-interface-subnet' field on those types keeps the stale
-                # (or empty) ref_types from the moment the section was added
-                section_templates_manager.handle_section_template_changes(
-                    interface_template, current_template_model,
-                )
-
-        vlan_type: dict[str, Any] | None = types_manager.get_one_by(
-            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN},
-        )
-
-        if vlan_type:
-            vlan_updated: bool = ensure_ref_type(
-                vlan_type[TypeSchemaKey.FIELDS], VlanField.SUBNET_REF, special_type_id,
-            )
-
-            if vlan_updated:
-                types_manager.update_type(vlan_type[CmdbObjectKey.PUBLIC_ID], vlan_type)
-
-        supernet_type: dict[str, Any] | None = types_manager.get_one_by(
-            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUPERNET},
-        )
-
-        if not supernet_type:
-            return
-
-        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
-            {CmdbObjectKey.PUBLIC_ID: special_type_id},
-        )
-
-        if not subnet_type:
-            return
-
-        if ensure_ref_type(
-            subnet_type[TypeSchemaKey.FIELDS],
-            SubnetField.PARENT_SUPERNET,
-            supernet_type[CmdbObjectKey.PUBLIC_ID],
-        ):
-            types_manager.update_type(special_type_id, subnet_type)
-
-    elif special_type == SpecialType.VLAN:
-        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
-            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET},
-        )
-
-        if not subnet_type:
-            return
-
-        vlan_type: dict[str, Any] | None = types_manager.get_one_by(
-            {CmdbObjectKey.PUBLIC_ID: special_type_id},
-        )
-
-        if not vlan_type:
-            return
-
-        updated = ensure_ref_type(
-            vlan_type[TypeSchemaKey.FIELDS], VlanField.SUBNET_REF, subnet_type[CmdbObjectKey.PUBLIC_ID],
-        )
-
-        if updated:
-            types_manager.update_type(vlan_type[CmdbObjectKey.PUBLIC_ID], vlan_type)
-
-# --------------------------------------------------- UN-WIRING (CLEANUP) -------------------------------------------- #
-
 def remove_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) -> bool:
     """
     Removes ref_id from field.ref_types if present
@@ -229,6 +122,186 @@ def remove_ref_type(fields: list[dict[str, Any]], field_name: str, ref_id: int) 
 
     return False
 
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   WIRING PRIMITIVES                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def apply_type_ref_type(
+    types_manager: TypesManager,
+    criteria: dict[str, Any],
+    field_name: str,
+    ref_id: int,
+) -> bool:
+    """
+    Adds 'ref_id' to one CmdbType's named reference field and persists the type when it changed
+
+    The single read-mutate-persist step every wiring case is built from. A criteria matching no type,
+    a type without that field, or a 'ref_types' list that already carries the id all leave the database
+    untouched
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        criteria (dict[str, Any]): Selects the CmdbType to wire (by SpecialType or by public_id)
+        field_name (str): Name of the reference field whose 'ref_types' is extended
+        ref_id (int): The CmdbType public_id to add
+
+    Returns:
+        bool: True when the type was modified and written, False when nothing had to change
+    """
+    target_type: dict[str, Any] | None = types_manager.get_one_by(criteria)
+
+    if not target_type:
+        return False
+
+    if not ensure_ref_type(target_type[TypeSchemaKey.FIELDS], field_name, ref_id):
+        return False
+
+    types_manager.update_type(target_type[TypeSchemaKey.PUBLIC_ID], target_type)
+
+    return True
+
+
+def get_special_type_id(types_manager: TypesManager, special_type: SpecialType) -> int | None:
+    """
+    Returns the public_id of the CmdbType carrying the given SpecialType, if one exists
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        special_type (SpecialType): The SpecialType to look up
+
+    Returns:
+        int | None: public_id of the one type carrying it, or None when it does not exist yet
+    """
+    special_type_document: dict[str, Any] | None = types_manager.get_one_by(
+        {TypeSchemaKey.SPECIAL_TYPE: special_type},
+    )
+
+    return special_type_document[TypeSchemaKey.PUBLIC_ID] if special_type_document else None
+
+
+def apply_interface_template_ref_change(
+    section_templates_manager: SectionTemplatesManager,
+    mutate_fields: Callable[[list[dict[str, Any]]], bool],
+) -> bool:
+    """
+    Applies a 'ref_types' change to the 'dg-ipam-interface' section template and propagates it
+
+    Shared by the wiring and the un-wiring side so both behave identically: the pre-mutation state is
+    snapshotted, ``mutate_fields`` decides whether anything changes, and only then is the template
+    written and ``handle_section_template_changes`` invoked. That propagation is what refreshes the
+    materialized 'dg-interface-subnet' field on every CmdbType that already inlined the section -
+    section templates are copied at apply-time and not linked, so without it those types keep the
+    stale ref_types
+
+    Args:
+        section_templates_manager (SectionTemplatesManager): db interface for section templates
+        mutate_fields (Callable[[list[dict[str, Any]]], bool]): Applies the change to the template's
+            field list and reports whether it modified anything (see ensure_ref_type / remove_ref_type)
+
+    Returns:
+        bool: True when the template was modified and written, False when there was nothing to do
+    """
+    interface_template: dict[str, Any] | None = section_templates_manager.get_one_by(
+        {SectionTemplateKey.NAME: IpamSection.INTERFACE},
+    )
+
+    if not interface_template:
+        return False
+
+    # Snapshot the pre-mutation state so handle_section_template_changes can diff the template
+    # against its prior version when propagating into user types
+    current_template_model: CmdbSectionTemplate = CmdbSectionTemplate.from_data(
+        copy.deepcopy(interface_template),
+    )
+
+    if not mutate_fields(interface_template[SectionTemplateKey.FIELDS]):
+        return False
+
+    section_templates_manager.update_section_template(
+        interface_template[SectionTemplateKey.PUBLIC_ID], interface_template,
+    )
+    section_templates_manager.handle_section_template_changes(interface_template, current_template_model)
+
+    return True
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                        WIRING                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def handle_special_types(
+    types_manager: TypesManager,
+    special_type: SpecialType,
+    section_templates_manager: SectionTemplatesManager,
+    special_type_id: int
+) -> None:
+    """
+    Cross-wires the reference fields of IPAM SpecialTypes (SUPERNET, SUBNET, VLAN) and the
+    'dg-ipam-interface' section template so their 'ref_types' lists include each newly created
+    or updated SpecialType. Idempotent: no write happens when 'ref_types' is already correct
+
+    Wiring is applied in both directions, because the types can be created in any order: creating a
+    SUPERNET points the existing SUBNET at it, and creating a SUBNET points itself at the existing
+    SUPERNET. A counterpart that does not exist yet is simply skipped - it will do the wiring itself
+    when it is created
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        special_type (SpecialType): The SpecialType of the CmdbType that triggered the wiring
+        section_templates_manager (SectionTemplatesManager): db interface for section templates
+        special_type_id (int): public_id of the CmdbType carrying 'special_type'
+
+    Raises:
+        TypesManagerGetError / TypesManagerUpdateError / SectionTemplatesManager*Error: Manager errors
+            are not handled here; they propagate to the calling route, which maps them to a response
+    """
+    if special_type == SpecialType.SUPERNET:
+        # The existing SUBNET may now reference this SUPERNET
+        apply_type_ref_type(
+            types_manager,
+            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET},
+            SubnetField.PARENT_SUPERNET,
+            special_type_id,
+        )
+
+    elif special_type == SpecialType.SUBNET:
+        # Interface rows of every type using the IPAM section may now reference this SUBNET
+        apply_interface_template_ref_change(
+            section_templates_manager,
+            lambda fields: ensure_ref_type(fields, InterfaceField.SUBNET, special_type_id),
+        )
+
+        # The existing VLAN may now reference this SUBNET
+        apply_type_ref_type(
+            types_manager,
+            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN},
+            VlanField.SUBNET_REF,
+            special_type_id,
+        )
+
+        # ... and this SUBNET may reference the existing SUPERNET
+        supernet_id: int | None = get_special_type_id(types_manager, SpecialType.SUPERNET)
+
+        if supernet_id is not None:
+            apply_type_ref_type(
+                types_manager,
+                {TypeSchemaKey.PUBLIC_ID: special_type_id},
+                SubnetField.PARENT_SUPERNET,
+                supernet_id,
+            )
+
+    elif special_type == SpecialType.VLAN:
+        # This VLAN may reference the existing SUBNET
+        subnet_id: int | None = get_special_type_id(types_manager, SpecialType.SUBNET)
+
+        if subnet_id is not None:
+            apply_type_ref_type(
+                types_manager,
+                {TypeSchemaKey.PUBLIC_ID: special_type_id},
+                VlanField.SUBNET_REF,
+                subnet_id,
+            )
+
+# --------------------------------------------------- UN-WIRING (CLEANUP) -------------------------------------------- #
 
 def cleanup_type_references_from_all_types(
     types_manager: TypesManager,
@@ -237,99 +310,68 @@ def cleanup_type_references_from_all_types(
     """
     Strips 'deleted_type_id' from every CmdbType field whose 'ref_types' contains it
 
-    Runs after a CmdbType has been deleted: walks every other CmdbType that still
-    has the deleted id in any of its fields' 'ref_types' arrays, removes the id
-    in place, and persists the change. Uses a targeted Mongo query so only types
-    that actually reference the deleted id are pulled from the database
+    Runs after a CmdbType has been deleted. One server-side statement does the whole sweep: the filter
+    selects only the types that actually reference the deleted id, and the all-positional ``$[]``
+    operator pulls the id out of every field's 'ref_types' array of each matched document - no type is
+    loaded into the process and no document is rewritten in full
 
-    Covers both 'ref' and 'ref-section-field' fields as well as any fields
-    materialized from section templates (e.g. the IPAM 'dg-ipam-interface'
-    section's 'dg-interface-subnet'), because section templates are copied into
-    the host CmdbType's 'fields' list at the moment the section is added
+    Covers both 'ref' and 'ref-section-field' fields as well as any fields materialized from section
+    templates (e.g. the IPAM 'dg-ipam-interface' section's 'dg-interface-subnet'), because section
+    templates are copied into the host CmdbType's 'fields' list at the moment the section is added. The
+    template document itself is not a CmdbType and is handled by
+    ``cleanup_special_type_template_references``
 
-    Idempotent: when no candidate CmdbTypes still hold the id, returns 0 and
-    writes nothing
+    Idempotent: when no CmdbType holds the id, nothing is written and 0 is returned
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         deleted_type_id (int): public_id of the CmdbType that was just deleted
 
     Returns:
-        int: Number of CmdbTypes whose 'fields' were modified and persisted
+        int: Number of CmdbTypes whose 'fields' were modified
+
+    Raises:
+        BaseManagerUpdateError: If the update fails (propagates to the calling route)
     """
-    candidates: list[dict[str, Any]] = types_manager.find(
-        criteria={f'{TypeSchemaKey.FIELDS.value}.{FieldKey.REF_TYPES.value}': deleted_type_id},
+    result = types_manager.update_many_raw(
+        filter_query={TYPE_FIELD_REF_TYPES_PATH: deleted_type_id},
+        update={'$pull': {ALL_TYPE_FIELDS_REF_TYPES_PATH: deleted_type_id}},
     )
 
-    updated_count: int = 0
-
-    for candidate in candidates:
-        changed: bool = False
-
-        for field in candidate.get(TypeSchemaKey.FIELDS, []) or []:
-            ref_types: Any = field.get(FieldKey.REF_TYPES)
-
-            if isinstance(ref_types, list) and deleted_type_id in ref_types:
-                ref_types.remove(deleted_type_id)
-                changed = True
-
-        if changed:
-            types_manager.update_type(candidate[TypeSchemaKey.PUBLIC_ID], candidate)
-            updated_count += 1
-
-    return updated_count
+    return result.modified_count
 
 
-def cleanup_special_type_references(
-    types_manager: TypesManager,
+def cleanup_special_type_template_references(
     section_templates_manager: SectionTemplatesManager,
-    special_type: str,
+    special_type: SpecialType,
     deleted_type_id: int,
 ) -> None:
     """
-    Inverse of handle_special_types: removes 'deleted_type_id' from any 'ref_types' arrays
-    that handle_special_types would have populated for the given SpecialType
+    Removes a deleted SpecialType's id from the 'dg-ipam-interface' section template
 
-    SUPERNET: drops the id from SUBNET's 'dg-supernet-ref'.
-    SUBNET:   drops the id from VLAN's 'dg-subnet-ref' and the 'dg-ipam-interface' section
-              template's 'dg-interface-subnet'.
-    VLAN:     no schema points at VLAN, no cleanup required.
+    The template is the only document ``cleanup_type_references_from_all_types`` cannot reach (it is
+    not a CmdbType), so this is deliberately **template-only**: the CmdbType-level arrays - SUBNET's
+    'dg-supernet-ref' and VLAN's 'dg-subnet-ref' - are already covered by that sweep, and doing them
+    here again would only repeat the work.
 
-    Idempotent: silently no-ops when the cross-wired CmdbTypes / section template do not
-    exist, or when 'deleted_type_id' is not present in their 'ref_types'
+    Only a deleted SUBNET is referenced by the template ('dg-interface-subnet'); SUPERNET and VLAN
+    need nothing here. Mirrors the wiring side exactly, propagation included, so a type that inlined
+    the IPAM section has its stored field definition refreshed
+
+    Idempotent: no-ops when the template does not exist or does not reference the id
 
     Args:
-        types_manager (TypesManager): db interface for CmdbTypes
         section_templates_manager (SectionTemplatesManager): db interface for section templates
-        special_type (str): SpecialType marker of the CmdbType that was just deleted
+        special_type (SpecialType): SpecialType marker of the CmdbType that was just deleted
         deleted_type_id (int): public_id of the CmdbType that was just deleted
+
+    Raises:
+        SectionTemplatesManagerUpdateError: If the template update fails (propagates to the route)
     """
-    if special_type == SpecialType.SUPERNET:
-        subnet_type: dict[str, Any] | None = types_manager.get_one_by(
-            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.SUBNET},
-        )
+    if special_type != SpecialType.SUBNET:
+        return
 
-        if subnet_type and remove_ref_type(
-            subnet_type[TypeSchemaKey.FIELDS], SubnetField.PARENT_SUPERNET, deleted_type_id,
-        ):
-            types_manager.update_type(subnet_type[TypeSchemaKey.PUBLIC_ID], subnet_type)
-
-    elif special_type == SpecialType.SUBNET:
-        vlan_type: dict[str, Any] | None = types_manager.get_one_by(
-            {TypeSchemaKey.SPECIAL_TYPE: SpecialType.VLAN},
-        )
-
-        if vlan_type and remove_ref_type(vlan_type[TypeSchemaKey.FIELDS], VlanField.SUBNET_REF, deleted_type_id):
-            types_manager.update_type(vlan_type[TypeSchemaKey.PUBLIC_ID], vlan_type)
-
-        interface_template: dict[str, Any] | None = section_templates_manager.get_one_by(
-            {SectionTemplateKey.NAME: IpamSection.INTERFACE},
-        )
-
-        if interface_template and remove_ref_type(
-            interface_template[SectionTemplateKey.FIELDS], InterfaceField.SUBNET, deleted_type_id,
-        ):
-            section_templates_manager.update_section_template(
-                interface_template[SectionTemplateKey.PUBLIC_ID],
-                interface_template,
-            )
+    apply_interface_template_ref_change(
+        section_templates_manager,
+        lambda fields: remove_ref_type(fields, InterfaceField.SUBNET, deleted_type_id),
+    )

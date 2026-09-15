@@ -14,15 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all Bluerpint types for DataGerry
+This module provides the Blueprint type used by every DataGerry REST route section
+
+`APIBlueprint` is a Flask `Blueprint` plus the `protect` (authentication + right) and `validate`
+(request-schema) decorators. Every route section defines one and is mounted by init_rest_api under its
+own URL prefix; there is no blueprint nesting.
 """
 from cmdb.interface.blueprints.api_blueprint import APIBlueprint
-from cmdb.interface.blueprints.root_blueprint import RootBlueprint
-from cmdb.interface.blueprints.nested_blueprint import NestedBlueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'APIBlueprint',
-    'RootBlueprint',
-    'NestedBlueprint',
 ]

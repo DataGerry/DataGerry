@@ -43,6 +43,7 @@ from cmdb.database.predefined_data.isms_data import (
     get_default_risk_matrix,
     get_default_isms_extendable_options,
 )
+from cmdb.database.predefined_data.port_data import get_default_port_extendable_options
 from cmdb.database.predefined_data.cmdb_data import get_root_location_data
 
 from cmdb.manager import (
@@ -58,7 +59,7 @@ from cmdb.models.section_template_model.cmdb_section_template import CmdbSection
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
 
-from cmdb.models.extendable_option_model import CmdbExtendableOption
+from cmdb.models.extendable_option_model import CmdbExtendableOption, ExtendableOptionKey
 from cmdb.models.isms_model import (
     IsmsProtectionGoal,
     IsmsRiskMatrix,
@@ -129,12 +130,17 @@ class CollectionValidator:
         try:
             LOGGER.info("Validating Collections for Database: %s!", self.db_name)
             self.init_database()
-            self.init_framework_collections()
-            self.init_management_collections()
+
+            # Listed once and handed to both init steps: the two used to ask the server for the same
+            # collection names separately, on every boot of every tenant
+            all_collections: list[str] = self.get_all_db_collections(self.db_name)
+
+            self.init_framework_collections(all_collections)
+            self.init_management_collections(all_collections)
             self.init_cache_db()
         except Exception as err:
             LOGGER.error("[validate_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-            raise CollectionValidationError(str(err)) from err
+            raise CollectionValidationError(err) from err
 
 
     def init_database(self) -> None:
@@ -152,17 +158,34 @@ class CollectionValidator:
 
     def init_cache_db(self) -> None:
         """
-        Creates the shared DataGerry cache database on first boot
+        Creates the shared DataGerry cache database, and keeps its indexes current afterwards
 
-        DG_CACHE_DB hosts cross-tenant caches (currently the cached-user collection used by
-        token validation). When the cache database is missing it is created together with the
-        CmdbCachedUser collection and its indexes; when it already exists this method is a
-        no-op (it does not reconcile the cache collection or its indexes)
+        DG_CACHE_DB hosts cross-tenant caches (currently the cached-user collection used by token
+        validation). A missing cache database is created together with the CmdbCachedUser collection
+        and its indexes; an existing one has those indexes reconciled, exactly as every tenant
+        collection is.
+
+        The reconciliation is the part that was missing: without it a new index declared on
+        CmdbCachedUser reached a fresh installation only, while every upgraded one kept the index set
+        of the day its cache database was created - and the collection-registry guard counts
+        CmdbCachedUser as registered, so nothing pointed at the hole
         """
         if not self.dbm.check_database_exists(DG_CACHE_DB):
             self.dbm.create_database(DG_CACHE_DB)
             self.dbm.create_collection(CmdbCachedUser.COLLECTION, DG_CACHE_DB)
             self.dbm.create_indexes(CmdbCachedUser.COLLECTION, DG_CACHE_DB, CmdbCachedUser.get_index_keys())
+
+            return
+
+        try:
+            self.ensure_indexes(CmdbCachedUser.COLLECTION, DG_CACHE_DB, CmdbCachedUser.get_index_keys())
+        except Exception as err:
+            # Logged, not raised: the same rule the tenant collections follow - one collection's index
+            # problem must not stop a boot that is otherwise fine
+            LOGGER.error(
+                "[init_cache_db] Failed to update indexes for collection %s. Exception: %s. Type: %s.",
+                CmdbCachedUser.COLLECTION, err, type(err), exc_info=True,
+            )
 
 
     def init_keys(self) -> None:
@@ -179,7 +202,7 @@ class CollectionValidator:
             kg.generate_symmetric_aes_key()
 
 
-    def init_framework_collections(self) -> None:
+    def init_framework_collections(self, all_collections: list[str] | None = None) -> None:
         """
         Creates or reconciles every framework collection declared in FRAMEWORK_CLASSES
 
@@ -199,9 +222,10 @@ class CollectionValidator:
             CollectionInitError: If any collection failed to be created or seeded
         """
         try:
-            all_collections: list[str] = self.get_all_db_collections(self.db_name)
+            if all_collections is None:
+                all_collections = self.get_all_db_collections(self.db_name)
 
-            # Per-class predefined-data seeders, run once when a framework collection is created
+            # Per-class predefined-data seeders
             framework_seeders: dict[type, Callable[[], None]] = {
                 CmdbLocation: self._seed_root_location,
                 CmdbReportCategory: self._seed_general_report_category,
@@ -210,29 +234,28 @@ class CollectionValidator:
                 CmdbExtendableOption: self._seed_predefined_extendable_options,
             }
 
-            # Check all Framework Classes
             for framework_class in FRAMEWORK_CLASSES:
-                # get the expected indexes
                 expected_indexes: list[IndexModel] = framework_class.get_index_keys()
 
-                # If collection does not exist, create it and initialise with default data
                 if framework_class.COLLECTION not in all_collections:
                     self.dbm.create_collection(framework_class.COLLECTION, self.db_name)
                     self.dbm.create_indexes(framework_class.COLLECTION, self.db_name, expected_indexes)
-
-                    seeder: Callable[[], None] | None = framework_seeders.get(framework_class)
-
-                    if seeder is not None:
-                        seeder()
                 else:
                     self._reconcile_collection_indexes(framework_class, expected_indexes)
 
-                # Create the predefined CmdbSectionTemplates (seeded on every pass)
-                if framework_class == CmdbSectionTemplate:
-                    self.init_predefined_templates(CmdbSectionTemplate.COLLECTION, self.db_name)
+                # Seeded on EVERY pass, not only when the collection was just created: every seeder
+                # below inserts only what is missing, and gating them on the create branch meant a
+                # boot that created a collection and then failed left it half-seeded for good
+                seeder: Callable[[], None] | None = framework_seeders.get(framework_class)
+
+                if seeder is not None:
+                    seeder()
+
+            # Not per-class, so it does not belong inside the loop
+            self.init_predefined_templates(CmdbSectionTemplate.COLLECTION, self.db_name)
         except Exception as err:
             LOGGER.error("[init_framework_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-            raise CollectionInitError(str(err)) from err
+            raise CollectionInitError(err) from err
 
 
     def _reconcile_collection_indexes(self, model_class: type, expected_indexes: list[IndexModel]) -> None:
@@ -261,7 +284,13 @@ class CollectionValidator:
 # ----------------------------------------- FRAMEWORK PREDEFINED-DATA SEEDERS ---------------------------------------- #
 
     def _seed_root_location(self) -> None:
-        """Seeds the root CmdbLocation document into a freshly created locations collection"""
+        """
+        Writes the root CmdbLocation, and its public_id counter, if either is missing
+
+        An upsert keyed on public_id, so running it on every pass rewrites the same document rather
+        than adding one - and a database that lost its root location gets it back on the next boot,
+        which matters because the whole location tree hangs off it
+        """
         self.set_root_location(CmdbLocation.COLLECTION, self.db_name, create=True)
 
 
@@ -271,11 +300,44 @@ class CollectionValidator:
 
 
     def _seed_default_protection_goals(self) -> None:
-        """Seeds the default ISMS protection goals into a freshly created collection"""
-        default_protection_goals: list[dict[str, Any]] = get_default_protection_goals()
+        """
+        Inserts every default ISMS protection goal the collection does not already hold
 
-        for protection_goal in default_protection_goals:
-            self.dbm.insert(IsmsProtectionGoal.COLLECTION, self.db_name, protection_goal)
+        Content-checked by public_id rather than gated on the collection being new: a boot that
+        created the collection and then failed before or during seeding would otherwise leave the
+        ISMS without its three goals for good. A predefined goal cannot be deleted through the API,
+        so the only documents this restores are ones that were never written or were removed outside
+        it
+        """
+        self._insert_missing_documents(
+            IsmsProtectionGoal.COLLECTION,
+            get_default_protection_goals(),
+            BootstrapDocumentKey.PUBLIC_ID.value,
+        )
+
+
+    def _insert_missing_documents(
+            self,
+            collection: str,
+            documents: list[dict[str, Any]],
+            identity_key: str) -> None:
+        """
+        Inserts each predefined document the collection does not already carry
+
+        The shared shape of the self-healing seeders: a document is looked up by the key that
+        identifies it and inserted only when absent, so running the seeder again completes a
+        half-seeded collection instead of duplicating a full one
+
+        Args:
+            collection (str): Name of the collection to seed
+            documents (list[dict[str, Any]]): The predefined documents
+            identity_key (str): The key whose value identifies a document (usually 'public_id')
+        """
+        bound_collection = self.dbm.get_collection(collection, self.db_name)
+
+        for document in documents:
+            if bound_collection.find_one({identity_key: document[identity_key]}) is None:
+                self.dbm.insert(collection, self.db_name, document)
 
 
     def _seed_default_risk_matrix(self) -> None:
@@ -284,14 +346,36 @@ class CollectionValidator:
 
 
     def _seed_predefined_extendable_options(self) -> None:
-        """Seeds the predefined ISMS extendable options into a freshly created collection"""
-        predefined_isms_options: list[dict[str, Any]] = get_default_isms_extendable_options()
+        """
+        Inserts every feature's predefined extendable options the collection does not already hold
 
-        for predefined_isms_option in predefined_isms_options:
-            self.dbm.insert(CmdbExtendableOption.COLLECTION, self.db_name, predefined_isms_option)
+        Identified by the (option_type, value) pair, because these documents carry no fixed
+        public_id - the counter assigns one. A predefined option cannot be deleted through the API,
+        so nothing a user removed is resurrected here.
+
+        This still does NOT backfill a feature's options onto an installation that predates the
+        feature: those arrive through that feature's own updater, which is the only place that knows
+        what an existing database should be migrated to. What this restores is the boot that created
+        the collection and then failed
+        """
+        predefined_options: list[dict[str, Any]] = [
+            *get_default_isms_extendable_options(),
+            *get_default_port_extendable_options(),
+        ]
+
+        collection = self.dbm.get_collection(CmdbExtendableOption.COLLECTION, self.db_name)
+
+        for predefined_option in predefined_options:
+            identity: dict[str, Any] = {
+                ExtendableOptionKey.OPTION_TYPE.value: predefined_option[ExtendableOptionKey.OPTION_TYPE],
+                ExtendableOptionKey.VALUE.value: predefined_option[ExtendableOptionKey.VALUE],
+            }
+
+            if collection.find_one(identity) is None:
+                self.dbm.insert(CmdbExtendableOption.COLLECTION, self.db_name, predefined_option)
 
 
-    def init_management_collections(self) -> None:
+    def init_management_collections(self, all_collections: list[str] | None = None) -> None:
         """
         Creates or reconciles every user-management collection declared in USER_MANAGEMENT_COLLECTION
 
@@ -308,7 +392,8 @@ class CollectionValidator:
             CollectionInitError: If any collection failed to be created or seeded
         """
         try:
-            all_collections: list[str] = self.get_all_db_collections(self.db_name)
+            if all_collections is None:
+                all_collections = self.get_all_db_collections(self.db_name)
 
             for management_class in USER_MANAGEMENT_COLLECTION:
                 expected_indexes: list[IndexModel] = management_class.get_index_keys()
@@ -316,34 +401,67 @@ class CollectionValidator:
                 if management_class.COLLECTION not in all_collections:
                     self.dbm.create_collection(management_class.COLLECTION, self.db_name)
                     self.dbm.create_indexes(management_class.COLLECTION, self.db_name, expected_indexes)
-
-                    if management_class == CmdbUserGroup:
-                        groups_manager: GroupsManager = GroupsManager(self.dbm, self.db_name)
-
-                        for group in __FIXED_GROUPS__:
-                            groups_manager.insert_group(group)
-
-                    # The default admin CmdbUser is only created in local_mode
-                    if management_class == CmdbUser and self.local_mode:
-                        scm: SecurityManager = SecurityManager(self.dbm, self.db_name)
-                        users_manager: UsersManager = UsersManager(self.dbm, self.db_name)
-
-                        # setting the initial user to admin/admin as default
-                        admin_user: CmdbUser = CmdbUser(
-                            public_id=1,
-                            user_name='admin',
-                            active=True,
-                            group_id=1,
-                            registration_time=datetime.now(timezone.utc),
-                            password=scm.generate_hmac('admin'),
-                        )
-
-                        users_manager.insert_user(admin_user)
                 else:
                     self._reconcile_collection_indexes(management_class, expected_indexes)
+
+                # Seeded on every pass for the same reason as the framework side, each step deciding
+                # for itself whether anything is missing
+                if management_class == CmdbUserGroup:
+                    self._seed_fixed_groups()
+
+                if management_class == CmdbUser and self.local_mode:
+                    self._seed_default_admin_user()
         except Exception as err:
             LOGGER.error("[init_management_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-            raise CollectionInitError(str(err)) from err
+            raise CollectionInitError(err) from err
+
+# ------------------------------------- USER-MANAGEMENT PREDEFINED-DATA SEEDERS -------------------------------------- #
+
+    def _seed_fixed_groups(self) -> None:
+        """
+        Inserts every fixed CmdbUserGroup the database does not already carry
+
+        Identified by public_id, because that is what a CmdbUser's group_id points at: a user
+        referencing group 1 in a database that has no group 1 cannot be authorised at all, so a
+        missing fixed group is restored rather than left for an operator to notice
+        """
+        groups_manager: GroupsManager = GroupsManager(self.dbm, self.db_name)
+        collection = self.dbm.get_collection(CmdbUserGroup.COLLECTION, self.db_name)
+
+        for group in __FIXED_GROUPS__:
+            if collection.find_one({BootstrapDocumentKey.PUBLIC_ID.value: group.public_id}) is None:
+                groups_manager.insert_group(group)
+
+
+    def _seed_default_admin_user(self) -> None:
+        """
+        Creates the default admin/admin CmdbUser when the database has NO users at all
+
+        The emptiness check is deliberately about the collection, not about a user named 'admin': an
+        installation that replaced the default account must not have it recreated on the next boot,
+        while a database that ended up with no users - a first boot that failed after creating the
+        collection - is one nobody can log into, and that is worth healing.
+
+        Local mode only; a cloud tenant's first user is provisioned through the service portal
+        """
+        users_manager: UsersManager = UsersManager(self.dbm, self.db_name)
+
+        if self.dbm.get_collection(CmdbUser.COLLECTION, self.db_name).find_one({}) is not None:
+            return
+
+        security_manager: SecurityManager = SecurityManager(self.dbm, self.db_name)
+
+        admin_user: CmdbUser = CmdbUser(
+            public_id=1,
+            user_name='admin',
+            active=True,
+            group_id=1,
+            registration_time=datetime.now(timezone.utc),
+            password=security_manager.generate_hmac('admin'),
+        )
+
+        users_manager.insert_user(admin_user)
+
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -412,16 +530,16 @@ class CollectionValidator:
         """
         Upserts the root CmdbLocation document and ensures its public_id counter exists
 
-        Initialises the public_id counter for the collection on first creation (when 'create'
-        is True and no counter is present yet), then upserts the root location document from
-        get_root_location_data(). The 'create' flag currently affects only logging and the
-        counter-init branch — the document write itself is the same upsert in both branches
+        The upsert is keyed on the document's public_id, so it writes the root location once and
+        rewrites the same values on every later pass - which is what makes calling it on every boot
+        safe, and what heals a database whose root location was never written.
 
         Args:
             collection (str): Name of the framework.locations collection
             db_name (str): Name of the database that owns the collection
-            create (bool): True on first-time setup (also initialises the public_id counter);
-                False when updating an existing root location
+            create (bool): True on first-time setup, which additionally initialises the collection's
+                public_id counter. The document write is the same either way - the flag used to
+                select between two identical upserts
 
         Raises:
             DocumentUpdateError: If the public_id counter init or the upsert fails
@@ -430,19 +548,10 @@ class CollectionValidator:
             UpdateResult: The pymongo result of the upsert operation
         """
         try:
-            # If creation is requested, ensure the counter exists
             if create:
                 self._ensure_public_id_counter(collection, db_name)
 
-                # Insert root location data
-                LOGGER.info("Creating ROOT location!")
-                status: UpdateResult = self.dbm.upsert_set(collection, self.db_name, get_root_location_data())
-            else:
-                # Update the root location data
-                LOGGER.info("Updating ROOT location!")
-                status = self.dbm.upsert_set(collection, self.db_name, get_root_location_data())
-
-            return status
+            return self.dbm.upsert_set(collection, db_name, get_root_location_data())
         except Exception as err:
             raise DocumentUpdateError(f"Error setting up root location for collection '{collection}': {err}") from err
 
@@ -483,6 +592,7 @@ class CollectionValidator:
                     self.dbm.insert(collection, self.db_name, predefined_template)
 
         except Exception as err:
+            LOGGER.error("[init_predefined_templates] Exception: %s. Type: %s", err, type(err), exc_info=True)
             raise DocumentInsertError(
                 f"Error initializing predefined templates for collection '{collection}': {err}"
             ) from err

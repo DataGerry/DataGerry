@@ -16,68 +16,47 @@
 """
 Unit tests for the MediaFile route utilities
 
-Pure request-parsing / filter-building helpers exercised inside a minimal Flask request context and
-against lightweight stub managers: get_file_in_request (returns the file, aborts 400 when absent - the
-fixed guard), get_element_from_data_request, generate_metadata_filter (reference -> $in, plain keys,
-missing -> 400), create_attachment_name (copy-suffixing) and recursive_delete_filter (parent/child
-collection, and that it no longer re-fetches each node's root document).
+Filter-building / naming helpers exercised inside a minimal Flask request context and against
+lightweight stub managers: generate_metadata_filter (reference -> $in, plain keys, missing -> 400),
+generate_collection_parameters (the search-term filter), create_attachment_name (copy-suffixing) and
+recursive_delete_filter (parent/child collection, and that it no longer re-fetches each node's root
+document). The shared request-parsing helpers (get_file_in_request / get_element_from_data_request)
+moved to routes_helper and are tested there.
+
+Also the steps the upload / update routes were decomposed into: resolving a stored file (404 for a
+missing one), reading the required ``attachment`` parameter, reading the upload form (which refuses
+metadata carrying an undeclared key), and building the metadata / merged document each write persists.
 """
 import json
 from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
 
+from unittest.mock import MagicMock
+
 import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
+from cmdb.framework.media_library import MediaFileMetadataKey
+from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
+
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
-    get_file_in_request,
-    get_element_from_data_request,
+    build_updated_file_data,
+    build_upload_metadata,
     generate_metadata_filter,
+    generate_collection_parameters,
     create_attachment_name,
+    get_reference_attachment_or_abort,
+    get_stored_file_or_abort,
+    get_upload_from_request,
+    metadata_field,
     recursive_delete_filter,
+    validate_upload_metadata,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 app = Flask(__name__)
-
-
-class TestGetFileInRequest:
-    """get_file_in_request returns the uploaded file or aborts 400 when it is missing."""
-
-    def test_returns_file_when_present(self) -> None:
-        """The uploaded file is returned when present."""
-        with app.test_request_context(
-            '/', method='POST',
-            data={'file': (BytesIO(b'x'), 'pic.png')},
-            content_type='multipart/form-data',
-        ):
-            assert get_file_in_request('file').filename == 'pic.png'
-
-    def test_missing_file_aborts_400(self) -> None:
-        """A missing file aborts with 400 (the guard now works - request.files.get returns None)."""
-        with app.test_request_context('/', method='POST', data={}, content_type='multipart/form-data'):
-            with pytest.raises(HTTPException) as exc:
-                get_file_in_request('file')
-
-            assert exc.value.code == 400
-
-
-class TestGetElementFromDataRequest:
-    """get_element_from_data_request parses a JSON form field, or returns None on miss / bad JSON."""
-
-    def test_parses_json_field(self) -> None:
-        """A valid JSON form field is parsed."""
-        with app.test_request_context(
-            '/', method='POST', data={'metadata': json.dumps({'a': 1})}, content_type='multipart/form-data'
-        ):
-            assert get_element_from_data_request('metadata', request) == {'a': 1}
-
-    def test_missing_field_returns_none(self) -> None:
-        """A missing field returns None."""
-        with app.test_request_context('/', method='POST', data={}, content_type='multipart/form-data'):
-            assert get_element_from_data_request('metadata', request) is None
 
 
 class TestGenerateMetadataFilter:
@@ -110,6 +89,70 @@ class TestGenerateMetadataFilter:
             assert exc.value.code == 400
 
 
+class TestGenerateCollectionParameters:
+    """The search-term branch builds an $or over the three searchable file fields."""
+
+    @staticmethod
+    def _params(search_term: str | None = None) -> SimpleNamespace:
+        """Minimal CollectionParameters stand-in carrying the optional filters the helper reads."""
+        optional: dict[str, Any] = {'metadata': '{}'}
+
+        if search_term is not None:
+            optional['searchTerm'] = search_term
+
+        return SimpleNamespace(optional=optional)
+
+    @staticmethod
+    def _searched_fields(result: dict) -> set[str]:
+        """The field names carrying a $regex in the built filter."""
+        or_clauses = result['$and'][1]['$or']
+
+        return {field for clause in or_clauses for field, value in clause.items() if '$regex' in value}
+
+    def test_searches_the_three_file_fields(self) -> None:
+        """filename, reference_type and mime_type are all matched against the term."""
+        result = generate_collection_parameters(self._params('report'))
+
+        assert self._searched_fields(result) == {'filename', 'metadata.reference_type', 'metadata.mime_type'}
+
+    def test_folders_are_excluded_from_a_search(self) -> None:
+        """A search returns files, never the folders containing them."""
+        result = generate_collection_parameters(self._params('report'))
+
+        assert result['$and'][0] == {'metadata.folder': False}
+
+    def test_a_multi_word_term_can_match(self) -> None:
+        """Regression: the regex options defaulted to 'imsx', and the 'x' flag made the engine strip
+        unescaped whitespace from the pattern - so searching a file called 'my file.png' for
+        'my file' silently matched nothing."""
+        result = generate_collection_parameters(self._params('my file'))
+        options = {clause[field]['$options']
+                   for clause in result['$and'][1]['$or']
+                   for field in clause if '$regex' in clause[field]}
+
+        assert options == {'ims'}
+
+    def test_the_term_reaches_the_pattern_verbatim(self) -> None:
+        """The search box value is used as the pattern, whitespace included."""
+        result = generate_collection_parameters(self._params('my file'))
+
+        assert result['$and'][1]['$or'][0]['filename']['$regex'] == 'my file'
+
+    def test_a_numeric_term_also_matches_ids(self) -> None:
+        """A digits-only term additionally matches public_id / reference / parent."""
+        result = generate_collection_parameters(self._params('7'))
+        or_clauses = result['$and'][1]['$or']
+
+        assert {'public_id': 7} in or_clauses
+        assert {'metadata.parent': 7} in or_clauses
+
+    def test_without_a_search_term_it_falls_back_to_the_metadata_filter(self) -> None:
+        """No search term means the metadata filter path, not an $and/$or search."""
+        result = generate_collection_parameters(self._params())
+
+        assert '$and' not in result
+
+
 class _ExistsStub:
     """Stub manager whose file_exists returns the queued booleans in order."""
 
@@ -132,6 +175,19 @@ class TestCreateAttachmentName:
         """A colliding name gets a copy_(1)_ prefix once a free slot is found."""
         # exists once (original), then free
         assert create_attachment_name('file.txt', 0, {}, _ExistsStub([True, False])) == 'copy_(1)_file.txt'
+
+    def test_a_failed_existence_check_becomes_a_get_error(self) -> None:
+        """
+        The uniqueness check is a database read, and a failure there must not look like "unique"
+
+        Letting it escape untyped would reach the upload route's generic handler as a 500; as this
+        manager's get error the route reports it the way it reports every other read failure.
+        """
+        manager = MagicMock()
+        manager.file_exists.side_effect = RuntimeError('read failed')
+
+        with pytest.raises(MediaFileManagerGetError):
+            create_attachment_name('file.txt', 0, {}, manager)
 
 
 class _DeleteStub:
@@ -166,3 +222,244 @@ class TestRecursiveDeleteFilter:
 
         assert all('metadata.parent' in query for query in stub.queries)
         assert all('public_id' not in query for query in stub.queries)
+
+
+PUBLIC_ID: int = 4242
+AUTHOR_ID: int = 7
+UPLOAD_NAME: str = 'picture.png'
+
+
+class _StoredFileStub:
+    """A MediaFilesManager answering get_file with a fixed document"""
+
+    def __init__(self, stored: dict[str, Any] | None) -> None:
+        self.stored = stored
+
+    def get_file(self, metadata: dict[str, Any], blob: bool = False) -> dict[str, Any] | None:
+        """Returns the configured document, ignoring the filter"""
+        del metadata, blob
+
+        return self.stored
+
+
+class TestGetStoredFileOrAbort:
+    """get_stored_file_or_abort turns the manager's None into a 404."""
+
+    def test_returns_the_stored_file(self) -> None:
+        """A present file is handed back unchanged."""
+        stored = {'public_id': PUBLIC_ID, 'filename': UPLOAD_NAME}
+
+        assert get_stored_file_or_abort(_StoredFileStub(stored), PUBLIC_ID) is stored
+
+    def test_missing_file_aborts_404(self) -> None:
+        """
+        Without this the None reached the next subscript and the request ended as a 500
+
+        The manager swallows GridFS's NoFile, so None is how "not there" arrives.
+        """
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                get_stored_file_or_abort(_StoredFileStub(None), PUBLIC_ID)
+
+        assert exc_info.value.code == 404
+
+
+class TestGetReferenceAttachmentOrAbort:
+    """The update route's 'attachment' query parameter is required and must be an object."""
+
+    def test_parses_the_parameter(self) -> None:
+        """A JSON object is returned as a dict."""
+        with app.test_request_context('/?attachment={"reference": true}'):
+            assert get_reference_attachment_or_abort() == {'reference': True}
+
+    def test_missing_parameter_aborts_400(self) -> None:
+        """It used to be a TypeError from json.loads(None) on the way to a 500."""
+        with app.test_request_context('/'):
+            with pytest.raises(HTTPException) as exc_info:
+                get_reference_attachment_or_abort()
+
+        assert exc_info.value.code == 400
+
+    def test_malformed_parameter_aborts_400(self) -> None:
+        """A value that is not JSON is a client error."""
+        with app.test_request_context('/?attachment=not-json'):
+            with pytest.raises(HTTPException) as exc_info:
+                get_reference_attachment_or_abort()
+
+        assert exc_info.value.code == 400
+
+    def test_non_object_parameter_aborts_400(self) -> None:
+        """A bare JSON value carries no 'reference' key to read."""
+        with app.test_request_context('/?attachment=[1]'):
+            with pytest.raises(HTTPException) as exc_info:
+                get_reference_attachment_or_abort()
+
+        assert exc_info.value.code == 400
+
+
+class TestBuildUploadMetadata:
+    """build_upload_metadata completes what an upload is stored with."""
+
+    def test_stamps_the_author_and_mime_type(self) -> None:
+        """Both are server-owned, whatever the request said."""
+        upload = SimpleNamespace(mimetype='image/png', filename=UPLOAD_NAME)
+
+        result = build_upload_metadata({'author_id': 999}, upload, AUTHOR_ID, None)
+
+        assert result['author_id'] == AUTHOR_ID
+        assert result['mime_type'] == 'image/png'
+
+    def test_carries_the_replaced_references(self) -> None:
+        """A replacement is the same library entry with new content, so what points at it survives."""
+        upload = SimpleNamespace(mimetype='image/png', filename=UPLOAD_NAME)
+        replaced = {'metadata': {'reference': 11, 'reference_type': 'object'}}
+
+        result = build_upload_metadata({}, upload, AUTHOR_ID, replaced)
+
+        assert result['reference'] == 11
+        assert result['reference_type'] == 'object'
+
+    def test_a_replaced_file_without_reference_keys_is_tolerated(self) -> None:
+        """An entry written before the keys existed carries neither - a KeyError -> 500 before."""
+        upload = SimpleNamespace(mimetype='image/png', filename=UPLOAD_NAME)
+
+        result = build_upload_metadata({}, upload, AUTHOR_ID, {'metadata': {}})
+
+        assert result['reference'] is None
+        assert result['reference_type'] is None
+
+    def test_a_replaced_file_without_metadata_is_tolerated(self) -> None:
+        """Nor is the metadata sub-document guaranteed to be there."""
+        upload = SimpleNamespace(mimetype='image/png', filename=UPLOAD_NAME)
+
+        result = build_upload_metadata({}, upload, AUTHOR_ID, {'public_id': PUBLIC_ID})
+
+        assert result['reference'] is None
+        assert result['reference_type'] is None
+
+
+class TestBuildUpdatedFileData:
+    """build_updated_file_data merges the payload onto the stored document."""
+
+    def test_merges_name_metadata_and_author(self) -> None:
+        """The stored identity stays, the payload supplies name and metadata."""
+        stored = {'public_id': PUBLIC_ID, 'filename': 'old.png', 'metadata': {'author_id': 1}}
+        payload = {'public_id': 999, 'filename': 'new.png', 'metadata': {'parent': 3}}
+
+        result = build_updated_file_data(stored, payload, AUTHOR_ID)
+
+        assert result['public_id'] == PUBLIC_ID
+        assert result['filename'] == 'new.png'
+        assert result['metadata']['parent'] == 3
+        assert result['metadata']['author_id'] == AUTHOR_ID
+
+    @pytest.mark.parametrize('payload', [
+        {'metadata': {}},
+        {'filename': 'new.png'},
+    ], ids=['no-filename', 'no-metadata'])
+    def test_incomplete_payload_aborts_400(self, payload: dict[str, Any]) -> None:
+        """A missing key used to be a KeyError -> 500."""
+        stored = {'public_id': PUBLIC_ID, 'filename': 'old.png', 'metadata': {}}
+
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                build_updated_file_data(stored, payload, AUTHOR_ID)
+
+        assert exc_info.value.code == 400
+
+
+class TestMetadataField:
+    """metadata_field builds the dotted path of a key inside the metadata sub-document."""
+
+    def test_a_declared_key_becomes_its_path(self) -> None:
+        """An enum member is resolved to its value."""
+        assert metadata_field(MediaFileMetadataKey.PARENT) == 'metadata.parent'
+
+    def test_a_raw_key_is_prefixed_as_is(self) -> None:
+        """A key coming from a request filter is not required to be declared."""
+        assert metadata_field('whatever') == 'metadata.whatever'
+
+
+class TestValidateUploadMetadata:
+    """The upload metadata is client-supplied, so only the declared keys may appear in it."""
+
+    def test_declared_keys_pass(self) -> None:
+        """Everything MediaFileMetadataKey names is accepted, including the server-owned keys."""
+        metadata = {key.value: None for key in MediaFileMetadataKey}
+
+        with app.test_request_context():
+            validate_upload_metadata(metadata)
+
+    def test_no_metadata_at_all_passes(self) -> None:
+        """An empty object carries no undeclared key - the builder fills the defaults in."""
+        with app.test_request_context():
+            validate_upload_metadata({})
+
+    def test_an_undeclared_key_aborts_400(self) -> None:
+        """It used to reach the manager and fail the write with a database-flavoured message."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata({'public_id': 5})
+
+        assert exc_info.value.code == 400
+
+    def test_the_offending_key_is_named(self) -> None:
+        """The client has to be told WHICH key it may not send."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata({MediaFileMetadataKey.PARENT.value: 1, 'bogus': 2})
+
+        assert 'bogus' in exc_info.value.description
+
+    def test_every_offending_key_is_named(self) -> None:
+        """Two undeclared keys are reported together, so the client does not fix them one per request."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata({'alpha': 1, 'beta': 2})
+
+        assert 'alpha' in exc_info.value.description
+        assert 'beta' in exc_info.value.description
+
+    def test_metadata_that_is_not_an_object_aborts_400(self) -> None:
+        """A JSON list or scalar is a client error, not a TypeError on the way to a 500."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata(['not', 'an', 'object'])
+
+        assert exc_info.value.code == 400
+
+
+class TestGetUploadFromRequest:
+    """The upload form is read as file + filter + metadata, and its metadata is validated."""
+
+    @staticmethod
+    def _form(metadata: dict[str, Any]) -> dict[str, Any]:
+        """Builds the multipart form an upload arrives as."""
+        return {
+            'file': (BytesIO(b'payload'), 'upload.txt'),
+            'metadata': json.dumps(metadata),
+        }
+
+    def test_reads_the_file_filter_and_metadata(self) -> None:
+        """The filter identifies an already stored file of that name in that folder."""
+        form = self._form({MediaFileMetadataKey.PARENT.value: 3})
+
+        with app.test_request_context('/', method='POST', data=form,
+                                      content_type='multipart/form-data'):
+            upload, existing_filter, metadata = get_upload_from_request(request)
+
+        assert upload.filename == 'upload.txt'
+        assert existing_filter == {'metadata.parent': 3, 'filename': 'upload.txt'}
+        assert metadata == {MediaFileMetadataKey.PARENT.value: 3}
+
+    def test_an_undeclared_metadata_key_aborts_400(self) -> None:
+        """The refusal happens before anything is streamed into GridFS."""
+        form = self._form({MediaFileMetadataKey.PARENT.value: 3, 'permissions': 'rw'})
+
+        with app.test_request_context('/', method='POST', data=form,
+                                      content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc_info:
+                get_upload_from_request(request)
+
+        assert exc_info.value.code == 400
+        assert 'permissions' in exc_info.value.description

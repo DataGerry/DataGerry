@@ -16,9 +16,15 @@
 """
 Functional tests for the ``/extendable_options`` REST routes
 
-Covers the route-layer concerns: create (rejects predefined / invalid type / duplicate),
-read single + list, update (persists, pins the identity, refuses a predefined option), and the
-delete guards (missing -> 404, predefined -> 400, in-use -> 400, otherwise success).
+Covers the route-layer concerns: create (rejects predefined / invalid type / duplicate, and still
+answers 400 when only the database catches the duplicate), read single + list, update (persists,
+pins the identity, refuses a predefined option), and the delete guards (missing -> 404,
+predefined -> 400, in-use -> 400, otherwise success).
+
+Two of them were added on 2026-09-10: the public_id is the server's to assign, so a payload id is
+dropped rather than squatted (it used to be inserted as-is, without the collection counter being
+advanced); and the list route answers normalised documents rather than a model per row, so a
+document it cannot read is left out instead of failing the whole dropdown.
 """
 from http import HTTPStatus
 from typing import Any
@@ -27,7 +33,11 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
-from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
+from cmdb.models.extendable_option_model import (
+    CmdbExtendableOption,
+    OptionType,
+    OPTION_TYPE_VALUE_INDEX_NAME,
+)
 from cmdb.models.isms_model.isms_risk import IsmsRisk
 from cmdb.errors.manager.extendable_options_manager import (
     ExtendableOptionsManagerInsertError,
@@ -116,6 +126,58 @@ class TestCreate:
         finally:
             _options(database_manager, database_name).delete_one({'public_id': new_id})
 
+    def test_create_answers_the_written_document_without_reading_it_back(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, monkeypatch,
+    ) -> None:
+        """
+        The body is built from the document the insert wrote, so a create costs two queries
+
+        The insert stamps the public_id onto that very dict, so the third query the route used to
+        spend on reading its own write bought nothing. The answer still carries exactly the four
+        payload keys - pymongo's insert_one puts its own '_id' into the dict it is handed, and the
+        Angular option manager pushes this body straight into its local list.
+        """
+        monkeypatch.setattr(ExtendableOptionsManager, 'get_item',
+                            _raiser(AssertionError('the create route must not read its own write')))
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_payload(value='no-read-back'))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        new_id = response.json['result_id']
+        try:
+            assert response.json['raw'] == {
+                'public_id': new_id,
+                'value': 'no-read-back',
+                'option_type': OptionType.RISK.value,
+                'predefined': False,
+            }
+        finally:
+            _options(database_manager, database_name).delete_one({'public_id': new_id})
+
+    def test_create_ignores_a_payload_public_id(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        A client cannot choose an option's id
+
+        The schema declares public_id, so validation does not purge it. Inserted as-is it would
+        squat the id WITHOUT advancing the collection counter (MongoDatabaseManager.insert only
+        generates one for a document that carries none), so every later create would run into the
+        unique index and burn duplicate-key retries.
+        """
+        response = rest_api.post(f'{ROUTE_URL}/', json=_payload(value='payload-id-option',
+                                                                public_id=BOGUS_BODY_ID))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        new_id = response.json['result_id']
+        try:
+            assert new_id != BOGUS_BODY_ID
+            options = _options(database_manager, database_name)
+            assert options.find_one({'public_id': BOGUS_BODY_ID}) is None
+            assert options.find_one({'public_id': new_id})['value'] == 'payload-id-option'
+        finally:
+            _options(database_manager, database_name).delete_one({'public_id': new_id})
+
     def test_create_predefined_returns_400(self, rest_api) -> None:
         """Creating a predefined option via the API is rejected with 400."""
         assert rest_api.post(f'{ROUTE_URL}/', json=_payload(predefined=True)).status_code == HTTPStatus.BAD_REQUEST
@@ -135,6 +197,40 @@ class TestCreate:
         response = rest_api.post(f'{ROUTE_URL}/', json=_payload(value='dupe-value'))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_create_duplicate_caught_only_by_the_index_returns_400(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, monkeypatch,
+    ) -> None:
+        """A duplicate that slips past the pre-check is still refused, by the unique index.
+
+        This is the race the index exists for: option_value_exists is a read followed by a write, so
+        a concurrent writer can store the value in between. Patching the pre-check to miss the
+        existing option reproduces that without threads. The route must answer 400, not 500."""
+        options = _options(database_manager, database_name)
+        options.insert_one(_option_doc(OPTION_ID_DUPLICATE, 'index-guarded-value'))
+
+        # The test database is built without the declared indexes, so build the one under test
+        created_index: bool = OPTION_TYPE_VALUE_INDEX_NAME not in options.index_information()
+
+        if created_index:
+            database_manager.create_indexes(
+                CmdbExtendableOption.COLLECTION, database_name, CmdbExtendableOption.get_index_keys(),
+            )
+
+        monkeypatch.setattr(
+            'cmdb.interface.rest_api.routes.framework_routes.cmdb_extendable_options'
+            '.extendable_option_routes.option_value_exists',
+            lambda *_args, **_kwargs: False,
+        )
+
+        try:
+            response = rest_api.post(f'{ROUTE_URL}/', json=_payload(value='index-guarded-value'))
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert options.count_documents({'value': 'index-guarded-value'}) == 1
+        finally:
+            if created_index:
+                options.drop_index(OPTION_TYPE_VALUE_INDEX_NAME)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -168,6 +264,65 @@ class TestRead:
 
         assert response.status_code == HTTPStatus.OK
         assert 'results' in response.json
+
+    def test_get_list_answers_exactly_the_payload_keys(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The four keys and nothing else - '_id' above all
+
+        The documents are answered as they are read now, so the normalisation is what keeps the
+        Mongo id out of a response the frontend consumes.
+        """
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_GET, 'listed'))
+
+        response = rest_api.get(f'{ROUTE_URL}/', query_string={'filter': '{"public_id": %s}' % OPTION_ID_FOR_GET})
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.json['results'] == [{
+            'public_id': OPTION_ID_FOR_GET,
+            'value': 'listed',
+            'option_type': OptionType.RISK.value,
+            'predefined': False,
+        }]
+
+    def test_get_list_skips_an_unreadable_document(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        One drifted document must not cost the dropdown every other value it offers
+
+        A document without a value is not an option; it used to be answered as 'value': null.
+        """
+        options = _options(database_manager, database_name)
+        options.insert_one(_option_doc(OPTION_ID_FOR_GET, 'readable'))
+        options.insert_one({
+            'public_id': OPTION_ID_DUPLICATE,
+            'option_type': OptionType.RISK.value,
+            'predefined': False,
+        })
+
+        response = rest_api.get(f'{ROUTE_URL}/', query_string={
+            'filter': '{"public_id": {"$in": [%s, %s]}}' % (OPTION_ID_FOR_GET, OPTION_ID_DUPLICATE),
+        })
+
+        assert response.status_code == HTTPStatus.OK
+        assert [option['public_id'] for option in response.json['results']] == [OPTION_ID_FOR_GET]
+
+    def test_get_list_reads_a_document_without_the_predefined_flag(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An absent flag is 'not predefined', not a missing key in the payload"""
+        _options(database_manager, database_name).insert_one({
+            'public_id': OPTION_ID_FOR_GET,
+            'value': 'flagless',
+            'option_type': OptionType.RISK.value,
+        })
+
+        response = rest_api.get(f'{ROUTE_URL}/', query_string={'filter': '{"public_id": %s}' % OPTION_ID_FOR_GET})
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.json['results'][0]['predefined'] is False
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -278,6 +433,26 @@ class TestDelete:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert options.find_one({'public_id': OPTION_ID_FOR_DELETE}) is None
 
+    def test_delete_a_document_without_the_predefined_flag(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The guard reads a two-state flag, and an absent key means 'not predefined'
+
+        Read with [] it raised a KeyError, i.e. a 500 on a deletable option.
+        """
+        options = _options(database_manager, database_name)
+        options.insert_one({
+            'public_id': OPTION_ID_FOR_DELETE,
+            'value': 'flagless-delete',
+            'option_type': OptionType.RISK.value,
+        })
+
+        response = rest_api.delete(f'{ROUTE_URL}/{OPTION_ID_FOR_DELETE}')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert options.find_one({'public_id': OPTION_ID_FOR_DELETE}) is None
+
     def test_delete_missing_returns_404(self, rest_api) -> None:
         """Deleting a missing id returns 404."""
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_OPTION_ID}').status_code == HTTPStatus.NOT_FOUND
@@ -324,20 +499,23 @@ class TestErrorMapping:
 
         assert rest_api.post(f'{ROUTE_URL}/', json=_payload(value='x')).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_insert_created_retrieval_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ExtendableOptionsManagerGetError while retrieving the created option surfaces as 400."""
-        monkeypatch.setattr(ExtendableOptionsManager, 'insert_item', lambda *_a, **_k: 12345)
-        monkeypatch.setattr(ExtendableOptionsManager, 'get_item',
-                            _raiser(ExtendableOptionsManagerGetError('boom')))
+    def test_insert_of_an_unreadable_document_returns_500(self, rest_api, monkeypatch) -> None:
+        """
+        A written document the route cannot answer is a server fault, not a 404
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_payload(value='x')).status_code == HTTPStatus.BAD_REQUEST
+        It replaces the read-back's None -> 404 arm: there is no read any more, so the only way to
+        end up without a body is a write that did not leave a usable document behind.
+        """
+        def _insert_without_a_value(_self, document, *_a, **_k) -> int:
+            """Writes an option the payload normalisation cannot read."""
+            document.pop('value', None)
 
-    def test_insert_created_retrieval_none_returns_404(self, rest_api, monkeypatch) -> None:
-        """A None result while retrieving the created option surfaces as 404."""
-        monkeypatch.setattr(ExtendableOptionsManager, 'insert_item', lambda *_a, **_k: 12345)
-        monkeypatch.setattr(ExtendableOptionsManager, 'get_item', lambda *_a, **_k: None)
+            return 12345
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_payload(value='x')).status_code == HTTPStatus.NOT_FOUND
+        monkeypatch.setattr(ExtendableOptionsManager, 'insert_item', _insert_without_a_value)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_payload(value='x')).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""
@@ -348,14 +526,14 @@ class TestErrorMapping:
 
     def test_list_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
         """An ExtendableOptionsManagerIterationError on list surfaces as 400."""
-        monkeypatch.setattr(ExtendableOptionsManager, 'iterate_items',
+        monkeypatch.setattr(ExtendableOptionsManager, 'iterate_option_documents',
                             _raiser(ExtendableOptionsManagerIterationError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.BAD_REQUEST
 
     def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on list surfaces as 500."""
-        monkeypatch.setattr(ExtendableOptionsManager, 'iterate_items', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(ExtendableOptionsManager, 'iterate_option_documents', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 

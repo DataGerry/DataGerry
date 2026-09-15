@@ -18,6 +18,7 @@ Provides all ISMS relevant helper methods
 """
 from .isms_risk_matrix_helper import (
     ensure_default_risk_matrix,
+    ensure_risk_matrix_matches_scales,
     calculate_risk_matrix,
     remove_deleted_risk_class_from_matrix,
     check_risk_classes_set_in_matrix,
@@ -26,6 +27,7 @@ from .isms_risk_matrix_helper import (
 
 __all__: list[str] = [
     'ensure_default_risk_matrix',
+    'ensure_risk_matrix_matches_scales',
     'calculate_risk_matrix',
     'remove_deleted_risk_class_from_matrix',
     'check_risk_classes_set_in_matrix',

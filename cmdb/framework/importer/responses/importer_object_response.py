@@ -18,16 +18,50 @@ Implementation of ImporterObjectResponse
 """
 from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.messages.import_failed_message import ImportFailedMessage
+from cmdb.framework.importer.responses.import_report_response import ImportReportResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class ImporterObjectResponse:
     """
-    Response of an bulk object import
+    Outcome of a bulk object import, as the importer produces it
+
+    This is the importer's INTERNAL result, not the response body: it keeps one message per imported
+    object because the route needs their public_ids to write the CREATE logs. `as_report()` turns it
+    into what the caller receives, where the imported objects are a plain count
     """
 
-    def __init__(self, message: str, success_imports: list = None, failed_imports: list = None):
-        self.message = message
+    def __init__(
+            self,
+            message: str,
+            success_imports: list | None = None,
+            failed_imports: list | None = None,
+        ) -> None:
+        """
+        Initializes the ImporterObjectResponse for a bulk object import
+
+        Args:
+            message (str): A human-readable summary of the import result
+            success_imports (list | None): The ImportSuccessMessage entries. Defaults to an empty list
+            failed_imports (list | None): The ImportFailedMessage entries. Defaults to an empty list
+        """
+        self.message: str = message
         self.success_imports: list[ImportSuccessMessage] = success_imports or []
         self.failed_imports: list[ImportFailedMessage] = failed_imports or []
 
-        super().__init__()
+
+    def as_report(self) -> ImportReportResponse:
+        """
+        Converts the import outcome into the partial report the caller receives
+
+        The imported objects collapse to their count - the caller does not need them echoed back - while
+        every rejected object keeps its data and reasons. The summary line is the one the importer
+        already built from the same counts
+
+        Returns:
+            ImportReportResponse: The report to serialize into the response body
+        """
+        return ImportReportResponse(
+            message=self.message,
+            success_imports=len(self.success_imports),
+            failed_imports=self.failed_imports,
+        )

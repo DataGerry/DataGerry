@@ -15,6 +15,13 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Helper methods shared by the CmdbLog REST routes
+
+Holds the shared list assembly (`build_object_logs_response`, which every list endpoint routes its own
+query through) and the server-side user resolution behind ``?include_users=true``.
+
+NOTE the caller's ``filter`` collection parameter is NOT merged into the query here - it is parsed by
+the route decorator and then ignored, which is a known gap (discussion-backlog item), not a decision
+this helper makes on purpose.
 """
 from typing import Any, Union
 
@@ -28,6 +35,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.interface.rest_api.responses import GetMultiResponse
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants import (
     LogKey,
@@ -36,7 +44,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-HTTP_HEAD_METHOD: str = 'HEAD'
 
 
 def _include_users_requested(request: Request) -> bool:
@@ -89,7 +96,7 @@ def build_object_logs_response(logs_manager: LogsManager,
         logs_manager (LogsManager): Manager used to iterate the logs collection
         query (dict[str, Any] | list[dict[str, Any]]): Match filter or aggregation pipeline
         params (CollectionParameters): Pagination/sort parameters from the request
-        request (Request): Active request, used for the response URL, HEAD + include_users detection
+        request (Request): Active request, used for the response URL and the include_users detection
         request_user (CmdbUser): User making the request (used to resolve the UsersManager)
 
     Returns:
@@ -104,8 +111,11 @@ def build_object_logs_response(logs_manager: LogsManager,
                                     iteration_result.total,
                                     params,
                                     request.url,
-                                    request.method == HTTP_HEAD_METHOD)
+                                    request_wants_body(request))
 
+    # The response is built from the plain log LIST first, on purpose: GetMultiResponse derives `count`
+    # from len(results) in its constructor, so wrapping the logs in {logs, users} before that point
+    # would report the page size as 2 (the number of keys) instead of the number of logs
     if _include_users_requested(request):
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
         api_response.results = {

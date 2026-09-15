@@ -32,48 +32,59 @@ def get_isms_risk_matrix_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsRiskMatrix.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.isms_model.isms_risk_matrix_constants import RiskMatrixCellKey, RiskMatrixKey
+
     return {
-        'public_id': {  # public_id of the IsmsRiskMatrix
+        RiskMatrixKey.PUBLIC_ID.value: {  # public_id of the IsmsRiskMatrix
             'type': 'integer',
         },
-        'risk_matrix': {  # Matrix cells (built from bottom-left, line by line)
+        RiskMatrixKey.RISK_MATRIX.value: {  # Matrix cells (built from bottom-left, line by line)
             'type': 'list',
             'schema': {
                 'type': 'dict',
                 'schema': {
-                    'row': {  # Zero-based row index of the cell
+                    RiskMatrixCellKey.ROW.value: {  # Zero-based row index of the cell
                         'type': 'integer',
                         'min': 0,
                     },
-                    'column': {  # Zero-based column index of the cell
+                    RiskMatrixCellKey.COLUMN.value: {  # Zero-based column index of the cell
                         'type': 'integer',
                         'min': 0,
                     },
-                    'risk_class_id': {  # public_id of the IsmsRiskClass assigned to this cell
+                    RiskMatrixCellKey.RISK_CLASS_ID.value: {  # public_id of the IsmsRiskClass assigned to this cell
                         'type': 'integer',
                     },
-                    'impact_id': {  # public_id of the IsmsImpact represented by this cell
+                    RiskMatrixCellKey.IMPACT_ID.value: {  # public_id of the IsmsImpact represented by this cell
                         'type': 'integer',
                     },
-                    'impact_value': {  # calculation_basis of the cell's IsmsImpact
+                    RiskMatrixCellKey.IMPACT_VALUE.value: {  # calculation_basis of the cell's IsmsImpact
                         'type': 'float',
                         'min': 0.0,
                     },
-                    'likelihood_id': {  # public_id of the IsmsLikelihood represented by this cell
+                    RiskMatrixCellKey.LIKELIHOOD_ID.value: {  # public_id of the IsmsLikelihood represented by this cell
                         'type': 'integer',
                     },
-                    'likelihood_value': {  # calculation_basis of the cell's IsmsLikelihood
+                    RiskMatrixCellKey.LIKELIHOOD_VALUE.value: {  # calculation_basis of the cell's IsmsLikelihood
                         'type': 'float',
                         'min': 0.0,
                     },
-                    'calculated_value': {  # Computed risk value for the cell (impact x likelihood)
+                    # Computed risk value for the cell (impact x likelihood)
+                    RiskMatrixCellKey.CALCULATED_VALUE.value: {
                         'type': 'float',
                         'min': 0.0,
                     },
                 },
             },
         },
-        'matrix_unit': {  # Unit / label describing the matrix values
+        RiskMatrixKey.MATRIX_UNIT.value: {  # Unit / label describing the matrix values
             'type': 'string',
+            # Nullable because the matrix HAS no unit until an admin sets one: the seeded default
+            # writes null, and to_json writes null for an unset unit - without this the document the
+            # first boot creates would not pass its own schema
+            'nullable': True,
         },
     }

@@ -14,7 +14,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provide all available Response classes for the API routes
+The response envelope of the REST API: one class per operation
+
+A route never builds an HTTP response itself - it hands its payload to one of these classes, which
+serializes it, stamps the envelope keys (`response_type`, `time`) and sets the API headers. Which
+class to use, the status code each one answers with and the keys it writes are tabulated in
+`base_api_response.py`; the key and header names themselves are in `response_constants.py`, because
+they are a frontend contract.
+
+Two members are not envelopes:
+
+* `LoginResponse` is the token exchange and deliberately carries no envelope keys
+* `GridFsResponse` is a plain result container for the media library, not an HTTP response at all -
+  it has no `make_response`. It is also imported by `media_files_manager`, which makes the manager
+  layer depend on the interface layer; where it should move instead is discussion-backlog #216
+
+`ErrorResponse` in `error_handlers.py` is the other half of the contract: it owns the shape of a
+failed request (`status`, `response`, `description`, `message`), which is what every `abort()` in the
+codebase produces
 """
 from .base_api_response import BaseAPIResponse
 from .delete_single_response import DeleteSingleResponse

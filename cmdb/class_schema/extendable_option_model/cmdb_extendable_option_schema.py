@@ -23,8 +23,6 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbExtendableOption.SCHEMA.
 """
 from typing import Any
-
-from cmdb.models.extendable_option_model.option_type_enum import OptionType
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_extendable_option_schema() -> dict[str, Any]:
@@ -34,6 +32,12 @@ def get_cmdb_extendable_option_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbExtendableOption.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.extendable_option_model.option_type_enum import OptionType
+
     return {
         'public_id': {  # public_id of the CmdbExtendableOption
             'type': 'integer',

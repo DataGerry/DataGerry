@@ -14,14 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of ObjectTemplateData
+Implementation of DefaultTemplateData
 """
-import html
-from logging import Logger, getLogger
 import re
-from typing import Any
+from logging import Logger, getLogger
+from typing import Any, Callable
 from datetime import datetime
 from itertools import product
+
+from markupsafe import Markup, escape
+
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.manager.query_builder import BuilderParameters
 
@@ -35,11 +37,16 @@ from cmdb.manager import (
 )
 
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model.section_type_enum import SectionType
+from cmdb.models.reports_model.mds_mode_enum import MdsMode
+from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
+from cmdb.models.user_model import CmdbUser
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
 from cmdb.models.docapi_model.safe_object import SafeObject
-from cmdb.models.docapi_model.safe_dict import SafeDict
+from cmdb.models.docapi_model.safe_wrap import safe_wrap
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.models.docapi_model.relation_result import RelationResult
+from cmdb.models.docapi_model.docapi_cache_helper import cache_objects_and_types
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -73,42 +80,43 @@ RELATION_STEP_REGEX = re.compile(
     re.VERBOSE,
 )
 
+# The first column (Public ID) is narrow; the remaining columns share the rest evenly
+FIRST_COLUMN_PCT: int = 10
+# `report_query.data` is the repr of a Python dict using `datetime.datetime(...)`; it is eval'd in a
+# locked-down namespace (only `datetime`, no builtins) so it cannot reach arbitrary code
+REPORT_QUERY_TOKEN: str = "datetime.datetime"
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              DefaultTemplateData - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 class DefaultTemplateData:
     """
-    Class to process the template data for default templates
+    Builds the render context for DEFAULT (modern) DocAPI templates
+
+    Exposes the root object plus ``object(id)`` / ``report(id)`` accessors and relation traversal,
+    prefetching the objects, types and relations referenced by the template string.
     """
     def __init__(
         self,
-        cmdb_render_object,
+        cmdb_render_object: RenderResult,
         template_string: str,
-        request_user,
-        template_type
+        request_user: CmdbUser,
+        template_type: DocapiTemplateType
     ) -> None:
         """
-        TODO: document
+        Initializes the DefaultTemplateData
+
+        Args:
+            cmdb_render_object (RenderResult): The RenderResult of the root object
+            template_string (str): The raw template body (parsed for referenced ids)
+            request_user (CmdbUser): The user requesting the document
+            template_type (DocapiTemplateType): The template type
         """
         self.template_string = template_string
         self.request_user = request_user
         self.template_type = template_type
 
-        self.objects_manager: ObjectsManager = ManagerProvider.get_manager(
-            ManagerType.OBJECTS, request_user
-        )
-        self.types_manager: TypesManager = ManagerProvider.get_manager(
-            ManagerType.TYPES, request_user
-        )
-        self.relations_manager: RelationsManager = ManagerProvider.get_manager(
-            ManagerType.RELATIONS, request_user
-        )
-        self.object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
-            ManagerType.OBJECT_RELATIONS, request_user
-        )
-        self.reports_manager: ReportsManager = ManagerProvider.get_manager(
-            ManagerType.REPORTS, request_user
-        )
+        self._init_managers(request_user)
 
         # Root object
         self.root_data = ObjectTemplateData(
@@ -117,78 +125,24 @@ class DefaultTemplateData:
             self.request_user,
             self.template_type
         ).get_template_data()
-
         self.root_object_id = self.root_data["public_id"]
 
-        # Parse template once
-        self.external_object_ids = {
-            int(m) for m in EXTERNAL_OBJECT_REGEX.findall(template_string)
-        }
-
-        self.report_ids = {
-            int(m) for m in REPORT_REGEX.findall(template_string)
-        }
-
-        self.relation_placeholders = [
-            m.group()
-            for m in RELATION_PLACEHOLDER_REGEX.finditer(template_string)
-        ]
+        # Parse the template once for referenced object / report / relation ids
+        self._parse_template(template_string)
 
         # Caches
         self.object_cache: dict[int, dict] = {}
         self.type_cache: dict[int, dict] = {}
         self.relation_cache: dict[int, dict] = {}
-        self.object_relations: dict[dict] = []
+        self.all_object_relations: list[dict] = []
 
-        # Fetch objects
         object_ids = set(self.external_object_ids)
         object_ids.add(self.root_object_id)
+        self._prefetch_objects_and_types(object_ids)
 
-        if object_ids:
-            cursor = self.objects_manager.find(
-                criteria={"public_id": {"$in": list(object_ids)}}
-            )
-            for obj in cursor:
-                self.object_cache[obj["public_id"]] = obj
-
-        # Fetch types
-        type_ids = {
-            obj["type_id"]
-            for obj in self.object_cache.values()
-            if obj.get("type_id")
-        }
-
-        if type_ids:
-            cursor = self.types_manager.find(
-                criteria={"public_id": {"$in": list(type_ids)}}
-            )
-            for t in cursor:
-                self.type_cache[t["public_id"]] = t
-
-        # Fetch relations + object relations
-        relation_ids = set()
-
-        for placeholder in self.relation_placeholders:
-            for rel_id, _, _ in RELATION_STEP_REGEX.findall(placeholder):
-                relation_ids.add(int(rel_id))
-
-        self.all_object_relations: list[dict] = []  # global relation list
-
-        if relation_ids:
-            cursor = self.relations_manager.find(
-                criteria={"public_id": {"$in": list(relation_ids)}}
-            )
-            for r in cursor:
-                self.relation_cache[r["public_id"]] = r
-
-            cursor = self.object_relations_manager.find(
-                criteria={"relation_id": {"$in": list(relation_ids)}}
-            )
-            # store global list separately
-            self.all_object_relations = list(cursor)
-
-        # Keep self.object_relations for first-hop scoped traversal
-        self.object_relations = list(self.all_object_relations)
+        self._prefetch_relations(self._collect_relation_ids())
+        # Scoped copy used for first-hop traversal
+        self.object_relations: list[dict] = list(self.all_object_relations)
 
         # Final template data
         self.template_data: dict[str, Any] = {
@@ -201,38 +155,99 @@ class DefaultTemplateData:
     def get_template_data(self) -> dict[str, Any]:
         """
         Returns the template_data
+
+        Returns:
+            dict[str, Any]: The render context (root / object / report)
         """
         return self.template_data
 
+# ------------------------------------------------- INIT / PREFETCH -------------------------------------------------- #
 
-    def _root_accessor(self):
+    def _init_managers(self, request_user: CmdbUser) -> None:
+        """Resolves the managers used for prefetching and rendering."""
+        self.objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        self.types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        self.relations_manager: RelationsManager = ManagerProvider.get_manager(ManagerType.RELATIONS, request_user)
+        self.object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
+            ManagerType.OBJECT_RELATIONS, request_user
+        )
+        self.reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
+
+
+    def _parse_template(self, template_string: str) -> None:
+        """Extracts the referenced object ids, report ids and relation placeholders from the template."""
+        self.external_object_ids = {int(m) for m in EXTERNAL_OBJECT_REGEX.findall(template_string)}
+        self.report_ids = {int(m) for m in REPORT_REGEX.findall(template_string)}
+        self.relation_placeholders = [m.group() for m in RELATION_PLACEHOLDER_REGEX.finditer(template_string)]
+
+
+    def _collect_relation_ids(self) -> set[int]:
+        """Collects the relation ids referenced by the template's relation placeholders."""
+        relation_ids: set[int] = set()
+        for placeholder in self.relation_placeholders:
+            for rel_id, _, _ in RELATION_STEP_REGEX.findall(placeholder):
+                relation_ids.add(int(rel_id))
+
+        return relation_ids
+
+
+    def _prefetch_objects_and_types(self, object_ids: set[int]) -> None:
+        """Loads the referenced objects and their types into the caches."""
+        if object_ids:
+            for obj in self.objects_manager.find(criteria={"public_id": {"$in": list(object_ids)}}):
+                self.object_cache[obj["public_id"]] = obj
+
+        type_ids = {obj["type_id"] for obj in self.object_cache.values() if obj.get("type_id")}
+        if type_ids:
+            for obj_type in self.types_manager.find(criteria={"public_id": {"$in": list(type_ids)}}):
+                self.type_cache[obj_type["public_id"]] = obj_type
+
+
+    def _prefetch_relations(self, relation_ids: set[int]) -> None:
+        """Loads the referenced relations and their object-relations into the caches."""
+        if not relation_ids:
+            return
+
+        for relation in self.relations_manager.find(criteria={"public_id": {"$in": list(relation_ids)}}):
+            self.relation_cache[relation["public_id"]] = relation
+
+        self.all_object_relations = list(
+            self.object_relations_manager.find(criteria={"relation_id": {"$in": list(relation_ids)}})
+        )
+
+# ----------------------------------------------------- ACCESSORS ---------------------------------------------------- #
+
+    def _root_accessor(self) -> dict[str, Any]:
+        """Builds the root render context (root object data plus its relation accessor)."""
         root = dict(self.root_data)
         root["relation"] = self._relation_accessor(self.root_object_id)
 
         return root
 
 
-    def _relation_accessor(self, start_object_id: int):
+    def _relation_accessor(self, start_object_id: int) -> Callable[[int, str], RelationResult]:
+        """Returns a callable resolving a relation hop from `start_object_id`."""
         def _relation_fn(relation_id: int, side: str) -> RelationResult:
-            return self._relation_traversal(
-                start_object_id,
-                relation_id,
-                side
-            )
+            return self._relation_traversal(start_object_id, relation_id, side)
 
         return _relation_fn
 
 
-    def _relation_traversal(
-        self,
-        start_object_id: int,
-        relation_id: int,
-        side: str,
-    ) -> RelationResult:
+    def _relation_traversal(self, start_object_id: int, relation_id: int, side: str) -> RelationResult:
+        """
+        Resolves one relation hop into a RelationResult
+
+        Args:
+            start_object_id (int): The object the hop starts from
+            relation_id (int): The relation to traverse
+            side (str): The traversal direction ('parent' or 'child')
+
+        Returns:
+            RelationResult: The matched objects with the caches for further traversal
+        """
         matches = []
 
-        # Find objects for this hop
-        for rel in self.object_relations:  # still use scoped here
+        for rel in self.object_relations:
             if rel["relation_id"] != relation_id:
                 continue
 
@@ -241,24 +256,8 @@ class DefaultTemplateData:
             elif side == "child" and rel["relation_parent_id"] == start_object_id:
                 matches.append(rel["relation_child_id"])
 
-        # Cache objects & types (unchanged)
-        missing_ids = [oid for oid in matches if oid not in self.object_cache]
-        if missing_ids:
-            cursor = self.objects_manager.find(criteria={"public_id": {"$in": missing_ids}})
-            for obj in cursor:
-                self.object_cache[obj["public_id"]] = obj
+        self._cache_objects_and_types(matches)
 
-        missing_type_ids = {
-            obj["type_id"]
-            for obj in self.object_cache.values()
-            if obj.get("type_id") and obj["type_id"] not in self.type_cache
-        }
-        if missing_type_ids:
-            cursor = self.types_manager.find(criteria={"public_id": {"$in": list(missing_type_ids)}})
-            for t in cursor:
-                self.type_cache[t["public_id"]] = t
-
-        # Build scoped relations for relation_fields
         scoped_relations = []
         for rel in self.object_relations:
             if rel["relation_id"] != relation_id:
@@ -275,17 +274,29 @@ class DefaultTemplateData:
             matches,
             self.object_cache,
             self.type_cache,
-            scoped_relations,          # scoped for relation_fields
-            self.all_object_relations, # global for multi-hop traversal
+            scoped_relations,           # scoped for relation_fields
+            self.all_object_relations,  # global for multi-hop traversal
             self.request_user,
             self.objects_manager,
+            self.types_manager,
             self.template_type
         )
 
 
-    # External object accessor
-    def _object_accessor(self):
-        def _object_fn(public_id: int):
+    def _cache_objects_and_types(self, object_ids: list[int]) -> None:
+        """Lazily loads any of `object_ids` (and their types) not already cached."""
+        cache_objects_and_types(
+            object_ids,
+            self.object_cache,
+            self.type_cache,
+            self.objects_manager,
+            self.types_manager,
+        )
+
+
+    def _object_accessor(self) -> Callable[[int], Any]:
+        """Returns a callable resolving an external ``object(id)`` reference to its (safe) data."""
+        def _object_fn(public_id: int) -> Any:
             obj = self.object_cache.get(public_id)
             if not obj:
                 return SafeObject()
@@ -304,178 +315,215 @@ class DefaultTemplateData:
                 self.template_type
             ).get_template_data()
 
-            return self._safe_wrap(result)
+            return safe_wrap(result)
 
         return _object_fn
 
 
-    def _report_accessor(self):
-        def _report_fn(public_id: int):
-            if public_id not in self.report_ids:
-                return None
-
-            report = self.reports_manager.get_item(public_id, as_dict=True)
-            if not report:
-                return None
-
-            # Run report query
-            query_str = report["report_query"]["data"]
-
-            # The stored query is the repr of a Python dict; normalise the datetime calls and eval in
-            # a locked-down namespace (only 'datetime', no builtins) so it cannot reach arbitrary code
-            safe_globals = {"datetime": datetime, "__builtins__": {}}
-            # pylint: disable=W0123
-            report_query = eval(query_str.replace("datetime.datetime", "datetime"), safe_globals)
-
-            objects = []
-
-            if report_query:
-                builder_params = BuilderParameters(criteria=report_query)
-                objects = self.objects_manager.iterate(builder_params).results
-
-            # Build label map for headers
-            field_label_map = {}
-            type_id = report.get("type_id")
-            type_obj = None
-
-            if type_id:
-                type_obj = self.types_manager.get_type(type_id)
-
-                for field in type_obj.get("fields", []):
-                    field_label_map[field["name"]] = field.get("label", field["name"])
-
-                for section in type_obj.get("multi_data_sections", []):
-                    for field in section.get("fields", []):
-                        field_label_map[field["name"]] = field.get("label", field["name"])
-
-            # Build headers
-            headers = ["Public ID"]
-            for field_id in report.get("selected_fields", []):
-                headers.append(field_label_map.get(field_id, field_id))
-
-            rows = []
-
-            # determine ONCE if we need MDS expansion
-            use_mds = False
-            if type_obj and report.get("mds_mode", "ROWS") == "ROWS":
-                use_mds = self._report_uses_mds_fields(report, type_obj)
-
-            for obj in objects:
-                # Base fields
-                base_fields = {
-                    "public_id": obj.public_id
-                }
-
-                for field in obj.fields:
-                    base_fields[field["name"]] = field.get("value")
-
-                # Extract MDS sections
-                mds_sections = []
-
-                for section in obj.multi_data_sections:
-                    section_rows = []
-
-                    for entry in section.get("values", []):
-                        row_data = {}
-                        for field in entry.get("data", []):
-                            row_data[field["name"]] = field.get("value")
-                        section_rows.append(row_data)
-
-                    mds_sections.append(section_rows)
-
-                mds_mode = report.get("mds_mode", "ROWS")
-
-                if mds_mode == "COLUMNS":
-                    expanded = self._expand_mds_columns(
-                        base_fields,
-                        mds_sections
-                    )
-
-                    row = [str(expanded.get("public_id", ""))]
-                    for field_id in report.get("selected_fields", []):
-                        val = expanded.get(field_id, "")
-                        row.append("" if val is None else str(val))
-
-                    rows.append(row)
-
-                else:
-                    # Only expand if report actually uses MDS fields
-                    if use_mds:
-                        expanded_rows = self._expand_mds_rows(
-                            base_fields,
-                            mds_sections
-                        )
-                    else:
-                        expanded_rows = [base_fields]   # no cartesian product
-
-                    for expanded in expanded_rows:
-                        row = [str(expanded.get("public_id", ""))]
-                        for field_id in report.get("selected_fields", []):
-                            val = expanded.get(field_id, "")
-                            row.append("" if val is None else str(val))
-
-                        rows.append(row)
-
-            # Render table
-            return self._build_report_table(headers, rows)
+    def _report_accessor(self) -> Callable[[int], Any]:
+        """Returns a callable rendering a ``report(id)`` reference into an HTML table."""
+        def _report_fn(public_id: int) -> Any:
+            return self._build_report(public_id)
 
         return _report_fn
 
-# ------------------------------------------------------ HELPERS ----------------------------------------------------- #
+# ------------------------------------------------------ REPORT ------------------------------------------------------ #
 
-    def _get_field_label_map(self, type_id) -> dict:
-        """TODO: document"""
-        obj_type = self.types_manager.get_type(type_id)
+    def _build_report(self, public_id: int) -> Markup | None:
+        """
+        Renders a report into an HTML table, or None when the report is unknown/missing
 
-        label_map = {}
-        for field in obj_type.get("fields", []):
-            label_map[field["id"]] = field.get("label", field["id"])
+        Args:
+            public_id (int): The report's public id
+
+        Returns:
+            Markup | None: The rendered report table, or None
+        """
+        if public_id not in self.report_ids:
+            return None
+
+        report = self.reports_manager.get_item(public_id, as_dict=True)
+        if not report:
+            return None
+
+        objects = self._run_report_query(report)
+
+        type_id = report.get("type_id")
+        type_obj = self.types_manager.get_type(type_id) if type_id else None
+
+        field_label_map = self._report_field_label_map(type_obj)
+        headers = self._report_headers(report, field_label_map)
+        rows = self._report_rows(report, objects, type_obj)
+
+        return self._build_report_table(headers, rows)
+
+
+    def _run_report_query(self, report: dict[str, Any]) -> list:
+        """
+        Evaluates the stored report query and returns the matching objects
+
+        Args:
+            report (dict[str, Any]): The report definition
+
+        Returns:
+            list: The objects matching the report query (empty when the query is empty)
+        """
+        query_str = report["report_query"]["data"]
+
+        # eval in a locked-down namespace (only 'datetime', no builtins) so it cannot reach arbitrary code
+        safe_globals = {"datetime": datetime, "__builtins__": {}}
+        # pylint: disable=W0123
+        report_query = eval(query_str.replace(REPORT_QUERY_TOKEN, "datetime"), safe_globals)
+
+        if not report_query:
+            return []
+
+        builder_params = BuilderParameters(criteria=report_query)
+
+        return self.objects_manager.iterate(builder_params).results
+
+
+    def _report_field_label_map(self, type_obj: dict[str, Any] | None) -> dict[str, str]:
+        """Builds a field-name -> label map from a type's fields and multi-data-section fields."""
+        label_map: dict[str, str] = {}
+        if not type_obj:
+            return label_map
+
+        for field in type_obj.get("fields", []):
+            label_map[field["name"]] = field.get("label", field["name"])
+
+        for section in type_obj.get("multi_data_sections", []):
+            for field in section.get("fields", []):
+                label_map[field["name"]] = field.get("label", field["name"])
 
         return label_map
 
 
-    def _esc(self, value: Any) -> str:
-        """
-        Method to escape HTML input
-        """
-        return html.escape("" if value is None else str(value))
+    def _report_headers(self, report: dict[str, Any], field_label_map: dict[str, str]) -> list[str]:
+        """Builds the report table header row (Public ID plus the selected fields' labels)."""
+        headers = ["Public ID"]
+        for field_id in report.get("selected_fields", []):
+            headers.append(field_label_map.get(field_id, field_id))
+
+        return headers
 
 
-    def _build_report_table(self, headers, rows):
+    def _report_rows(self, report: dict[str, Any], objects: list, type_obj: dict[str, Any] | None) -> list[list[Any]]:
+        """
+        Builds the report table body rows, expanding multi-data-sections per the report's MDS mode
+
+        Args:
+            report (dict[str, Any]): The report definition
+            objects (list): The objects matching the report query
+            type_obj (dict[str, Any] | None): The report's type (for MDS-field detection)
+
+        Returns:
+            list[list[str]]: The table body rows
+        """
+        mds_mode = report.get("mds_mode", MdsMode.ROWS)
+        use_mds = bool(type_obj) and mds_mode == MdsMode.ROWS and self._report_uses_mds_fields(report, type_obj)
+
+        rows: list[list[str]] = []
+        for obj in objects:
+            base_fields = self._object_base_fields(obj)
+            mds_sections = self._object_mds_sections(obj)
+
+            if mds_mode == MdsMode.COLUMNS:
+                expanded_rows = [self._expand_mds_columns(base_fields, mds_sections)]
+            elif use_mds:
+                expanded_rows = self._expand_mds_rows(base_fields, mds_sections)
+            else:
+                expanded_rows = [base_fields]  # no cartesian product
+
+            for expanded in expanded_rows:
+                rows.append(self._report_row(report, expanded))
+
+        return rows
+
+
+    def _report_row(self, report: dict[str, Any], expanded: dict[str, Any]) -> list[Any]:
+        """
+        Builds a single report row (Public ID cell plus one raw cell per selected field)
+
+        Cells are left raw (str / int / Markup / None); `_build_report_table` escapes them via
+        `_esc`, which preserves already-trusted `Markup` (e.g. the ``<br>``-joined COLUMNS cells).
+        """
+        row: list[Any] = [str(expanded.get("public_id", ""))]
+        for field_id in report.get("selected_fields", []):
+            row.append(expanded.get(field_id, ""))
+
+        return row
+
+
+    @staticmethod
+    def _object_base_fields(obj: CmdbObject) -> dict[str, Any]:
+        """Extracts an object's public id and flat field values."""
+        base_fields: dict[str, Any] = {"public_id": obj.public_id}
+        for field in obj.fields:
+            base_fields[field["name"]] = field.get("value")
+
+        return base_fields
+
+
+    @staticmethod
+    def _object_mds_sections(obj: CmdbObject) -> list[list[dict]]:
+        """Extracts an object's multi-data-sections as a list of per-section row dicts."""
+        mds_sections: list[list[dict]] = []
+        for section in obj.multi_data_sections:
+            section_rows = []
+            for entry in section.get("values", []):
+                row_data = {}
+                for field in entry.get("data", []):
+                    row_data[field["name"]] = field.get("value")
+                section_rows.append(row_data)
+            mds_sections.append(section_rows)
+
+        return mds_sections
+
+# ------------------------------------------------------ HELPERS ----------------------------------------------------- #
+
+    def _esc(self, value: Any) -> Markup:
+        """
+        Escapes a value for safe HTML output, leaving already-trusted `Markup` untouched
+
+        Args:
+            value (Any): The value to escape
+
+        Returns:
+            Markup: The escaped (or already-trusted) markup
+        """
+        return escape("" if value is None else value)
+
+
+    def _build_report_table(self, headers: list[str], rows: list[list[str]]) -> Markup:
         """
         Builds an HTML table that renders correctly in xhtml2pdf (PDF output)
 
-        - Forces column widths inline (xhtml2pdf ignores most CSS layout rules)
-        - First column is narrow (Public ID)
-        - Remaining columns share the rest of the width evenly
+        Column widths are forced inline (xhtml2pdf ignores most CSS layout rules): a narrow first
+        column (Public ID) and the remaining columns sharing the rest evenly. Cell/header values
+        are HTML-escaped; the returned table is trusted `Markup`.
+
+        Args:
+            headers (list[str]): The header labels
+            rows (list[list[str]]): The body rows
+
+        Returns:
+            Markup: The rendered table (empty string when there are no columns)
         """
-        # Column Width Calculation
         num_cols: int = len(headers)
         if num_cols < 1:
-            return ""
+            return Markup("")
 
-        first_col_pct = 10  # % width for first column
-        remaining_pct = 100 - first_col_pct
+        remaining_pct = 100 - FIRST_COLUMN_PCT
+        other_col_pct = remaining_pct / (num_cols - 1) if num_cols > 1 else 100
 
-        if num_cols > 1:
-            other_col_pct = remaining_pct / (num_cols - 1)
-        else:
-            other_col_pct = 100
-
-        tpl_html = []
-        tpl_html.append("<table class='report-table'>")
+        tpl_html = ["<table class='report-table'>"]
 
         # ----- Header -----
         tpl_html.append("<thead><tr>")
-        for i, h in enumerate(headers):
-            if i == 0:
-                tpl_html.append(
-                    f"<th style='width:{first_col_pct}%'>{h}</th>"
-                )
-            else:
-                tpl_html.append(
-                    f"<th style='width:{other_col_pct}%'>{h}</th>"
-                )
+        for i, header in enumerate(headers):
+            width = FIRST_COLUMN_PCT if i == 0 else other_col_pct
+            tpl_html.append(f"<th style='width:{width}%'>{self._esc(header)}</th>")
         tpl_html.append("</tr></thead>")
 
         # ----- Body -----
@@ -483,38 +531,31 @@ class DefaultTemplateData:
         for row in rows:
             tpl_html.append("<tr>")
             for i, cell in enumerate(row):
-                safe = "" if cell is None else str(cell)
-
-                if i == 0:
-                    tpl_html.append(
-                        f"<td style='width:{first_col_pct}%'>{safe}</td>"
-                    )
-                else:
-                    tpl_html.append(
-                        f"<td style='width:{other_col_pct}%'>{safe}</td>"
-                    )
+                width = FIRST_COLUMN_PCT if i == 0 else other_col_pct
+                tpl_html.append(f"<td style='width:{width}%'>{self._esc(cell)}</td>")
             tpl_html.append("</tr>")
         tpl_html.append("</tbody></table>")
 
-        return "".join(tpl_html)
+        # Trusted HTML: the cell values above are already escaped via _esc
+        return Markup("".join(tpl_html))
 
 
-    def _expand_mds_rows(self, base_fields: dict, mds_sections: list[dict]) -> list[dict]:
+    def _expand_mds_rows(self, base_fields: dict, mds_sections: list[list[dict]]) -> list[dict]:
         """
-        Expands multi data sections into cartesian product rows.
+        Expands multi-data-sections into cartesian-product rows
 
         Args:
-            base_fields: dict of normal object fields (including public_id)
-            mds_sections: list of MDS sections, each section is a list of row dicts
+            base_fields (dict): The object's normal fields (including public_id)
+            mds_sections (list[list[dict]]): The MDS sections, each a list of row dicts
 
         Returns:
-            List of fully expanded row dicts
+            list[dict]: The fully expanded row dicts (empty when any section is empty)
         """
-        # No MDS → single row
+        # No MDS -> single row
         if not mds_sections:
             return [base_fields]
 
-        # If any section is empty → no rows
+        # Any empty section -> no rows
         for section in mds_sections:
             if not section:
                 return []
@@ -529,12 +570,20 @@ class DefaultTemplateData:
         return rows
 
 
-    def _expand_mds_columns(self, base_fields, mds_sections: list[dict[str, Any]]):
+    def _expand_mds_columns(self, base_fields: dict, mds_sections: list[list[dict]]) -> dict:
         """
-        Collapse MDS values into stacked columns
+        Collapses multi-data-section values into stacked columns (one cell, ``<br>``-separated)
+
+        Args:
+            base_fields (dict): The object's normal fields (including public_id)
+            mds_sections (list[list[dict]]): The MDS sections, each a list of row dicts
+
+        Returns:
+            dict: base_fields with each MDS field collapsed to a `Markup` of escaped, ``<br>``-joined
+                values
         """
         result = dict(base_fields)
-        collected = {}
+        collected: dict[str, list] = {}
 
         for section in mds_sections:
             for row in section:
@@ -542,16 +591,22 @@ class DefaultTemplateData:
                     collected.setdefault(field_name, []).append(value)
 
         for field_name, values in collected.items():
-            result[field_name] = "<br>".join(
-                "" if v is None else str(v) for v in values
-            )
+            # Escape each value, keep the <br> separator as trusted markup
+            result[field_name] = Markup("<br>").join("" if v is None else str(v) for v in values)
 
         return result
 
 
     def _report_uses_mds_fields(self, report: dict[str, Any], type_obj: dict[str, Any]) -> bool:
         """
-        TODO: document
+        Reports whether any of the report's selected fields is a multi-data-section field
+
+        Args:
+            report (dict[str, Any]): The report definition
+            type_obj (dict[str, Any]): The report's type
+
+        Returns:
+            bool: True if a selected field belongs to a multi-data-section
         """
         selected = set(report.get("selected_fields", []))
 
@@ -559,7 +614,7 @@ class DefaultTemplateData:
         sections: list[dict[str, Any]] = render_meta.get("sections", [])
 
         for section in sections:
-            if section.get("type") != "multi-data-section":
+            if section.get("type") != SectionType.MDS_SECTION:
                 continue
 
             for field_name in section.get("fields", []):
@@ -567,11 +622,3 @@ class DefaultTemplateData:
                     return True
 
         return False
-
-
-    def _safe_wrap(self, data):
-        if isinstance(data, dict):
-            return SafeDict({k: self._safe_wrap(v) for k, v in data.items()})
-        if isinstance(data, list):
-            return [self._safe_wrap(v) for v in data]
-        return data

@@ -32,17 +32,23 @@ def get_isms_protection_goal_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsProtectionGoal.SCHEMA
     """
+    # Imported inside the builder: the model imports this schema, so a module-level import of the
+    # model's constants would close a cycle (see the class_schema convention)
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
+
     return {
-        'public_id': {  # public_id of the IsmsProtectionGoal
+        ProtectionGoalKey.PUBLIC_ID.value: {  # public_id of the IsmsProtectionGoal
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the protection goal (e.g. Confidentiality, Integrity, Availability)
+        # Name of the protection goal (e.g. Confidentiality, Integrity, Availability)
+        ProtectionGoalKey.NAME.value: {
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'predefined': {  # True if provided by DataGerry rather than user-created
+        ProtectionGoalKey.PREDEFINED.value: {  # True if provided by DataGerry rather than user-created
             'type': 'boolean',
             'required': True,
             'empty': False,

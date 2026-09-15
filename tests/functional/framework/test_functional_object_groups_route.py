@@ -302,3 +302,74 @@ class TestErrorMapping:
 
         assert rest_api.delete(f'{OBJECT_GROUPS_URL}/{GROUP_ID}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestGroupTypeIsConstrained:
+    """The mode decides which cleanup maintains the group, so a third value is refused."""
+
+    def test_a_third_group_type_is_refused_on_create(self, rest_api) -> None:
+        """
+        A group outside STATIC / DYNAMIC is maintained by neither cleanup path
+
+        Deleting objects pulls their ids out of the STATIC groups and deleting a type out of the
+        DYNAMIC ones, so such a group keeps ids pointing at documents that no longer exist, forever.
+        """
+        payload = _payload()
+        payload['group_type'] = 'SOMETHING_ELSE'
+
+        assert rest_api.post(f'{OBJECT_GROUPS_URL}/', json=payload).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_third_group_type_is_refused_on_update(self, rest_api) -> None:
+        """The same rule on the update path: an existing group cannot be moved out of the two modes."""
+        new_id: int = _create(rest_api)
+        payload = _payload(name='Renamed')
+        payload['group_type'] = 'SOMETHING_ELSE'
+
+        assert rest_api.put(f'{OBJECT_GROUPS_URL}/{new_id}', json=payload).status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('mode', list(ObjectGroupMode), ids=lambda mode: mode.value)
+    def test_both_modes_are_accepted(self, rest_api, mode: ObjectGroupMode) -> None:
+        """Neither of the two real modes was caught by the new rule."""
+        payload = _payload(name=f'Group {mode.value}')
+        payload['group_type'] = mode.value
+
+        assert rest_api.post(f'{OBJECT_GROUPS_URL}/', json=payload).status_code in (
+            HTTPStatus.OK, HTTPStatus.CREATED,
+        )
+
+
+class TestTheDocumentTheApiHandsOutCanBeSentBack:
+    """The GET-then-PUT round trip, over HTTP."""
+
+    def test_a_group_created_without_categories_round_trips(self, rest_api) -> None:
+        """
+        Create without the optional key, read, put it straight back
+
+        The client has no partial update, so the document the API hands out has to be one it accepts.
+        """
+        created = rest_api.post(f'{OBJECT_GROUPS_URL}/', json={
+            'name': 'Round Trip',
+            'group_type': ObjectGroupMode.STATIC,
+            'assigned_ids': [1],
+        })
+
+        assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+        public_id: int = created.get_json()['raw']['public_id']
+        fetched = rest_api.get(f'{OBJECT_GROUPS_URL}/{public_id}').get_json()['result']
+
+        assert fetched['categories'] == []
+        assert rest_api.put(f'{OBJECT_GROUPS_URL}/{public_id}', json=fetched).status_code in (
+            HTTPStatus.OK, HTTPStatus.ACCEPTED,
+        )
+
+    def test_an_empty_assigned_ids_list_is_refused(self, rest_api) -> None:
+        """
+        A group of nothing has no meaning here, so emptying one is a deletion rather than an update
+
+        Pinned because it is the one list key that is neither nullable nor defaulted, and the
+        asymmetry with 'categories' is deliberate.
+        """
+        assert rest_api.post(f'{OBJECT_GROUPS_URL}/', json=_payload(assigned_ids=[])).status_code \
+            == HTTPStatus.BAD_REQUEST

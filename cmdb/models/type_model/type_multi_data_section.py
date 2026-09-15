@@ -102,16 +102,6 @@ class TypeMultiDataSection(TypeSection):
         return self.fields
 
 
-    def get_hidden_fields(self) -> list:
-        """
-        Retrieves all hidden fields of the section
-
-        Returns:
-            list: All hidden fields of the section
-        """
-        return self.fields
-
-
     def __str__(self) -> str:
         """TODO: document"""
         return json.dumps(TypeMultiDataSection.to_json(self))

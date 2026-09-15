@@ -27,6 +27,15 @@ class FieldKey(BaseStrEnum):
     one input shown to the user. Use these members instead of bare string literals when constructing
     or reading a field dict so a typo becomes an ImportError or AttributeError instead of a silently
     ignored key
+
+    SUMMARIES only appears on a `FieldType.REFERENCE` field: it overrides, per referenced CmdbType,
+    which summary fields and which summary line the renderer shows for that reference. Its entries are
+    keyed by `NestedSummaryKey`.
+
+    OPTION_TYPE only appears on a `FieldType.SELECT` field of a VIRTUAL section template, where the
+    selectable values are CmdbExtendableOptions of that OptionType rather than the inline OPTIONS list
+    a stored type's select carries. It tells the frontend which list to load and to extend through
+    `POST /rest/extendable_options/`; no stored CmdbType field ever has it
     """
     TYPE = 'type'
     NAME = 'name'
@@ -37,3 +46,5 @@ class FieldKey(BaseStrEnum):
     REF_TYPES = 'ref_types'
     OPTIONS = 'options'
     VALUE = 'value'
+    SUMMARIES = 'summaries'
+    OPTION_TYPE = 'option_type'

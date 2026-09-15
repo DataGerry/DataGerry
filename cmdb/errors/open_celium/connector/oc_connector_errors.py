@@ -30,6 +30,17 @@ class OcConnectorError(Exception):
 
 # ----------------------------------------------- OcConnector - ERRORS ----------------------------------------------- #
 
+class OcConnectorMasterPasswordError(OcConnectorError):
+    """
+    Raised when the OpenCelium master password is not available on a hosted installation
+
+    A configuration fault, not a caller's: every connector read and write in cloud mode is
+    authenticated with it, and the manager refuses to be constructed without one. Typed so a route
+    can name the cause instead of answering the generic "an internal server error occurred" a bare
+    ValueError produced
+    """
+
+
 class OcConnectorCreateError(OcConnectorError):
     """
     Raised when failing to create an OcConnector

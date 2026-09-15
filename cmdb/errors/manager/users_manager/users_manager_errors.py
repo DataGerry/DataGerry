@@ -64,3 +64,15 @@ class UsersManagerIterationError(UsersManagerError):
     """
     Raised when UsersManager could not iterate CmdbUsers
     """
+
+
+class UsersManagerActionError(UsersManagerError):
+    """
+    Raised when UsersManager was asked to perform an action it does not implement
+
+    Distinct from the Get/Update/Delete errors on purpose: those report a failed operation and the
+    routes map them to a 400 with an operation-specific message. This one reports a caller that
+    named an operation which does not exist - a contract violation rather than bad user input, since
+    the request layer validates the value before it ever reaches a manager. It is deliberately left
+    out of the route error maps so it surfaces as a 500
+    """

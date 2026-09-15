@@ -22,6 +22,21 @@ instead of repeating the literal right strings.
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
+__all__: list[str] = [
+    'RENDER_OBJECT_RIGHT',
+    'DocapiTemplateRight',
+]
+
+RENDER_OBJECT_RIGHT: str = 'base.framework.object.view'
+"""
+The right guarding the render route - a CmdbObject right, not a DocapiTemplate one
+
+Rendering reads the target CmdbObject and puts its field values into the document, so the right that
+decides it belongs to the object domain. The consequence is deliberate but worth knowing: holding all
+four DocapiTemplate rights is not enough to render, and whether the route should demand a template
+right AS WELL is a filed decision
+"""
+
 
 class DocapiTemplateRight(BaseStrEnum):
     """

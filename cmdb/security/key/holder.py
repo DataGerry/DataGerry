@@ -40,21 +40,28 @@ class KeyHolder:
     - In local mode, it retrieves keys from the application's configuration settings
     """
 
-    def __init__(self, dbm: MongoDatabaseManager) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, with_private_key: bool = True) -> None:
         """
-        Initializes the KeyHolder instance, loading the RSA public and private keys
+        Initializes the KeyHolder instance, loading the RSA keys it is asked for
+
+        Both keys are loaded by default, because a holder is normally built to SIGN. Verifying needs
+        the public key alone (`TokenValidator`), and in local mode every load is a settings read of
+        the same document - so a holder that will never sign asks for `with_private_key=False`
+        rather than reading the private key it cannot use
 
         Args:
             dbm (MongoDatabaseManager): The database manager used for retrieving application settings
+            with_private_key (bool): Whether to load the private key as well. Defaults to True
 
         Attributes:
             settings_manager (SettingsManager): Manages the settings for the application
             rsa_public (bytes): The RSA public key used for encryption
-            rsa_private (bytes): The RSA private key used for decryption
+            rsa_private (bytes | None): The RSA private key used for decryption, None when it was
+                not asked for
         """
         self.settings_manager: SettingsManager = SettingsManager(dbm)
         self.rsa_public: bytes = self.get_public_key()
-        self.rsa_private: bytes = self.get_private_key()
+        self.rsa_private: bytes | None = self.get_private_key() if with_private_key else None
 
 
     def get_public_key(self) -> bytes:

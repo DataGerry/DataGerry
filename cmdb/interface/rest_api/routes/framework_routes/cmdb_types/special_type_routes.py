@@ -24,10 +24,11 @@ from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import TypesManager
+from cmdb.manager import ExtendableOptionsManager, TypesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import TypeSchemaKey
+from cmdb.models.extendable_option_model import OptionType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.schemas.schema_provider import SchemaProvider
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -120,6 +121,32 @@ def get_special_types(request_user: CmdbUser) -> Response:
         abort(500, "An internal server error occured while retrieving SpecialTypes!")
 
 
+def get_cable_type_values(request_user: CmdbUser) -> list[str]:
+    """
+    Reads every CABLE_TYPE option value the installation currently offers
+
+    The CABLE blueprint's cable-type select carries inline options rather than pointing at the
+    CmdbExtendableOption list, because a stored CmdbType field has no 'option_type' key to point with.
+    Reading the values here - and not inside SchemaProvider - is what keeps that layer a pure function
+    with no database behind it.
+
+    Every existing value is read, not just the predefined ones, so a customer who already extended the
+    list gets their own values in the type they create. An empty result is a legitimate answer: the
+    Cable type is then created with an empty select rather than refused or back-filled
+
+    Args:
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Returns:
+        list[str]: The CABLE_TYPE option values, empty when the list holds nothing
+    """
+    extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
+        ManagerType.EXTENDABLE_OPTIONS, request_user,
+    )
+
+    return extendable_options_manager.get_option_values(OptionType.CABLE_TYPE.value)
+
+
 @special_types_blueprint.route('/schema', methods=['GET', 'HEAD'])
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
@@ -142,7 +169,12 @@ def get_special_type_schema(request_user: CmdbUser) -> Response:
         if not SpecialType.is_valid(special_type):
             abort(400, f"The provided SpecialType: {special_type} is not valid!")
 
-        schema: dict[str, Any] = SchemaProvider().get_schema(special_type)
+        # Only the CABLE blueprint needs a value from the database; every other one is static
+        cable_type_values: list[str] | None = (
+            get_cable_type_values(request_user) if special_type == SpecialType.CABLE else None
+        )
+
+        schema: dict[str, Any] = SchemaProvider().get_schema(special_type, cable_type_values)
 
         return DefaultResponse(schema).make_response()
     except HTTPException as http_err:

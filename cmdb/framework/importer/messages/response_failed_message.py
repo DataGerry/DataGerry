@@ -16,42 +16,28 @@
 """
 Implementation of ResponseFailedMessage
 """
-from logging import Logger, getLogger
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             ResponseFailedMessage - CLASS                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
 class ResponseFailedMessage:
-    """Message wrapper for failed objects"""
+    """Message wrapper for failed objects (serialized to JSON via its ``__dict__``)"""
 
-    def __init__(self, error_message: str, status: int, public_id: int | None = None, obj: dict = None) -> None:
-        """Init message
+    def __init__(self, error_message: Any, status: int, public_id: int | None = None,
+                 obj: dict | None = None) -> None:
+        """
+        Initialises the ResponseFailedMessage
+
         Args:
-            status: the given status code of exceptions
-            error_message: reason why it failed - exception error or something
-            public_id (optional): failed public_id
-            obj (optional): failed dict
+            error_message (Any): The failure reason (an exception or string); coerced to str so it
+                serializes as readable text rather than an empty object
+            status (int): The HTTP-like status code describing the failure
+            public_id (int | None): The public_id that failed, if known
+            obj (dict | None): The object dict that failed
         """
         self.status: int = status
         self.public_id: int | None = public_id
-        self.error_message = error_message
+        self.error_message: str = str(error_message)
         self.obj = obj
-
-
-    def to_dict(self) -> dict[str, Any]:
-        """
-        Converts a ResponseFailedMessage into a json compatible dict
-
-        Returns:
-            dict[str, Any]: Json compatible dict of the ResponseFailedMessage values
-        """
-        return {
-            'status': self.status,
-            'public_id': self.public_id,
-            'error_message': self.error_message,
-            'obj': self.obj,
-        }

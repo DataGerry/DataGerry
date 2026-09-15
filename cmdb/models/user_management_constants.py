@@ -21,7 +21,7 @@ from typing import Any
 from cmdb.manager import RightsManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import CmdbUserGroup, ADMIN_GROUP_ID, USER_GROUP_ID, MASTER_RIGHT_NAME
 from cmdb.models.settings_model import CmdbUserSetting
 from cmdb.models.person_model import CmdbPerson
 from cmdb.models.person_group_model import CmdbPersonGroup
@@ -39,7 +39,7 @@ __COLLECTIONS__: list[Any] = [
 ]
 
 __ADMIN_GROUP_RIGHTS__: list[BaseRight] = [
-    rights_manager.get_right('base.*')
+    rights_manager.get_right(MASTER_RIGHT_NAME)
 ]
 
 __USER_GROUP_RIGHTS__: list[BaseRight] = [
@@ -47,12 +47,13 @@ __USER_GROUP_RIGHTS__: list[BaseRight] = [
     rights_manager.get_right('base.framework.type.view'),
     rights_manager.get_right('base.framework.category.view'),
     rights_manager.get_right('base.framework.log.view'),
+    rights_manager.get_right('base.framework.rack.view'),
     rights_manager.get_right('base.user-management.user.view'),
     rights_manager.get_right('base.user-management.group.view'),
     rights_manager.get_right('base.docapi.template.view')
 ]
 
 __FIXED_GROUPS__: list[CmdbUserGroup] = [
-    CmdbUserGroup(public_id=1, name='admin', label='Administrator', rights=__ADMIN_GROUP_RIGHTS__),
-    CmdbUserGroup(public_id=2, name='user', label='User', rights=__USER_GROUP_RIGHTS__)
+    CmdbUserGroup(public_id=ADMIN_GROUP_ID, name='admin', label='Administrator', rights=__ADMIN_GROUP_RIGHTS__),
+    CmdbUserGroup(public_id=USER_GROUP_ID, name='user', label='User', rights=__USER_GROUP_RIGHTS__)
 ]

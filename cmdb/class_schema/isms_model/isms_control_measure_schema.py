@@ -23,8 +23,6 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as IsmsControlMeasure.SCHEMA.
 """
 from typing import Any
-
-from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_isms_control_measure_schema() -> dict[str, Any]:
@@ -34,53 +32,61 @@ def get_isms_control_measure_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as IsmsControlMeasure.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.isms_model.control_measure_type_enum import ControlMeasureType
+    from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
+
     return {
-        'public_id': {  # public_id of the IsmsControlMeasure
+        ControlMeasureKey.PUBLIC_ID.value: {  # public_id of the IsmsControlMeasure
             'type': 'integer',
             'min': 1,
         },
-        'title': {  # Title of the control measure
+        ControlMeasureKey.TITLE.value: {  # Title of the control measure
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'control_measure_type': {  # CONTROL / REQUIREMENT / MEASURE (a ControlMeasureType value)
+        ControlMeasureKey.CONTROL_MEASURE_TYPE.value: {  # CONTROL / REQUIREMENT / MEASURE (a ControlMeasureType value)
             'type': 'string',
             'required': True,
             'empty': False,
             'allowed': [measure_type.value for measure_type in ControlMeasureType],
         },
-        'source': {  # public_id of the source the control originates from (e.g. a framework / standard)
+        # public_id of the source the control originates from (e.g. a framework / standard)
+        ControlMeasureKey.SOURCE.value: {
             'type': 'integer',
             'required': True,
             'nullable': True,
         },
-        'implementation_state': {  # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
+        ControlMeasureKey.IMPLEMENTATION_STATE.value: {  # public_id of CmdbExtendableOption 'IMPLEMENTATION_STATE'
             'type': 'integer',
             'required': True,
             'nullable': True,
         },
-        'identifier': {  # External identifier / catalogue number of the control
+        ControlMeasureKey.IDENTIFIER.value: {  # External identifier / catalogue number of the control
             'type': 'string',
             'required': True,
             'nullable': True,
         },
-        'chapter': {  # Chapter / section reference within the source framework
+        ControlMeasureKey.CHAPTER.value: {  # Chapter / section reference within the source framework
             'type': 'string',
             'required': True,
             'nullable': True,
         },
-        'description': {  # Description of the control measure
+        ControlMeasureKey.DESCRIPTION.value: {  # Description of the control measure
             'type': 'string',
             'required': True,
             'nullable': True,
         },
-        'is_applicable': {  # Whether the control is applicable (Statement of Applicability)
+        ControlMeasureKey.IS_APPLICABLE.value: {  # Whether the control is applicable (Statement of Applicability)
             'type': 'boolean',
             'required': True,
             'nullable': True,
         },
-        'reason': {  # Justification for applicability or exclusion
+        ControlMeasureKey.REASON.value: {  # Justification for applicability or exclusion
             'type': 'string',
             'required': True,
             'nullable': True,

@@ -47,11 +47,14 @@ CMA_ID_FOR_GET: int = 98401
 CMA_ID_FOR_UPDATE: int = 98402
 CMA_ID_FOR_DELETE: int = 98403
 CMA_ID_FOR_ENRICH: int = 98404
+CMA_ID_FOR_OBJECT_ENRICH: int = 98405
 MISSING_CMA_ID: int = 98499
 
 RISK_ASSESSMENT_ID: int = 98450
 RISK_ID: int = 98451
 OBJECT_GROUP_ID: int = 98452
+OBJECT_RISK_ASSESSMENT_ID: int = 98453
+REFERENCED_OBJECT_ID: int = 98454
 CONTROL_MEASURE_ID: int = 98460
 MISSING_CONTROL_MEASURE_ID: int = 98461
 
@@ -110,10 +113,11 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     _purge()
 
 
-def _insert_cma(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
+def _insert_cma(database_manager: MongoDatabaseManager, database_name: str, public_id: int,
+                risk_assessment_id: int = RISK_ASSESSMENT_ID) -> None:
     """Inserts an IsmsControlMeasureAssignment doc directly via the collection."""
     database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
-        .insert_one(_cma_payload(public_id))
+        .insert_one(_cma_payload(public_id, risk_assessment_id))
 
 
 class TestPostControlMeasureAssignment:
@@ -180,6 +184,35 @@ class TestGetControlMeasureAssignment:
         enriched = next(item for item in response.get_json()['results'] if item['public_id'] == CMA_ID_FOR_ENRICH)
         expected = f"#{RISK_ASSESSMENT_ID} - {RISK_NAME} @ {OBJECT_GROUP_NAME}"
         assert enriched['naming']['cma_summary'] == expected
+
+    def test_list_enriches_a_single_object_reference(self, rest_api,
+                                                     database_manager: MongoDatabaseManager,
+                                                     database_name: str) -> None:
+        """
+        The other half of the reference split: a RiskAssessment pointing at one CmdbObject
+
+        A RiskAssessment references EITHER a single object or an object group, and the two are
+        collected into different id sets and resolved by different managers. Only the group half was
+        exercised, so the object half - the one that reads a summary line rather than a group name -
+        had never run.
+        """
+        _insert_cma(database_manager, database_name, CMA_ID_FOR_OBJECT_ENRICH,
+                    risk_assessment_id=OBJECT_RISK_ASSESSMENT_ID)
+        database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).insert_one({
+            'public_id': OBJECT_RISK_ASSESSMENT_ID,
+            'risk_id': RISK_ID,
+            'object_id_ref_type': ObjectReferenceType.OBJECT,
+            'object_id': REFERENCED_OBJECT_ID,
+        })
+        database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
+            .insert_one({'public_id': RISK_ID, 'name': RISK_NAME})
+
+        response = rest_api.get(f'{ROUTE_URL}/')
+
+        assert response.status_code == HTTPStatus.OK
+        enriched = next(item for item in response.get_json()['results']
+                        if item['public_id'] == CMA_ID_FOR_OBJECT_ENRICH)
+        assert f'#{OBJECT_RISK_ASSESSMENT_ID} - {RISK_NAME}' in enriched['naming']['cma_summary']
 
 
 class TestPutControlMeasureAssignment:
@@ -273,3 +306,75 @@ class TestErrorMapping:
                             _raiser(ControlMeasureAssignmentManagerDeleteError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
+        """When the created assignment cannot be re-read after insert, the route returns 404."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', lambda *_a, **_k: CMA_ID_FOR_GET)
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item', lambda *_a, **_k: None)
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+
+    def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError while re-reading the created assignment surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', lambda *_a, **_k: CMA_ID_FOR_GET)
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on create surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', _raiser(RuntimeError('boom')))
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET),
+        )
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on list surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'iterate_items', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_get_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error on get-single surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.get(f'{ROUTE_URL}/{CMA_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the update existence check surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}',
+                            json=_cma_payload(CMA_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            lambda *_a, **_k: {'public_id': CMA_ID_FOR_UPDATE})
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'update_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}',
+                            json=_cma_payload(CMA_ID_FOR_UPDATE)).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_delete_get_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A ManagerGetError during the delete existence check surfaces as 400."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            _raiser(ControlMeasureAssignmentManagerGetError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while deleting surfaces as 500."""
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item',
+                            lambda *_a, **_k: {'public_id': CMA_ID_FOR_DELETE})
+        monkeypatch.setattr(ControlMeasureAssignmentManager, 'delete_item', _raiser(RuntimeError('boom')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

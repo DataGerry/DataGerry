@@ -51,6 +51,7 @@ from cmdb.errors.manager.protection_goal_manager import (
     ProtectionGoalManagerIterationError,
     ProtectionGoalManagerRiskUsageError,
 )
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -129,7 +130,7 @@ def get_isms_protection_goals(params: CollectionParameters, request_user: CmdbUs
         GetMultiResponse: All the IsmsProtectionGoals matching the CollectionParameters
     """
     try:
-        body = request.method == 'HEAD'
+        body = request_wants_body()
 
         protection_goal_manager: ProtectionGoalManager = ManagerProvider.get_manager(
                                                                             ManagerType.PROTECTION_GOAL,
@@ -181,7 +182,7 @@ def get_isms_protection_goal(public_id: int, request_user: CmdbUser) -> Response
         requested_protection_goal = get_item_or_404(protection_goal_manager, public_id,
                                                      f"The ProtectionGoal with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_protection_goal, body = request.method == 'HEAD').make_response()
+        return GetSingleResponse(requested_protection_goal, body=request_wants_body()).make_response()
     except HTTPException as http_err:
         raise http_err
     except ProtectionGoalManagerGetError as err:

@@ -72,7 +72,6 @@ class CategoryTree:
     """
     Implementation of a CategoryTree build with CmdbCategories
     """
-    MODEL = 'CategoryTree'
 
     def __init__(self, categories: list[CmdbCategory], types: list[CmdbType] | None = None) -> None:
         """

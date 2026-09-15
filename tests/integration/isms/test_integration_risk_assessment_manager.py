@@ -170,3 +170,28 @@ class TestRecalculateRiskValues:
         assert after['maximum_impact_id'] is None
         assert after['maximum_impact_value'] is None
         assert after['likelihood_value'] is None
+
+    @pytest.mark.parametrize('matrix', [None, 'not-a-matrix', 42, [], ['impacts']], ids=str)
+    def test_a_matrix_that_is_not_an_object_is_skipped(
+            self, risk_assessment_manager: RiskAssessmentManager, matrix: Any) -> None:
+        """
+        A malformed matrix is left untouched rather than crashing the write
+
+        The payload is client-supplied and the recalculation runs on every create and update, so a
+        matrix key carrying anything but an object - absent, null, or a value the client got wrong -
+        must not take the whole request down with an AttributeError from `matrix.get`.
+        """
+        data: dict[str, Any] = {'risk_calculation_before': matrix, 'risk_calculation_after': matrix}
+
+        risk_assessment_manager.recalculate_risk_values(data)
+
+        assert data['risk_calculation_before'] == matrix
+        assert data['risk_calculation_after'] == matrix
+
+    def test_a_missing_matrix_key_is_skipped(self, risk_assessment_manager: RiskAssessmentManager) -> None:
+        """A partial payload reaches this before any schema check does."""
+        data: dict[str, Any] = {}
+
+        risk_assessment_manager.recalculate_risk_values(data)
+
+        assert data == {}

@@ -29,6 +29,13 @@ template changes onto every CmdbType that uses the template and onto those types
 - Teardown: removing a global template (or a single type's use of it) from types, summaries
   and objects.
 
+The template's *name* is the propagation key, not its public_id: a consuming CmdbType records the
+name in ``global_template_ids`` and names its section after it, and every lookup here
+(``get_types_using_template``, ``CmdbType.get_section``, the MDS ``section_id`` on the objects) joins
+on that name. A renamed template would therefore match nothing - no type would be found, no section
+updated, and the objects would keep their now-orphaned values - which is why the update route rejects
+a name change on an existing template instead of this manager having to repair the aftermath.
+
 Every field - regular or MDS - is recorded in the CmdbObject's flat ``fields`` array, which is
 the canonical field list the frontend renders from. A multi-data section ('multi-data-section',
 MDS) field additionally carries its per-row values under ``multi_data_sections[].values[].data``.
@@ -46,6 +53,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.manager.reports_manager import ReportsManager
 from cmdb.manager.base_manager import BaseManager
 
 from cmdb.models.user_model import CmdbUser
@@ -56,6 +64,7 @@ from cmdb.models.object_model import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
+from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
@@ -96,7 +105,9 @@ class SectionTemplatesManager(BaseManager):
         Initializes the SectionTemplatesManager and its collaborator managers
 
         Composes a TypesManager and an ObjectsManager because global-template propagation has to
-        read and mutate CmdbTypes and CmdbObjects alongside the template collection
+        read and mutate CmdbTypes and CmdbObjects alongside the template collection, plus a
+        ReportsManager because removing a template's fields also invalidates the reports selecting
+        or filtering on them
 
         Args:
             dbm (MongoDatabaseManager): Database connection
@@ -104,6 +115,7 @@ class SectionTemplatesManager(BaseManager):
         """
         self.types_manager = TypesManager(dbm, database)
         self.objects_manager = ObjectsManager(dbm, database)
+        self.reports_manager = ReportsManager(dbm, database)
 
         super().__init__(CmdbSectionTemplate.COLLECTION, dbm, database)
 
@@ -179,14 +191,16 @@ class SectionTemplatesManager(BaseManager):
         """
         try:
             found_template: CmdbSectionTemplate | None = None
-            section_template = self.get_one(public_id)
+            section_template: dict[str, Any] | None = self.get_one(public_id)
 
             if section_template:
-                found_template = CmdbSectionTemplate(**section_template)
+                # from_data reads the known keys explicitly; splatting the raw document would also
+                # turn MongoDB's '_id' into an attribute of the model
+                found_template = CmdbSectionTemplate.from_data(section_template)
 
             return found_template
         except Exception as err:
-            raise SectionTemplatesManagerGetError(str(err)) from err
+            raise SectionTemplatesManagerGetError(err) from err
 
 
     def get_global_template_usage_count(self, template_name: str, is_global: bool) -> dict[str, int]:
@@ -194,7 +208,11 @@ class SectionTemplatesManager(BaseManager):
         Counts the types and objects using a (global) CmdbSectionTemplate
 
         A non-global template is used by exactly one type and is never propagated, so it reports
-        zero. The type ids are resolved with a ``distinct`` projection and the objects with a count
+        zero. That zero is a contract the frontend reads: the counts drive the "this template is
+        used by N types / M objects" warning shown before a template is edited or deleted, so a
+        non-global template deliberately shows none rather than the one type embedding it
+
+        The type ids are resolved with a ``distinct`` projection and the objects with a count
         query, so neither the CmdbTypes nor the CmdbObjects are materialised
 
         Args:
@@ -220,7 +238,9 @@ class SectionTemplatesManager(BaseManager):
             return counts
 
         counts['types'] = len(type_ids)
-        counts['objects'] = self.objects_manager.count_documents({CmdbObjectKey.TYPE_ID: {"$in": type_ids}})
+        counts['objects'] = self.objects_manager.count_documents(
+            {CmdbObjectKey.TYPE_ID.value: {"$in": type_ids}},
+        )
 
         return counts
 
@@ -252,7 +272,7 @@ class SectionTemplatesManager(BaseManager):
             self.update(criteria={PUBLIC_ID_FIELD: public_id}, data=updated_section_template)
         except Exception as err:
             LOGGER.error("[update_section_template] Exception: %s. Type: %s", err, type(err))
-            raise SectionTemplatesManagerUpdateError(str(err)) from err
+            raise SectionTemplatesManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -276,7 +296,7 @@ class SectionTemplatesManager(BaseManager):
             return self.delete({PUBLIC_ID_FIELD: public_id})
         except Exception as err:
             LOGGER.error("[delete_section_template] Exception: %s. Type: %s", err, type(err))
-            raise SectionTemplatesManagerDeleteError(str(err)) from err
+            raise SectionTemplatesManagerDeleteError(err) from err
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            GLOBAL TEMPLATE PROPAGATION                                               #
@@ -286,7 +306,7 @@ class SectionTemplatesManager(BaseManager):
         self,
         new_params: dict[str, Any],
         current_template: CmdbSectionTemplate
-    ) -> None:
+    ) -> dict[str, list[int]]:
         """
         Propagates a global section template change to every CmdbType that uses it
 
@@ -294,24 +314,48 @@ class SectionTemplatesManager(BaseManager):
         field-set diffs are computed once, then applied per consuming type via
         ``_apply_template_changes_to_type``
 
+        A type can list the template in ``global_template_ids`` without carrying its section, and
+        the change cannot be applied to such a type. The two groups are reported separately so a
+        caller can tell a complete propagation from a partial one - the write itself never fails
+        over it, since the remaining types are still to be updated
+
         Args:
             new_params (dict[str, Any]): The new values for the section template (the update payload)
             current_template (CmdbSectionTemplate): The pre-update template state
+
+        Returns:
+            dict[str, list[int]]: {'applied': [type ids changed], 'skipped': [type ids without the
+                section]}; both empty when nothing was propagated
         """
+        result: dict[str, list[int]] = {'applied': [], 'skipped': []}
+
         if not current_template.is_global:
-            return
+            return result
 
         template_name: Any = new_params.get('name')
 
         if not template_name:
-            return
+            return result
 
         current_params: dict[str, Any] = CmdbSectionTemplate.to_json(current_template)
         new_section_label: str = self.get_section_label_diff(new_params, current_params)
         field_diffs: dict[str, Any] = self.get_fields_diff(new_params, current_params)
 
         for a_type in self.get_types_using_template(template_name):
-            self._apply_template_changes_to_type(a_type, new_params, field_diffs, new_section_label, current_template)
+            applied: bool = self._apply_template_changes_to_type(
+                a_type, new_params, field_diffs, new_section_label, current_template,
+            )
+            result['applied' if applied else 'skipped'].append(a_type.public_id)
+
+        if result['skipped']:
+            LOGGER.warning(
+                "[handle_section_template_changes] Template '%s' was applied to %s of %s types, "
+                "the section is missing on types %s",
+                template_name, len(result['applied']),
+                len(result['applied']) + len(result['skipped']), result['skipped'],
+            )
+
+        return result
 
 
     def _apply_template_changes_to_type(
@@ -321,14 +365,14 @@ class SectionTemplatesManager(BaseManager):
         field_diffs: dict[str, Any],
         new_section_label: str,
         current_template: CmdbSectionTemplate,
-    ) -> None:
+    ) -> bool:
         """
         Applies one global template change to a single consuming CmdbType and its objects
 
         Updates the type's section label and field list, refreshes the field definitions on
         ``type.fields``, strips deleted fields from the summary, then materializes the diff on
         the type's CmdbObjects (deleted fields removed, added fields seeded with their default)
-        and persists the type. Silently skips a type that no longer carries the section
+        and persists the type
 
         Args:
             a_type (CmdbType): The consuming type to update
@@ -336,6 +380,9 @@ class SectionTemplatesManager(BaseManager):
             field_diffs (dict[str, Any]): {'added': [field defs], 'deleted': [field names]}
             new_section_label (str): The changed section label, or '' when unchanged
             current_template (CmdbSectionTemplate): The pre-update template (for section type/name)
+
+        Returns:
+            bool: True when the type was changed, False when it does not carry the section
         """
         template_name: str = new_params['name']
         new_fields: list[dict[str, Any]] = new_params.get('fields', [])
@@ -343,7 +390,15 @@ class SectionTemplatesManager(BaseManager):
         section: TypeFieldSection | TypeMultiDataSection | None = a_type.get_section(template_name)
 
         if not section:
-            return
+            # The type lists the template in global_template_ids but no longer carries its section -
+            # exactly the inconsistency this propagation exists to repair, so it is reported rather
+            # than passed over in silence
+            LOGGER.warning(
+                "[_apply_template_changes_to_type] Type %s lists template '%s' but carries no such "
+                "section - the change was not applied to it",
+                a_type.public_id, template_name,
+            )
+            return False
 
         if new_section_label:
             section.label = new_section_label
@@ -361,11 +416,9 @@ class SectionTemplatesManager(BaseManager):
         # Replace the section's field-name list with the new set
         section.fields = [f[FieldKey.NAME] for f in new_fields]
 
-        # Swap the updated section back into the type's section layout
-        for i, existing_section in enumerate(a_type.render_meta.sections):
-            if existing_section.name == section.name:
-                a_type.render_meta.sections[i] = section
-                break
+        # No swap back into render_meta.sections is needed: get_section returns the entry ITSELF,
+        # so the label and field-list assignments above have already changed the layout. The loop
+        # that used to reassign sections[i] = section put the same object back where it already was
 
         # Refresh the section's field definitions on the type (drop old + deleted, add new)
         a_type.fields = [
@@ -389,6 +442,8 @@ class SectionTemplatesManager(BaseManager):
         )
 
         self.types_manager.update_type(a_type.public_id, a_type)
+
+        return True
 
 
     def get_section_label_diff(self, new_params: dict[str, Any], current_params: dict[str, Any]) -> str:
@@ -503,17 +558,17 @@ class SectionTemplatesManager(BaseManager):
 
         for field_def in new_fields:
             entry: dict[str, Any] = {
-                CmdbObjectFieldKey.NAME: field_def[FieldKey.NAME],
-                CmdbObjectFieldKey.TYPE: field_def[FieldKey.TYPE],
-                CmdbObjectFieldKey.VALUE: field_def.get(FieldKey.VALUE, None),
+                CmdbObjectFieldKey.NAME.value: field_def[FieldKey.NAME],
+                CmdbObjectFieldKey.TYPE.value: field_def[FieldKey.TYPE],
+                CmdbObjectFieldKey.VALUE.value: field_def.get(FieldKey.VALUE, None),
             }
 
             self.objects_manager.update_many_raw(
                 filter_query={
-                    CmdbObjectKey.TYPE_ID: type_id,
+                    CmdbObjectKey.TYPE_ID.value: type_id,
                     name_path: {"$ne": field_def[FieldKey.NAME]},
                 },
-                update={"$push": {CmdbObjectKey.FIELDS: entry}},
+                update={"$push": {CmdbObjectKey.FIELDS.value: entry}},
             )
 
 
@@ -548,14 +603,14 @@ class SectionTemplatesManager(BaseManager):
         for field_def in new_fields:
             field_name: str = field_def[FieldKey.NAME]
             entry: dict[str, Any] = {
-                CmdbObjectFieldKey.NAME: field_name,
-                CmdbObjectFieldKey.TYPE: field_def[FieldKey.TYPE],
-                CmdbObjectFieldKey.VALUE: field_def.get(FieldKey.VALUE, None),
+                CmdbObjectFieldKey.NAME.value: field_name,
+                CmdbObjectFieldKey.TYPE.value: field_def[FieldKey.TYPE],
+                CmdbObjectFieldKey.VALUE.value: field_def.get(FieldKey.VALUE, None),
             }
 
             self.objects_manager.update_many_raw(
                 filter_query={
-                    CmdbObjectKey.TYPE_ID: type_id,
+                    CmdbObjectKey.TYPE_ID.value: type_id,
                     f"{mds_path}.{section_id_key}": section_name,
                 },
                 update={"$push": {f"{mds_path}.$[s].{values_key}.$[v].{data_key}": entry}},
@@ -613,8 +668,8 @@ class SectionTemplatesManager(BaseManager):
             return
 
         self.objects_manager.update_many_pull(
-            {CmdbObjectKey.TYPE_ID: type_id},
-            {CmdbObjectKey.FIELDS: {CmdbObjectFieldKey.NAME: {"$in": section_field_names}}},
+            {CmdbObjectKey.TYPE_ID.value: type_id},
+            {CmdbObjectKey.FIELDS.value: {CmdbObjectFieldKey.NAME.value: {"$in": section_field_names}}},
         )
 
 
@@ -642,7 +697,7 @@ class SectionTemplatesManager(BaseManager):
 
         self.objects_manager.update_many_raw(
             filter_query={
-                CmdbObjectKey.TYPE_ID: type_id,
+                CmdbObjectKey.TYPE_ID.value: type_id,
                 f"{mds_path}.{section_id_key}": section_name,
             },
             update={"$pull": {
@@ -664,8 +719,8 @@ class SectionTemplatesManager(BaseManager):
             section_name (str): The MDS section_id to remove
         """
         self.objects_manager.update_many_pull(
-            {CmdbObjectKey.TYPE_ID: type_id},
-            {CmdbObjectKey.MULTI_DATA_SECTIONS: {CmdbObjectMdsKey.SECTION_ID: section_name}},
+            {CmdbObjectKey.TYPE_ID.value: type_id},
+            {CmdbObjectKey.MULTI_DATA_SECTIONS.value: {CmdbObjectMdsKey.SECTION_ID.value: section_name}},
         )
 
 
@@ -675,7 +730,17 @@ class SectionTemplatesManager(BaseManager):
 
         For each consuming type: drops the template name from ``global_template_ids``, removes the
         section's field definitions from ``type.fields`` and the summary, removes the section from
-        the layout, cleans the objects, and persists the type
+        the layout, cleans the objects, strips the removed fields from the type's reports, and
+        persists the type
+
+        The report cleanup has to happen here rather than being left to the type-update route: this
+        path rewrites the type through ``types_manager.update_type`` directly, so the route's
+        ``realign_type_objects_if_fields_changed`` never runs and the reports would keep selecting and
+        filtering on fields that no longer exist
+
+        A type listing the template without carrying its section gets the reference dropped and
+        persisted anyway - there is nothing to clean off its objects, but leaving the reference in
+        place would keep pointing at a template that no longer exists
 
         Args:
             template_name (str): Name of the global section template
@@ -683,12 +748,19 @@ class SectionTemplatesManager(BaseManager):
                 container instead of just its fields. Defaults to False
         """
         for a_type in self.get_types_using_template(template_name):
-            if template_name in a_type.global_template_ids:
-                a_type.global_template_ids.remove(template_name)
+            # The types come from a query ON global_template_ids, so the name is always in the list -
+            # the membership check this line used to carry could not be false
+            a_type.global_template_ids.remove(template_name)
 
             type_template_section: TypeFieldSection | TypeMultiDataSection | None = a_type.get_section(template_name)
 
             if not type_template_section:
+                LOGGER.warning(
+                    "[cleanup_global_section_templates] Type %s lists template '%s' but carries no "
+                    "such section - only the template reference was removed",
+                    a_type.public_id, template_name,
+                )
+                self.types_manager.update_type(a_type.public_id, a_type)
                 continue
 
             template_field_names: set[str] = set(type_template_section.get_fields())
@@ -716,7 +788,30 @@ class SectionTemplatesManager(BaseManager):
                 delete_mode,
             )
 
+            self.cleanup_global_section_reports(a_type, template_field_names)
+
             self.types_manager.update_type(a_type.public_id, a_type)
+
+
+    def cleanup_global_section_reports(self, a_type: CmdbType, removed_field_names: set[str]) -> None:
+        """
+        Strips a removed section's fields from the reports of one CmdbType
+
+        Reads the type's reports out of the report collection and hands them to the ReportsManager,
+        which drops the field names from every report's selected fields and conditions and rebuilds
+        the stored query. The type instance passed in is the already-cleaned one, which is what the
+        query rebuild needs
+
+        Args:
+            a_type (CmdbType): The CmdbType whose reports should be cleaned
+            removed_field_names (set[str]): Field names removed from the type
+        """
+        reports_for_type: list[dict[str, Any]] = self.objects_manager.get_many_from_other_collection(
+            CmdbReport.COLLECTION,
+            type_id=a_type.public_id,
+        )
+
+        self.reports_manager.strip_removed_fields_from_reports(reports_for_type, removed_field_names, a_type)
 
 
     def cleanup_global_section_from_type(
@@ -750,7 +845,7 @@ class SectionTemplatesManager(BaseManager):
                 'expected_field_names' so cleanup routes correctly. Defaults to None
         """
         # --- 1. Load type ---
-        a_type: CmdbType = self.types_manager.get_type(type_id, as_dict=False)
+        a_type: CmdbType = self.types_manager.get_type_instance(type_id)
 
         if not a_type:
             return
@@ -823,8 +918,8 @@ class SectionTemplatesManager(BaseManager):
         # --- 1. Remove flat fields from objects ---
         if section_field_names:
             self.objects_manager.update_many_pull(
-                criteria={CmdbObjectKey.TYPE_ID: type_id},
-                update={CmdbObjectKey.FIELDS: {CmdbObjectFieldKey.NAME: {"$in": section_field_names}}},
+                criteria={CmdbObjectKey.TYPE_ID.value: type_id},
+                update={CmdbObjectKey.FIELDS.value: {CmdbObjectFieldKey.NAME.value: {"$in": section_field_names}}},
             )
 
         # --- 2. Remove MDS section completely (if applicable) ---

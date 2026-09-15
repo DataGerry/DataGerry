@@ -18,7 +18,7 @@ This module provides the predefined root document for CmdbLocations
 """
 from typing import Any
 
-from cmdb.database.predefined_data.predefined_data_constants import LocationKey, RootLocationDefault
+from cmdb.models.location_model.location_constants import LocationKey, RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_root_location_data() -> dict[str, Any]:

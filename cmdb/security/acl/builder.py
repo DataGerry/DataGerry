@@ -14,221 +14,159 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of LookedAccessControlQueryBuilder
+Access-control filtering for CmdbObject aggregation pipelines
+
+An ACL lives on the CmdbType, not on the CmdbObject, so "may this group read this object" is really
+"may this group read objects of this object's type". The filter is therefore built by resolving,
+once per query, the small set of CmdbTypes the requesting group may NOT access, and excluding those
+type_ids from the pipeline:
+
+    [{'$match': {'type_id': {'$nin': [<denied type ids>]}}}]
+
+A type is denied when its ACL is activated AND the group's entry does not carry the required
+permission - a missing entry denies just as an incomplete one does. Everything else passes: a type
+with no ACL, a type whose ACL is switched off, and a type that grants the permission. Because the
+filter is an exclusion, an object whose type_id resolves to no CmdbType at all (an orphan) also
+passes, which is the behaviour the previous `$lookup`-based implementation had through its
+`preserveNullAndEmptyArrays` unwind
+
+When nothing is denied - the common case, since most installations activate an ACL on few types or
+none - `build_acl_pipeline` returns no stages at all and the query runs unfiltered
 """
-from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
+from typing import TYPE_CHECKING, Any
+
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
+
+if TYPE_CHECKING:
+    # Imported for type checking only; importing the model at runtime would pull the manager package
+    # back into this module and close an import cycle
+    from cmdb.models.user_model import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
+#: Projection used when resolving denied types - only the identity is needed, never the document
+DENIED_TYPES_PROJECTION: dict[str, int] = {TypeSchemaKey.PUBLIC_ID.value: 1}
 
-class LookedAccessControlQueryBuilder(PipelineBuilder):
+
+def build_group_permissions_path(group_id: int) -> str:
     """
-    Query builder for access control on *looked* (nested) objects in MongoDB aggregation pipelines.
-    
-    This builder is used when the type information is nested inside a sub-object (e.g., `object.type_id`).
+    Builds the dotted path to one group's permission list inside a stored CmdbType's ACL
+
+    Args:
+        group_id (int): public_id of the CmdbUserGroup
+
+    Returns:
+        str: The path, e.g. `acl.groups.includes.1`
     """
-
-    def __init__(self, pipeline: list[dict] = None):
-        """
-        Initialize the LookedAccessControlQueryBuilder
-
-        Args:
-            pipeline (list[dict], optional): An optional initial aggregation pipeline. Defaults to None
-        """
-        super().__init__(pipeline=pipeline)
+    return (
+        f'{TypeSchemaKey.ACL.value}'
+        f'.{AclKey.GROUPS.value}'
+        f'.{AclKey.INCLUDES.value}'
+        f'.{group_id}'
+    )
 
 
-    #TODO: REFACTOR-FIX (same method in AccessControlQueryBuilder)
-    def build(self, group_id: int, permission: AccessControlPermission, *args, **kwargs) -> list[dict]:
-        """
-        Build the access control aggregation pipeline for nested objects
-
-        This builds a pipeline that:
-        1. Looks up type information for nested object documents
-        2. Unwinds the type field
-        3. Matches documents based on access control rules
-
-        Args:
-            group_id (int): The group ID for which to validate access
-            permission (AccessControlPermission): The required permission to filter by
-            *args: Additional positional arguments (currently unused)
-            **kwargs: Additional keyword arguments (currently unused)
-
-        Returns:
-            list[dict]: The complete aggregation pipeline as a list of stages
-        """
-        self.clear()
-        self.add_pipe(self._lookup_types())
-        self.add_pipe(self._unwind_types())
-        self.add_pipe(self._match_acl(group_id, permission))
-        return self.pipeline
-
-    # REFACTOR-FIX (same method in AccessControlQueryBuilder)
-    def _lookup_types(self) -> dict:
-        """
-        Create a `$lookup` aggregation stage to join the `framework.types` collection
-
-        Joins using the `object.type_id` field from the current collection
-
-        Returns:
-            dict: A `$lookup` stage for the aggregation pipeline
-        """
-        return {
-            '$lookup': {
-                'from': 'framework.types',
-                'localField': 'object.type_id',  # Field in the current collection
-                'foreignField': 'public_id',     # Field in the 'framework.types' collection
-                'as': 'type'
-            }
-        }
-
-
-    # REFACTOR-FIX (same method in AccessControlQueryBuilder)
-    def _unwind_types(self) -> dict:
-        """
-        Create an `$unwind` aggregation stage for the `type` field
-
-        Returns:
-            dict: An `$unwind` stage for the aggregation pipeline
-        """
-        unwind = self.unwind_({'path': '$type', 'preserveNullAndEmptyArrays': True})
-
-        return unwind
-
-
-    # REFACTOR-FIX (same method in AccessControlQueryBuilder)
-    def _match_acl(self, group_id: int, permission: AccessControlPermission) -> dict:
-        """
-        Create a `$match` aggregation stage based on access control logic
-
-        The match criteria:
-        - Allow documents where `type.acl` does not exist
-        - Allow documents where `type.acl.activated` is False
-        - Allow documents where the group ID has all the required permissions
-
-        Args:
-            group_id (int): The group ID to filter access by
-            permission (AccessControlPermission): The permission required
-
-        Returns:
-            dict: A `$match` stage for the aggregation pipeline
-        """
-        return self.match_(
-            self.or_([
-                self.exists_('type.acl', False),
-                {'type.acl.activated': False},
-                self.and_([
-                    self.exists_(f'type.acl.groups.includes.{group_id}', True),
-                    {f'type.acl.groups.includes.{group_id}': {'$all': [permission.value]}}
-                ])
-            ])
-        )
-
-
-#TODO: CLASS-FIX (Move to manager query builder)
-class AccessControlQueryBuilder(PipelineBuilder):
+def build_denied_types_criteria(group_id: int, permission: AccessControlPermission) -> dict[str, Any]:
     """
-    Query builder for applying access control restrictions in MongoDB aggregation pipelines.
-    
-    This builder ensures that objects in aggregation results are filtered based on the access control lists (ACLs)
-    associated with their types.
+    Builds the `framework.types` filter selecting the CmdbTypes a group may NOT access
+
+    A type is denied when it carries an ACL, that ACL is not switched off, and the group's permission
+    list does not contain the required permission. The three clauses are the exact negation of the
+    three ways the previous per-document `$match` let a document through (no `acl` key / `activated`
+    is False / the group holds the permission), so the filter is equivalent rather than merely
+    similar - including the awkward middle case of an `acl` that carries no `activated` key at all,
+    which `$ne: False` denies just as the old `{'type.acl.activated': False}` clause failed to allow
+
+    `$all` does not match a missing field, so wrapping it in `$nor` covers both "the group has no
+    entry" and "the group's entry lacks this permission" in one clause - which is why no separate
+    `$exists` check on the group is needed
+
+    Permissions are compared against `permission.value` because that is what a stored ACL holds: the
+    permission's string value, which is also what the Angular ACL editor writes
+
+    Args:
+        group_id (int): public_id of the CmdbUserGroup the request is made for
+        permission (AccessControlPermission): The permission the group must hold
+
+    Returns:
+        dict[str, Any]: The criteria for a `framework.types` query
     """
+    acl_path = TypeSchemaKey.ACL.value
+    activated_path = f'{acl_path}.{AclKey.ACTIVATED.value}'
+
+    return {
+        '$and': [
+            {acl_path: {'$exists': True}},
+            {activated_path: {'$ne': False}},
+            {'$nor': [{build_group_permissions_path(group_id): {'$all': [permission.value]}}]},
+        ]
+    }
 
 
-    def __init__(self, pipeline: list[dict] = None):
-        """
-        Initialize the AccessControlQueryBuilder
+def build_acl_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
+    """
+    Builds the pipeline stages excluding the denied CmdbTypes
 
-        Args:
-            pipeline (list[dict], optional): An optional initial aggregation pipeline. Defaults to None
-        """
-        super().__init__(pipeline=pipeline)
+    Args:
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the group may not access
 
+    Returns:
+        list[dict[str, Any]]: A single `$match` stage, or no stages at all when nothing is denied
+    """
+    if not denied_type_ids:
+        return []
 
-    #TODO: REFACTOR-FIX (same method in LookedAccessControlQueryBuilder)
-    def build(self, group_id: int, permission: AccessControlPermission, *args, **kwargs) -> list[dict]:
-        """
-        Build the access control aggregation pipeline
-
-        This builds a pipeline that:
-        1. Looks up type information for documents
-        2. Unwinds the type field
-        3. Matches documents based on access control rules
-
-        Args:
-            group_id (int): The group ID for which to validate access
-            permission (AccessControlPermission): The required permission to filter by
-            *args: Additional positional arguments (currently unused)
-            **kwargs: Additional keyword arguments (currently unused)
-
-        Returns:
-            list[dict]: The complete aggregation pipeline as a list of stages
-        """
-        self.clear()
-        self.add_pipe(self._lookup_types())
-        self.add_pipe(self._unwind_types())
-        self.add_pipe(self._match_acl(group_id, permission))
-
-        return self.pipeline
+    return [{'$match': {CmdbObjectKey.TYPE_ID.value: {'$nin': denied_type_ids}}}]
 
 
-    #TODO: REFACTOR-FIX (same method in LookedAccessControlQueryBuilder)
-    def _lookup_types(self) -> dict:
-        """
-        Create a `$lookup` aggregation stage to join the `framework.types` collection
+def resolve_denied_type_ids(user: 'CmdbUser', permission: AccessControlPermission) -> list[int]:
+    """
+    Reads the CmdbTypes the user's group may not access
 
-        Joins the current collection with `framework.types` based on `type_id` and `public_id`
+    One projected query against `framework.types`, which holds tens of documents rather than the
+    thousands the object collection does - so this is far cheaper than the per-document `$lookup`
+    join this replaced, and it keeps the object query on the indexed `type_id` path
 
-        Returns:
-            dict: A `$lookup` stage for the aggregation pipeline
-        """
-        return {
-            '$lookup': {
-                'from': 'framework.types',
-                'localField': 'type_id',    # Field from the current collection
-                'foreignField': 'public_id', # Field from the 'framework.types' collection
-                'as': 'type'
-            }
-        }
+    Args:
+        user (CmdbUser): The CmdbUser the request is made for
+        permission (AccessControlPermission): The permission the group must hold
+
+    Returns:
+        list[int]: public_ids of the denied CmdbTypes; empty when the group may access everything
+    """
+    # Imported lazily: the manager package imports this module through the query builders, so a
+    # module-level import would close an import cycle
+    # pylint: disable=import-outside-toplevel
+    from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+
+    types_manager = ManagerProvider.get_manager(ManagerType.TYPES, user)
+
+    denied_types = types_manager.find(
+        criteria=build_denied_types_criteria(int(user.group_id), permission),
+        projection=DENIED_TYPES_PROJECTION,
+    )
+
+    return [
+        denied_type[TypeSchemaKey.PUBLIC_ID.value]
+        for denied_type in denied_types
+        if denied_type.get(TypeSchemaKey.PUBLIC_ID.value) is not None
+    ]
 
 
-    #TODO: REFACTOR-FIX (same method in LookedAccessControlQueryBuilder)
-    def _unwind_types(self) -> dict:
-        """
-        Create an `$unwind` aggregation stage for the `type` field
+def build_acl_pipeline(user: 'CmdbUser', permission: AccessControlPermission) -> list[dict[str, Any]]:
+    """
+    Builds the access-control stages restricting a CmdbObject pipeline to what a user may see
 
-        Returns:
-            dict: An `$unwind` stage for the aggregation pipeline
-        """
-        unwind = self.unwind_({'path': '$type', 'preserveNullAndEmptyArrays': True})
+    Append these stages as early as possible - before sorting and paginating - so that the skipped
+    and limited document set is the one the user is actually allowed to read
 
-        return unwind
+    Args:
+        user (CmdbUser): The CmdbUser the request is made for
+        permission (AccessControlPermission): The permission the group must hold
 
-
-    #TODO: REFACTOR-FIX (same method in LookedAccessControlQueryBuilder)
-    def _match_acl(self, group_id: int, permission: AccessControlPermission) -> dict:
-        """
-        Create a `$match` aggregation stage based on access control logic
-
-        The match criteria:
-        - Allow documents where `type.acl` does not exist
-        - Allow documents where `type.acl.activated` is False
-        - Allow documents where the group ID has all the required permissions
-
-        Args:
-            group_id (int): The group ID to filter access by
-            permission (AccessControlPermission): The permission required
-
-        Returns:
-            dict: A `$match` stage for the aggregation pipeline
-        """
-        return self.match_(
-            self.or_([
-                self.exists_('type.acl', False),
-                {'type.acl.activated': False},
-                self.and_([
-                    self.exists_(f'type.acl.groups.includes.{group_id}', True),
-                    {f'type.acl.groups.includes.{group_id}': {'$all': [permission.value]}}
-                ])
-            ])
-        )
+    Returns:
+        list[dict[str, Any]]: The filter stages, empty when the group may access every type
+    """
+    return build_acl_stages(resolve_denied_type_ids(user, permission))

@@ -78,13 +78,3 @@ class TemplateManagementBase:
             list[IndexModel]: A list of pymongo IndexModel instances representing indexes.
         """
         return [IndexModel(**index) for index in cls.INDEX_KEYS + cls.SUPER_INDEX_KEYS]
-
-
-    def to_database(self) -> dict[str, Any]:
-        """
-        Converts the TemplateManagementBase attributes to a dictionary for database storage
-        
-        Returns:
-            dict[str, Any]: A dictionary representation of the TemplateManagementBase
-        """
-        return self.__dict__

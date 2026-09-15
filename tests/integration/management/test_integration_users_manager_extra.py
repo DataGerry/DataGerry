@@ -33,6 +33,7 @@ from cmdb.manager.users_manager import UsersManager
 from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.user_model import CmdbUser
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.users_manager import (
     UsersManagerGetError,
     UsersManagerInsertError,
@@ -195,8 +196,8 @@ class TestHandleUsersOnGroupDelete:
         assert users_manager.handle_users_on_group_delete(EMPTY_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID) is None
 
     def test_member_lookup_failure_wraps_as_get_error(self, users_manager: UsersManager, monkeypatch) -> None:
-        """A failure fetching the group's members surfaces as UsersManagerGetError."""
-        monkeypatch.setattr(users_manager, 'get_many_users', _raiser(UsersManagerGetError('boom')))
+        """A BaseManager failure fetching the group's members is converted, not leaked to the route."""
+        monkeypatch.setattr(users_manager, 'find', _raiser(BaseManagerGetError('boom')))
 
         with pytest.raises(UsersManagerGetError):
             users_manager.handle_users_on_group_delete(SRC_GROUP_ID, GroupDeleteMode.DELETE, None)
@@ -221,7 +222,7 @@ class TestErrorWrapping:
 
     def test_get_by_wraps(self, users_manager: UsersManager, monkeypatch) -> None:
         """get_user_by wraps a failure as UsersManagerGetError."""
-        monkeypatch.setattr(users_manager, 'get', _raiser(RuntimeError('x')))
+        monkeypatch.setattr(users_manager, 'get_one_by', _raiser(RuntimeError('x')))
 
         with pytest.raises(UsersManagerGetError):
             users_manager.get_user_by({'email': USER_A_EMAIL})
