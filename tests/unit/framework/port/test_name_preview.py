@@ -242,11 +242,62 @@ class TestPreviewHasCollisions:
 # -------------------------------------------------------------------------------------------------------------------- #
 @pytest.mark.parametrize('enum_cls,expected', [
     (PortPreviewKey, {
-        'SIDE': 'side', 'NAMES': 'names', 'COLLISIONS': 'collisions', 'FACES': 'faces',
-        'PAIRS': 'pairs', 'TOTAL': 'total', 'FRONT': 'front', 'REAR': 'rear',
+        'SIDE': 'side', 'NAMES': 'names', 'NUMBERS': 'numbers', 'COLLISIONS': 'collisions',
+        'FACES': 'faces', 'PAIRS': 'pairs', 'TOTAL': 'total', 'FRONT': 'front', 'REAR': 'rear',
     }),
     (PortCollisionKey, {'DUPLICATES': 'duplicates', 'EXISTING': 'existing'}),
 ], ids=['preview', 'collision'])
 def test_the_response_keys_are_pinned(enum_cls, expected: dict) -> None:
     """The preview document is a frontend contract - the assistant renders straight from it"""
     assert {member.name: member.value for member in enum_cls} == expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                            the numbers a face carries (backlog #201)                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestAFaceCarriesItsNumbers:
+    """
+    Each name's `{n}` value travels with it, because the created port stores it as its port_number
+
+    Without it every port of a batch stored no number, `get_ports_of_object` sorted them all equal and
+    fell back to the name as a STRING - so `Gi0/1 .. Gi0/48` read back as `Gi0/1, Gi0/10, Gi0/11 ...`.
+    """
+
+    def test_the_numbers_run_parallel_to_the_names(self) -> None:
+        """Same length, same order - the creation zips them by position."""
+        face = build_face('single', 'Gi0/{n}', 4, set())
+
+        assert face[PortPreviewKey.NAMES.value] == ['Gi0/1', 'Gi0/2', 'Gi0/3', 'Gi0/4']
+        assert face[PortPreviewKey.NUMBERS.value] == [1, 2, 3, 4]
+
+    def test_they_start_where_the_batch_starts(self) -> None:
+        """A second batch continues the numbering rather than repeating it."""
+        face = build_face('single', 'Gi0/{n}', 3, set(), start_index=49)
+
+        assert face[PortPreviewKey.NUMBERS.value] == [49, 50, 51]
+
+    def test_a_padded_counter_still_yields_plain_numbers(self) -> None:
+        """The pad is presentation; the stored number is the integer it rendered from."""
+        face = build_face('single', 'Gi0/{n:02}', 2, set())
+
+        assert face[PortPreviewKey.NAMES.value] == ['Gi0/01', 'Gi0/02']
+        assert face[PortPreviewKey.NUMBERS.value] == [1, 2]
+
+    def test_a_syntax_without_a_counter_carries_no_numbers(self) -> None:
+        """
+        The name shows no number, so the port stores none
+
+        Inventing one would put a value in the field that the name does not carry - and a counterless
+        syntax is legal for a single port.
+        """
+        face = build_face('single', 'Uplink', 1, set())
+
+        assert PortPreviewKey.NUMBERS.value not in face
+
+    def test_a_panel_numbers_both_faces(self) -> None:
+        """Front and rear are numbered independently, from the same start index."""
+        preview = build_panel_preview('F{n}', 'R{n}', 2, set(), set())
+        front, rear = preview[PortPreviewKey.FACES.value]
+
+        assert front[PortPreviewKey.NUMBERS.value] == [1, 2]
+        assert rear[PortPreviewKey.NUMBERS.value] == [1, 2]

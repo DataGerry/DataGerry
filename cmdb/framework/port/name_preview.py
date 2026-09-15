@@ -33,7 +33,12 @@ from typing import Any
 
 from cmdb.models.port_model import PortSide
 
-from cmdb.framework.port.name_syntax import colliding_names, duplicate_names, generate_names
+from cmdb.framework.port.name_syntax import (
+    colliding_names,
+    duplicate_names,
+    generate_names,
+    syntax_numbers_its_ports,
+)
 from cmdb.framework.port.name_syntax_constants import PortCollisionKey, PortPreviewKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -66,11 +71,12 @@ def build_face(
         slot (str): The value {slot} takes. Defaults to empty
 
     Returns:
-        dict[str, Any]: The face's side, its generated names, and its collisions
+        dict[str, Any]: The face's side, its generated names, their numbers when the syntax carries a
+            counter, and its collisions
     """
     names: list[str] = generate_names(syntax, count, start_index, prefix, slot)
 
-    return {
+    face: dict[str, Any] = {
         PortPreviewKey.SIDE.value: side,
         PortPreviewKey.NAMES.value: names,
         PortPreviewKey.COLLISIONS.value: {
@@ -78,6 +84,14 @@ def build_face(
             PortCollisionKey.EXISTING.value: colliding_names(names, existing_names),
         },
     }
+
+    # The {n} value that rendered each name, in the same order - what each created port stores as its
+    # port_number. Omitted for a syntax with no counter: that name shows no number, and inventing one
+    # would put a value in the field the name does not carry
+    if syntax_numbers_its_ports(syntax):
+        face[PortPreviewKey.NUMBERS.value] = [start_index + offset for offset in range(count)]
+
+    return face
 
 
 def build_standard_preview(

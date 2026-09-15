@@ -73,6 +73,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
     get_types_referencing_section,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    FIELD_IDENTIFIER_IMMUTABLE_MESSAGE,
+    MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,
     USES_PORTS_DISABLE_MESSAGE,
     UsesPortsUsageKey,
@@ -889,6 +891,177 @@ def guard_location_field_removal(request_user: CmdbUser, old_type: CmdbType, new
     if blocker:
         abort(400, blocker)
 
+
+
+def type_has_objects(request_user: CmdbUser, type_id: int) -> bool:
+    """
+    Whether at least one CmdbObject of the CmdbType exists
+
+    One count, no documents loaded. Shared by the identifier guards below, which only refuse a change
+    once there is stored data it could damage - a Type still being designed may be reshaped freely
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        type_id (int): public_id of the CmdbType
+
+    Returns:
+        bool: True when the Type has at least one Object
+    """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    return objects_manager.count_documents({CmdbObjectKey.TYPE_ID: type_id}) > 0
+
+
+def describe_identifier_swap(old_names: set[str], new_names: set[str]) -> tuple[list[str], list[str]] | None:
+    """
+    Reports the removed and added identifiers of an edit, but only when it looks like a rename
+
+    A field and a multi-data-section are identified by their **name** and by nothing else - there is
+    no stable id underneath - so a rename is indistinguishable from one removal plus one addition in
+    the same write. That is precisely what this detects: identifiers disappearing *and* appearing
+    together. A pure removal or a pure addition is not a rename and is not reported
+
+    Args:
+        old_names (set[str]): The identifiers the stored CmdbType declares
+        new_names (set[str]): The identifiers the update would persist
+
+    Returns:
+        tuple[list[str], list[str]] | None: (removed, added), sorted, or None when the edit does not
+            have the shape of a rename
+    """
+    removed: set[str] = old_names - new_names
+    added: set[str] = new_names - old_names
+
+    if not removed or not added:
+        return None
+
+    return sorted(removed), sorted(added)
+
+
+def field_identifier_change_blocker(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    new_type: CmdbType,
+) -> str | None:
+    """
+    Reports why an update may not rename a field identifier, if it may not
+
+    **A field's `name` is its identifier and is immutable once the Type has Objects.** Every
+    CmdbObject stores its values keyed by that name, and the realignment that follows a Type update
+    reads a rename as one removal plus one addition: the Object loses the value it held and gains an
+    empty field. The same is true of a multi-data-section row. Nothing about the payload distinguishes
+    a rename from a deliberate remove-plus-add, so the shape itself is refused and the caller is asked
+    to perform the two as separate updates.
+
+    This covers ordinary AND multi-data-section fields, because a Type declares every field in its
+    flat `fields` list and its sections only reference them by name.
+
+    Only applies once the Type has Objects: a Type still being designed carries no values to lose, and
+    the sibling guards are conditioned the same way. The reason is returned rather than raised so both
+    write paths can use it - the route aborts with it (`guard_field_identifier_change`), the type
+    import reports it per entry
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Returns:
+        str | None: The reason the change is refused, or None when the update is allowed
+    """
+    swap = describe_identifier_swap(
+        {field[FieldKey.NAME] for field in old_type.fields},
+        {field[FieldKey.NAME] for field in new_type.fields},
+    )
+
+    if swap is None or not type_has_objects(request_user, old_type.public_id):
+        return None
+
+    removed, added = swap
+
+    return FIELD_IDENTIFIER_IMMUTABLE_MESSAGE.format(
+        removed=', '.join(removed), added=', '.join(added),
+    )
+
+
+def guard_field_identifier_change(request_user: CmdbUser, old_type: CmdbType, new_type: CmdbType) -> None:
+    """
+    Aborts 400 when an update would rename a field identifier while the CmdbType has Objects
+
+    The route-level wrapper around `field_identifier_change_blocker`
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Raises:
+        HTTPException: 400 when a field identifier would change
+    """
+    blocker: str | None = field_identifier_change_blocker(request_user, old_type, new_type)
+
+    if blocker:
+        abort(400, blocker)
+
+
+def mds_section_identifier_change_blocker(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    new_type: CmdbType,
+) -> str | None:
+    """
+    Reports why an update may not rename a multi-data-section identifier, if it may not
+
+    **A multi-data-section's `name` is the `section_id` every CmdbObject stores its rows under.** The
+    MDS propagation matches sections on `(type, name)`, so a renamed section reads as a section the
+    Type no longer declares - and every Object drops **all** of its rows for it, not just one value.
+    That makes this the most destructive of the identifier renames, and it is refused in the same
+    shape: identifiers disappearing and appearing in one write.
+
+    Only applies once the Type has Objects, like its field counterpart
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Returns:
+        str | None: The reason the change is refused, or None when the update is allowed
+    """
+    swap = describe_identifier_swap(old_type.get_mds_section_ids(), new_type.get_mds_section_ids())
+
+    if swap is None or not type_has_objects(request_user, old_type.public_id):
+        return None
+
+    removed, added = swap
+
+    return MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE.format(
+        removed=', '.join(removed), added=', '.join(added),
+    )
+
+
+def guard_mds_section_identifier_change(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    new_type: CmdbType,
+) -> None:
+    """
+    Aborts 400 when an update would rename a multi-data-section while the CmdbType has Objects
+
+    The route-level wrapper around `mds_section_identifier_change_blocker`
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        new_type (CmdbType): State of the CmdbType the update would persist
+
+    Raises:
+        HTTPException: 400 when a multi-data-section identifier would change
+    """
+    blocker: str | None = mds_section_identifier_change_blocker(request_user, old_type, new_type)
+
+    if blocker:
+        abort(400, blocker)
 
 
 def compute_removed_global_templates(

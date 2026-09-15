@@ -62,6 +62,7 @@ SECOND_TYPE_NAME: str = 'imported-type-second'
 UPDATE_TYPE_ID: int = 47411
 MISSING_TYPE_ID: int = 47412
 UPDATED_LABEL: str = 'imported-type-updated-label'
+IMPORT_OBJECT_ID: int = 9895
 STORED_VERSION: str = '2.5.0'  # a version already bumped on this system, set by no import
 
 TEMPLATE_ID: int = 47430
@@ -244,6 +245,62 @@ class TestUpdateType:
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name)\
             .find_one({'public_id': UPDATE_TYPE_ID})
         assert stored['label'] == UPDATED_LABEL
+
+    def test_a_renamed_field_identifier_is_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """
+        The import writes Types without the update route, so it needs the same identifier rule
+
+        A field's name is the key every Object stores its value under, and an import replaces the
+        field list wholesale - which is exactly how a rename would slip in unnoticed.
+        """
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        types.insert_one(make_type_doc(UPDATE_TYPE_ID, 'imported-type-update'))
+        objects.insert_one({
+            'public_id': IMPORT_OBJECT_ID, 'type_id': UPDATE_TYPE_ID, 'active': True,
+            'author_id': 1, 'version': '1.0.0', 'multi_data_sections': [],
+            'fields': [{'name': 'dg-name', 'value': 'kept'}],
+        })
+
+        try:
+            renamed = make_type_doc(
+                UPDATE_TYPE_ID, 'imported-type-update',
+                fields=[{'type': 'text', 'name': 'dg-name-renamed', 'label': 'Name'}],
+            )
+
+            response = rest_api.post(
+                UPDATE_URL, data=_upload_form([renamed]), content_type='multipart/form-data',
+            )
+
+            assert response.status_code == HTTPStatus.OK
+            assert _errors(response), 'the entry must be reported, not applied'
+            assert 'identifier' in ' '.join(str(error) for error in _errors(response))
+            # The stored Type is untouched, so the Object keeps its value
+            assert types.find_one({'public_id': UPDATE_TYPE_ID})['fields'][0]['name'] == 'dg-name'
+            assert objects.find_one({'public_id': IMPORT_OBJECT_ID})['fields'][0]['value'] == 'kept'
+        finally:
+            objects.delete_many({'public_id': IMPORT_OBJECT_ID})
+
+    def test_a_renamed_field_is_allowed_when_the_type_has_no_objects(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Nothing to lose yet - the same condition every sibling rule carries."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        types.insert_one(make_type_doc(UPDATE_TYPE_ID, 'imported-type-update'))
+
+        renamed = make_type_doc(
+            UPDATE_TYPE_ID, 'imported-type-update',
+            fields=[{'type': 'text', 'name': 'dg-name-renamed', 'label': 'Name'}],
+        )
+
+        response = rest_api.post(
+            UPDATE_URL, data=_upload_form([renamed]), content_type='multipart/form-data',
+        )
+
+        assert response.status_code == HTTPStatus.OK
+        assert _errors(response) == []
 
     def test_importer_is_recorded_as_the_editor(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str

@@ -59,6 +59,28 @@ REFERENCED_SECTION_EMPTIED_DETAIL_FORMAT: str = "'{section_name}' would show not
 
 # Refusal returned (HTTP 400) when a CmdbType may not be deleted because another CmdbType's
 # reference section points at it. Same dangling reference as above, one level up
+# Refusal (HTTP 400) when an update would rename a field identifier while the Type has Objects. A
+# field's `name` IS its identity - every CmdbObject keys its stored values by it and there is no id
+# underneath - so a rename cannot be told apart from one removal plus one addition, and the shape
+# itself is refused. Covers multi-data-section fields too: a Type declares every field in its flat
+# `fields` list and its sections only reference them by name
+FIELD_IDENTIFIER_IMMUTABLE_MESSAGE: str = (
+    "A field's name is its identifier and can not be changed while Objects of this Type exist - "
+    "every Object stores its values under that name and would lose them. "
+    "Removed: {removed}. Added: {added}. "
+    "If this is not a rename, remove and add the fields in separate updates."
+)
+
+# Refusal (HTTP 400) when an update would rename a multi-data-section while the Type has Objects. The
+# section's name is the `section_id` every Object stores its rows under, and the MDS propagation
+# matches sections on (type, name) - so a rename drops EVERY row of the section from every Object
+MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE: str = (
+    "A multi-data-section's name is its identifier and can not be changed while Objects of this Type "
+    "exist - every Object stores its rows under that name and would lose all of them. "
+    "Removed: {removed}. Added: {added}. "
+    "If this is not a rename, remove and add the sections in separate updates."
+)
+
 REFERENCED_TYPE_DELETE_MESSAGE: str = (
     'Delete not possible if other Types reference this Type in a reference section: {dependents}!'
 )

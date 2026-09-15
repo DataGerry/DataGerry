@@ -103,6 +103,9 @@ def _rack_object_payload() -> dict[str, Any]:
     """A Rack CmdbObject write payload."""
     return {
         'type_id': RACK_TYPE_ID,
+        # Required by CmdbObject.SCHEMA, which the create route validates against: without it the
+        # request is a 400 at the boundary and never reaches the licence gate this test is about
+        'author_id': 1,
         'active': True,
         'fields': [
             {'name': 'dg-rack-name', 'value': 'gated-rack'},

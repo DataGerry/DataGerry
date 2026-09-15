@@ -199,6 +199,26 @@ def render_name(syntax: str, number: int, prefix: str = '', slot: str = '') -> s
     return TOKEN_PATTERN.sub(_replace, syntax)
 
 
+def syntax_numbers_its_ports(syntax: str) -> bool:
+    """
+    Whether a syntax carries the ``{n}`` counter, i.e. whether its names contain a port number
+
+    A syntax without it is legal - it renders the same string every time, which is valid for a single
+    port and caught by the duplicate check for a batch. It also means the rendered name shows no
+    number, so there is nothing for the created port to store as its ``port_number``
+
+    Args:
+        syntax (str): The name syntax
+
+    Returns:
+        bool: True when at least one token is the counter
+    """
+    return any(
+        token == SyntaxToken.NUMBER.value or parse_pad_width(token) is not None
+        for token in find_tokens(syntax)
+    )
+
+
 def generate_names(
         syntax: str,
         count: int,

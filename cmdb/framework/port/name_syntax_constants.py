@@ -99,10 +99,16 @@ class PortPreviewKey(BaseStrEnum):
     Keys of a preview document
 
     FACES holds one entry per face - one for a standard device, two for a panel. PAIRS is present for a
-    panel only and states which front name will be joined to which rear name
+    panel only and states which front name will be joined to which rear name.
+
+    NUMBERS runs parallel to NAMES and holds the ``{n}`` value that rendered each name, which is what
+    the created port stores as its ``port_number``. It is ABSENT for a syntax carrying no counter
+    token: such a name has no number in it, and inventing one would put a value in the field that the
+    name does not show
     """
     SIDE = 'side'
     NAMES = 'names'
+    NUMBERS = 'numbers'
     COLLISIONS = 'collisions'
     FACES = 'faces'
     PAIRS = 'pairs'
