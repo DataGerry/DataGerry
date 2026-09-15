@@ -20,12 +20,10 @@ import {
     Component,
     DestroyRef,
     OnInit,
-    effect,
     inject,
     input,
     output,
-    signal,
-    untracked
+    signal
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
@@ -61,9 +59,10 @@ export interface InterfaceCandidateOption {
 /**
  * Selects an interface row the port may still be linked to.
  *
- * Rows already linked to the port are left out by the route, so the list itself rules out a double
- * link. An interface row carries no name, so the option is labelled from its addresses and named
- * with the object holding it - without that, several rows of one server read identically.
+ * Scoped to the port's own object. Rows already linked to the port are left out by the route, so the
+ * list itself rules out a double link. An interface row carries no name, so the option is labelled
+ * from its addresses and named with the object holding it - without that, several rows of one server
+ * read identically.
  */
 @Component({
     selector: 'cmdb-interface-candidate-picker',
@@ -82,9 +81,6 @@ export class InterfaceCandidatePickerComponent implements OnInit {
     /** The port being linked. Its own links are what the route excludes. */
     public readonly portId = input.required<number>();
 
-    /** Widens the search past the port's own object; the host owns the toggle. */
-    public readonly allObjects = input(false);
-
     /** Passed straight to the dropdown, so a host whose layout clips the panel can re-parent it. */
     public readonly appendTo = input('');
 
@@ -93,7 +89,7 @@ export class InterfaceCandidatePickerComponent implements OnInit {
     /** The picked row, which the host needs in full to show its addresses. */
     public readonly selectionChange = output<InterfaceRowView | null>();
 
-    /** How many rows the current scope holds, so the host can explain an empty list. */
+    /** How many rows the object holds, so the host can explain an empty list. */
     public readonly totalChange = output<number>();
 
     protected readonly options = signal<InterfaceCandidateOption[]>([]);
@@ -111,36 +107,11 @@ export class InterfaceCandidatePickerComponent implements OnInit {
     private nextPage = 1;
     private hasMorePages = true;
 
-    /** The first run of the scope effect is the initial load, which is the one that runs behind the loader. */
-    private hasLoaded = false;
-
-    /**
-     * Rebuilds the list whenever the scope changes, and loads it the first time.
-     *
-     * Driven by the input rather than by the click that flips it: the new value only reaches the
-     * component on the next change detection, so a caller reloading straight from its own handler
-     * would still ask with the previous scope.
-     */
-    private readonly scopeEffect = effect(() => {
-        this.allObjects();
-
-        untracked(() => {
-            const isFirstRun = !this.hasLoaded;
-            this.hasLoaded = true;
-
-            if (!isFirstRun) {
-                this.clearSelection();
-            }
-
-            this.resetPages();
-            this.loadPage(isFirstRun);
-        });
-    });
-
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
         this.watchSearchTerms();
+        this.loadPage(true);
     }
 
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
@@ -218,8 +189,7 @@ export class InterfaceCandidatePickerComponent implements OnInit {
             .getAssignableInterfaces(this.portId(), {
                 page: this.nextPage,
                 page_size: PAGE_SIZE,
-                search: this.searchTerm || undefined,
-                all_objects: this.allObjects()
+                search: this.searchTerm || undefined
             })
             .pipe(
                 takeUntilDestroyed(this.destroyRef),
@@ -250,7 +220,7 @@ export class InterfaceCandidatePickerComponent implements OnInit {
     }
 
 
-    /** The label names the object as well: several rows of one server differ only by their address. */
+    /** The label names the object as well: several rows of one object differ only by their address. */
     private toOption(row: AssignableInterface): InterfaceCandidateOption {
         const view = interfaceRowFromAssignable(row);
         const details = view.details ? ` · ${ view.details }` : '';

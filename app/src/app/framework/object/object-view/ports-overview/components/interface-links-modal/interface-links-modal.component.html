@@ -14,18 +14,10 @@
 
         <cmdb-interface-candidate-picker
           [portId]="port.public_id"
-          [allObjects]="searchAllObjects"
           [appendTo]="dropdownHost"
           (selectionChange)="onSelectionChange($event)"
           (totalChange)="onAssignableTotalChange($event)">
         </cmdb-interface-candidate-picker>
-
-        <app-checkbox
-          id="interface-links-scope"
-          label="Search interfaces of all objects"
-          [checked]="searchAllObjects"
-          (checkedChange)="onToggleScope($event)">
-        </app-checkbox>
 
         @if (emptyPickerHint) {
           <p class="interface-links__hint">{{ emptyPickerHint }}</p>

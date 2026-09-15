@@ -62,8 +62,7 @@ export class InterfaceLinkService {
     /**
      * The interface rows this port may still be linked to, one page at a time.
      *
-     * Scoped to the port's own object unless `all_objects` widens it, and rows already linked to the
-     * port are left out by the route.
+     * Scoped to the port's own object, and rows already linked to the port are left out by the route.
      */
     public getAssignableInterfaces(portId: number, request: AssignableInterfaceRequest): Observable<AssignableInterfacePage> {
         let params = new HttpParams()
@@ -72,10 +71,6 @@ export class InterfaceLinkService {
 
         if (request.search) {
             params = params.set('search', request.search);
-        }
-
-        if (request.all_objects) {
-            params = params.set('all_objects', 'true');
         }
 
         const options = { headers: this.jsonHeaders, params, observe: resp };

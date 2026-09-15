@@ -113,10 +113,7 @@ export class InterfaceLinksModalComponent implements OnInit, OnDestroy {
         { nonNullable: true }
     );
 
-    /** Widens the picker past the port's own object. Off first: a port usually meets its own device. */
-    public searchAllObjects = false;
-
-    /** How many rows the current scope offers, so an empty list can say why it is empty. */
+    /** How many rows the port's object offers, so an empty list can say why it is empty. */
     public assignableTotal = 0;
 
     public hasError = false;
@@ -162,14 +159,6 @@ export class InterfaceLinksModalComponent implements OnInit, OnDestroy {
         this.assignableTotal = total;
         this.hasReadCandidates = true;
         this.changesRef.markForCheck();
-    }
-
-
-    /** The picker rebuilds itself when the input lands; reloading it from here would use the old scope. */
-    public onToggleScope(searchAll: boolean): void {
-        this.searchAllObjects = searchAll;
-        this.selectedRow = null;
-        this.hasReadCandidates = false;
     }
 
 
@@ -302,15 +291,13 @@ export class InterfaceLinksModalComponent implements OnInit, OnDestroy {
     }
 
 
-    /** Why the picker is empty: nothing left on this object, or nothing matching at all. */
+    /** Why the picker is empty: the port's object carries no interface left to link. */
     public get emptyPickerHint(): string {
         if (!this.hasReadCandidates || this.assignableTotal > 0) {
             return '';
         }
 
-        return this.searchAllObjects
-            ? 'Everything is already linked to this port.'
-            : 'Nothing left on this object - widen the search above.';
+        return 'Every interface of this object is already linked to this port.';
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
