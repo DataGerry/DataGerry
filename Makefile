@@ -15,15 +15,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # set environment variables
-BUILDVAR_VERSION = 3.2.0
+BUILDVAR_VERSION = 3.3.0
 BIN_PYINSTALLER = pyinstaller
 DATEVAR := $(shell date '+%a %b %d %Y')
 
-# Sphinx
+# Sphinx (built for publishing to docs.datagerry.com, see release.yml)
 BIN_SPHINX = sphinx-build
 DIR_DOCS_SOURCE = docs/source
 DIR_DOCS_BUILD = ${DIR_BUILD}/docs
-DIR_DOCS_TARGET = cmdb/interface/docs/static
 
 BIN_PYTEST = pytest
 BIN_PIP = pip
@@ -49,7 +48,7 @@ DIR_FRONTEND_TARGET = ${DIR_BUILD}/frontend
 
 # build whole application
 .PHONY: all
-all: bin zip deb frontend docker
+all: bin docs zip deb frontend docker
 
 
 # install Python requirements
@@ -65,11 +64,10 @@ buildvars:
 	sed -i 's/@@DG_BUILDVAR_VERSION@@/${BUILDVAR_VERSION}/g' docs/source/conf.py
 
 
-# create documentation
+# create documentation (published to docs.datagerry.com from ${DIR_DOCS_BUILD} by release.yml)
 .PHONY: docs
 docs: requirements buildvars
 	${BIN_SPHINX} -b html -a ${DIR_DOCS_SOURCE} ${DIR_DOCS_BUILD}
-	cp -R ${DIR_DOCS_BUILD}/* ${DIR_DOCS_TARGET}
 
 
 # create webapp
@@ -93,20 +91,27 @@ frontend:
 
 # create onefile binary of DataGerry
 .PHONY: bin
-bin: requirements buildvars docs webapp
+bin: requirements buildvars webapp
 		-rm -rf ${DIR_BIN_BUILD}
 		${BIN_PYINSTALLER} --name datagerry --onefile \
 		--distpath ${DIR_BIN_BUILD} \
 		--workpath ${DIR_TEMP} \
-		--hidden-import cmdb.database.updater.versions.updater_20200512 \
-		--hidden-import cmdb.database.updater.versions.updater_20200513 \
-		--hidden-import cmdb.database.updater.versions.updater_20240603 \
 		--hidden-import cmdb.database.updater.versions.updater_20250619 \
 		--hidden-import cmdb.database.updater.versions.updater_20251203 \
 		--hidden-import cmdb.database.updater.versions.updater_20260225 \
 		--hidden-import cmdb.database.updater.versions.updater_20260226 \
 		--hidden-import cmdb.database.updater.versions.updater_20260417 \
 		--hidden-import cmdb.database.updater.versions.updater_20260604 \
+		--hidden-import cmdb.database.updater.versions.updater_20260720 \
+		--hidden-import cmdb.database.updater.versions.updater_20260731 \
+		--hidden-import cmdb.database.updater.versions.updater_20260804 \
+		--hidden-import cmdb.database.updater.versions.updater_20260824 \
+		--hidden-import cmdb.database.updater.versions.updater_20260901 \
+		--hidden-import cmdb.database.updater.versions.updater_20260902 \
+		--hidden-import cmdb.database.updater.versions.updater_20260907 \
+		--hidden-import cmdb.database.updater.versions.updater_20260908 \
+		--hidden-import cmdb.database.updater.versions.updater_20260909 \
+		--hidden-import cmdb.database.updater.versions.updater_20260910 \
 		--hidden-import cmdb.framework.exporter \
 		--hidden-import cmdb.framework.exporter.format \
 		--hidden-import cmdb.interface.gunicorn \
@@ -119,7 +124,6 @@ bin: requirements buildvars docs webapp
 		--hidden-import reportlab.graphics.barcode.usps \
 		--hidden-import reportlab.graphics.barcode.usps4s \
 		--hidden-import reportlab.graphics.barcode.ecc200datamatrix \
-		--add-data cmdb/interface/docs/static:cmdb/interface/docs/static \
 		--add-data cmdb/interface/net_app/datagerry-app:cmdb/interface/net_app/datagerry-app \
 		cmdb/__main__.py
 
@@ -208,6 +212,5 @@ tests: requirements
 .PHONY: clean
 clean:
 	rm -Rf ${DIR_BUILD}
-	rm -Rf ${DIR_DOCS_TARGET}/*
 	rm -Rf ${DIR_WEB_TARGET}/*
 	rm -f datagerry.spec
