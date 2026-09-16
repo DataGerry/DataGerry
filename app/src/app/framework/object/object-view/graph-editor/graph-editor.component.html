@@ -24,8 +24,7 @@
     [relationOptions]="relationOptionList"
     [profiles]="profiles"
     [selectedProfileId]="selectedProfileId"
-    [withLocations]="withLocations"
-    [withIpamRelations]="withIpamRelations"
+    [scope]="scope"
     (modeChange)="switchFilterMode($event)"
     (selectedProfileIdChange)="selectedProfileId = $event"
     (applyFilters)="applyFilters()"
@@ -33,8 +32,7 @@
     (saveAsProfile)="saveCurrentFiltersAsProfile()"
     (applyProfile)="applyProfile()"
     (manageProfiles)="openProfileManager()"
-    (withLocationsChange)="onWithLocationsChange($event)"
-    (withIpamRelationsChange)="onWithIpamRelationsChange($event)">
+    (scopeChange)="onScopeChange($event)">
   </cmdb-graph-filter-panel>
 
   <!-- Main Graph Area -->

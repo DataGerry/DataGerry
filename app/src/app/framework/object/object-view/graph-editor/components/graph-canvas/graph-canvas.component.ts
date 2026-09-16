@@ -33,6 +33,13 @@ import {
 /** Distance back from the target node at which the arrow head sits. */
 const ARROW_OFFSET = 60;
 
+/** Heads declared in the <defs> of this component's template. */
+const ARROW_MARKERS = {
+    valid: 'url(#arrow-valid)',
+    invalid: 'url(#arrow-invalid)',
+    dataFlow: 'url(#arrow-data-flow)'
+} as const;
+
 export interface NodePointerEvent {
     event: MouseEvent;
     node: GraphNode;
@@ -99,6 +106,19 @@ export class GraphCanvasComponent {
 
     getConnectionStrokeWidth(conn: Connection): number {
         return getConnectionStrokeWidth(conn);
+    }
+
+    /** An undirected edge gets no head, so neither end reads as the target. */
+    getArrowMarker(conn: Connection): string | null {
+        if (conn.undirected) {
+            return null;
+        }
+
+        if (!conn.isValid) {
+            return ARROW_MARKERS.invalid;
+        }
+
+        return conn.dataFlow ? ARROW_MARKERS.dataFlow : ARROW_MARKERS.valid;
     }
 
     /** Places the invisible click target a fixed distance back from the target node. */

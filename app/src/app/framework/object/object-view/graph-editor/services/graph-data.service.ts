@@ -20,12 +20,15 @@ import { Observable, Subject } from 'rxjs';
 import {
   CINode,
   CIEdge,
+  CiExplorerScope,
+  DEFAULT_CI_EXPLORER_SCOPE,
   GraphRespWithRoot,
   GraphRespChildren,
   GraphRespParents
 } from 'src/app/framework/models/ci-explorer.model';
 import { CiExplorerService } from 'src/app/framework/services/ci-explorer.service';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
+import { edgeMeta } from '../utils/graph-edge.util';
 
 @Injectable()
 export class GraphDataService {
@@ -106,30 +109,27 @@ export class GraphDataService {
     rootNodeId: number,
     typesFilter: number[] = [],
     relationsFilter: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespWithRoot> {
-    return this.ci?.loadWithRoot(rootNodeId, typesFilter, relationsFilter, withLocations, withIpamRelations);
+    return this.ci?.loadWithRoot(rootNodeId, typesFilter, relationsFilter, scope);
   }
 
   expandChild(
     id: number,
     typesFilter: number[] = [],
     relationsFilter: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespChildren> {
-    return this.ci?.expandChild(id, typesFilter, relationsFilter, withLocations, withIpamRelations);
+    return this.ci?.expandChild(id, typesFilter, relationsFilter, scope);
   }
 
   expandParent(
     id: number,
     typesFilter: number[] = [],
     relationsFilter: number[] = [],
-    withLocations: boolean = true,
-    withIpamRelations: boolean = true
+    scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
   ): Observable<GraphRespParents> {
-    return this.ci?.expandParent(id, typesFilter, relationsFilter, withLocations, withIpamRelations);
+    return this.ci?.expandParent(id, typesFilter, relationsFilter, scope);
   }
 
   // Helper methods
@@ -200,7 +200,7 @@ export class GraphDataService {
     if (this.skipBackendEdgesDuringExpansion) { return; }
 
     edges.forEach(raw => {
-      const meta = Array.isArray(raw.metadata) ? raw.metadata[0] : raw.metadata;
+      const meta = edgeMeta(raw);
 
       // Find the ORIGINAL from and to nodes based on the backend edge direction
       const fromCopies = nodes.filter(n => n.id === raw.from);
@@ -241,6 +241,7 @@ export class GraphDataService {
             relationColor: meta?.relation_color,
             relationIcon: meta?.relation_icon,
             metadata: meta,
+            undirected: meta?.undirected === true,
             isValid: true,
             strength: 1,
             dataFlow: false

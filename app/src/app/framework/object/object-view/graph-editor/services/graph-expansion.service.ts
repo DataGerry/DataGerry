@@ -19,10 +19,13 @@ import { Injectable } from '@angular/core';
 import {
     CIEdge,
     CINode,
+    CiExplorerScope,
+    DEFAULT_CI_EXPLORER_SCOPE,
     GraphRespChildren,
     GraphRespParents
 } from 'src/app/framework/models/ci-explorer.model';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
+import { undirectedNeighbours } from '../utils/graph-edge.util';
 import { GraphDataService } from './graph-data.service';
 import { firstValueFrom } from 'rxjs';
 import { ConnectionTrackerService } from './connection-tracker.service';
@@ -50,14 +53,13 @@ export class GraphExpansionService {
         typesFilter: number[],
         relationsFilter: number[],
         nodeTypeConfigs: Map<string, { icon: string; gradient: string }>,
-        withLocations: boolean = true,
-        withIpamRelations: boolean = true
+        scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
     ): Promise<void> {
         ui.isLoading = true;
         ui.expanded = true;
 
         try {
-            await this.fetchAndAttach(cn, ui, nodes, connections, typesFilter, relationsFilter, nodeTypeConfigs, withLocations, withIpamRelations);
+            await this.fetchAndAttach(cn, ui, nodes, connections, typesFilter, relationsFilter, nodeTypeConfigs, scope);
             this.trackExpansionConnections(nodes);
 
         } finally {
@@ -85,8 +87,7 @@ export class GraphExpansionService {
         typesFilter: number[],
         relationsFilter: number[],
         nodeTypeConfigs: Map<string, { icon: string; gradient: string }>,
-        withLocations: boolean = true,
-        withIpamRelations: boolean = true
+        scope: CiExplorerScope = DEFAULT_CI_EXPLORER_SCOPE
     ): Promise<void> {
         const id = cn?.linked_object?.public_id;
         this.graphData?.setSkipBackendEdges(true);
@@ -102,7 +103,7 @@ export class GraphExpansionService {
             // PARENTS (level -1, -2, …)
             if ((cn as any)?.direction === 'parent' || (cn as any)?.direction === 'root') {
                 const res: GraphRespParents = await firstValueFrom(
-                    this.graphData?.expandParent(id, typesFilter, relationsFilter, withLocations, withIpamRelations)
+                    this.graphData?.expandParent(id, typesFilter, relationsFilter, scope)
                 );
                 const rawParents = this.graphData?.getNodes(res, 'parent') ?? [];
                 if (rawParents.length >= CI_EXPLORER_ITEM_LIMIT) {
@@ -117,6 +118,8 @@ export class GraphExpansionService {
                     allExpansionEdges.push(edge); // Just collect edges, don't index yet
                 });
 
+                const undirected = undirectedNeighbours(parentEdges, id);
+
                 const before = nodes?.length;
                 this.graphData?.mergeNodes(nodes, parents, nodeTypeConfigs);
                 const added = nodes?.slice(before);
@@ -128,6 +131,7 @@ export class GraphExpansionService {
                         fromUid: p?.uid, toUid: ui?.uid,
                         relationLabel: 'parent',
                         relationColor: cn?.relation_color,
+                        undirected: undirected.has(p?.id),
                         isValid: true, strength: 1
                     });
                 });
@@ -136,7 +140,7 @@ export class GraphExpansionService {
             // CHILDREN (level +1, +2, …)
             if ((cn as any).direction === 'child' || (cn as any).direction === 'root') {
                 const res: GraphRespChildren = await firstValueFrom(
-                    this.graphData?.expandChild(id, typesFilter, relationsFilter, withLocations, withIpamRelations)
+                    this.graphData?.expandChild(id, typesFilter, relationsFilter, scope)
                 );
 
                 const rawKids = this.graphData?.getNodes(res, 'child') ?? [];
@@ -152,6 +156,8 @@ export class GraphExpansionService {
                     allExpansionEdges.push(edge); // Just collect edges, don't index yet
                 });
 
+                const undirected = undirectedNeighbours(childEdges, id);
+
                 const before = nodes?.length;
                 this.graphData?.mergeNodes(nodes, kids, nodeTypeConfigs);
                 const added = nodes?.slice(before);
@@ -163,6 +169,7 @@ export class GraphExpansionService {
                         fromUid: ui?.uid, toUid: k?.uid,
                         relationLabel: 'child',
                         relationColor: cn?.relation_color,
+                        undirected: undirected.has(k?.id),
                         isValid: true, strength: 1
                     });
                 });

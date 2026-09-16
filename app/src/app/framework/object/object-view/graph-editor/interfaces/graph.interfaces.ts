@@ -68,6 +68,8 @@ export interface Connection {
   isValid?: boolean;
   strength?: number;
   dataFlow?: boolean;
+  /** Port connections run both ways, so they are drawn without an arrow head. */
+  undirected?: boolean;
   metadata?: any;
 }
 

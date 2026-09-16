@@ -185,6 +185,25 @@ describe('GraphDataService (characterization)', () => {
             expect(connections[0].relationIcon).toBe('fas fa-cube');
         });
 
+        it('marks an undirected edge, so the canvas can drop its arrow head', () => {
+            const nodes = seed([ciNode(1, 0), ciNode(2, 1)]);
+            const connections: Connection[] = [];
+            const meta = relationMeta({ source: 'port_connection', undirected: true });
+
+            service.mergeEdges(connections, nodes, [ciEdge(1, 2, [meta])]);
+
+            expect(connections[0].undirected).toBeTrue();
+        });
+
+        it('leaves a plain relation edge directed', () => {
+            const nodes = seed([ciNode(1, 0), ciNode(2, 1)]);
+            const connections: Connection[] = [];
+
+            service.mergeEdges(connections, nodes, [ciEdge(1, 2)]);
+
+            expect(connections[0].undirected).toBeFalse();
+        });
+
         it('creates one connection per rendered instance pair', () => {
             // CI 2 exists at level -1 and level 1; only the level-1 copy is adjacent below the root.
             const nodes = seed([ciNode(1, 0), ciNode(2, 1), ciNode(2, -1)]);

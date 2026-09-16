@@ -37,7 +37,7 @@ import { debounceTime, finalize, takeUntil } from 'rxjs/operators';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
-import { CI_EXPLORER_EDIT_RIGHT } from 'src/app/framework/models/ci-explorer.model';
+import { CI_EXPLORER_EDIT_RIGHT, CiExplorerScope } from 'src/app/framework/models/ci-explorer.model';
 import { RelationService } from 'src/app/framework/services/relaion.service';
 import { TypeService } from 'src/app/framework/services/type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -231,8 +231,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   get selectedNodes(): Set<number> { return this.store.selectedNodes; }
 
   get profiles(): FilterProfile[] { return this.store.profiles; }
-  get withLocations(): boolean { return this.store.withLocations; }
-  get withIpamRelations(): boolean { return this.store.withIpamRelations; }
+  get scope(): CiExplorerScope { return this.store.scope; }
   get isLoading$() { return this.store.isLoading$; }
 
   get showPerformanceHints(): boolean { return this.store.nodes.length > 100; }
@@ -447,8 +446,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
     this.store.load(true);
   }
 
-  onWithLocationsChange(checked: boolean): void { this.store.withLocations = checked; }
-  onWithIpamRelationsChange(checked: boolean): void { this.store.withIpamRelations = checked; }
+  onScopeChange(patch: Partial<CiExplorerScope>): void { this.store.updateScope(patch); }
 
   hasActiveFilters(): boolean {
     return this.profileService.hasActiveFilters(this.store.typesFilter, this.store.relationsFilter);

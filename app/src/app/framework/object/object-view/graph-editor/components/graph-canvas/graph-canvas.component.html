@@ -48,7 +48,7 @@
         [class.hovered]="store.hoveredConnection === conn"
         [attr.stroke]="conn.isValid ? 'url(#valid-gradient)' : 'url(#invalid-gradient)'"
         [attr.stroke-width]="getConnectionStrokeWidth(conn)"
-        [attr.marker-end]="conn.isValid ? (conn.dataFlow ? 'url(#arrow-data-flow)' : 'url(#arrow-valid)') : 'url(#arrow-invalid)'"
+        [attr.marker-end]="getArrowMarker(conn)"
         fill="none" (click)="connectionClicked.emit({ event: $event, connection: conn })" pointer-events="none" />
     }
 

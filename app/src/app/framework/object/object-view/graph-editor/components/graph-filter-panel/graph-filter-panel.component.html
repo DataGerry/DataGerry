@@ -56,13 +56,7 @@
             </div>
           </div>
 
-          <div class="filter-scope-row">
-            <app-checkbox id="graph-editor-with-locations-manual" label="Include locations"
-              [checked]="withLocations()" (checkedChange)="withLocationsChange.emit($event)"></app-checkbox>
-
-            <app-checkbox id="graph-editor-with-ipam-relations-manual" label="Include IPAM relations"
-              [checked]="withIpamRelations()" (checkedChange)="withIpamRelationsChange.emit($event)"></app-checkbox>
-          </div>
+          <ng-container [ngTemplateOutlet]="scopeRow"></ng-container>
         </div>
       </form>
     </div>
@@ -94,15 +88,19 @@
             </div>
           </div>
 
-          <div class="filter-scope-row">
-            <app-checkbox id="graph-editor-with-locations" label="Include locations" [checked]="withLocations()"
-              (checkedChange)="withLocationsChange.emit($event)"></app-checkbox>
-
-            <app-checkbox id="graph-editor-with-ipam-relations" label="Include IPAM relations"
-              [checked]="withIpamRelations()" (checkedChange)="withIpamRelationsChange.emit($event)"></app-checkbox>
-          </div>
+          <ng-container [ngTemplateOutlet]="scopeRow"></ng-container>
         </div>
       </div>
     </div>
   }
 </div>
+
+<!-- One scope row, shared by both filter modes; only one of them is on screen at a time. -->
+<ng-template #scopeRow>
+  <div class="filter-scope-row">
+    @for (toggle of scopeToggles; track toggle.key) {
+      <app-checkbox [id]="'graph-editor-scope-' + toggle.key" [label]="toggle.label"
+        [checked]="scope()[toggle.key]" (checkedChange)="toggleScope(toggle.key, $event)"></app-checkbox>
+    }
+  </div>
+</ng-template>

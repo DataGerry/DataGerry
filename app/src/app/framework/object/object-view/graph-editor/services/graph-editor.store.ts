@@ -14,7 +14,12 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { finalize } from 'rxjs/operators';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { CINode, GraphRespWithRoot } from 'src/app/framework/models/ci-explorer.model';
+import {
+    CiExplorerScope,
+    CINode,
+    DEFAULT_CI_EXPLORER_SCOPE,
+    GraphRespWithRoot
+} from 'src/app/framework/models/ci-explorer.model';
 import { CI_EXPLORER_ITEM_LIMIT } from 'src/app/framework/services/ci-explorer.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
@@ -91,8 +96,8 @@ export class GraphEditorStore {
     rootNodeId: number | null = null;
     typesFilter: number[] = [];
     relationsFilter: number[] = [];
-    withLocations = true;
-    withIpamRelations = true;
+    /** Which optional edge sources the backend should walk; mirrored by the filter bar. */
+    scope: CiExplorerScope = { ...DEFAULT_CI_EXPLORER_SCOPE };
 
     profiles: FilterProfile[] = [];
 
@@ -102,6 +107,11 @@ export class GraphEditorStore {
 
     setPaintedCallback(onPainted: () => void): void {
         this.onPainted = onPainted;
+    }
+
+    /** Takes effect on the next read, so the user can tick several boxes before applying. */
+    updateScope(patch: Partial<CiExplorerScope>): void {
+        this.scope = { ...this.scope, ...patch };
     }
 
     /** Re-reads the graph. `reset` throws away everything first, for a filter or root change. */
@@ -120,8 +130,7 @@ export class GraphEditorStore {
             this.rootNodeId,
             this.typesFilter,
             this.relationsFilter,
-            this.withLocations,
-            this.withIpamRelations
+            this.scope
         )
             .pipe(finalize(() => this.loaderService.hide()))
             .subscribe({
@@ -291,8 +300,7 @@ export class GraphEditorStore {
                 this.typesFilter,
                 this.relationsFilter,
                 this.nodeTypeConfigs,
-                this.withLocations,
-                this.withIpamRelations
+                this.scope
             );
             this.connections = validateConnections(this.connections, this.graphData.getNodeInstanceMap());
             this.relayout();

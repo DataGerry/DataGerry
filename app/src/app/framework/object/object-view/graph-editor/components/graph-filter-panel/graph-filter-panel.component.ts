@@ -18,7 +18,11 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { FormGroup } from '@angular/forms';
 
-import { CI_EXPLORER_EDIT_RIGHT } from 'src/app/framework/models/ci-explorer.model';
+import {
+    CI_EXPLORER_EDIT_RIGHT,
+    CiExplorerScope,
+    DEFAULT_CI_EXPLORER_SCOPE
+} from 'src/app/framework/models/ci-explorer.model';
 
 import { FilterProfile } from '../../interfaces/graph.interfaces';
 
@@ -28,6 +32,18 @@ export interface FilterOption {
     public_id: number;
     display_name: string;
 }
+
+interface ScopeToggle {
+    key: keyof CiExplorerScope;
+    label: string;
+}
+
+/** The scope row is rendered from this list, so a new backend flag is one entry. */
+const SCOPE_TOGGLES: readonly ScopeToggle[] = [
+    { key: 'withLocations', label: 'Include locations' },
+    { key: 'withIpamRelations', label: 'Include IPAM relations' },
+    { key: 'withPortConnections', label: 'Include port connections' }
+];
 
 /** The collapsible filter bar: manual type/relation pickers, or a saved profile. */
 @Component({
@@ -51,8 +67,9 @@ export class GraphFilterPanelComponent {
     readonly relationOptions = input<FilterOption[]>([]);
     readonly profiles = input<FilterProfile[]>([]);
     readonly selectedProfileId = input<number | null>(null);
-    readonly withLocations = input(true);
-    readonly withIpamRelations = input(true);
+    readonly scope = input<CiExplorerScope>(DEFAULT_CI_EXPLORER_SCOPE);
+
+    protected readonly scopeToggles = SCOPE_TOGGLES;
 
     readonly modeChange = output<FilterMode>();
     readonly selectedProfileIdChange = output<number | null>();
@@ -61,6 +78,11 @@ export class GraphFilterPanelComponent {
     readonly saveAsProfile = output<void>();
     readonly applyProfile = output<void>();
     readonly manageProfiles = output<void>();
-    readonly withLocationsChange = output<boolean>();
-    readonly withIpamRelationsChange = output<boolean>();
+    readonly scopeChange = output<Partial<CiExplorerScope>>();
+
+    /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    protected toggleScope(key: keyof CiExplorerScope, checked: boolean): void {
+        this.scopeChange.emit({ [key]: checked });
+    }
 }
