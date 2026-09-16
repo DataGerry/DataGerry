@@ -1,518 +1,95 @@
 <div class="ci-explorer-container" #editorRoot [class.is-fullscreen]="isFullscreen">
-  <div class="top-toolbar">
-    <div class="toolbar-left"></div>
-    <div class="toolbar-right">
-      <div class="view-controls">
-        <button class="control-btn" (click)="zoomOut()" title="Zoom Out (Ctrl+-)">
-          <span class="material-icons">zoom_out</span>
-        </button>
-        <span class="zoom-level">{{ (zoom * 100).toFixed(0) }}%</span>
-        <button class="control-btn" (click)="zoomIn()" title="Zoom In (Ctrl++)">
-          <span class="material-icons">zoom_in</span>
-        </button>
-        <button class="control-btn" (click)="resetZoom()" title="Reset View (Ctrl+0)">
-          <span class="material-icons">center_focus_strong</span>
-        </button>
-        <button class="control-btn" [class.active]="focusMode" (click)="toggleFocusMode()" title="Focus Mode">
-          <span class="material-icons">filter_center_focus</span>
-        </button>
-        <button class="control-btn" (click)="exportGraphAsImage()" title="Export full graph as PNG">
-          <span class="material-icons">download</span>
-        </button>
-      </div>
-      <div class="toggle-controls">
-        <!-- Filter Toggle Button -->
-        <button class="control-btn filter-toggle-btn" [class.active]="showFilterBar" (click)="toggleFilterBar()"
-          title="Toggle Filters">
-          <span class="material-icons">tune</span>
-        </button>
 
-        <button class="control-btn" [class.active]="showMinimap" (click)="toggleMinimap()" title="Toggle Minimap">
-          <span class="material-icons">map</span>
-        </button>
+  <cmdb-graph-toolbar
+    [zoom]="zoom"
+    [focusMode]="focusMode"
+    [filterBarOpen]="showFilterBar"
+    [minimapOpen]="showMinimap"
+    [fullscreen]="isFullscreen"
+    (zoomIn)="zoomIn()"
+    (zoomOut)="zoomOut()"
+    (resetZoom)="resetZoom()"
+    (toggleFocusMode)="toggleFocusMode()"
+    (exportImage)="exportGraphAsImage()"
+    (toggleFilterBar)="toggleFilterBar()"
+    (toggleMinimap)="toggleMinimap()"
+    (toggleFullscreen)="toggleFullscreen()">
+  </cmdb-graph-toolbar>
 
-        <button class="control-btn" [class.active]="isFullscreen" (click)="toggleFullscreen()"
-          [title]="isFullscreen ? 'Exit Fullscreen' : 'Maximize to Fullscreen'">
-          <span class="material-icons">
-            {{ isFullscreen ? 'close_fullscreen' : 'open_in_full' }}
-          </span>
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!--  Filter Bar (Collapsible) -->
-  <div class="filter-bar-container" [class.visible]="showFilterBar">
-    <div class="enhanced-filter-bar">
-
-      <div class="filter-mode-toggle">
-        <div class="toggle-group">
-          <button type="button" class="toggle-btn" [class.active]="filterMode === 'manual'"
-            (click)="switchFilterMode('manual')">
-            <span class="material-icons">tune</span>
-            Manual Filters
-          </button>
-          <button type="button" class="toggle-btn" [class.active]="filterMode === 'profile'"
-            (click)="switchFilterMode('profile')">
-            <span class="material-icons">bookmark</span>
-            Filter Profiles
-          </button>
-        </div>
-      </div>
-
-      @if (filterMode === 'manual') {
-      <div class="enhanced-filter-content">
-        <form [formGroup]="filterForm">
-          <div class="manual-filter-selector" style="align-items: start !important;">
-            <div class="filter-inputs-section">
-              <div class="filter-group">
-                <label class="filter-label">
-                  <span class="material-icons">category</span>
-                  CI Types
-                </label>
-                <app-form-select formControlName="types" [items]="typeOptionList" bindLabel="display_name"
-                  bindValue="public_id" [multiple]="true" [enableSelectAll]="true" placeholder="Select CI type(s)"
-                  class="filter-select">
-                </app-form-select>
-              </div>
-
-              <div class="filter-group">
-                <label class="filter-label">
-                  <span class="material-icons">share</span>
-                  Relations
-                </label>
-                <app-form-select formControlName="relations" [items]="relationOptionList" bindLabel="display_name"
-                  bindValue="public_id" [multiple]="true" placeholder="Select relation type(s)" class="filter-select">
-                </app-form-select>
-              </div>
-            </div>
-
-            <div class="filter-actions">
-              <div>
-                <label class="filter-label">&nbsp;</label>
-                <div>
-                  <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button" (clicked)="applyFilters()">
-                  </app-button>
-                  <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary ms-2'"
-                    label="Save as Profile" type="button" (clicked)="saveCurrentFiltersAsProfile()">
-                  </app-button>
-                  <app-button [bootstrapClass]="'btn-outline-danger ms-2'" label="Clear" type="button"
-                    (clicked)="clearFilters()">
-                  </app-button>
-                </div>
-              </div>
-            </div>
-
-            <div style="grid-column: 1 / -1; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
-              <app-checkbox id="graph-editor-with-locations-manual" label="Include locations" [checked]="withLocations"
-                (checkedChange)="onWithLocationsChange($event)">
-              </app-checkbox>
-
-              <app-checkbox id="graph-editor-with-ipam-relations-manual" label="Include IPAM relations"
-                [checked]="withIpamRelations" (checkedChange)="onWithIpamRelationsChange($event)">
-              </app-checkbox>
-            </div>
-          </div>
-        </form>
-      </div>
-      }
-
-      @if (filterMode === 'profile') {
-      <div class="enhanced-filter-content">
-        <div class="profile-selector">
-          <div class="filter-group flex-grow">
-            <label class="filter-label">
-              <span class="material-icons">bookmark</span>
-              Select Profile
-            </label>
-
-            <div style="display: flex; gap: 20px;">
-              <app-form-select [(ngModel)]="selectedProfileId" [items]="profiles" bindLabel="name" bindValue="public_id"
-                placeholder="Choose a filter profile" class="filter-select" style="flex: 1; min-width: 300px;">
-              </app-form-select>
-
-              <div class="profile-actions" style="display: flex; gap: 10px;">
-                <app-button [bootstrapClass]="'btn-success'" label="Apply Profile" type="button"
-                  (clicked)="applyProfile()" [disabled]="!selectedProfileId">
-                </app-button>
-
-                <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary'"
-                  label="Manage Profiles" type="button" (clicked)="openProfileManager()">
-                </app-button>
-
-                <app-button [bootstrapClass]="'btn-outline-danger'" label="Clear" type="button"
-                  (clicked)="clearFilters()">
-                </app-button>
-              </div>
-            </div>
-
-            <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
-              <app-checkbox id="graph-editor-with-locations" label="Include locations" [checked]="withLocations"
-                (checkedChange)="onWithLocationsChange($event)">
-              </app-checkbox>
-
-              <app-checkbox id="graph-editor-with-ipam-relations" label="Include IPAM relations"
-                [checked]="withIpamRelations" (checkedChange)="onWithIpamRelationsChange($event)">
-              </app-checkbox>
-            </div>
-          </div>
-        </div>
-      </div>
-      }
-    </div>
-  </div>
+  <cmdb-graph-filter-panel
+    [open]="showFilterBar"
+    [mode]="filterMode"
+    [form]="filterForm"
+    [typeOptions]="typeOptionList"
+    [relationOptions]="relationOptionList"
+    [profiles]="profiles"
+    [selectedProfileId]="selectedProfileId"
+    [scope]="scope"
+    (modeChange)="switchFilterMode($event)"
+    (selectedProfileIdChange)="selectedProfileId = $event"
+    (applyFilters)="applyFilters()"
+    (clearFilters)="clearFilters()"
+    (saveAsProfile)="saveCurrentFiltersAsProfile()"
+    (applyProfile)="applyProfile()"
+    (manageProfiles)="openProfileManager()"
+    (scopeChange)="onScopeChange($event)">
+  </cmdb-graph-filter-panel>
 
   <!-- Main Graph Area -->
   <div class="graph-viewport" #graphContainer [class.panning]="isPanning" (mousedown)="onCanvasMouseDown($event)"
     (contextmenu)="onGraphContextMenu($event)">
-    <!-- Focus Mode Overlay -->
+
     <div class="focus-overlay" [class.active]="focusMode"
       [style.--focus-x]="focusedNodeId ? getNodeById(focusedNodeId).x + 'px' : '50%'"
       [style.--focus-y]="focusedNodeId ? getNodeById(focusedNodeId).y + 'px' : '50%'"></div>
 
-    <div class="graph-canvas" #graphCanvas [class.smooth-transition]="smoothTransitions && !isDragging && !isPanning"
-      [style.transform]="'translate(' + viewportX + 'px, ' + viewportY + 'px) scale(' + zoom + ')'">
-      <!--  SVG Connections Layer -->
-      <svg class="connections-svg" #svgContainer>
-        <defs>
-          <!--  gradient definitions -->
-          <linearGradient id="valid-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" style="stop-color:#4CAF50;stop-opacity:0.8" />
-            <stop offset="100%" style="stop-color:#2196F3;stop-opacity:0.8" />
-          </linearGradient>
-          <linearGradient id="invalid-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" style="stop-color:#FF5722;stop-opacity:0.5" />
-            <stop offset="100%" style="stop-color:#F44336;stop-opacity:0.5" />
-          </linearGradient>
-          <linearGradient id="data-flow-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" style="stop-color:#00BCD4;stop-opacity:0">
-              <animate attributeName="stop-opacity" values="0;1;0" dur="2s" repeatCount="indefinite" />
-            </stop>
-            <stop offset="50%" style="stop-color:#00BCD4;stop-opacity:1">
-              <animate attributeName="stop-opacity" values="1;0;1" dur="2s" repeatCount="indefinite" />
-            </stop>
-            <stop offset="100%" style="stop-color:#00BCD4;stop-opacity:0">
-              <animate attributeName="stop-opacity" values="0;1;0" dur="2s" repeatCount="indefinite" />
-            </stop>
-          </linearGradient>
-
-
-          <!--  arrow markers -->
-          <marker id="arrow-valid" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
-            markerUnits="strokeWidth">
-            <path d="M0,0 L0,8 L11,4 z" fill="#2196F3" />
-          </marker>
-          <marker id="arrow-invalid" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
-            markerUnits="strokeWidth">
-            <path d="M0,0 L0,8 L11,4 z" fill="#F44336" />
-          </marker>
-          <marker id="arrow-data-flow" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
-            markerUnits="strokeWidth">
-            <path d="M0,0 L0,8 L11,4 z" fill="#00BCD4" />
-          </marker>
-        </defs>
-
-        <!-- Connection Paths -->
-        <g class="connections-group">
-          <!-- Invisible wider paths for easier hovering -->
-          @for (conn of getVisibleConnections(); track trackByConnKey($index, conn)) {
-          <path [attr.d]="calculatePath(conn)" stroke="transparent" stroke-width="20" fill="none"
-            pointer-events="stroke" (click)="onConnectionClick(conn, $event)" (mouseenter)="hoveredConnection = conn"
-            (mouseleave)="hoveredConnection = null" />
-          }
-
-          <!-- Visible connection paths with original arrows -->
-          @for (conn of getVisibleConnections(); track trackByConnKey($index, conn)) {
-          <path [attr.d]="calculatePath(conn)" class="connection-path" [class.valid]="conn.isValid"
-            [class.invalid]="!conn.isValid" [class.highlighted]="isConnectionHighlighted(conn)"
-            [class.hovered]="hoveredConnection === conn"
-            [attr.stroke]="conn.isValid ? 'url(#valid-gradient)' : 'url(#invalid-gradient)'"
-            [attr.stroke-width]="getConnectionStrokeWidth(conn)"
-            [attr.marker-end]="conn.isValid ? (conn.dataFlow && showDataFlow ? 'url(#arrow-data-flow)' : 'url(#arrow-valid)') : 'url(#arrow-invalid)'"
-            fill="none" (click)="onConnectionClick(conn, $event)" pointer-events="none" />
-          }
-
-          <!-- Invisible clickable circles at arrow positions -->
-          @for (conn of getVisibleConnections(); track trackByConnKey($index, conn)) {
-          <circle [attr.cx]="getArrowPosition(conn).x" [attr.cy]="getArrowPosition(conn).y" r="15" fill="transparent"
-            stroke="transparent" (click)="onConnectionClick(conn, $event)" style="cursor: pointer;" />
-          }
-        </g>
-
-        <!-- Connection Labels -->
-        <g class="connection-labels">
-          @for (conn of getVisibleConnections(); track trackByConnKey($index, conn)) {
-          <g class="connection-label-group"
-            [style.display]="(hoveredConnection === conn || selectedConnection === conn) ? 'block' : 'none'">
-            <rect [attr.x]="calculateLabelPosition(conn).x - 60" [attr.y]="calculateLabelPosition(conn).y - 15"
-              width="120" height="30" class="connection-label-bg" />
-            <text [attr.x]="calculateLabelPosition(conn).x" [attr.y]="calculateLabelPosition(conn).y"
-              class="connection-label">
-              {{ conn.relationLabel }}
-            </text>
-          </g>
-          }
-        </g>
-      </svg>
-
-      <!-- Enhanced Nodes Layer -->
-      <div class="nodes-container">
-        @for (node of filteredNodes; track trackByNodeId($index, node)) {
-        <div class="ci-node no-select" [class.selected]="selectedNodes.has(node.id)" [class.expanded]="node.expanded"
-          [class.loading]="node.isLoading" [class.root-node]="node.isRoot" [class.highlighted]="isNodeHighlighted(node)"
-          [style.left.px]="node.x" [style.top.px]="node.y" [style.width.px]="LAYOUT_CONFIG.nodeWidth"
-          [style.height.px]="LAYOUT_CONFIG.nodeHeight" [style.display]="shouldShowNode(node) ? 'block' : 'none'"
-          (mousedown)="onNodeMouseDown($event, node)" (click)="selectNode(node, $event)"
-          (dblclick)="toggleExpand(node, $event)" (contextmenu)="onRightClick($event, node)"
-          (mouseenter)="hoveredNode = node" (mouseleave)="hoveredNode = null">
-          <!--  Node Header -->
-          <div class="node-header" [style.background]="node.color">
-            <!-- <span class="node-icon material-icons">
-             {{ getNodeTypeConfig(node.type).icon }}
-           </span> -->
-
-            <i class="node-icon" [ngClass]="getNodeTypeConfig(node.type).icon"></i>
-            <span class="node-type" [style.color]="node?.color ? getTextColor(node) : '#000000'">{{ node?.type }}</span>
-            <div class="node-badges">
-              @if (node.connectionCount?.parents > 0) {
-              <span class="badge parent-badge" title="{{ node.connectionCount.parents }} parent connection(s)">
-                <span class="material-icons tiny">north</span>
-                {{ node.connectionCount.parents }}
-              </span>
-              }
-              @if (node.connectionCount?.children > 0) {
-              <span class="badge child-badge" title="{{ node.connectionCount.children }} child connection(s)">
-                <span class="material-icons tiny">south</span>
-                {{ node.connectionCount.children }}
-              </span>
-              }
-            </div>
-          </div>
-
-          <div class="node-body">
-            <h3 class="node-title" [title]="node.label">{{ node.label }}</h3>
-            <div class="node-info">
-              <div class="node-level">
-                <span class="material-icons level-icon">layers</span>
-                Level {{ node.level }}
-              </div>
-              <div class="status-indicator" [class.active]="node.status === 'active'"
-                [class.inactive]="node.status === 'inactive'" [title]="'Status: ' + node.status"></div>
-            </div>
-          </div>
-
-
-          <div class="node-actions">
-            @if ((node.hasChildren || node.hasParents) && !node.isLoading && !node.isRoot) {
-            <button class="action-btn expand-btn" (click)="toggleExpand(node, $event); $event.stopPropagation()"
-              [title]="node.expanded ? 'Collapse' : 'Expand'">
-              <span class="material-icons">
-                {{ node.expanded ? 'unfold_less' : 'unfold_more' }}
-              </span>
-            </button>
-            }
-
-            <button class="action-btn focus-btn" (click)="centerOnNode(node); $event.stopPropagation()"
-              title="Focus on this node">
-              <span class="material-icons">filter_center_focus</span>
-            </button>
-          </div>
-
-          <!-- Loading Overlay -->
-          @if (node.isLoading) {
-          <div class="loading-overlay">
-            <div class="spinner"></div>
-          </div>
-          }
-        </div>
-        }
-      </div>
-    </div>
+    <cmdb-graph-canvas
+      [viewportX]="viewportX"
+      [viewportY]="viewportY"
+      [zoom]="zoom"
+      [smooth]="!isDragging && !isPanning"
+      [container]="containerRef"
+      [frame]="store.frame()"
+      (nodePressed)="onNodeMouseDown($event.event, $event.node)"
+      (nodeClicked)="selectNode($event.node, $event.event)"
+      (nodeExpandRequested)="toggleExpand($event.node, $event.event)"
+      (nodeMenuRequested)="onRightClick($event.event, $event.node)"
+      (nodeFocusRequested)="centerOnNode($event)"
+      (connectionClicked)="onConnectionClick($event.connection, $event.event)">
+    </cmdb-graph-canvas>
   </div>
 
-
-  <!-- Enhanced Minimap -->
   @if (showMinimap) {
-  <div class="minimap" (click)="onMinimapClick($event)">
-    <div class="minimap-title">Overview</div>
-    <svg class="minimap-svg" [attr.viewBox]="getMinimapViewBox()">
-      @for (group of nodeGroups; track group) {
-      <g>
-        <rect [attr.x]="group.x" [attr.y]="group.y" [attr.width]="group.nodes.length * LAYOUT_CONFIG.horizontalSpacing"
-          [attr.height]="LAYOUT_CONFIG.nodeHeight"
-          [attr.fill]="group.level === 0 ? '#4CAF50' : group.level > 0 ? '#2196F3' : '#FF9800'" opacity="0.2" rx="4" />
-        <text [attr.x]="group.x + (group.nodes.length * LAYOUT_CONFIG.horizontalSpacing) / 2" [attr.y]="group.y - 10"
-          class="minimap-level-text" text-anchor="middle">
-          Level {{ group.level }}
-        </text>
-      </g>
-      }
-
-      @for (node of nodes; track node) {
-      <rect class="minimap-node" [attr.x]="node.x" [attr.y]="node.y" [attr.width]="LAYOUT_CONFIG.nodeWidth"
-        [attr.height]="LAYOUT_CONFIG.nodeHeight"
-        [attr.fill]="node.isRoot ? '#4CAF50' : node.level > 0 ? '#2196F3' : '#FF9800'"
-        [attr.stroke]="selectedNodes.has(node.id) ? '#000' : 'none'" stroke-width="3" rx="4"
-        [attr.opacity]="selectedNodes.has(node.id) ? 1 : 0.6" />
-      }
-
-      @if (getMinimapViewportRect(); as viewport) {
-      <rect class="minimap-viewport" [attr.x]="viewport.x" [attr.y]="viewport.y" [attr.width]="viewport.width"
-        [attr.height]="viewport.height" />
-      }
-    </svg>
-  </div>
+    <cmdb-graph-minimap
+      [nodes]="nodes"
+      [groups]="nodeGroups"
+      [selectedNodes]="selectedNodes"
+      [viewBox]="getMinimapViewBox()"
+      [viewportRect]="getMinimapViewportRect()"
+      (minimapClick)="onMinimapClick($event)">
+    </cmdb-graph-minimap>
   }
 
-
-  <!-- Enhanced Context Menu -->
   @if (contextMenuVisible && selectedNode) {
-  <div class="context-menu modern-menu" [style.left.px]="contextMenuX" [style.top.px]="contextMenuY">
-    <div class="menu-header">
-      <span class="material-icons">settings</span>
-      <span>Actions</span>
-    </div>
+    <cmdb-graph-context-menu
+      [node]="selectedNode"
+      [x]="contextMenuX"
+      [y]="contextMenuY"
+      [expandIcon]="getContextExpandIcon(selectedNode)"
+      [expandLabel]="getContextExpandLabel(selectedNode)"
+      (setAsRoot)="selectAsRootNode()"
+      (toggleExpand)="onContextToggleExpand($event)"
+      (focusNode)="centerOnNode(selectedNode!)">
 
-    <div class="menu-divider"></div>
-    <div class="menu-section">
-      @if (!selectedNode?.isRoot) {
-      <div class="menu-item highlight" (click)="selectAsRootNode()">
-        <span class="material-icons">adjust</span>
-        <span class="menu-item-text">Set as Root Node</span>
-      </div>
+      @if (showPerformanceHints) {
+        <div class="performance-hints" [class.hidden]="!getPerformanceHint()">
+          <span class="material-icons" aria-hidden="true">speed</span>
+          <span>{{ getPerformanceHint() }}</span>
+        </div>
       }
-      <div class="menu-item" (click)="onContextToggleExpand($event)">
-        <span class="material-icons">
-          {{ getContextExpandIcon(selectedNode) }}
-        </span>
-        <span class="menu-item-text">
-          {{ getContextExpandLabel(selectedNode) }}
-        </span>
-      </div>
-      <div class="menu-item" (click)="centerOnNode(selectedNode!)">
-        <span class="material-icons">filter_center_focus</span>
-        <span class="menu-item-text">Focus</span>
-      </div>
-    </div>
-    <div class="menu-divider"></div>
-
-
-    <!-- Enhanced Connection Info Panel -->
-    @if (selectedConnection) {
-    <div class="connection-info-panel">
-      <div class="panel-header">
-        <h3>
-          <span class="material-icons">link</span>
-          Connection Details
-        </h3>
-        <div class="panel-actions">
-          <button class="action-btn" title="Edit connection">
-            <span class="material-icons">edit</span>
-          </button>
-          <app-button [bootstrapClass]="'btn-secondary'" label="close" type="button"
-            (clicked)="selectedConnection = null">
-          </app-button>
-        </div>
-      </div>
-      <div class="panel-body">
-        <!-- Connection Visualization -->
-        <div class="connection-visualization">
-          <div class="node-preview">
-            <div class="node-icon"
-              [style.background]="getNodeTypeConfig(getNodeById(selectedConnection.from).type).gradient">
-              <span class="material-icons">
-                {{ getNodeTypeConfig(getNodeById(selectedConnection.from).type).icon }}
-              </span>
-            </div>
-            <div class="node-name">{{ getNodeById(selectedConnection.from).label }}</div>
-            <div class="node-type">{{ getNodeById(selectedConnection.from).type }}</div>
-          </div>
-
-          <div class="connection-arrow" [class.valid]="selectedConnection.isValid"
-            [class.invalid]="!selectedConnection.isValid">
-            <span class="material-icons">arrow_forward</span>
-          </div>
-
-          <div class="node-preview">
-            <div class="node-icon"
-              [style.background]="getNodeTypeConfig(getNodeById(selectedConnection.to).type).gradient">
-              <span class="material-icons">
-                {{ getNodeTypeConfig(getNodeById(selectedConnection.to).type).icon }}
-              </span>
-            </div>
-            <div class="node-name">{{ getNodeById(selectedConnection.to).label }}</div>
-            <div class="node-type">{{ getNodeById(selectedConnection.to).type }}</div>
-          </div>
-        </div>
-
-
-        <!-- Connection Information -->
-        <div class="info-section">
-          <div class="section-title">
-            <span class="material-icons">info</span>
-            Connection Information
-          </div>
-          <div class="info-grid">
-            <div class="info-row">
-              <span class="info-label">Relation:</span>
-              <span class="info-value">{{ selectedConnection.relationLabel }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Status:</span>
-              <span class="info-value" [class.valid]="selectedConnection.isValid"
-                [class.invalid]="!selectedConnection.isValid">
-                <span class="material-icons">
-                  {{ selectedConnection.isValid ? 'check_circle' : 'error' }}
-                </span>
-                {{ selectedConnection.isValid ? 'Valid' : 'Invalid' }}
-              </span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Strength:</span>
-              <span class="info-value">{{ selectedConnection.strength || 1 }}</span>
-            </div>
-            @if (selectedConnection.dataFlow) {
-            <div class="info-row">
-              <span class="info-label">Data Flow:</span>
-              <span class="info-value">
-                <span class="material-icons">timeline</span>
-                Enabled
-              </span>
-            </div>
-            }
-          </div>
-        </div>
-
-        <!-- Metadata Section -->
-        @if (selectedConnection.metadata) {
-        <div class="info-section metadata-section">
-          <div class="section-title">
-            <span class="material-icons">code</span>
-            Metadata
-          </div>
-          <div class="metadata-grid">
-            @for (key of Object.keys(selectedConnection.metadata); track key) {
-            <div class="metadata-item">
-              <span class="meta-key">{{ key }}:</span>
-              <span class="meta-value">{{ selectedConnection.metadata[key] }}</span>
-            </div>
-            }
-          </div>
-        </div>
-        }
-      </div>
-    </div>
-    }
-
-    <!-- Performance Hints -->
-    @if (showPerformanceHints) {
-    <div class="performance-hints" [class.hidden]="!getPerformanceHint()">
-      <span class="material-icons">speed</span>
-      <span>{{ getPerformanceHint() }}</span>
-    </div>
-    }
-  </div>
+    </cmdb-graph-context-menu>
   }
 
   <app-loading-popup [isVisible]="isLoading$ | async" message="Loading graph data...">
   </app-loading-popup>
+</div>

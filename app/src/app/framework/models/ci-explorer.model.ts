@@ -58,6 +58,20 @@ export interface Field {
   
   /* -------- Hierarchy helpers --------------------------- */
   export type Direction = 'root' | 'parent' | 'child';
+
+  /* -------- Which edge sources the backend should walk ------------------ */
+  /** The optional edge sources a CI Explorer read may include, sent as request args. */
+  export interface CiExplorerScope {
+    withLocations: boolean;
+    withIpamRelations: boolean;
+    withPortConnections: boolean;
+  }
+
+  export const DEFAULT_CI_EXPLORER_SCOPE: CiExplorerScope = {
+    withLocations: true,
+    withIpamRelations: true,
+    withPortConnections: true
+  };
   
   /* -------- Node shape received from / sent to the UI ------------------- */
   export interface CINode {
@@ -82,7 +96,10 @@ export interface Field {
     relation_label?: string;
     relation_icon?: string;
     relation_color?: string;
+    /** Where the edge came from when it is not a modelled relation, e.g. `ipam`, `port_connection`. */
     source?: string;
+    /** A port connection has no direction, so it is drawn without an arrow head. */
+    undirected?: boolean;
   }
   
   export interface CIEdge {

@@ -1,8 +1,21 @@
-@import "./styles/graph-editor-core";
-@import "./styles/graph-editor-minimap";
-@import "./styles/graph-editor-node";
-@import "./styles/graph-editor-connections";
-@import "./styles/graph-editor-panels";
-@import "./styles/graph-editor-viewport";
-@import "./styles/graph-editor-responsive";
-@import "./styles/graph-editor-filter";
+@import "./styles/graph-editor-tokens";
+
+:host {
+  display: block;
+  height: 100vh;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow: hidden;
+}
+
+/* The markup lives in child components now, so these rules have to cross their
+   encapsulation. Nested under :host, so nothing reaches the rest of the app. */
+:host ::ng-deep {
+  @import "./styles/graph-editor-core";
+  @import "./styles/graph-editor-minimap";
+  @import "./styles/graph-editor-node";
+  @import "./styles/graph-editor-connections";
+  @import "./styles/graph-editor-panels";
+  @import "./styles/graph-editor-viewport";
+  @import "./styles/graph-editor-responsive";
+  @import "./styles/graph-editor-filter";
+}

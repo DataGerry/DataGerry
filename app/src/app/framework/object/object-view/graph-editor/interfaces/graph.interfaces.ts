@@ -68,6 +68,8 @@ export interface Connection {
   isValid?: boolean;
   strength?: number;
   dataFlow?: boolean;
+  /** Port connections run both ways, so they are drawn without an arrow head. */
+  undirected?: boolean;
   metadata?: any;
 }
 
@@ -81,20 +83,6 @@ export interface NodeGroup {
   collapsed?: boolean;
 }
 
-export interface BreadcrumbItem {
-  id: number;
-  label: string;
-  icon: string;
-  level: number;
-}
-
-export interface PerformanceMetrics {
-  nodeCount: number;
-  connectionCount: number;
-  renderTime: number;
-  fps: number;
-}
-
 export interface FilterProfile {
     public_id?: number;
     name: string;
@@ -102,36 +90,6 @@ export interface FilterProfile {
     relations_filter: number[];
   }
 
-
-
-  export interface ConnectionData {
-    from: number;
-    to: number;
-    metadata: {
-      relation_id: number;
-      relation_name: string;
-      relation_label: string;
-      relation_icon: string;
-      relation_color: string;
-    };
-  }
-  
-  export interface NodeConnectionDetails {
-    sourceNode: {
-      id: number;
-      label: string;
-      type: string;
-      color: string;
-    };
-    targetNode: {
-      id: number;
-      label: string;
-      type: string;
-      color: string;
-    };
-    connections: ConnectionData[];
-    direction: 'incoming' | 'outgoing' | 'bidirectional';
-  }
 
 
   export interface UidBasedConnection {

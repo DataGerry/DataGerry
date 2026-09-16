@@ -1,0 +1,48 @@
+<div class="toolbar-left"></div>
+<div class="toolbar-right">
+  <div class="view-controls">
+    <button type="button" class="control-btn" (click)="zoomOut.emit()" title="Zoom Out (Ctrl+-)"
+      aria-label="Zoom out">
+      <span class="material-icons" aria-hidden="true">zoom_out</span>
+    </button>
+    <span class="zoom-level">{{ (zoom() * 100).toFixed(0) }}%</span>
+    <button type="button" class="control-btn" (click)="zoomIn.emit()" title="Zoom In (Ctrl++)"
+      aria-label="Zoom in">
+      <span class="material-icons" aria-hidden="true">zoom_in</span>
+    </button>
+    <button type="button" class="control-btn" (click)="resetZoom.emit()" title="Reset View (Ctrl+0)"
+      aria-label="Reset view">
+      <span class="material-icons" aria-hidden="true">center_focus_strong</span>
+    </button>
+    <button type="button" class="control-btn" [class.active]="focusMode()" (click)="toggleFocusMode.emit()"
+      title="Focus Mode" aria-label="Focus mode" [attr.aria-pressed]="focusMode()">
+      <span class="material-icons" aria-hidden="true">filter_center_focus</span>
+    </button>
+    <button type="button" class="control-btn" (click)="exportImage.emit()" title="Export full graph as PNG"
+      aria-label="Export full graph as PNG">
+      <span class="material-icons" aria-hidden="true">download</span>
+    </button>
+  </div>
+
+  <div class="toggle-controls">
+    <button type="button" class="control-btn filter-toggle-btn" [class.active]="filterBarOpen()"
+      (click)="toggleFilterBar.emit()" title="Toggle Filters" aria-label="Toggle filters"
+      [attr.aria-pressed]="filterBarOpen()">
+      <span class="material-icons" aria-hidden="true">tune</span>
+    </button>
+
+    <button type="button" class="control-btn" [class.active]="minimapOpen()" (click)="toggleMinimap.emit()"
+      title="Toggle Minimap" aria-label="Toggle minimap" [attr.aria-pressed]="minimapOpen()">
+      <span class="material-icons" aria-hidden="true">map</span>
+    </button>
+
+    <button type="button" class="control-btn" [class.active]="fullscreen()" (click)="toggleFullscreen.emit()"
+      [title]="fullscreen() ? 'Exit Fullscreen' : 'Maximize to Fullscreen'"
+      [attr.aria-label]="fullscreen() ? 'Exit fullscreen' : 'Maximize to fullscreen'"
+      [attr.aria-pressed]="fullscreen()">
+      <span class="material-icons" aria-hidden="true">
+        {{ fullscreen() ? 'close_fullscreen' : 'open_in_full' }}
+      </span>
+    </button>
+  </div>
+</div>

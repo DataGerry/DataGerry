@@ -1,0 +1,98 @@
+<svg class="connections-svg">
+  <defs>
+    <linearGradient id="valid-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4CAF50;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#2196F3;stop-opacity:0.8" />
+    </linearGradient>
+    <linearGradient id="invalid-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF5722;stop-opacity:0.5" />
+      <stop offset="100%" style="stop-color:#F44336;stop-opacity:0.5" />
+    </linearGradient>
+    <linearGradient id="data-flow-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00BCD4;stop-opacity:0">
+        <animate attributeName="stop-opacity" values="0;1;0" dur="2s" repeatCount="indefinite" />
+      </stop>
+      <stop offset="50%" style="stop-color:#00BCD4;stop-opacity:1">
+        <animate attributeName="stop-opacity" values="1;0;1" dur="2s" repeatCount="indefinite" />
+      </stop>
+      <stop offset="100%" style="stop-color:#00BCD4;stop-opacity:0">
+        <animate attributeName="stop-opacity" values="0;1;0" dur="2s" repeatCount="indefinite" />
+      </stop>
+    </linearGradient>
+
+    <marker id="arrow-valid" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
+      markerUnits="strokeWidth">
+      <path d="M0,0 L0,8 L11,4 z" fill="#2196F3" />
+    </marker>
+    <marker id="arrow-invalid" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
+      markerUnits="strokeWidth">
+      <path d="M0,0 L0,8 L11,4 z" fill="#F44336" />
+    </marker>
+    <marker id="arrow-data-flow" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
+      markerUnits="strokeWidth">
+      <path d="M0,0 L0,8 L11,4 z" fill="#00BCD4" />
+    </marker>
+  </defs>
+
+  <g class="connections-group">
+    <!-- Wider invisible paths, so an edge is easy to hit with the pointer. -->
+    @for (conn of store.visibleConnections(); track connectionKey(conn)) {
+      <path [attr.d]="calculatePath(conn)" stroke="transparent" stroke-width="20" fill="none"
+        pointer-events="stroke" (click)="connectionClicked.emit({ event: $event, connection: conn })"
+        (mouseenter)="store.hoveredConnection = conn" (mouseleave)="store.hoveredConnection = null" />
+    }
+
+    @for (conn of store.visibleConnections(); track connectionKey(conn)) {
+      <path [attr.d]="calculatePath(conn)" class="connection-path" [class.valid]="conn.isValid"
+        [class.invalid]="!conn.isValid" [class.highlighted]="isConnectionHighlighted(conn)"
+        [class.hovered]="store.hoveredConnection === conn"
+        [attr.stroke]="conn.isValid ? 'url(#valid-gradient)' : 'url(#invalid-gradient)'"
+        [attr.stroke-width]="getConnectionStrokeWidth(conn)"
+        [attr.marker-end]="getArrowMarker(conn)"
+        fill="none" (click)="connectionClicked.emit({ event: $event, connection: conn })" pointer-events="none" />
+    }
+
+    <!-- A click target over the arrow head, which the thin path alone is too small for. -->
+    @for (conn of store.visibleConnections(); track connectionKey(conn)) {
+      <circle class="connection-hit-target" [attr.cx]="getArrowPosition(conn).x"
+        [attr.cy]="getArrowPosition(conn).y" r="15" fill="transparent" stroke="transparent"
+        (click)="connectionClicked.emit({ event: $event, connection: conn })" />
+    }
+  </g>
+
+  <g class="connection-labels">
+    @for (conn of store.visibleConnections(); track connectionKey(conn)) {
+      <g class="connection-label-group"
+        [style.display]="(store.hoveredConnection === conn || store.selectedConnection === conn) ? 'block' : 'none'">
+        <rect [attr.x]="calculateLabelPosition(conn).x - 60" [attr.y]="calculateLabelPosition(conn).y - 15"
+          width="120" height="30" class="connection-label-bg" />
+        <text [attr.x]="calculateLabelPosition(conn).x" [attr.y]="calculateLabelPosition(conn).y"
+          class="connection-label">
+          {{ conn.relationLabel }}
+        </text>
+      </g>
+    }
+  </g>
+</svg>
+
+<div class="nodes-container">
+  @for (node of store.visibleNodes(); track node.uid) {
+    <cmdb-graph-node
+      [node]="node"
+      [frame]="frame()"
+      [selected]="store.selectedNodes.has(node.id)"
+      [highlighted]="isNodeHighlighted(node)"
+      [visible]="shouldShowNode(node)"
+      [typeConfig]="typeConfig(node.type)"
+      [textColor]="textColor(node)"
+      (mousedown)="nodePressed.emit({ event: $event, node })"
+      (click)="nodeClicked.emit({ event: $event, node })"
+      (dblclick)="nodeExpandRequested.emit({ event: $event, node })"
+      (contextmenu)="nodeMenuRequested.emit({ event: $event, node })"
+      (mouseenter)="store.hoveredNode = node"
+      (mouseleave)="store.hoveredNode = null"
+      (expandToggled)="nodeExpandRequested.emit({ event: $event, node })"
+      (focusRequested)="nodeFocusRequested.emit(node)">
+    </cmdb-graph-node>
+  }
+</div>
