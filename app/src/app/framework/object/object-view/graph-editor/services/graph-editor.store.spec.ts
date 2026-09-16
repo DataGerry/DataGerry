@@ -157,6 +157,32 @@ describe('GraphEditorStore (characterization)', () => {
         });
     });
 
+    describe('painting notifies the shell', () => {
+        it('reports every paint, so the viewport can be centred on the new graph', () => {
+            const centred = jasmine.createSpy('centred');
+            store.setPaintedCallback(centred);
+
+            store.paint(graphResponse({ root_node: ciNode(1, 0) }));
+            expect(centred).toHaveBeenCalledTimes(1);
+
+            store.paint(graphResponse({ root_node: ciNode(2, 0) }));
+            expect(centred).toHaveBeenCalledTimes(2);
+        });
+
+        it('reports only after the graph is laid out', () => {
+            let placed = 0;
+            store.setPaintedCallback(() => placed = store.nodes.filter(node => node.x !== 0 || node.y !== 0).length);
+
+            store.paint(graphResponse({
+                root_node: ciNode(1, 0),
+                child_nodes: [ciNode(2, 0), ciNode(3, 0)],
+                child_edges: [ciEdge(1, 2), ciEdge(1, 3)]
+            }));
+
+            expect(placed).toBeGreaterThan(0);
+        });
+    });
+
     describe('derived collections', () => {
         it('exposes the painted graph through the visible signals', () => {
             store.paint(graphResponse({

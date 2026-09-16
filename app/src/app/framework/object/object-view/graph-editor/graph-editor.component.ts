@@ -191,6 +191,8 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   ngOnInit(): void {
     // Node positions are eased in place, so an OnPush view has to be told on each frame.
     this.graphLayout.setFrameCallback(() => this.refresh());
+    // A freshly painted graph is centred on the canvas, as it was before the split.
+    this.store.setPaintedCallback(() => this.centerViewport());
 
     this.store.rootNodeId = this.rootNodeId;
     this.loadFilterOptions();

@@ -71,6 +71,9 @@ export class GraphEditorStore {
 
     readonly nodeCount = computed(() => this.visibleNodes().length);
 
+    /** The viewport lives in the shell, so centring a freshly painted graph is its job. */
+    private onPainted: () => void = () => undefined;
+
     /** Bumped per animation frame while positions settle; OnPush views read it to pick up x/y. */
     private readonly positionVersion = signal(0);
     readonly frame = this.positionVersion.asReadonly();
@@ -96,6 +99,10 @@ export class GraphEditorStore {
     readonly isLoading$ = this.loaderService.isLoading$;
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    setPaintedCallback(onPainted: () => void): void {
+        this.onPainted = onPainted;
+    }
 
     /** Re-reads the graph. `reset` throws away everything first, for a filter or root change. */
     load(reset = false): void {
@@ -192,6 +199,7 @@ export class GraphEditorStore {
 
         edges.forEach(edge => this.graphData.storeAndIndexEdge(edge));
         this.connectionTracker.storeInitialConnections(edges, this.graphData.getNodeInstanceMap());
+        this.onPainted();
     }
 
     /** Re-runs the layout and the per-node counts after any change to the graph shape. */
