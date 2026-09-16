@@ -18,6 +18,7 @@
 import { Injectable } from '@angular/core';
 import { CIEdge } from 'src/app/framework/models/ci-explorer.model';
 import { UidBasedConnection } from '../interfaces/graph.interfaces';
+import { edgeMeta } from '../utils/graph-edge.util';
 
 
 
@@ -151,7 +152,7 @@ export class ConnectionTrackerService {
         uidsById: Map<number, string[]>,
         source: 'initial' | 'expansion'
     ): void {
-        const metadata = this.extractMetadata(edge);
+        const metadata = edgeMeta(edge);
 
         // Increment counter for each edge instance - NO DUPLICATE CHECKING
         this.edgeInstanceCounter++;
@@ -190,13 +191,7 @@ export class ConnectionTrackerService {
                     toNodeId: edge.to,
                     fromUid,
                     toUid,
-                    metadata: {
-                        relation_id: metadata.relation_id,
-                        relation_name: metadata.relation_name,
-                        relation_label: metadata.relation_label,
-                        relation_color: metadata.relation_color,
-                        relation_icon: metadata.relation_icon
-                    },
+                    metadata,
                     source,
                     instanceId: this.edgeInstanceCounter
                 };
@@ -230,16 +225,6 @@ export class ConnectionTrackerService {
         this.connectionsByToUid.get(connection.toUid)!.push(connection);
     }
 
-
-    /**
-     * Helper methods
-     */
-    private extractMetadata(edge: CIEdge): any {
-        if (Array.isArray(edge.metadata)) {
-            return edge.metadata[0] || {};
-        }
-        return edge.metadata || {};
-    }
 
     /**
      * Create a unique key for a UID pair
@@ -282,7 +267,7 @@ export class ConnectionTrackerService {
             pairDetails[key] = {
                 count: connections.length,
                 sources: connections.map(c => c.source),
-                relations: connections.map(c => c.metadata.relation_name),
+                relations: connections.map(c => c.metadata?.relation_name),
                 nodeIds: connections.map(c => `${c.fromNodeId}->${c.toNodeId}`),
                 instanceIds: connections.map(c => c.instanceId)
             };
@@ -326,7 +311,7 @@ export class ConnectionTrackerService {
             totalConnections: connections.length,
             uniqueUidPairs: uidPairs.size,
             instanceIds: connections.map(c => c.instanceId),
-            relations: connections.map(c => c.metadata.relation_name)
+            relations: connections.map(c => c.metadata?.relation_name)
         };
     }
 }

@@ -7,57 +7,14 @@
   pointer-events: none;
   overflow: visible;
 
-  // arrow markers
-  defs {
-    marker#arrow-valid {
-      markerWidth: 8;
-      markerHeight: 8;
-      refX: 7;
-      refY: 3;
-      orient: auto;
-      markerUnits: strokeWidth;
-      
-      path {
-        fill: $primary;
-        d: "M0,0 L0,6 L7,3 z";
-      }
-    }
+  // Markers are defined and coloured entirely in the template; a fill here would
+  // defeat their context-stroke and repaint every head one colour.
 
-    marker#arrow-invalid {
-      markerWidth: 8;
-      markerHeight: 8;
-      refX: 7;
-      refY: 3;
-      orient: auto;
-      markerUnits: strokeWidth;
-      
-      path {
-        fill: $danger;
-        d: "M0,0 L0,6 L7,3 z";
-      }
-    }
-
-    marker#arrow-data-flow {
-      markerWidth: 8;
-      markerHeight: 8;
-      refX: 7;
-      refY: 3;
-      orient: auto;
-      markerUnits: strokeWidth;
-      
-      path {
-        fill: $info;
-        d: "M0,0 L0,6 L7,3 z";
-      }
-    }
-  }
-
-
-// The head is bound per edge in the template; a marker-end here would override it and re-arrow undirected edges.
+// Stroke, width, dash and head are bound per edge kind in the template; declaring any of them here
+// would override the binding and flatten every kind back to one look.
 .connection-path {
   transition: all 0.1s ease;
   fill: none;
-  stroke-width: 2;
   pointer-events: stroke;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -86,9 +43,6 @@
   }
 
   &.valid {
-    stroke: #90A4AE;
-    opacity: 0.8;
-    
     &:hover {
       stroke: #2196F3; // Blue on hover
       stroke-width: 5px;
@@ -105,8 +59,6 @@
   }
 
   &.invalid {
-    stroke: rgba(239, 68, 68, 0.4); 
-    stroke-dasharray: 8, 4;
     opacity: 0.5;
     
     &:hover {
@@ -135,25 +87,6 @@
   }
 }
 
-defs {
-  marker#arrow-valid {
-    path {
-      fill: #90A4AE; 
-    }
-  }
-
-  marker#arrow-invalid {
-    path {
-      fill: rgba(239, 68, 68, 0.7); 
-    }
-  }
-
-  marker#arrow-data-flow {
-    path {
-      fill: #90A4AE; 
-    }
-  }
-}
 
   .connection-label-group {
     pointer-events: all;

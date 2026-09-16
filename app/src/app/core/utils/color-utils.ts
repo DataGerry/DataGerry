@@ -45,6 +45,15 @@ export function getTextColorBasedOnBackground(hexColor: string): string {
     return hex.length === 4 ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}` : hex;
   }
 
+  const SAFE_COLOR_PATTERN = /^(#(?:[0-9a-f]{3}|[0-9a-f]{6})|[a-z]{3,20})$/i;
+
+  /** Free text is only safe to paint when it is a plain CSS name or a hex literal. */
+  export function safeCssColor(value: string | null | undefined): string | null {
+    const color = value?.trim();
+
+    return color && SAFE_COLOR_PATTERN.test(color) ? color : null;
+  }
+
   export interface Hsl {
     hue: number;        // 0-360
     saturation: number; // 0-100

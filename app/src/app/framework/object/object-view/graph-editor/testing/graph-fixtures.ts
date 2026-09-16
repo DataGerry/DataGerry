@@ -18,11 +18,13 @@
 import {
     CIEdge,
     CINode,
+    CiExplorerPathHop,
     GraphRespWithRoot,
     LinkedObject,
     RelationMeta,
     TypeInfo
 } from 'src/app/framework/models/ci-explorer.model';
+import { CableSource, ResolvedCable } from '../../ports-overview/models/port-connection.types';
 
 import { Connection, GraphNode } from '../interfaces/graph.interfaces';
 
@@ -89,6 +91,31 @@ export function relationMeta(overrides: Partial<RelationMeta> = {}): RelationMet
 
 export function ciEdge(from: number, to: number, metadata: RelationMeta[] = [relationMeta()]): CIEdge {
     return { from, to, metadata };
+}
+
+export function resolvedCable(overrides: Partial<ResolvedCable> = {}): ResolvedCable {
+    return {
+        source: CableSource.INLINE,
+        cable_ci_id: null,
+        name: 'Patch A-12',
+        type: 'Cat6',
+        type_id: 7,
+        length: '3 m',
+        color: '#1e88e5',
+        description: null,
+        ...overrides
+    };
+}
+
+/** A panel's internal pairing carries no cable, which is why `cable` is nullable here. */
+export function pathHop(overrides: Partial<CiExplorerPathHop> = {}): CiExplorerPathHop {
+    return {
+        public_id: 41,
+        endpoints: [191, 205],
+        connection_type: 'CABLE',
+        cable: resolvedCable(),
+        ...overrides
+    };
 }
 
 /** A UI node. `uid` defaults to a readable, stable value so assertions can name it. */

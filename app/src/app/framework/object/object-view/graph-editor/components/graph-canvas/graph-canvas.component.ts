@@ -19,7 +19,7 @@ import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, input
 
 import { getTextColorBasedOnBackground } from 'src/app/core/utils/color-utils';
 
-import { LAYOUT_CONFIG } from '../../constants/graph.constants';
+import { EDGE_STYLES, EdgeStyle, LAYOUT_CONFIG } from '../../constants/graph.constants';
 import { Connection, GraphNode } from '../../interfaces/graph.interfaces';
 import { GraphDataService } from '../../services/graph-data.service';
 import { GraphEditorStore, NodeTypeConfig } from '../../services/graph-editor.store';
@@ -39,6 +39,10 @@ const ARROW_MARKERS = {
     invalid: 'url(#arrow-invalid)',
     dataFlow: 'url(#arrow-data-flow)'
 } as const;
+
+/** Kept as the stylesheet drew it, since a broken edge is about the state and not the source. */
+const INVALID_EDGE_STROKE = 'rgba(239, 68, 68, 0.4)';
+const INVALID_EDGE_DASH = '8 4';
 
 export interface NodePointerEvent {
     event: MouseEvent;
@@ -105,12 +109,20 @@ export class GraphCanvasComponent {
     }
 
     getConnectionStrokeWidth(conn: Connection): number {
-        return getConnectionStrokeWidth(conn);
+        return this.edgeStyle(conn).width ?? getConnectionStrokeWidth(conn);
+    }
+
+    getConnectionStroke(conn: Connection): string {
+        return conn.isValid ? this.edgeStyle(conn).stroke : INVALID_EDGE_STROKE;
+    }
+
+    getConnectionDash(conn: Connection): string | null {
+        return conn.isValid ? this.edgeStyle(conn).dash : INVALID_EDGE_DASH;
     }
 
     /** An undirected edge gets no head, so neither end reads as the target. */
     getArrowMarker(conn: Connection): string | null {
-        if (conn.undirected) {
+        if (conn.undirected || conn.kind === 'cable') {
             return null;
         }
 
@@ -176,5 +188,11 @@ export class GraphCanvasComponent {
     /** Parallel edges share a node pair, so the relation label is part of the key. */
     connectionKey(conn: Connection): string {
         return `${conn.fromUid}-${conn.toUid}-${conn.relationLabel}`;
+    }
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private edgeStyle(conn: Connection): EdgeStyle {
+        return EDGE_STYLES[conn.kind ?? 'unknown'] ?? EDGE_STYLES.unknown;
     }
 }

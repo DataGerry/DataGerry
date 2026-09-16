@@ -18,7 +18,7 @@
 import { CiExplorerService } from 'src/app/framework/services/ci-explorer.service';
 
 import { Connection, GraphNode } from '../interfaces/graph.interfaces';
-import { ciEdge, ciNode, linkedObject, relationMeta, typeInfo } from '../testing/graph-fixtures';
+import { ciEdge, ciNode, linkedObject, pathHop, relationMeta, resolvedCable, typeInfo } from '../testing/graph-fixtures';
 import { GraphDataService } from './graph-data.service';
 
 /**
@@ -202,6 +202,31 @@ describe('GraphDataService (characterization)', () => {
             service.mergeEdges(connections, nodes, [ciEdge(1, 2)]);
 
             expect(connections[0].undirected).toBeFalse();
+        });
+
+        it('stamps the kind and the cable colour, so the canvas never re-derives them', () => {
+            const nodes = seed([ciNode(1, 0), ciNode(2, 1)]);
+            const connections: Connection[] = [];
+            const meta = relationMeta({
+                source: 'port_connection',
+                undirected: true,
+                path: [pathHop({ cable: resolvedCable({ color: 'blue' }) })]
+            });
+
+            service.mergeEdges(connections, nodes, [ciEdge(1, 2, [meta])]);
+
+            expect(connections[0].kind).toBe('cable');
+            expect(connections[0].cableColor).toBe('blue');
+        });
+
+        it('reads a bare edge as a location edge', () => {
+            const nodes = seed([ciNode(1, 0), ciNode(2, 1)]);
+            const connections: Connection[] = [];
+
+            service.mergeEdges(connections, nodes, [ciEdge(1, 2, [])]);
+
+            expect(connections[0].kind).toBe('location');
+            expect(connections[0].cableColor).toBeNull();
         });
 
         it('creates one connection per rendered instance pair', () => {
