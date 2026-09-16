@@ -53,6 +53,7 @@
   }
 
 
+// The head is bound per edge in the template; a marker-end here would override it and re-arrow undirected edges.
 .connection-path {
   transition: all 0.1s ease;
   fill: none;
@@ -86,7 +87,6 @@
 
   &.valid {
     stroke: #90A4AE;
-    marker-end: url(#arrow-valid);
     opacity: 0.8;
     
     &:hover {
@@ -106,7 +106,6 @@
 
   &.invalid {
     stroke: rgba(239, 68, 68, 0.4); 
-    marker-end: url(#arrow-invalid);
     stroke-dasharray: 8, 4;
     opacity: 0.5;
     
