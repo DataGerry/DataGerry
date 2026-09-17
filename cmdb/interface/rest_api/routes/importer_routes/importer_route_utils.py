@@ -29,6 +29,7 @@ from cmdb.manager import TypesManager
 from cmdb.framework.importer.helper.importer_helper import load_parser_class
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType
+from cmdb.security.acl.builder import build_permitted_types_criteria
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.importer_routes.importer_constants import IMPORTER_KIND_OBJECT
 
@@ -81,6 +82,12 @@ def verify_import_access(user: CmdbUser, _type: CmdbType, types_manager: TypesMa
     The type passes if it has no active ACL, or if the user's group is granted READ + CREATE + UPDATE
     on it. A type with an active ACL that does not grant the group all three is treated as protected.
 
+    The rule is `build_permitted_types_criteria`, the same one every types listing applies, rather
+    than a query written here. It used to be written here - a fourth hand-rolled copy of the ACL
+    rule, and one that read an `acl` carrying no `activated` key differently from the model
+    (tier 2 **T208**). Asking the shared builder for all three permissions at once is what
+    `?acl=READ,CREATE,UPDATE` does, because `$all` is a conjunction
+
     Args:
         user (CmdbUser): The user requesting the import (its group id is checked against the ACL)
         _type (CmdbType): The type the objects are imported into
@@ -89,21 +96,15 @@ def verify_import_access(user: CmdbUser, _type: CmdbType, types_manager: TypesMa
     Raises:
         AccessDeniedError: If the type's ACL does not grant the user's group import access
     """
-    location = 'acl.groups.includes.' + str(user.group_id)
     query = {'$and': [
-        {'$or': [
-            {'acl': {'$exists': False}},
-            {'acl.activated': False},
-            {'$and': [
-                {'acl.activated': True},
-                {location: {'$exists': True}},
-                {location: {'$all': [
-                    AccessControlPermission.READ.value,
-                    AccessControlPermission.CREATE.value,
-                    AccessControlPermission.UPDATE.value,
-                ]}},
-            ]},
-        ]},
+        build_permitted_types_criteria(
+            int(user.group_id),
+            [
+                AccessControlPermission.READ,
+                AccessControlPermission.CREATE,
+                AccessControlPermission.UPDATE,
+            ],
+        ),
         {'public_id': _type.public_id},
     ]}
 

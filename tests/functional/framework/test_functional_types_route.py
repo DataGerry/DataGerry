@@ -67,6 +67,7 @@ TYPE_ID_DEPENDENT: int = 9708
 TYPE_ID_CATEGORIZED: int = 9709
 TYPE_ID_UNCATEGORIZED: int = 9710
 TYPE_ID_ACL_DENIED: int = 9711
+TYPE_ID_ACL_CREATE_ONLY: int = 9712
 MISSING_TYPE_ID: int = 9799
 
 LISTING_CATEGORY_ID: int = 9750
@@ -93,6 +94,7 @@ ALL_TYPE_IDS: list[int] = [
     TYPE_ID_CATEGORIZED,
     TYPE_ID_UNCATEGORIZED,
     TYPE_ID_ACL_DENIED,
+    TYPE_ID_ACL_CREATE_ONLY,
 ]
 
 ORIGINAL_LABEL: str = 'Original'
@@ -1150,3 +1152,180 @@ class TestListingAccessControl:
         listed = [result['public_id'] for result in response.get_json()['results']]
 
         assert TYPE_ID_ACL_DENIED in listed
+
+
+class TestCreateNormalisesTheAcl:
+    """
+    ``POST /types/`` stores the same ``acl`` block every other write path stores
+
+    The insert hands the raw payload to the manager, so before 2026-09-17 a create without an ``acl``
+    stored a document without one and the first edit silently added it - two stored shapes for one
+    meaning, decided by whether anyone had edited the type.
+    """
+
+    @staticmethod
+    def _stored_acl(database_manager: MongoDatabaseManager, database_name: str) -> dict[str, Any]:
+        """The acl block as it actually landed in the collection."""
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one(
+            {'public_id': TYPE_ID_FOR_CREATE}
+        )
+
+        return stored['acl']
+
+    @pytest.fixture(autouse=True)
+    def _cleanup(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Removes the created type after each test."""
+        yield
+        _drop_type(database_manager, database_name, TYPE_ID_FOR_CREATE)
+
+    def test_a_payload_without_an_acl_stores_the_default(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """The deactivated, group-less block - access control is opt-in."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        del payload['acl']
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert self._stored_acl(database_manager, database_name) == {
+            'activated': False, 'groups': {'includes': {}},
+        }
+
+    def test_a_partial_acl_is_completed_rather_than_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Groups without the flag is the shape the model and the query used to read differently."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['acl'] = {'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert self._stored_acl(database_manager, database_name) == {
+            'activated': False,
+            'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}},
+        }
+
+    def test_an_activated_acl_survives_the_normalisation(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Completing the block must not switch anyone's access control off."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['acl'] = {'activated': True, 'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert self._stored_acl(database_manager, database_name) == payload['acl']
+
+    def test_a_null_groups_does_not_become_a_500(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """``GroupACL.from_data`` used to raise on a null groups; the create path must not inherit that."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['acl'] = {'activated': False, 'groups': None}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert self._stored_acl(database_manager, database_name) == {
+            'activated': False, 'groups': {'includes': {}},
+        }
+
+    def test_the_created_type_reads_back_with_the_same_acl(self, rest_api) -> None:
+        """The response and the stored document agree, so no client sees a different shape."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        del payload['acl']
+        rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        body = rest_api.get(f'{ROUTE_URL}/{TYPE_ID_FOR_CREATE}').get_json()
+
+        assert body['result']['acl'] == {'activated': False, 'groups': {'includes': {}}}
+
+
+class TestListingAclParameter:
+    """``?acl=`` names the permission the listing filter asks about, replacing the READ default."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One readable type and one the admin group may CREATE but not READ."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        create_only = _type_doc(TYPE_ID_ACL_CREATE_ONLY, ORIGINAL_LABEL)
+        create_only['acl'] = {
+            'activated': True,
+            'groups': {'includes': {str(ADMIN_GROUP_ID): ['CREATE', 'UPDATE']}},
+        }
+
+        types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
+        types.insert_one(create_only)
+        yield
+        types.delete_many({'public_id': {'$in': [TYPE_ID_UNCATEGORIZED, TYPE_ID_ACL_CREATE_ONLY]}})
+
+    @staticmethod
+    def _listed_ids(response) -> list[int]:
+        """The public_ids in a listing response."""
+        return [result['public_id'] for result in response.get_json()['results']]
+
+    def test_the_default_listing_asks_for_read(self, rest_api) -> None:
+        """Without the parameter nothing changes: a CREATE-only type stays hidden."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_ACL_CREATE_ONLY not in self._listed_ids(response)
+
+    def test_asking_for_create_lists_the_create_only_type(self, rest_api) -> None:
+        """?acl=CREATE replaces READ - this is what object-add asks for."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&acl=CREATE')
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_ACL_CREATE_ONLY in self._listed_ids(response)
+
+    def test_asking_for_read_and_create_requires_both(self, rest_api) -> None:
+        """A comma list is a conjunction, so the CREATE-only type drops out again."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&acl=READ,CREATE')
+
+        listed = self._listed_ids(response)
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_ACL_CREATE_ONLY not in listed
+        assert TYPE_ID_UNCATEGORIZED in listed
+
+    def test_the_total_follows_the_requested_permission(self, rest_api) -> None:
+        """The rule is in the criteria, so the count aggregation asks the same question."""
+        body = rest_api.get(f'{ROUTE_URL}/?limit=0&acl=CREATE').get_json()
+
+        assert body['total'] == len(body['results'])
+
+    def test_an_unlicensed_permission_name_is_refused(self, rest_api) -> None:
+        """An unknown permission would match no group entry and hide everything - so it is a 400."""
+        assert rest_api.get(f'{ROUTE_URL}/?acl=NOPE').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_lowercase_permission_is_refused(self, rest_api) -> None:
+        """A stored ACL holds the upper-case value; 'read' would silently match nothing."""
+        assert rest_api.get(f'{ROUTE_URL}/?acl=read').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_an_empty_acl_is_refused(self, rest_api) -> None:
+        """An empty $all matches nothing, so an empty value must not mean 'no restriction'."""
+        assert rest_api.get(f'{ROUTE_URL}/?acl=').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_repeated_key_is_refused_rather_than_silently_narrowed(self, rest_api) -> None:
+        """
+        ``?acl=READ&acl=CREATE`` is not how the parameter is spelled
+
+        ``request.args.to_dict()`` keeps only the first value of a repeated key, so this shape would
+        silently narrow to READ. The first value is a valid permission, so it parses - this pins that
+        the request is *answered as READ*, which is why the documented spelling is a comma list.
+        """
+        repeated = rest_api.get(f'{ROUTE_URL}/?limit=0&acl=CREATE&acl=READ')
+
+        assert repeated.status_code == HTTPStatus.OK
+        assert TYPE_ID_ACL_CREATE_ONLY in self._listed_ids(repeated)
+
+    def test_the_overview_refuses_the_parameter(self, rest_api) -> None:
+        """It always asks for READ, and a parameter accepted and ignored is worse than none."""
+        assert rest_api.get(f'{ROUTE_URL}/overview?acl=CREATE').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_the_overview_tolerates_an_explicit_read(self, rest_api) -> None:
+        """``?acl=READ`` asks the overview for exactly what it already does, so it is not an error."""
+        assert rest_api.get(f'{ROUTE_URL}/overview?limit=0&acl=READ').status_code == HTTPStatus.OK

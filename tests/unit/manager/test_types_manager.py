@@ -145,6 +145,20 @@ def test_iterate_with_a_user_and_permission_restricts_to_the_permitted_types() -
     builder_params.add_criteria.assert_called_once_with({'acl': 'criteria'})
 
 
+def test_iterate_passes_several_permissions_through_to_the_criteria() -> None:
+    """A caller can ask for more than READ; the manager hands the list on untouched."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+    asked = [AccessControlPermission.READ, AccessControlPermission.CREATE]
+
+    with patch(f'{MGR_PATH}.IterationResult'), \
+         patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), asked)
+
+    criteria.assert_called_once_with(3, asked)
+
+
 def test_iterate_applies_the_access_control_to_the_criteria_not_the_pipeline() -> None:
     """
     The rule goes into the criteria both aggregations read

@@ -31,6 +31,8 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import 
     generate_parsed_output,
     verify_import_access,
 )
+from cmdb.security.acl.builder import build_permitted_types_criteria
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -128,3 +130,53 @@ class TestVerifyImportAccess:
         verify_import_access(user, cmdb_type, SimpleNamespace(iterate=_iterate))
 
         assert {'public_id': 5} in captured['criteria']['$and']
+
+
+class TestVerifyImportAccessUsesTheSharedRule:
+    """
+    The import guard asks the shared ACL builder, not a query of its own
+
+    It used to carry a fourth hand-rolled copy of the rule, which read an `acl` with no `activated`
+    key differently from the model (tier 2 T208). These pin that the criteria it sends is the shared
+    one, asked for all three permissions at once.
+    """
+
+    @staticmethod
+    def _captured_criteria() -> dict:
+        """Runs the guard and returns the criteria it handed to the manager."""
+        captured: dict = {}
+
+        def _iterate(params):
+            captured['criteria'] = params.get_criteria()
+            return SimpleNamespace(total=1, results=[], count=0)
+
+        verify_import_access(
+            SimpleNamespace(group_id=2),
+            SimpleNamespace(public_id=5, name='server'),
+            SimpleNamespace(iterate=_iterate),
+        )
+
+        return captured['criteria']
+
+    def test_the_criteria_is_the_shared_permitted_types_rule(self) -> None:
+        """Byte-for-byte the shared builder's output, so the rule cannot drift here."""
+        expected = build_permitted_types_criteria(
+            2,
+            [
+                AccessControlPermission.READ,
+                AccessControlPermission.CREATE,
+                AccessControlPermission.UPDATE,
+            ],
+        )
+
+        assert expected in self._captured_criteria()['$and']
+
+    def test_it_asks_for_all_three_permissions_at_once(self) -> None:
+        """`$all` is a conjunction, so one query covers read + create + update."""
+        criteria = self._captured_criteria()
+
+        assert "'$all': ['READ', 'CREATE', 'UPDATE']" in str(criteria)
+
+    def test_it_no_longer_spells_the_activated_flag_itself(self) -> None:
+        """The hand-rolled `{'acl.activated': True}` branch is gone with the copy."""
+        assert "{'acl.activated': True}" not in str(self._captured_criteria())

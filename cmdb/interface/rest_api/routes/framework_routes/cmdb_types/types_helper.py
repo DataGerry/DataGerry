@@ -50,6 +50,7 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
@@ -354,6 +355,35 @@ def build_type_criteria(
         return [*client_criteria, Builder.match_({TypeSchemaKey.ACTIVE.value: active})]
 
     return {**client_criteria, TypeSchemaKey.ACTIVE.value: active}
+
+
+def normalize_type_acl(type_data: dict[str, Any]) -> None:
+    """
+    Writes the complete ``acl`` block onto a CmdbType payload, in place
+
+    **Why the create route needs this and the others do not.** A type update and a type import both
+    hand a `CmdbType` to the manager, so they go through ``CmdbType.from_data`` -> ``to_json`` and
+    always store a full ``{'activated': ..., 'groups': {'includes': {...}}}``; the start assistant
+    writes that literal itself. ``POST /types/`` hands over the **raw payload**, which the manager
+    only BSON-round-trips - so a create without an ``acl`` key stored a document without one, and the
+    first edit silently added it. Two stored shapes for one meaning, decided by whether anyone had
+    edited the type.
+
+    This applies the same normalisation the other three paths get, so a Type's stored ACL no longer
+    depends on the route it arrived through. A partial ``acl`` is completed rather than rejected: the
+    absent half is exactly what the model defaults, and ``activated`` defaults to **False**, which
+    grants - access control is opt-in.
+
+    Note it also **drops unknown keys inside** ``acl``, because the model reads only ``activated`` and
+    ``groups``. That is what an update has always done to the same payload; the type schema declares
+    ``acl`` as ``allow_unknown``, so only a hand-built API payload could have put anything else there
+
+    Args:
+        type_data (dict[str, Any]): The CmdbType payload, modified in place
+    """
+    type_data[TypeSchemaKey.ACL.value] = AccessControlList.to_json(
+        AccessControlList.from_data(type_data.get(TypeSchemaKey.ACL.value) or {})
+    )
 
 
 def build_category_criteria(
