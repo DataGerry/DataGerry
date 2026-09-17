@@ -6,7 +6,7 @@
       <i class="{{type.render_meta['icon']}}" aria-hidden="true"></i>
       <span class="node-label">{{ type.label }}</span>
     </span>
-    <span class="badge text-bg-primary rounded-pill ms-2" style="color: #FFFFFF !important;" aria-live="polite"
+    <span class="badge text-bg-primary rounded-pill ms-2" [class.is-empty]="objectCounter === 0" aria-live="polite"
       aria-atomic="true"
       [attr.aria-label]="objectCounter === null ? 'Loading object count' : objectCounter + ' objects'">
       @if (objectCounter === null) {

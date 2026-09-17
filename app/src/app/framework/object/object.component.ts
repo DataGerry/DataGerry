@@ -479,30 +479,6 @@ export class ObjectComponent implements OnInit, OnDestroy {
         });
   }
 
-  public onObjectDeleteWithLocations(objectID: number) {
-    this.loaderService.show();
-    this.objectService.deleteObjectWithLocations(objectID).pipe(takeUntil(this.subscriber), finalize(() =>  this.loaderService.hide()))
-      .subscribe(() => {
-        this.toastService.success(`Object ${objectID} and child locations were deleted successfully`);
-        this.loadObjectsFromAPI();
-      },
-        (error) => {
-          this.toastService.error(error?.error?.message);
-        });
-  }
-
-  public onObjectDeleteWithObjects(objectID: number) {
-    this.loaderService.show();
-    this.objectService.deleteObjectWithChildren(objectID).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
-      .subscribe(() => {
-        this.toastService.success(`Object ${objectID} and child locations were deleted successfully`);
-        this.loadObjectsFromAPI();
-      },
-        (error) => {
-          this.toastService.error(error?.error?.message);
-        });
-  }
-
   /**
    * Destroy subscriptions after closed.
    */

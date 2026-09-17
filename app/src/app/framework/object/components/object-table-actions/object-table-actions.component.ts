@@ -20,14 +20,11 @@ import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { ReplaySubject, takeUntil } from 'rxjs';
 
-import { LocationService } from 'src/app/framework/services/location.service';
-import { ObjectService } from 'src/app/framework/services/object.service';
 
 import { ObjectPreviewModalComponent } from '../../modals/object-preview-modal/object-preview-modal.component';
 import { ObjectDeleteModalComponent } from '../../modals/object-delete-modal/object-delete-modal.component';
 import { RenderResult } from '../../../models/cmdb-render';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
-import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { CableDeleteGuardService } from '../../object-view/ports-overview/services/cable-delete-guard.service';
@@ -55,22 +52,13 @@ export class ObjectTableActionsComponent implements OnDestroy {
     // Emitter when element was deleted.
     @Output() public deleteEmitter: EventEmitter<number> = new EventEmitter<number>();
 
-    // Emitters when element was deleted with required location handling
-    @Output() public deleteObjectsEmitter: EventEmitter<number> = new EventEmitter<number>();
-    @Output() public deleteLocationsEmitter: EventEmitter<number> = new EventEmitter<number>();
-
     private modalRef: NgbModalRef;
-
-    private locationSubscription: ReplaySubject<void> = new ReplaySubject<void>();
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 /*                                                     LIFE CYCLE                                                     */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-    private readonly locationService = inject(LocationService);
-    private readonly objectService = inject(ObjectService);
     private readonly modalService = inject(NgbModal);
-    private readonly toastService = inject(ToastService);
     private readonly premiumFeatureService = inject(PremiumFeatureService);
     private readonly cableDeleteGuard = inject(CableDeleteGuardService);
 
@@ -115,25 +103,7 @@ export class ObjectTableActionsComponent implements OnDestroy {
         this.cableDeleteGuard.ensureDeletable(this.result).pipe(takeUntil(this.subscriber))
         .subscribe((deletable: boolean) => {
             if (deletable) {
-                this.confirmDelete(publicID);
-            }
-        });
-    }
-
-
-    /** Locations first: a parent of child locations needs the user to decide what goes with it. */
-    private confirmDelete(publicID: number): void {
-        this.locationService.getChildren(publicID).pipe(takeUntil(this.locationSubscription))
-        .subscribe({
-            next: (children: RenderResult[]) => {
-                if(children && children.length > 0){
-                    this.deleteWithLocations(publicID);
-                } else {
-                    this.deleteObject(publicID);
-                }
-            },
-            error: (error) => {
-                this.toastService.error(error?.error?.message)
+                this.deleteObject(publicID);
             }
         });
     }
@@ -162,22 +132,5 @@ export class ObjectTableActionsComponent implements OnDestroy {
     private isPremiumLocked(): boolean {
         return !!this.result?.object_information?.special_type
             && !this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
-    }
-
-
-    private deleteWithLocations(publicID: number){
-        this.modalRef = this.objectService.openLocationModalComponent();
-
-        this.modalRef.result.then((result) => {
-            //delete all child objects with their locations
-            if(result == 'objects'){
-              this.deleteObjectsEmitter.emit(publicID);
-            }
-
-            //delete only locations of children
-            if(result == 'locations'){
-              this.deleteLocationsEmitter.emit(publicID);
-            }
-        });
     }
 }
