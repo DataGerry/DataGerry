@@ -111,6 +111,7 @@ def test_get_subnet_overview_applies_defaults_when_no_query_params(flask_app: Fl
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
     _, kwargs = mock_build.call_args
+    kwargs.pop('request_user', None)  # the read is ACL-scoped to the caller
     assert kwargs == {
         'page': 1, 'page_size': IpamPagination.DEFAULT_PAGE_SIZE, 'search': '',
         'sort': '', 'order': '', 'status': '', 'type_filter': '',
@@ -287,6 +288,7 @@ def test_get_subnet_options_forwards_all_query_params(flask_app: Flask) -> None:
         bare(request_user=MagicMock())
 
     _, kwargs = mock_build.call_args
+    assert kwargs.pop('request_user') is not None  # the read is ACL-scoped to the caller
     assert kwargs == {
         'page': 3, 'page_size': 20, 'search': 'db8', 'family': IpAddressFamily.IPV6.value,
     }
@@ -302,6 +304,7 @@ def test_get_subnet_options_applies_defaults_when_no_query_params(flask_app: Fla
         bare(request_user=MagicMock())
 
     _, kwargs = mock_build.call_args
+    kwargs.pop('request_user', None)  # the read is ACL-scoped to the caller
     assert kwargs == {
         'page': 1, 'page_size': IpamPagination.DEFAULT_PAGE_SIZE, 'search': '', 'family': '',
     }
@@ -556,7 +559,9 @@ def test_export_subnet_ips_ignores_every_overview_filter(flask_app: Flask) -> No
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
     assert mock_build.call_args.kwargs == {}
-    assert len(mock_build.call_args.args) == 3
+    # managers, public_id and the request_user the export is ACL-scoped by - and nothing else: none
+    # of the overview's page / search / sort parameters reaches the export
+    assert len(mock_build.call_args.args) == 4
     assert mock_build.call_args.args[2] == SUBNET_PUBLIC_ID
 
 

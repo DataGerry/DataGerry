@@ -150,6 +150,19 @@ class IpamPagination:
     MAX_PAGE_SIZE: int = 500
 
 
+class IpamUnassignLimits:
+    """
+    Size bound on one supernet-unassign request
+
+    The detach is a single Mongo ``update_many``, but the list of subnet public_ids that sizes it
+    comes straight off the request body, and every id in it is also carried through the membership
+    query's ``$in`` and echoed back in the response. MAX_SUBNET_IDS caps that list so one call
+    cannot name an unbounded number of subnets; it follows IpamPagination.MAX_PAGE_SIZE, because the
+    overview the user selects rows in never shows more than one page at a time
+    """
+    MAX_SUBNET_IDS: int = IpamPagination.MAX_PAGE_SIZE
+
+
 class IpamSearch:
     """
     Query-string bounds shared by every IPAM overview search field

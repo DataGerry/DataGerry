@@ -29,9 +29,27 @@ All three are destructive and meant to be called by the portal, not by end users
 with ``verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)``, which enforces that level only
 for a cloud-mode request that authenticates with Basic auth - it passes every request through
 untouched when the instance does not run in cloud mode, and it evaluates no API level for a request
-carrying a Bearer token. Neither route carries ``.protect``, so nothing else gates them; the routes
-are registered unconditionally (see ``init_rest_api``). Both gaps are filed for decision rather than
-narrowed here, because tightening them changes the contract the Service Portal calls against
+carrying a Bearer token. No route here carries ``.protect``, so nothing else gates them.
+
+**Which is why this surface is cloud-only, guarded twice** (fixed 2026-09-16): on-premise
+``verify_api_access`` is a pass-through, so publishing these routes there meant an unauthenticated
+``DELETE /rest/setup/subscriptions?database=<name>`` dropped any database on the cluster - verified
+against the running app.
+
+* ``init_rest_api`` registers the blueprint **only when ``cmdb.__CLOUD_MODE__`` is set**. That is the
+  primary control: outside cloud mode the surface does not exist, so there is nothing to reach.
+* ``refuse_outside_cloud_mode`` below is a ``before_request`` on the blueprint - a **backstop**, for
+  the case where the blueprint is registered by some other path (a test, a second app factory, a
+  future refactor), and so that this rule is visible to a reader of this file.
+
+Both are blueprint-wide on purpose. A route added here inherits them; a per-handler check would have
+to be remembered, and it is precisely a per-route guard that was relied on and turned out to be inert
+in one mode.
+
+Still open for the CLOUD side, where the routes do exist: ``verify_api_access`` evaluates no API level
+for a request carrying a Bearer token (tier 2 T95), and the database name is used as given, so any
+database on the cluster is a valid target (T96). Both are filed for decision rather than narrowed
+here, because tightening them changes the contract the Service Portal calls against
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -53,6 +71,32 @@ from cmdb.errors.database import DatabaseNotFoundError, DatabaseConnectionError
 LOGGER: Logger = getLogger(__name__)
 
 setup_blueprint = APIBlueprint('setup', __name__)
+
+# Answered when the surface is reached outside cloud mode. 404 rather than 403: the routes serve the
+# DataGerry Service Portal and do not exist for an on-premise installation, so "no such thing" is the
+# honest answer and it matches what the unregistered blueprint already produces
+NOT_IN_CLOUD_MODE_MESSAGE: str = "The setup routes are only available in the cloud version!"
+
+
+@setup_blueprint.before_request
+def refuse_outside_cloud_mode() -> None:
+    """
+    Refuses every route on this blueprint when the process is not in cloud mode
+
+    **A backstop, not the primary control.** `init_rest_api` does not register this blueprint outside
+    cloud mode, so in normal operation this never runs: on-premise there is nothing to reach, and in
+    cloud mode it passes. It exists for the case where the blueprint is registered by some other path
+    and to keep the rule visible in the file it governs.
+
+    Blueprint-wide rather than per-handler deliberately: a route added to this module inherits it,
+    and the finding this guards against existed because a per-route guard was relied on and was inert
+    in one mode.
+
+    Raises:
+        HTTPException: 404 when the process does not run in cloud mode
+    """
+    if not current_app.cloud_mode:
+        abort(404, NOT_IN_CLOUD_MODE_MESSAGE)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

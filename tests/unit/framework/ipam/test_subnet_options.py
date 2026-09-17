@@ -184,7 +184,7 @@ def test_build_subnet_options_page_loads_subnets_and_shapes_sorted_rows() -> Non
             objects_manager, types_manager, page=1, page_size=10, search='',
         )
 
-    mock_load.assert_called_once_with(objects_manager, types_manager, SpecialType.SUBNET)
+    mock_load.assert_called_once_with(objects_manager, types_manager, SpecialType.SUBNET, denied_type_ids=[],)
     assert result[IpamOverviewKey.TOTAL] == 2
     assert [r[CmdbObjectKey.PUBLIC_ID] for r in result[IpamOverviewKey.ROWS]] == [
         SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B,

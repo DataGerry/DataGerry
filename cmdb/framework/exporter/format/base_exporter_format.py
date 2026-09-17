@@ -63,10 +63,16 @@ def to_export_cell(value: Any) -> str:
     Renders one resolved value as the text of an export cell
 
     A field an object never filled in resolves to None, and stringifying that directly writes the
-    literal text `'None'` into the cell — which is not what the object holds, and which an import
-    then reads back as a real value (`auto_cast` turns the text 'None' into None only by accident of
-    its noneify step). An absent value is an `EMPTY_CELL` instead. Every other value is stringified
-    as before, so `0`, `False` and `''` keep exporting as their own text rather than being blanked
+    literal text `'None'` into the cell — which is not what the object holds. An absent value is an
+    `EMPTY_CELL` instead. Every other value is stringified as before, so `0`, `False` and `''` keep
+    exporting as their own text rather than being blanked
+
+    **This used to be the only thing keeping the round-trip honest**, because the importer's
+    `auto_cast` turned the text `'None'` back into a real None - by accident of a `noneify` step
+    that erased `'None'` and `'null'` but not `'NULL'` or `'none'`. That step is gone (tier 2 T163),
+    so the two sides no longer depend on each other's accidents: this one writes an empty cell for
+    an absent value, and the import reads an empty cell as absent. A cell whose text really is
+    `'None'` now survives a round trip as that text, which it did not before
 
     Args:
         value (Any): The resolved field / metadata value

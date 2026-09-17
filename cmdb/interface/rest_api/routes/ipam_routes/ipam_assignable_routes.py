@@ -42,6 +42,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import IpamRight
 from cmdb.interface.rest_api.responses import DefaultResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -53,6 +54,7 @@ ipam_assignable_blueprint = APIBlueprint('ipam_assignable', __name__)
 @ipam_assignable_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_assignable_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def get_assignable_objects(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated assignable-objects picker payload
@@ -89,6 +91,7 @@ def get_assignable_objects(request_user: CmdbUser) -> Response:
         payload: dict[str, Any] = build_assignable_objects_page(
             objects_manager,
             types_manager,
+            request_user=request_user,
             page=page,
             page_size=page_size,
             search=search,

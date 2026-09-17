@@ -59,6 +59,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import read_ip
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import IpamRight
 from cmdb.interface.rest_api.responses import DefaultResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -70,6 +71,7 @@ ipam_tree_blueprint = APIBlueprint('ipam_tree', __name__)
 @ipam_tree_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_tree_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def get_ipam_tree(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the initial sidebar-tree payload in one call
@@ -95,7 +97,7 @@ def get_ipam_tree(request_user: CmdbUser) -> Response:
     try:
         objects_manager, types_manager = read_ipam_managers(request_user)
 
-        tree: dict[str, Any] = build_ipam_tree(objects_manager, types_manager)
+        tree: dict[str, Any] = build_ipam_tree(objects_manager, types_manager, request_user)
 
         return DefaultResponse(tree).make_response()
     except HTTPException as http_err:
@@ -111,6 +113,7 @@ def get_ipam_tree(request_user: CmdbUser) -> Response:
 @ipam_tree_blueprint.route('/supernets/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_tree_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def get_supernet_subnet_tree(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the full CIDR-nested subnet subtree of one supernet
@@ -137,7 +140,7 @@ def get_supernet_subnet_tree(public_id: int, request_user: CmdbUser) -> Response
     try:
         objects_manager, types_manager = read_ipam_managers(request_user)
 
-        subtree: dict[str, Any] = build_supernet_subnet_tree(objects_manager, types_manager, public_id)
+        subtree: dict[str, Any] = build_supernet_subnet_tree(objects_manager, types_manager, public_id, request_user)
 
         return DefaultResponse(subtree).make_response()
     except HTTPException as http_err:
@@ -156,6 +159,7 @@ def get_supernet_subnet_tree(public_id: int, request_user: CmdbUser) -> Response
 @ipam_tree_blueprint.route('/unassigned', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_tree_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def get_unassigned_subnets(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the unassigned-subnets block of the sidebar tree alone
@@ -177,7 +181,7 @@ def get_unassigned_subnets(request_user: CmdbUser) -> Response:
     try:
         objects_manager, types_manager = read_ipam_managers(request_user)
 
-        unassigned: dict[str, Any] = build_unassigned_subnets(objects_manager, types_manager)
+        unassigned: dict[str, Any] = build_unassigned_subnets(objects_manager, types_manager, request_user)
 
         return DefaultResponse(unassigned).make_response()
     except HTTPException as http_err:

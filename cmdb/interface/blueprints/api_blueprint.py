@@ -236,7 +236,7 @@ class APIBlueprint(Blueprint):
                     )
                 except Exception as err:
                     LOGGER.error("[parse_parameters] Exception %s. Type: %s", err, type(err))
-                    abort(400, "Failed to parse the request parameters!")
+                    abort(400, f"Failed to parse the request parameters: {err}")
 
                 return f(params=params, *args, **kwargs)
 
@@ -267,7 +267,7 @@ class APIBlueprint(Blueprint):
                     request_args = request.args.to_dict()
                 except Exception as err:
                     LOGGER.error("[parse_request_parameters] Exception %s. Type: %s", err, type(err))
-                    abort(400, "Failed to parse the request parameters!")
+                    abort(400, f"Failed to parse the request parameters: {err}")
 
                 return f(params=request_args, *args, **kwargs)
 
@@ -320,7 +320,11 @@ class APIBlueprint(Blueprint):
             function: A decorator that injects the parsed CollectionParameters into the decorated function
 
         Raises:
-            400 Bad Request: If parameter parsing or validation fails
+            400 Bad Request: If parameter parsing or validation fails. The raised message is carried
+                into the response: every rejection from this package states which parameter was wrong
+                and why, and a filter refused by ``pipeline_guard`` names the stage or operator. A
+                fixed message here reported a refused pipeline stage the same way it reported a
+                mistyped page number
         """
         def _parse(f):
             @wraps(f)
@@ -331,7 +335,7 @@ class APIBlueprint(Blueprint):
                     )
                 except Exception as err:
                     LOGGER.error("[parse_collection_parameters] Exception %s. Type: %s", err, type(err))
-                    abort(400, "Failed to parse the request parameters!")
+                    abort(400, f"Failed to parse the request parameters: {err}")
 
                 return f(params=params, *args, **kwargs)
 

@@ -43,6 +43,12 @@ class ProfileBase:
     Subclasses implement a create_<name>_profile() method that builds their CmdbTypes by calling
     create_basic_type / create_special_type and reading previously created ids via get_created_id.
     """
+
+    # The SpecialType markers this profile creates. A statement of fact about the profile, not a
+    # licensing decision: the interface layer maps it through
+    # types_helper.special_type_license_feature to decide whether the profile may be seeded, which is
+    # the same function the type routes use. A profile that creates no SpecialType declares nothing
+    CREATED_SPECIAL_TYPES: frozenset[SpecialType] = frozenset()
     def __init__(
             self,
             created_type_ids: dict[str, int | None],

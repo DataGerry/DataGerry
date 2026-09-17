@@ -3,6 +3,10 @@ IDEAS.md
 _env.py
 *.pem
 
+# Local folders
+/notes
+/workflows
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 .__pycache__

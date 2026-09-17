@@ -15,6 +15,20 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of JsonObjectParser
+
+**Why there is no `auto_cast` here, unlike in the CSV parser.** JSON carries its own types, so a
+value arrives already typed and there is nothing to guess: `7` is a number, `"007"` is a string, and
+`json.load` preserves the difference. CSV has no types at all, so its parser recognises the two
+things a cell can unambiguously spell (a number, a boolean) and leaves everything else as text.
+
+The two used to diverge further than that: the CSV caster guessed aggressively, so the same value
+imported as CSV and as JSON could be stored as two different types - `"007"` stayed a string through
+JSON and became `7` through CSV. Since the caster was tightened (tier 2 T163 / T164 / T165) the two
+paths agree on everything except a bare number written without quotes, which is a difference the
+source formats genuinely have.
+
+Both paths then meet at the same typed layer: `object_import_validator` coerces every value against
+its target field's declared `type`, so the stored type follows the field either way.
 """
 import json
 from logging import Logger, getLogger

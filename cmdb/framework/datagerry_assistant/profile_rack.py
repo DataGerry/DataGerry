@@ -41,6 +41,8 @@ class RackProfile(ProfileBase):
     Room and no longer builds a plain one of its own, so nothing else fills the RACK_ID slot.
     """
 
+    CREATED_SPECIAL_TYPES: frozenset[SpecialType] = frozenset({SpecialType.RACK})
+
     def create_profile(self) -> dict[str, int | None]:
         """
         Creates the RACK SpecialType of the 'Rack View'-Profile

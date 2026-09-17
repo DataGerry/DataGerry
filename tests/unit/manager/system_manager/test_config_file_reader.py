@@ -184,6 +184,85 @@ class TestReadConfigFileAndSetup:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                 secrets are not cast                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+SECRET_SECTION: str = 'OpenCelium'
+
+SECRET_CONFIG_BODY: str = f"""[{SECRET_SECTION}]
+host = oc-host
+port = 9090
+user = 0815
+password = 27017
+api_key = 007
+"""
+
+
+@pytest.fixture(name='secret_config_dir')
+def fixture_secret_config_dir(tmp_path: Path) -> Path:
+    """A config whose secrets are spelled as things `auto_cast` would otherwise claim."""
+    (tmp_path / CONFIG_NAME).write_text(SECRET_CONFIG_BODY, encoding='utf-8')
+
+    return tmp_path
+
+
+class TestSecretsAreServedVerbatim:
+    """
+    Tier 2 T163, finding S1 - the one finding of that audit with a live consequence
+
+    An `[OpenCelium] password` of `27017` used to reach `OcApiConnector.password` - annotated `str` -
+    as the int `27017`, and was sent in the login body as a JSON **number**. The connection failed
+    and reported bad credentials. The cloud path never had it, because it reads `OC_PASSWORD` with a
+    bare `os.getenv`, so the same secret had a different type depending on where it was configured.
+    """
+
+    @pytest.mark.parametrize('key, expected', [('password', '27017'), ('api_key', '007')])
+    def test_a_secret_keeps_its_exact_spelling(self, secret_config_dir: Path, key: str, expected: str) -> None:
+        """Byte for byte: an external system compares it, so any reinterpretation is wrong."""
+        result = _reader(secret_config_dir).get_value(key, SECRET_SECTION)
+
+        assert result == expected
+        assert isinstance(result, str)
+
+    def test_a_secret_from_the_environment_is_not_cast_either(
+        self,
+        secret_config_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The overlay wins over the file, and it must not win by handing back a different type."""
+        monkeypatch.setenv(f'DATAGERRY_{SECRET_SECTION}_password', '123456')
+
+        assert _reader(secret_config_dir).get_value('password', SECRET_SECTION) == '123456'
+
+    def test_the_whole_section_read_agrees_with_the_single_read(self, secret_config_dir: Path) -> None:
+        """
+        Three code paths, one rule
+
+        `get_all_values_from_section` is what `OcApiConnector._load_local_config` actually uses, so a
+        rule applied only in `get_value` would have left the live path broken.
+        """
+        values = _reader(secret_config_dir).get_all_values_from_section(SECRET_SECTION)
+
+        assert values['password'] == '27017'
+        assert values['api_key'] == '007'
+
+    def test_non_secret_values_in_the_same_section_are_still_cast(self, secret_config_dir: Path) -> None:
+        """The exception is the named keys, not the section - `port` is still an int."""
+        values = _reader(secret_config_dir).get_all_values_from_section(SECRET_SECTION)
+
+        assert values['port'] == 9090
+        assert isinstance(values['port'], int)
+
+    def test_a_numeric_looking_user_name_survives_on_its_own(self, secret_config_dir: Path) -> None:
+        """
+        `user = 0815` is not in the secret list and does not need to be
+
+        The leading zero alone keeps it text now, which is the wider T165 fix doing the work - worth
+        pinning so the two fixes are not confused for one another.
+        """
+        assert _reader(secret_config_dir).get_value('user', SECRET_SECTION) == '0815'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                     get_value                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGetValue:
@@ -200,12 +279,22 @@ class TestGetValue:
     @pytest.mark.parametrize('key, expected', [
         ('workers', 2),
         ('threaded', True),
-        ('keepalive', None),
         ('timeout', 1.5),
     ])
     def test_every_auto_cast_kind(self, config_dir: Path, key: str, expected: Any) -> None:
-        """bool / int / None / float all arrive as their Python type."""
+        """bool / int / float all arrive as their Python type."""
         assert _reader(config_dir).get_value(key, WEBSERVER_SECTION) == expected
+
+    def test_the_text_none_is_no_longer_erased(self, config_dir: Path) -> None:
+        """
+        `keepalive = None` is served as the string it is (tier 2 T163)
+
+        `auto_cast` used to turn the two exact spellings `None` and `null` into Python `None` - and
+        only those two, so `NULL` and `none` survived. The erasure is gone rather than made
+        consistent: an ini file has no "absent" literal, and the way to leave a setting unset is to
+        omit the line. A caller that wants a default asks for one - `get_value(..., default=...)`.
+        """
+        assert _reader(config_dir).get_value('keepalive', WEBSERVER_SECTION) == 'None'
 
     @pytest.mark.parametrize('spelling', ['true', 'True', 'TRUE', ' true '])
     def test_a_boolean_is_cast_whatever_its_capitalisation(

@@ -30,6 +30,11 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.models.security_models.auth_settings_constants import AUTH_SETTINGS_ID
 from cmdb.security.auth.auth_module import AuthModule
+from cmdb.security.auth.auth_settings_masking import (
+    mask_auth_settings,
+    mask_provider_config,
+    restore_masked_secrets,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -104,10 +109,14 @@ def get_auth_settings(request_user: CmdbUser) -> Response:
     try:
         settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-        auth_settings = settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
+        auth_settings = settings_manager.get_all_values_from_section(
+            AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__,
+        )
         auth_module = AuthModule(auth_settings)
 
-        return DefaultResponse(auth_module.settings).make_response()
+        # vars(): the section is answered as the model's attributes, which is the shape this route has
+        # always had. mask_auth_settings copies it and blanks the credentials before it leaves
+        return DefaultResponse(mask_auth_settings(vars(auth_module.settings))).make_response()
     except Exception as err:
         LOGGER.error("[get_auth_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "An internal server error occured while retrieving auth settings!")
@@ -181,7 +190,9 @@ def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response
         if provider is None:
             abort(404, f"Provider: '{provider_class}' not found!")
 
-        return DefaultResponse(provider.get_config()).make_response()
+        return DefaultResponse(
+            mask_provider_config(provider_class, vars(provider.get_config()))
+        ).make_response()
     except HTTPException as http_err:
         raise http_err
     except Exception as err:
@@ -215,6 +226,15 @@ def update_auth_settings(request_user: CmdbUser) -> Response:
         if not new_auth_settings_values:
             abort(400, 'No new data was provided')
 
+        # The reads mask every credential, and this route takes the WHOLE section - so a client that
+        # read the settings, changed one field and sent the object back posts the mask where the bind
+        # password was. Resolving it against what is stored is what keeps that from becoming the new
+        # password; a payload carrying a real value at that path is a deliberate change and is written
+        stored_auth_settings = settings_manager.get_all_values_from_section(
+            AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__,
+        )
+        new_auth_settings_values = restore_masked_secrets(new_auth_settings_values, stored_auth_settings)
+
         try:
             # require_complete: the update carries the WHOLE section. A payload omitting 'providers'
             # would otherwise blank the configured LDAP provider, since an absent key and a reset to
@@ -231,7 +251,10 @@ def update_auth_settings(request_user: CmdbUser) -> Response:
         )
 
         if update_result.acknowledged:
-            return DefaultResponse(settings_manager.get_section(AUTH_SETTINGS_ID)).make_response()
+            # Masked like every other read: the echo is the stored section, credentials included
+            return DefaultResponse(
+                mask_auth_settings(settings_manager.get_section(AUTH_SETTINGS_ID))
+            ).make_response()
 
         abort(400, 'Could not update auth settings')
     except HTTPException as http_err:

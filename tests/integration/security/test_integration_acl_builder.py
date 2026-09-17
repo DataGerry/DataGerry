@@ -34,7 +34,7 @@ from cmdb.manager.query_builder.base_query_builder import BaseQueryBuilder
 from cmdb.manager.query_builder.builder_parameters import BuilderParameters
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
-from cmdb.security.acl.builder import build_denied_types_criteria
+from cmdb.security.acl.builder import build_denied_types_criteria, build_permitted_types_criteria
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -257,3 +257,65 @@ class TestQueryStageOrder:
 
         assert len(page) == page_size
         assert page == readable[:page_size]
+
+
+class TestPermittedTypesCriteria:
+    """The types-listing half of the same rule, run against the seeded ACL shapes."""
+
+    @staticmethod
+    def _permitted_ids(types_collection, group_id: int) -> list[int]:
+        """The seeded type ids the given group may READ, according to the permitted criteria."""
+        criteria = {
+            '$and': [
+                {'public_id': {'$in': ALL_TYPE_IDS}},
+                build_permitted_types_criteria(group_id, AccessControlPermission.READ),
+            ]
+        }
+
+        return sorted(doc['public_id'] for doc in types_collection.find(criteria, {'public_id': 1}))
+
+    def test_permitted_criteria_selects_exactly_the_readable_types(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Every ACL shape lands on the side the matrix says it does."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        assert self._permitted_ids(types, GROUP_ID) == sorted(READABLE_TYPE_IDS)
+
+    def test_permitted_and_denied_criteria_partition_the_collection(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """No seeded type is both permitted and denied, and none is neither."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        denied = sorted(
+            doc['public_id'] for doc in types.find(
+                {'$and': [
+                    {'public_id': {'$in': ALL_TYPE_IDS}},
+                    build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ),
+                ]},
+                {'public_id': 1},
+            )
+        )
+        permitted = self._permitted_ids(types, GROUP_ID)
+
+        assert not set(permitted) & set(denied)
+        assert sorted(permitted + denied) == sorted(ALL_TYPE_IDS)
+
+    def test_permitted_criteria_costs_no_second_query(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """It is one filter on framework.types itself - no id resolution round trip."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        criteria = build_permitted_types_criteria(GROUP_ID, AccessControlPermission.READ)
+
+        explained = types.find(criteria).explain()
+
+        assert explained['ok'] == 1
+
+    def test_a_different_group_sees_a_different_set(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """The rule is per group - the other group's grants are not this group's."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        assert self._permitted_ids(types, GROUP_ID) != self._permitted_ids(types, OTHER_GROUP_ID)

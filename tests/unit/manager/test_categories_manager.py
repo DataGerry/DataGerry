@@ -337,3 +337,110 @@ class TestGetAncestorIdsFailure:
 
         with pytest.raises(CategoriesManagerGetError):
             CategoriesManager._get_ancestor_ids(mgr, PARENT_CATEGORY_PUBLIC_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               get_category_type_ids                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetCategoryTypeIds:
+    """``get_category_type_ids`` reads one category's 'types' array for the types listing filter."""
+
+    def test_returns_the_assigned_type_ids(self) -> None:
+        """The happy path hands back the stored array."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = {'public_id': CATEGORY_PUBLIC_ID, 'types': [4, 9]}
+
+        assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == [4, 9]
+
+    def test_missing_category_returns_empty_list_rather_than_raising(self) -> None:
+        """An id nothing is assigned to is an empty filter, not an error - it feeds a listing."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = None
+
+        assert CategoriesManager.get_category_type_ids(mgr, MISSING_CATEGORY_PUBLIC_ID) == []
+
+    def test_category_without_a_types_key_returns_empty_list(self) -> None:
+        """A category holding no types answers the same as a missing one."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = {'public_id': CATEGORY_PUBLIC_ID}
+
+        assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == []
+
+    def test_null_types_value_returns_empty_list(self) -> None:
+        """A stored null is treated as 'no types', not iterated."""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = {'public_id': CATEGORY_PUBLIC_ID, 'types': None}
+
+        assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == []
+
+    def test_get_error_wraps_as_categories_get_error(self) -> None:
+        """A ``BaseManagerGetError`` is wrapped as ``CategoriesManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.get_item.side_effect = BaseManagerGetError('read failed')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID)
+
+    def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
+        """A generic exception is wrapped as ``CategoriesManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.get_item.side_effect = RuntimeError('boom')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               get_assigned_type_ids                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetAssignedTypeIds:
+    """``get_assigned_type_ids`` collects every categorized CmdbType id in one projected read."""
+
+    def test_unions_the_type_ids_of_every_category(self) -> None:
+        """Ids shared by two categories appear once - it is a set."""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'types': [1, 2]}, {'types': [2, 3]}]
+
+        assert CategoriesManager.get_assigned_type_ids(mgr) == {1, 2, 3}
+
+    def test_reads_only_the_types_key_of_categories_that_have_one(self) -> None:
+        """One projected query, restricted to the documents that actually carry types."""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        CategoriesManager.get_assigned_type_ids(mgr)
+
+        mgr.find.assert_called_once_with(
+            criteria={'types': {'$exists': True, '$ne': []}},
+            projection={'types': 1},
+        )
+
+    def test_no_categories_returns_an_empty_set(self) -> None:
+        """Nothing categorized means every type is uncategorized."""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        assert CategoriesManager.get_assigned_type_ids(mgr) == set()
+
+    def test_null_types_value_is_skipped(self) -> None:
+        """A stored null does not blow up the comprehension."""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'types': None}, {'types': [5]}]
+
+        assert CategoriesManager.get_assigned_type_ids(mgr) == {5}
+
+    def test_get_error_wraps_as_categories_get_error(self) -> None:
+        """A ``BaseManagerGetError`` is wrapped as ``CategoriesManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.find.side_effect = BaseManagerGetError('read failed')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.get_assigned_type_ids(mgr)
+
+    def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
+        """A generic exception is wrapped as ``CategoriesManagerGetError``."""
+        mgr = _mock_manager()
+        mgr.find.side_effect = RuntimeError('boom')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.get_assigned_type_ids(mgr)

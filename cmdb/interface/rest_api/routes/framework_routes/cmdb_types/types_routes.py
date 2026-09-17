@@ -33,6 +33,13 @@ All routes require authentication (JWT or ``x-api-key`` in cloud mode), ApiLevel
 per-route ``base.framework.type.*`` right (see ``TypeRight``). Domain logic lives in
 ``TypesManager`` and ``types_helper``; manager-layer errors map to HTTP 400 (business-rule /
 lookup failures) or HTTP 500 (unexpected), following the codebase convention - 409 is not used.
+
+**Access control**: the two listing routes are additionally filtered by the type ACL, to the types
+the requesting user's group holds READ on. The single-type read and the write routes are **not** -
+a type filtered out of the listing can still be fetched, edited and deleted by public_id. That is a
+known hole, filed as **T212**; the listings were closed first because they were the routes whose
+only access control was a filter the Angular app posted, which any other API consumer could simply
+omit.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -53,6 +60,7 @@ from cmdb.models.type_model.type_constants import TypeRight
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects, request_wants_body
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
@@ -212,11 +220,16 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbTypes
 
-    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN, and the listing is
+    additionally restricted to the CmdbTypes the requesting user's group may READ under the type
+    ACL - the right decides whether the screen opens at all, the ACL decides what is in it.
+
+    ``?category=<public_id>`` restricts the listing to the CmdbTypes assigned to that CmdbCategory
+    and ``?uncategorized=true`` to the CmdbTypes assigned to none; the two cannot be combined
 
     Args:
-        params (TypeIterationParameters): Filter, sort, pagination and the 'active' flag for the
-            requested CmdbTypes
+        params (TypeIterationParameters): Filter, sort, pagination, the 'active' flag and the
+            category filters for the requested CmdbTypes
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
@@ -228,9 +241,13 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        builder_params: BuilderParameters = prepare_builder_parameters(params)
+        builder_params: BuilderParameters = prepare_builder_parameters(params, request_user)
 
-        iteration_result: IterationResult[CmdbType] = types_manager.iterate(builder_params)
+        iteration_result: IterationResult[CmdbType] = types_manager.iterate(
+            builder_params,
+            request_user,
+            AccessControlPermission.READ,
+        )
         types: list[dict[str, Any]] = [CmdbType.to_json(type) for type in iteration_result.results]
 
         api_response = GetMultiResponse(
@@ -263,7 +280,9 @@ def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbU
 
     Returns the filtered CmdbTypes each bundled with its resolved author/editor display block, so
     the overview renders author/editor names without a per-type user lookup (they are resolved in a
-    single bulk query). Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN
+    single bulk query). Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN, and is
+    restricted to the CmdbTypes the requesting user's group may READ under the type ACL - the same
+    rule the plain listing applies, so the two never disagree about what exists
 
     Args:
         params (TypeIterationParameters): Filter/pagination for the requested CmdbTypes
@@ -279,9 +298,13 @@ def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbU
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 
-        builder_params: BuilderParameters = prepare_builder_parameters(params)
+        builder_params: BuilderParameters = prepare_builder_parameters(params, request_user)
 
-        iteration_result: IterationResult[CmdbType] = types_manager.iterate(builder_params)
+        iteration_result: IterationResult[CmdbType] = types_manager.iterate(
+            builder_params,
+            request_user,
+            AccessControlPermission.READ,
+        )
         types: list[dict[str, Any]] = [CmdbType.to_json(type) for type in iteration_result.results]
 
         # Get all users which interacted with the filtered types

@@ -67,6 +67,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_required_string,
 )
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import (
+    IpamRight,
     VALIDATION_ROWS_NOT_A_LIST_MESSAGE,
 )
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -106,6 +107,7 @@ def _build_validation_response(errors: list[dict[str, Any]]) -> dict[str, Any]:
 @ipam_validation_blueprint.route('/subnet', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def validate_subnet_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a subnet candidate without writing anything
@@ -163,6 +165,7 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
 @ipam_validation_blueprint.route('/supernet', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
     HTTP `POST` route that pre-validates a supernet candidate without writing anything
@@ -209,6 +212,7 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disa
 @ipam_validation_blueprint.route('/vlan', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def validate_vlan_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a vlan candidate without writing anything
@@ -248,6 +252,7 @@ def validate_vlan_route(request_user: CmdbUser) -> Response:
 @ipam_validation_blueprint.route('/interface', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def validate_interface_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a batch of dg-ipam-interface rows without writing

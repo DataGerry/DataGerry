@@ -22,8 +22,19 @@ qualified name, and the level enum. There is no write side: rights are declared 
 one; what a *group* holds is the CmdbUserGroup routes' business.
 
 Because the tree is in-memory, a single `RightsManager` is built once at import and shared across
-requests instead of re-flattening ~200 rights per call, and none of the routes carries an ACL right -
-the catalogue is product metadata, identical for every installation.
+requests instead of re-flattening ~200 rights per call.
+
+**None of the routes carries an ACL right, and that is deliberate** - the catalogue is product
+metadata, identical for every installation and already public in the source of an AGPL product, and
+the group-edit screen needs it for anyone who may manage a group. **They are authenticated, though.**
+Until 2026-09-16 they were not: the only guard was `verify_api_access`, which returns immediately when
+the process is not in cloud mode, so on-premise the whole catalogue answered with no credentials at
+all. `insert_request_user` is what fixes that - it is the authentication, not the authorization, which
+is why every handler takes a `request_user` it never reads (tier 2 T162, and T78 as its duplicate).
+
+A repo-wide scan on that date found exactly two route files with `verify_api_access` and neither
+`insert_request_user` nor `.protect`: this one and `setup_routes.py`, which was made cloud-only the
+same day. There is no third.
 """
 from logging import Logger, getLogger
 
@@ -37,7 +48,8 @@ from cmdb.framework.results import IterationResult
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.constants import NAME_TO_LEVEL
 from cmdb.models.right_model.all_rights import ALL_RIGHTS
-from cmdb.interface.route_utils import verify_api_access
+from cmdb.models.user_model import CmdbUser
+from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
@@ -58,9 +70,10 @@ rights_manager: RightsManager = RightsManager()
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @rights_blueprint.route('/', methods=['GET', 'HEAD'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rights_blueprint.parse_collection_parameters(sort='name', view='list')
-def get_rights(params: CollectionParameters) -> Response:
+def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for an iterable collection of DataGerry rights
 
@@ -85,6 +98,10 @@ def get_rights(params: CollectionParameters) -> Response:
         No ACL right is required - the rights catalogue is static product metadata.
         Calling the route over HTTP HEAD will result in an empty body
     """
+    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
+    # signature because `insert_request_user` injects it, and that decorator is what makes the
+    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # pylint: disable=unused-argument
     try:
         body: bool = request_wants_body()
 
@@ -121,8 +138,9 @@ def get_rights(params: CollectionParameters) -> Response:
 
 
 @rights_blueprint.route('/<string:name>', methods=['GET', 'HEAD'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_right(name: str) -> Response:
+def get_right(name: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a single right resource
 
@@ -139,6 +157,10 @@ def get_right(name: str) -> Response:
         No ACL right is required - the rights catalogue is static product metadata.
         Calling the route over HTTP HEAD will result in an empty body
     """
+    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
+    # signature because `insert_request_user` injects it, and that decorator is what makes the
+    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # pylint: disable=unused-argument
     try:
         right: BaseRight | None = rights_manager.get_right(name)
 
@@ -157,8 +179,9 @@ def get_right(name: str) -> Response:
 
 
 @rights_blueprint.route('/levels', methods=['GET', 'HEAD'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_levels() -> Response:
+def get_levels(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a static collection of levels
 
@@ -173,6 +196,10 @@ def get_levels() -> Response:
         No ACL right is required - the levels are a static enum.
         Calling the route over HTTP HEAD method will result in an empty body
     """
+    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
+    # signature because `insert_request_user` injects it, and that decorator is what makes the
+    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # pylint: disable=unused-argument
     try:
         return GetSingleResponse(NAME_TO_LEVEL, body=request_wants_body()).make_response()
     except Exception as err:

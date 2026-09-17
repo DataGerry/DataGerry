@@ -20,17 +20,37 @@ from cmdb.manager import CategoriesManager, ObjectsManager
 from cmdb.manager.types_manager import TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.framework.datagerry_assistant.profile_name import ProfileName
+from cmdb.framework.datagerry_assistant.profile_assistant import special_types_created_by
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    special_type_license_feature,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# The license feature a profile needs before the assistant may seed it. A profile absent from this map
-# is always available. RACK is mapped to IPAM as an INTERIM decision - the Rack View is not part of
-# IPAM and is expected to get a LicenseFeature of its own (see SpecialType.get_license_gated_types)
-PROFILE_LICENSE_FEATURES: dict[str, LicenseFeature] = {
-    ProfileName.RACK.value: LicenseFeature.IPAM,
-}
+
+def profile_license_feature(profile: str) -> LicenseFeature | None:
+    """
+    Reports which LicenseFeature a profile needs before the assistant may seed it
+
+    **Derived, not listed.** The answer is read off what the profile actually creates
+    (`special_types_created_by`) and mapped through the same `special_type_license_feature` the type
+    routes use, so the assistant and `POST /types/` cannot disagree about whether a SpecialType is
+    licensed.
+
+    This replaced a hand-maintained profile -> feature map, which had exactly one entry - the RACK
+    profile, which is gated behind IPAM only as an interim borrowing - while the IPAM profile itself,
+    which creates the SpecialTypes the licence actually owns, was missing from it. A map keyed by
+    PROFILE cannot stay in step with a guard keyed by SPECIAL TYPE: a profile is a bundle, and what it
+    needs depends on what it builds.
+
+    Args:
+        profile (str): A ProfileName value, as selected in the assistant
+
+    Returns:
+        LicenseFeature | None: The feature the profile requires, or None when it needs none
+    """
+    return special_type_license_feature(*special_types_created_by(profile))
 
 
 def drop_locked_profiles(profiles: list[str], request_user: CmdbUser) -> list[str]:
@@ -55,9 +75,24 @@ def drop_locked_profiles(profiles: list[str], request_user: CmdbUser) -> list[st
     """
     return [
         profile for profile in profiles
-        if profile not in PROFILE_LICENSE_FEATURES
-        or not feature_locked(PROFILE_LICENSE_FEATURES[profile], request_user)
+        if not _is_locked(profile, request_user)
     ]
+
+
+def _is_locked(profile: str, request_user: CmdbUser) -> bool:
+    """
+    Whether one profile may not be seeded right now
+
+    Args:
+        profile (str): A ProfileName value
+        request_user (CmdbUser): The user performing the request
+
+    Returns:
+        bool: True when the profile needs a feature the active license does not unlock
+    """
+    required_feature: LicenseFeature | None = profile_license_feature(profile)
+
+    return required_feature is not None and feature_locked(required_feature, request_user)
 
 
 def has_framework_data(

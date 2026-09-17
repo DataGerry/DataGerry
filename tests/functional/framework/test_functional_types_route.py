@@ -33,6 +33,8 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager import TypesManager, ObjectsManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.category_model import CmdbCategory
+from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_routes
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
@@ -61,7 +63,14 @@ TYPE_ID_FOR_SELECTABLE: int = 9706
 # The bug report's two types: 'User' owns the referenced section, 'test' references it
 TYPE_ID_REFERENCED: int = 9707
 TYPE_ID_DEPENDENT: int = 9708
+# the listing-filter fixtures: one categorized, one not, one the admin group may not READ
+TYPE_ID_CATEGORIZED: int = 9709
+TYPE_ID_UNCATEGORIZED: int = 9710
+TYPE_ID_ACL_DENIED: int = 9711
 MISSING_TYPE_ID: int = 9799
+
+LISTING_CATEGORY_ID: int = 9750
+MISSING_CATEGORY_ID: int = 9751
 
 REFERENCED_SECTION_NAME: str = 'personal-data'
 UNREFERENCED_SECTION_NAME: str = 'other'
@@ -81,6 +90,9 @@ ALL_TYPE_IDS: list[int] = [
     TYPE_ID_FOR_SELECTABLE,
     TYPE_ID_REFERENCED,
     TYPE_ID_DEPENDENT,
+    TYPE_ID_CATEGORIZED,
+    TYPE_ID_UNCATEGORIZED,
+    TYPE_ID_ACL_DENIED,
 ]
 
 ORIGINAL_LABEL: str = 'Original'
@@ -884,3 +896,257 @@ class TestReferencedSectionGuard:
         response = rest_api.get(f'{ROUTE_URL}/referenced_section_usage/{MISSING_TYPE_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             LISTING FILTERS AND ACCESS CONTROL                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _denied_acl() -> dict[str, Any]:
+    """An activated ACL granting the admin group everything except READ."""
+    return {'activated': True, 'groups': {'includes': {str(ADMIN_GROUP_ID): ['CREATE', 'UPDATE', 'DELETE']}}}
+
+
+class TestListingFilterEcho:
+    """The ``parameters.filter`` echoed back is what the CLIENT sent, never what the server injected."""
+
+    def test_a_dict_filter_is_echoed_unchanged(self, rest_api) -> None:
+        """The active flag restricts the query without appearing in the echoed filter."""
+        response = rest_api.get(f'{ROUTE_URL}/?active=true&filter={{"label":"{ORIGINAL_LABEL}"}}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['parameters']['filter'] == {'label': ORIGINAL_LABEL}
+
+    def test_a_pipeline_filter_is_echoed_unchanged(self, rest_api) -> None:
+        """A client pipeline comes back with exactly the stages it went in with."""
+        client_pipeline = '[{"$match":{"label":"%s"}}]' % ORIGINAL_LABEL
+
+        response = rest_api.get(f'{ROUTE_URL}/?active=true&filter={client_pipeline}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['parameters']['filter'] == [{'$match': {'label': ORIGINAL_LABEL}}]
+
+    def test_no_filter_echoes_no_injected_stages(self, rest_api) -> None:
+        """Without a client filter the echo stays empty instead of showing the server's own $match."""
+        response = rest_api.get(f'{ROUTE_URL}/?active=true')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['parameters']['filter'] == {}
+
+    def test_the_active_flag_still_restricts_the_rows(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Not echoing the injected stage does not mean not applying it."""
+        doc = _type_doc(TYPE_ID_FOR_GET, ORIGINAL_LABEL)
+        doc['active'] = False
+        database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_one(doc)
+
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/?active=true&limit=0')
+            listed = [t['public_id'] for t in response.get_json()['results']]
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_GET)
+
+        assert TYPE_ID_FOR_GET not in listed
+
+
+class TestListingCategoryFilters:
+    """``?category=`` and ``?uncategorized=`` replace the $lookup pipelines the frontend posted."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One categorized type, one uncategorized type, and the category binding them."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        categories = database_manager.get_collection(CmdbCategory.COLLECTION, database_name)
+
+        types.insert_one(_type_doc(TYPE_ID_CATEGORIZED, ORIGINAL_LABEL))
+        types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
+        categories.insert_one({
+            'public_id': LISTING_CATEGORY_ID,
+            'name': 'listing-category',
+            'label': 'Listing Category',
+            'meta': {'icon': '', 'order': None},
+            'parent': None,
+            'types': [TYPE_ID_CATEGORIZED],
+        })
+        yield
+        types.delete_many({'public_id': {'$in': [TYPE_ID_CATEGORIZED, TYPE_ID_UNCATEGORIZED]}})
+        categories.delete_many({'public_id': LISTING_CATEGORY_ID})
+
+    @staticmethod
+    def _listed_ids(response) -> list[int]:
+        """The public_ids in a listing response."""
+        return [result['public_id'] for result in response.get_json()['results']]
+
+    def test_category_lists_only_its_own_types(self, rest_api) -> None:
+        """?category=<id> answers the types assigned to that category."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&category={LISTING_CATEGORY_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert self._listed_ids(response) == [TYPE_ID_CATEGORIZED]
+
+    def test_uncategorized_excludes_the_categorized_type(self, rest_api) -> None:
+        """?uncategorized=true answers the complement."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&uncategorized=true')
+
+        listed = self._listed_ids(response)
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_UNCATEGORIZED in listed
+        assert TYPE_ID_CATEGORIZED not in listed
+
+    def test_the_total_agrees_with_the_filtered_rows(self, rest_api) -> None:
+        """The category filter lives in the criteria, so the count aggregation applies it too."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&category={LISTING_CATEGORY_ID}')
+        body = response.get_json()
+
+        assert body['total'] == len(body['results'])
+
+    def test_an_unknown_category_lists_nothing(self, rest_api) -> None:
+        """An id nothing is assigned to is an empty result, matching the pipeline this replaced."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&category={MISSING_CATEGORY_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert self._listed_ids(response) == []
+
+    def test_a_category_filter_combines_with_a_client_filter(self, rest_api) -> None:
+        """The server condition narrows the client's filter rather than replacing it."""
+        response = rest_api.get(
+            f'{ROUTE_URL}/?limit=0&category={LISTING_CATEGORY_ID}'
+            f'&filter={{"public_id":{TYPE_ID_UNCATEGORIZED}}}'
+        )
+
+        assert response.status_code == HTTPStatus.OK
+        assert self._listed_ids(response) == []
+
+    def test_both_category_filters_at_once_are_refused(self, rest_api) -> None:
+        """A contradiction is a 400, not an empty list."""
+        response = rest_api.get(f'{ROUTE_URL}/?category={LISTING_CATEGORY_ID}&uncategorized=true')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_non_numeric_category_is_refused(self, rest_api) -> None:
+        """The parameter is a public_id."""
+        response = rest_api.get(f'{ROUTE_URL}/?category=not-a-number')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_the_category_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
+        """
+        The migration contract for **F3**: same rows, same order, same documents
+
+        The Angular app asks "types in category N" with a `$lookup` into `framework.categories`
+        posted as `?filter=`. `?category=` has to be a drop-in for it, or switching the frontend over
+        is not the one-line change it is supposed to be.
+        """
+        frontend_pipeline = (
+            '[{"$lookup":{"from":"framework.categories","let":{"type_public_id":"$public_id"},'
+            '"pipeline":[{"$match":{"public_id":%d}},'
+            '{"$match":{"$expr":{"$in":["$$type_public_id","$types"]}}}],"as":"category"}},'
+            '{"$match":{"category.0":{"$exists":true}}},'
+            '{"$project":{"category":0}}]'
+        ) % LISTING_CATEGORY_ID
+
+        with_pipeline = rest_api.get(f'{ROUTE_URL}/?limit=0&active=false&filter={frontend_pipeline}')
+        with_parameter = rest_api.get(f'{ROUTE_URL}/?limit=0&active=false&category={LISTING_CATEGORY_ID}')
+
+        assert with_pipeline.status_code == HTTPStatus.OK
+        assert with_parameter.get_json()['results'] == with_pipeline.get_json()['results']
+        assert with_parameter.get_json()['total'] == with_pipeline.get_json()['total']
+
+    def test_the_uncategorized_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
+        """The same contract for the other half of **F3**: "types in no category"."""
+        frontend_pipeline = (
+            '[{"$lookup":{"from":"framework.categories","localField":"public_id",'
+            '"foreignField":"types","as":"categories"}},'
+            '{"$match":{"categories":{"$size":0}}},'
+            '{"$project":{"categories":0}}]'
+        )
+
+        with_pipeline = rest_api.get(f'{ROUTE_URL}/?limit=0&active=true&filter={frontend_pipeline}')
+        with_parameter = rest_api.get(f'{ROUTE_URL}/?limit=0&active=true&uncategorized=true')
+
+        assert with_pipeline.status_code == HTTPStatus.OK
+        assert with_parameter.get_json()['results'] == with_pipeline.get_json()['results']
+        assert with_parameter.get_json()['total'] == with_pipeline.get_json()['total']
+
+    def test_the_overview_accepts_the_same_filters(self, rest_api) -> None:
+        """/types/overview shares the helper, so the parameters work there too."""
+        response = rest_api.get(f'{ROUTE_URL}/overview?limit=0&category={LISTING_CATEGORY_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        listed = [item['type_data']['public_id'] for item in response.get_json()['results']]
+        assert listed == [TYPE_ID_CATEGORIZED]
+
+
+class TestListingAccessControl:
+    """Both listings are restricted to the types the requesting user's group may READ."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One type the admin group may read and one it may not."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        denied = _type_doc(TYPE_ID_ACL_DENIED, ORIGINAL_LABEL)
+        denied['acl'] = _denied_acl()
+
+        types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
+        types.insert_one(denied)
+        yield
+        types.delete_many({'public_id': {'$in': [TYPE_ID_UNCATEGORIZED, TYPE_ID_ACL_DENIED]}})
+
+    def test_a_denied_type_is_absent_from_the_listing(self, rest_api) -> None:
+        """The route enforces the ACL itself now - no client-supplied filter is involved."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+
+        listed = [result['public_id'] for result in response.get_json()['results']]
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_UNCATEGORIZED in listed
+        assert TYPE_ID_ACL_DENIED not in listed
+
+    def test_a_denied_type_is_absent_from_the_overview(self, rest_api) -> None:
+        """The overview applies the same rule, so the two never disagree about what exists."""
+        response = rest_api.get(f'{ROUTE_URL}/overview?limit=0')
+
+        listed = [item['type_data']['public_id'] for item in response.get_json()['results']]
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_UNCATEGORIZED in listed
+        assert TYPE_ID_ACL_DENIED not in listed
+
+    def test_the_total_excludes_the_denied_type_too(self, rest_api) -> None:
+        """The rule is in the criteria, so the count aggregation reads it as well."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+        body = response.get_json()
+
+        assert body['total'] == len(body['results'])
+
+    def test_a_client_filter_cannot_widen_the_listing(self, rest_api) -> None:
+        """Asking for the denied type by public_id still does not return it."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&filter={{"public_id":{TYPE_ID_ACL_DENIED}}}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['results'] == []
+
+    def test_a_client_pipeline_cannot_widen_the_listing(self, rest_api) -> None:
+        """The server's $match runs before the client's stages, so no stage can undo it."""
+        client_pipeline = '[{"$match":{"public_id":%d}}]' % TYPE_ID_ACL_DENIED
+
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&filter={client_pipeline}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['results'] == []
+
+    def test_a_deactivated_acl_is_listed(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Access control is opt-in: a switched-off ACL restricts nothing."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        types.update_one(
+            {'public_id': TYPE_ID_ACL_DENIED},
+            {'$set': {'acl': {'activated': False, 'groups': {'includes': {}}}}},
+        )
+
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+        listed = [result['public_id'] for result in response.get_json()['results']]
+
+        assert TYPE_ID_ACL_DENIED in listed

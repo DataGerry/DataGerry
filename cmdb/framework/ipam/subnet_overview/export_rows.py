@@ -67,6 +67,7 @@ def build_subnet_ip_export_rows(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     public_id: int,
+    denied_type_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Builds every IP-table row of a subnet for the Excel export, in ascending IP order
@@ -95,13 +96,13 @@ def build_subnet_ip_export_rows(
             400 when the subnet's network range is missing / unparsable, and 400 when the
             export would exceed IpamSubnetIpsExport.MAX_EXPORT_ROWS
     """
-    subnet_obj: dict[str, Any] = load_subnet_object(objects_manager, types_manager, public_id)
+    subnet_obj: dict[str, Any] = load_subnet_object(objects_manager, types_manager, public_id, denied_type_ids)
     network: Network | None = parse_subnet_network(subnet_obj)
 
     if network is None:
         abort(400, f"Subnet with ID {public_id} has no exportable IPs: its network range is missing or invalid!")
 
-    assigned: dict[str, dict[str, Any]] = load_assigned_rows_map(objects_manager, public_id, network)
+    assigned: dict[str, dict[str, Any]] = load_assigned_rows_map(objects_manager, public_id, network, denied_type_ids)
 
     if network_family(network) == IpAddressFamily.IPV6:
         candidate_ips: list[str] = sorted_assigned_ips(assigned, valid=True)
