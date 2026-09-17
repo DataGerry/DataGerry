@@ -23,7 +23,6 @@ import { Observable, timer, catchError, map, switchMap } from 'rxjs';
 
 import { ApiCallService, ApiServicePrefix, HttpProtocolHelper, resp } from '../../services/api-call.service';
 import { ValidatorService } from '../../services/validator.service';
-import { UserService } from '../../management/services/user.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 import { CmdbType } from '../models/cmdb-type';
@@ -79,73 +78,11 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
     constructor(private api: ApiCallService,
-                private userService: UserService,
                 private sideBarService: SidebarService) {
 
     }
 
-/* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
-
-    /**
-     * True when no requirement beyond READ is asked for, which the backend already enforces.
-     */
-    private isReadOnlyRequirement(aclRequirement?: AccessControlPermission | AccessControlPermission[]): boolean {
-        if (!aclRequirement) {
-            return true;
-        }
-
-        const requirements = Array.isArray(aclRequirement) ? aclRequirement : [aclRequirement];
-
-        return requirements.every((requirement) => requirement === AccessControlPermission.READ);
-    }
-
-
-    /**
-     * Returns acl read filter
-     *
-     * @public
-     */
-    public getAclFilter(aclRequirement: AccessControlPermission | AccessControlPermission[] = AccessControlPermission.READ) {
-        aclRequirement = Array.isArray(aclRequirement) ? aclRequirement : [aclRequirement];
-        const location = 'acl.groups.includes.' + this.userService.getCurrentUser().group_id;
-
-        return {
-            $or: [
-                {
-                    $or: [
-                        {
-                            acl: { $exists: false } 
-                        },
-                        {
-                            'acl.activated': false
-                        }
-                    ]
-                },
-                {
-                    $and: [
-                        {
-                            'acl.activated': true
-                        },
-                        {
-                            $and: [
-                                {
-                                    [location]: {
-                                        $exists: true
-                                    }
-                                },
-                                {
-                                    [location]: {
-                                        $all: aclRequirement
-                                    }
-                                }
-                            ]
-                        },
-                    ]
-                }
-            ]
-        };
-    }
-
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     /**
      * Iterate over the type collection
@@ -277,9 +214,10 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
         let params = new HttpParams();
         params = params.set('limit', '0');
 
-        // The backend applies the READ acl itself, only stricter requirements need an explicit filter.
-        if (!this.isReadOnlyRequirement(aclRequirement)) {
-            params = params.set('filter', JSON.stringify(this.getAclFilter(aclRequirement)));
+        // READ is applied server-side by default, only stricter requirements are sent.
+        if (aclRequirement) {
+            const requirements = Array.isArray(aclRequirement) ? aclRequirement : [aclRequirement];
+            params = params.set('acl', requirements.join(','));
         }
 
         options.params = params;
