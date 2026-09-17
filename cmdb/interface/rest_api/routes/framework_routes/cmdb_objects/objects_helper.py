@@ -131,6 +131,7 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
+
 def guard_object_write_license(
     types_manager: TypesManager,
     request_user: CmdbUser,

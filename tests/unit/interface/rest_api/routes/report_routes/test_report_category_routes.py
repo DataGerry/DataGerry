@@ -61,6 +61,20 @@ from cmdb.errors.manager.report_categories_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def _listing_params(search: str | None = None) -> MagicMock:
+    """
+    A CollectionParameters stand-in whose ``optional`` is a real dict
+
+    The list route reads ``?search=`` out of it, and a MagicMock answers a MagicMock for every key -
+    which reaches `re.escape` and raises. A pager stub has to carry the shape the route reads.
+    """
+    params = MagicMock()
+    params.optional = {'search': search} if search is not None else {}
+    params.filter = None
+
+    return params
+
+
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.report_routes.report_category_routes'
 
 HTTP_BAD_REQUEST: int = 400
@@ -388,7 +402,7 @@ def _drive_list(flask_app: Flask, manager: MagicMock) -> MagicMock:
         stack.enter_context(patch(f'{ROUTE_PATH}.BuilderParameters'))
         response_ctor = stack.enter_context(patch(f'{ROUTE_PATH}.GetMultiResponse'))
         stack.enter_context(flask_app.test_request_context('/'))
-        _unwrap(get_cmdb_report_categories)(params=MagicMock(), request_user=MagicMock())
+        _unwrap(get_cmdb_report_categories)(params=_listing_params(), request_user=MagicMock())
 
     return response_ctor
 
@@ -418,7 +432,7 @@ def test_list_iteration_error_maps_to_400(flask_app: Flask) -> None:
         stack.enter_context(patch(f'{ROUTE_PATH}.BuilderParameters'))
         stack.enter_context(flask_app.test_request_context('/'))
         with pytest.raises(HTTPException) as exc_info:
-            _unwrap(get_cmdb_report_categories)(params=MagicMock(), request_user=MagicMock())
+            _unwrap(get_cmdb_report_categories)(params=_listing_params(), request_user=MagicMock())
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
 
@@ -433,7 +447,7 @@ def test_list_unexpected_error_maps_to_500(flask_app: Flask) -> None:
         stack.enter_context(patch(f'{ROUTE_PATH}.BuilderParameters'))
         stack.enter_context(flask_app.test_request_context('/'))
         with pytest.raises(HTTPException) as exc_info:
-            _unwrap(get_cmdb_report_categories)(params=MagicMock(), request_user=MagicMock())
+            _unwrap(get_cmdb_report_categories)(params=_listing_params(), request_user=MagicMock())
 
     assert exc_info.value.code == HTTP_SERVER_ERROR
 
@@ -445,10 +459,10 @@ def test_list_passes_an_http_exception_through_unchanged(flask_app: Flask) -> No
     with ExitStack() as stack:
         stack.enter_context(patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=manager))
         stack.enter_context(patch(f'{ROUTE_PATH}.CollectionParameters'))
-        stack.enter_context(patch(f'{ROUTE_PATH}.BuilderParameters', side_effect=BadRequest('nope')))
+        stack.enter_context(patch(f'{ROUTE_PATH}.build_searchable_builder_params', side_effect=BadRequest('nope')))
         stack.enter_context(flask_app.test_request_context('/'))
         with pytest.raises(HTTPException) as exc_info:
-            _unwrap(get_cmdb_report_categories)(params=MagicMock(), request_user=MagicMock())
+            _unwrap(get_cmdb_report_categories)(params=_listing_params(), request_user=MagicMock())
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
 

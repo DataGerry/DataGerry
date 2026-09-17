@@ -209,6 +209,40 @@ class TestSearchPipelineBuilder:
 
         assert 'needle' in list(_deep_find(pipeline, '$regex'))
 
+    def test_an_unusable_text_param_is_matched_literally(self) -> None:
+        """
+        A search box must not answer 400 because somebody typed `*`
+
+        `*` is not a pattern, so before 2026-09-17 it reached the database as one and the query was
+        refused. It is escaped here instead - tier 2 T187, the half that needed no frontend change.
+        """
+        pipeline = SearchPipelineBuilder().build([SearchParam('*', 'text')])
+
+        assert r'\*' in list(_deep_find(pipeline, '$regex'))
+
+    def test_a_usable_text_param_is_still_a_pattern(self) -> None:
+        """The rest of T187: a term that compiles keeps regex semantics, wrong or not."""
+        pipeline = SearchPipelineBuilder().build([SearchParam('C++', 'text')])
+
+        assert 'C++' in list(_deep_find(pipeline, '$regex'))
+
+    def test_an_unusable_regex_param_is_passed_through_untouched(self) -> None:
+        """
+        The REGEX form is the caller's own pattern and is never second-guessed
+
+        A stricter engine's opinion of it must not silently change what they asked for, so an invalid
+        one still reaches the database and is still refused there.
+        """
+        pipeline = SearchPipelineBuilder().build([SearchParam('*', 'regex')])
+
+        assert '*' in list(_deep_find(pipeline, '$regex'))
+
+    def test_the_escaped_term_the_search_bar_sends_is_unchanged(self) -> None:
+        """Every UI search already compiles, which is why the fallback cannot fire for one."""
+        pipeline = SearchPipelineBuilder().build([SearchParam(r'C\+\+', 'text')])
+
+        assert r'C\+\+' in list(_deep_find(pipeline, '$regex'))
+
     def test_type_param_adds_type_match(self) -> None:
         """
         A type param becomes a type_id $in match

@@ -80,10 +80,13 @@ from cmdb.errors.manager.reports_manager import (
     ReportsManagerUpdateError,
     ReportsManagerDeleteError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbReport columns the report overview offers a search box over
+REPORT_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'name')
 
 reports_blueprint = APIBlueprint('reports', __name__)
 
@@ -194,7 +197,7 @@ def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Re
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
-        builder_params: BuilderParameters = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, REPORT_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbReport] = reports_manager.iterate_items(builder_params)
         report_list: list[dict[str, Any]] = [CmdbReport.to_json(report_) for report_ in iteration_result.results]

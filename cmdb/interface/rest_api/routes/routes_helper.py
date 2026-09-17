@@ -17,11 +17,20 @@
 Implementation of general API route helpers
 """
 import json
+from collections.abc import Sequence
 from typing import Any
 from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
+
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.framework.search.list_search import build_list_search_stages
+from cmdb.interface.rest_api.responses.response_parameters import (
+    BuilderParamKey,
+    CollectionParameters,
+    ParameterKey,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -110,6 +119,61 @@ def request_wants_body(current_request: Request | None = None) -> bool:
     return (current_request or request).method != HEAD_METHOD
 
 
+def as_pipeline_criteria(request_filter: dict[str, Any] | list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """
+    Answers a client's ``?filter=`` as pipeline stages, as a NEW list
+
+    A list route composes the caller's filter with stages of its own - the active-only flag, a
+    ``?search=`` term, a "which of these may I pick" rule - and the two filter shapes have to be one
+    thing before it can. A plain filter document becomes a single ``$match``; a pipeline is copied.
+
+    **The copy is the point.** Routes used to append their stages to ``params.filter`` in place, and
+    the same object is handed to ``GetMultiResponse``, which echoes it back as ``parameters.filter`` -
+    so the response claimed the caller had sent stages the server injected. An empty filter answers no
+    stages at all rather than an empty ``$match``
+
+    Args:
+        request_filter (dict[str, Any] | list[dict[str, Any]] | None): The parsed ``?filter=``
+
+    Returns:
+        list[dict[str, Any]]: The stages to build on, never the caller's own object
+    """
+    if isinstance(request_filter, list):
+        return list(request_filter)
+
+    if not request_filter:
+        return []
+
+    return [{'$match': request_filter}]
+
+
+def build_searchable_builder_params(params: Any, searchable_fields: Sequence[str]) -> BuilderParameters:
+    """
+    Turns a list route's CollectionParameters into BuilderParameters, with ``?search=`` folded in
+
+    The one place a list route reaches for when its table has a search box. It composes the caller's
+    ``?filter=`` with the search stages and hands the rest of the pager through unchanged, so every
+    table searches the same way and the set of searchable columns is declared server-side rather than
+    hard-coded in eighteen Angular components (`notes/FRONTEND_TO_BACKEND.md` **F4**).
+
+    An absent or blank ``?search=`` adds nothing, so an unsearched listing is exactly what it was
+
+    Args:
+        params (Any): The route's CollectionParameters
+        searchable_fields (Sequence[str]): The field paths this route declares searchable
+
+    Returns:
+        BuilderParameters: Ready for the manager's ``iterate``
+    """
+    criteria: list[dict[str, Any]] = as_pipeline_criteria(params.filter)
+    criteria.extend(build_list_search_stages(params.optional.get(ParameterKey.SEARCH.value), searchable_fields))
+
+    builder_args: dict[str, Any] = CollectionParameters.get_builder_params(params)
+    builder_args[BuilderParamKey.CRITERIA.value] = criteria
+
+    return BuilderParameters(**builder_args)
+
+
 def append_criteria_to_filter(
         request_filter: dict[str, Any] | list[dict[str, Any]] | None,
         criteria: dict[str, Any]) -> list[dict[str, Any]]:
@@ -131,12 +195,7 @@ def append_criteria_to_filter(
     Returns:
         list[dict[str, Any]]: The pipeline to hand to the query builder
     """
-    if isinstance(request_filter, list):
-        pipeline: list[dict[str, Any]] = list(request_filter)
-    elif request_filter:
-        pipeline = [{'$match': request_filter}]
-    else:
-        pipeline = []
+    pipeline: list[dict[str, Any]] = as_pipeline_criteria(request_filter)
 
     if criteria:
         pipeline.append({'$match': criteria})

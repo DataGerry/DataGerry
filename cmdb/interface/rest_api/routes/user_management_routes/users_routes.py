@@ -56,10 +56,13 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerUpdateError,
     UsersManagerDeleteError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbUser columns the user table offers a search box over
+USER_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'user_name', 'first_name', 'last_name', 'email')
 
 users_blueprint = APIBlueprint('users', __name__)
 
@@ -139,7 +142,7 @@ def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Resp
     try:
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, USER_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbUser] = users_manager.iterate(builder_params)
         users = [CmdbUser.to_public_json(user) for user in iteration_result.results]

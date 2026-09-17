@@ -78,6 +78,7 @@ class ParameterKey(BaseStrEnum):
     CATEGORY = 'category'
     UNCATEGORIZED = 'uncategorized'
     ACL = 'acl'
+    SEARCH = 'search'
 
 
 class BuilderParamKey(BaseStrEnum):
