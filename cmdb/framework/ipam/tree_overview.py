@@ -45,7 +45,9 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamTreeKey,
 )
 from cmdb.framework.ipam.cidr import Network, parse_cidr, is_strict_subnet
+from cmdb.framework.ipam.read_scope import resolve_read_scope
 from cmdb.framework.ipam.references import resolve_special_type_id, resolve_special_type_icon
+from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ipam.supernet_overview import (
     load_supernet_object,
     load_subnets_for_supernet,
@@ -341,6 +343,7 @@ def load_all_special_type_objects(
     types_manager: TypesManager,
     special_type: SpecialType,
     projection: dict[str, Any] | None = None,
+    denied_type_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Returns every CmdbObject of the CmdbType marked with the given SpecialType
@@ -369,7 +372,11 @@ def load_all_special_type_objects(
         return []
 
     return objects_manager.find_objects(
-        {CmdbObjectKey.TYPE_ID.value: type_id}, as_dict=True, projection=projection,
+        ObjectsManager.narrow_criteria_by_denied_types(
+            {CmdbObjectKey.TYPE_ID.value: type_id}, denied_type_ids,
+        ),
+        as_dict=True,
+        projection=projection,
     )
 
 
@@ -410,6 +417,7 @@ def unassigned_subnet_nodes(
 def build_ipam_tree(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
+    request_user: CmdbUser | None = None,
 ) -> dict[str, Any]:
     """
     Builds the initial sidebar-tree payload: every supernet plus every unassigned subnet
@@ -429,11 +437,14 @@ def build_ipam_tree(
     Returns:
         dict[str, Any]: {'supernets': [supernet entries], 'unassigned': [subnet nodes]}
     """
+    # Resolved once; both reads below narrow with the same list
+    denied_type_ids: list[int] = resolve_read_scope(request_user)
+
     supernet_objs: list[dict[str, Any]] = load_all_special_type_objects(
-        objects_manager, types_manager, SpecialType.SUPERNET, TREE_NODE_PROJECTION,
+        objects_manager, types_manager, SpecialType.SUPERNET, TREE_NODE_PROJECTION, denied_type_ids,
     )
     subnet_objs: list[dict[str, Any]] = load_all_special_type_objects(
-        objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION,
+        objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION, denied_type_ids,
     )
 
     referenced: set[int] = _collect_referenced_supernet_ids(subnet_objs)
@@ -454,6 +465,7 @@ def build_supernet_subnet_tree(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     supernet_public_id: int,
+    request_user: CmdbUser | None = None,
 ) -> dict[str, Any]:
     """
     Builds the full CIDR-nested subnet subtree of one supernet
@@ -476,10 +488,12 @@ def build_supernet_subnet_tree(
     Returns:
         dict[str, Any]: {'children': [root nodes, each with nested 'children']}
     """
-    load_supernet_object(objects_manager, types_manager, supernet_public_id)
+    denied_type_ids: list[int] = resolve_read_scope(request_user)
+
+    load_supernet_object(objects_manager, types_manager, supernet_public_id, denied_type_ids)
 
     subnet_objs: list[dict[str, Any]] = load_subnets_for_supernet(
-        objects_manager, types_manager, supernet_public_id, TREE_NODE_PROJECTION,
+        objects_manager, types_manager, supernet_public_id, TREE_NODE_PROJECTION, denied_type_ids,
     )
     subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
 
@@ -493,6 +507,7 @@ def build_supernet_subnet_tree(
 def build_unassigned_subnets(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
+    request_user: CmdbUser | None = None,
 ) -> dict[str, Any]:
     """
     Builds the unassigned-subnets block alone, for targeted sidebar refreshes
@@ -511,6 +526,7 @@ def build_unassigned_subnets(
     """
     subnet_objs: list[dict[str, Any]] = load_all_special_type_objects(
         objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION,
+        resolve_read_scope(request_user),
     )
     subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
 

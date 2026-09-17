@@ -34,6 +34,7 @@ from typing import Any
 from io import StringIO
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.user_model import CmdbUser
 
 from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
@@ -42,6 +43,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamRowStatus,
     IpAddressFamily,
 )
+from cmdb.framework.ipam.read_scope import resolve_read_scope
 from cmdb.framework.ipam.supernet_overview import load_assigned_subnet_rows, resolve_supernet_family
 from cmdb.framework.ipam.subnet_overview import build_subnet_ip_export_rows
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -119,6 +121,7 @@ def build_supernet_subnets_csv(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     supernet_public_id: int,
+    request_user: CmdbUser | None = None,
 ) -> bytes:
     """
     Builds a CSV document listing all assigned subnets of a supernet and returns its bytes
@@ -134,10 +137,15 @@ def build_supernet_subnets_csv(
     Returns:
         bytes: The serialized .csv document
     """
+    denied_type_ids: list[int] = resolve_read_scope(request_user)
+
     is_ipv6: bool = resolve_supernet_family(
-        objects_manager, types_manager, supernet_public_id,
+        objects_manager, types_manager, supernet_public_id, denied_type_ids,
     ) == IpAddressFamily.IPV6
-    rows: list[dict[str, Any]] = load_assigned_subnet_rows(objects_manager, types_manager, supernet_public_id)
+
+    rows: list[dict[str, Any]] = load_assigned_subnet_rows(
+        objects_manager, types_manager, supernet_public_id, denied_type_ids,
+    )
 
     # IPv4 tables carry the trailing 'Usage (%)' column; IPv6 tables omit it
     headers: list[str] = IpamExport.HEADERS if is_ipv6 else IpamExport.HEADERS + [IpamExport.USAGE_HEADER]
@@ -177,6 +185,7 @@ def build_subnet_ips_csv(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     subnet_public_id: int,
+    request_user: CmdbUser | None = None,
 ) -> bytes:
     """
     Builds a CSV document listing a subnet's IP rows and returns its bytes
@@ -199,7 +208,9 @@ def build_subnet_ips_csv(
         HTTPException: 404 / 400 propagated from ``build_subnet_ip_export_rows`` (bad id,
             unparsable range, or an export exceeding the row limit)
     """
-    rows: list[dict[str, Any]] = build_subnet_ip_export_rows(objects_manager, types_manager, subnet_public_id)
+    rows: list[dict[str, Any]] = build_subnet_ip_export_rows(
+        objects_manager, types_manager, subnet_public_id, resolve_read_scope(request_user),
+    )
     data_rows: list[list[Any]] = [_subnet_ip_export_row(row) for row in rows]
 
     return _to_csv_bytes(IpamSubnetIpsExport.HEADERS, data_rows)

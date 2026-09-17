@@ -126,7 +126,78 @@ class TestTypeIterationParametersToDict:
         result = TypeIterationParameters.to_dict(params)
         parent = CollectionParameters.to_dict(params)
 
-        assert result == {**parent, ParameterKey.ACTIVE.value: True}
+        assert result == {
+            **parent,
+            ParameterKey.ACTIVE.value: True,
+            ParameterKey.CATEGORY.value: None,
+            ParameterKey.UNCATEGORIZED.value: False,
+        }
+
+
+class TestTypeIterationParametersCategoryFilters:
+    """`category` and `uncategorized` replace the $lookup pipelines the frontend used to post."""
+
+    def test_defaults_to_no_category_restriction(self) -> None:
+        """An ordinary listing asks for neither, and neither is set."""
+        params = TypeIterationParameters.from_data(QUERY_STRING)
+
+        assert params.category is None
+        assert params.uncategorized is False
+
+    def test_converts_the_category_id_to_an_int(self) -> None:
+        """Flask delivers it as a string; it is a CmdbCategory public_id."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.CATEGORY.value: '12'})
+
+        assert params.category == 12
+
+    def test_an_empty_category_means_no_restriction(self) -> None:
+        """An Angular HttpParams entry whose source was cleared arrives as the empty string."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.CATEGORY.value: ''})
+
+        assert params.category is None
+
+    def test_a_non_numeric_category_is_rejected(self) -> None:
+        """The parse_parameters decorator turns the ValueError into an HTTP 400."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.CATEGORY.value: 'abc'})
+
+    @pytest.mark.parametrize('raw, expected', [('true', True), ('false', False), (True, True)], ids=str)
+    def test_converts_the_uncategorized_flag(self, raw, expected: bool) -> None:
+        """Same string coercion the `active` flag gets."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.UNCATEGORIZED.value: raw})
+
+        assert params.uncategorized is expected
+
+    def test_a_non_boolean_uncategorized_is_rejected(self) -> None:
+        """str_to_bool accepts only the two literals, so anything else is a 400."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.UNCATEGORIZED.value: 'yes'})
+
+    def test_the_two_category_filters_cannot_be_combined(self) -> None:
+        """A type is either in the given category or in none at all - asking both is a contradiction."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{
+                ParameterKey.CATEGORY.value: '12',
+                ParameterKey.UNCATEGORIZED.value: 'true',
+            })
+
+    def test_a_category_with_uncategorized_false_is_allowed(self) -> None:
+        """Only a truthy `uncategorized` contradicts a category id."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{
+            ParameterKey.CATEGORY.value: '12',
+            ParameterKey.UNCATEGORIZED.value: 'false',
+        })
+
+        assert params.category == 12
+
+    def test_the_category_filters_do_not_leak_into_optional(self) -> None:
+        """They are named parameters, so they must not also ride along as optional ones."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{
+            ParameterKey.CATEGORY.value: '12',
+        })
+
+        assert ParameterKey.CATEGORY.value not in params.optional
+        assert ParameterKey.UNCATEGORIZED.value not in params.optional
 
 
 class TestGroupDeletionParameters:

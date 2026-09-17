@@ -16,17 +16,28 @@
 """
 Implementation of KeyHolder
 """
-import os
-import base64
 from logging import Logger, getLogger
+from typing import Any
 
 from flask import current_app
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import SettingsManager
+from cmdb.security.key.secret_resolver import (
+    ASYMMETRIC_KEY_SETTING,
+    SECURITY_SECTION,
+    resolve_secret,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Environment variables carrying the Base64 keypair on a hosted cloud installation, and the halves
+# of the stored keypair document they correspond to
+PUBLIC_KEY_ENV_VAR: str = 'DG_RSA_PUBLIC_KEY'
+PRIVATE_KEY_ENV_VAR: str = 'DG_RSA_PRIVATE_KEY'
+PUBLIC_HALF: str = 'public'
+PRIVATE_HALF: str = 'private'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   KeyHolder - CLASS                                                  #
@@ -60,6 +71,7 @@ class KeyHolder:
                 not asked for
         """
         self.settings_manager: SettingsManager = SettingsManager(dbm)
+        self._stored_keypair: dict[str, Any] | None = None
         self.rsa_public: bytes = self.get_public_key()
         self.rsa_private: bytes | None = self.get_private_key() if with_private_key else None
 
@@ -78,19 +90,12 @@ class KeyHolder:
         Raises:
             ValueError: In cloud (non-local) mode when 'DG_RSA_PUBLIC_KEY' is not set
         """
-        if current_app.cloud_mode:
-            if current_app.local_mode:
-                return current_app.asymmetric_key['public']
-
-            env_public_key = os.getenv("DG_RSA_PUBLIC_KEY")
-
-            if not env_public_key:
-                LOGGER.error("[get_public_key] No RSA public key provided via 'DG_RSA_PUBLIC_KEY'!")
-                raise ValueError("No RSA public key provided via the 'DG_RSA_PUBLIC_KEY' environment variable")
-
-            return base64.b64decode(env_public_key)
-
-        return self.settings_manager.get_value('asymmetric_key', 'security')['public']
+        return resolve_secret(
+            dev_value=lambda: current_app.asymmetric_key[PUBLIC_HALF],
+            env_var=PUBLIC_KEY_ENV_VAR,
+            label='RSA public key',
+            stored_value=lambda: self._stored_half(PUBLIC_HALF),
+        )
 
 
     def get_private_key(self) -> bytes:
@@ -107,16 +112,31 @@ class KeyHolder:
         Raises:
             ValueError: In cloud (non-local) mode when 'DG_RSA_PRIVATE_KEY' is not set
         """
-        if current_app.cloud_mode:
-            if current_app.local_mode:
-                return current_app.asymmetric_key['private']
+        return resolve_secret(
+            dev_value=lambda: current_app.asymmetric_key[PRIVATE_HALF],
+            env_var=PRIVATE_KEY_ENV_VAR,
+            label='RSA private key',
+            stored_value=lambda: self._stored_half(PRIVATE_HALF),
+        )
 
-            env_private_key = os.getenv("DG_RSA_PRIVATE_KEY")
 
-            if not env_private_key:
-                LOGGER.error("[get_private_key] No RSA private key provided via 'DG_RSA_PRIVATE_KEY'!")
-                raise ValueError("No RSA private key provided via the 'DG_RSA_PRIVATE_KEY' environment variable")
+    def _stored_half(self, half: str) -> bytes:
+        """
+        Reads one half of the stored keypair, fetching the document at most once per holder
 
-            return base64.b64decode(env_private_key)
+        Both halves live in ONE settings document and a holder that signs asks for both, so an
+        uncached read cost two round trips to build one holder - and `TokenGenerator` calls
+        `get_private_key()` again for every token it signs, which made it three per login. The
+        keypair is written once when the database is created and never rotated, so caching it for
+        the lifetime of a holder cannot go stale
 
-        return self.settings_manager.get_value('asymmetric_key', 'security')['private']
+        Args:
+            half (str): Which half to read - PUBLIC_HALF or PRIVATE_HALF
+
+        Returns:
+            bytes: The requested half of the RSA keypair
+        """
+        if self._stored_keypair is None:
+            self._stored_keypair = self.settings_manager.get_value(ASYMMETRIC_KEY_SETTING, SECURITY_SECTION)
+
+        return self._stored_keypair[half]

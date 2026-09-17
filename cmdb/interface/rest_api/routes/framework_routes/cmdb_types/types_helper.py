@@ -32,7 +32,7 @@ from flask import abort
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.ports_manager import PortsManager
-from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.query_builder import Builder, BuilderParameters
 from cmdb.manager import (
     TypesManager,
     LocationsManager,
@@ -61,7 +61,11 @@ from cmdb.framework.ipam.special_type_wiring import (
     cleanup_type_references_from_all_types,
     cleanup_special_type_template_references,
 )
-from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
+from cmdb.interface.rest_api.responses.response_parameters import (
+    BuilderParamKey,
+    CollectionParameters,
+    TypeIterationParameters,
+)
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.report_routes.report_constants import ReportKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
@@ -107,8 +111,37 @@ def enforce_special_type_license(request_user: CmdbUser, *special_types: Any) ->
         *special_types (Any): The 'special_type' markers the write touches - the stored one, the
             requested one, or both on an update. None and non-SpecialType values are ignored
     """
+    required_feature: LicenseFeature | None = special_type_license_feature(*special_types)
+
+    if required_feature is not None:
+        abort_if_feature_locked(required_feature, request_user)
+
+
+def special_type_license_feature(*special_types: Any) -> LicenseFeature | None:
+    """
+    Reports which LicenseFeature the given SpecialType markers require, if any
+
+    The single statement of "is this SpecialType licensed, and behind what", so the two entrances to
+    type creation cannot disagree about it. The type routes turn the answer into a 403
+    (enforce_special_type_license above); the assistant turns the same answer into a skipped profile
+    (special_helper.drop_locked_profiles) - one rule, two presentations, which is what the type
+    importer already does with the routes' own blocker functions.
+
+    Every gated member currently maps to LicenseFeature.IPAM. When a second gating feature exists,
+    SpecialType.get_license_gated_types becomes a per-member mapping (its own docstring says so) and
+    this is the one place that has to read it.
+
+    Args:
+        *special_types (Any): The 'special_type' markers to test. None and non-SpecialType values are
+            ignored
+
+    Returns:
+        LicenseFeature | None: The feature required by any of the markers, or None when none is gated
+    """
     if any(SpecialType.is_license_gated(special_type) for special_type in special_types):
-        abort_if_feature_locked(LicenseFeature.IPAM, request_user)
+        return LicenseFeature.IPAM
+
+    return None
 
 
 def enforce_uses_ports_license(request_user: CmdbUser, requested_uses_ports: Any) -> None:
@@ -292,29 +325,98 @@ def special_type_is_unchanged(old_st: str | None, new_st: str | None) -> bool:
     return old_st == new_st
 
 
-def prepare_builder_parameters(type_params: TypeIterationParameters) -> BuilderParameters:
+def build_type_criteria(
+        client_criteria: dict[str, Any] | list[dict[str, Any]],
+        active: bool) -> dict[str, Any] | list[dict[str, Any]]:
+    """
+    Merges the server's ``active`` restriction into the criteria the client sent
+
+    Returns a **new** criteria; the client's own value is never mutated. That matters because the
+    same object is echoed back to the caller in the response's ``parameters.filter`` block as
+    frontend contract - merging in place made the server's injected stage look like something the
+    client had sent.
+
+    A dict criteria is merged key-wise, a list criteria gets one appended ``$match``, and an empty
+    dict stays a dict rather than becoming a two-stage pipeline with an empty ``$match`` in it.
+    A falsy ``active`` restricts nothing and the criteria is handed back unchanged
+
+    Args:
+        client_criteria (dict[str, Any] | list[dict[str, Any]]): The criteria as the client sent it
+        active (bool): The ``active`` flag; only a truthy value restricts the query
+
+    Returns:
+        dict[str, Any] | list[dict[str, Any]]: The criteria to query with
+    """
+    if not active:
+        return client_criteria
+
+    if isinstance(client_criteria, list):
+        return [*client_criteria, Builder.match_({TypeSchemaKey.ACTIVE.value: active})]
+
+    return {**client_criteria, TypeSchemaKey.ACTIVE.value: active}
+
+
+def build_category_criteria(
+        type_params: TypeIterationParameters,
+        request_user: CmdbUser) -> dict[str, Any] | None:
+    """
+    Builds the category membership restriction a types listing was asked for, if any
+
+    The server-side form of the two ``$lookup`` pipelines the Angular app used to post as
+    ``?filter=`` (**F3**). Both resolve to a set of type public_ids and then filter this collection
+    on it, which is a plain indexed ``$in`` / ``$nin`` instead of a join per request.
+
+    The CategoriesManager is built only when one of the two parameters is actually present, so the
+    ordinary listing - which is almost every request - pays for no extra manager and no extra read
+
+    Args:
+        type_params (TypeIterationParameters): The received Type request parameters
+        request_user (CmdbUser): CmdbUser requesting the listing
+
+    Returns:
+        dict[str, Any] | None: The criteria to add, or None when no category filter was requested
+    """
+    if not type_params.uncategorized and type_params.category is None:
+        return None
+
+    categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES, request_user)
+
+    if type_params.uncategorized:
+        assigned_type_ids: set[int] = categories_manager.get_assigned_type_ids()
+
+        return {TypeSchemaKey.PUBLIC_ID.value: {'$nin': sorted(assigned_type_ids)}}
+
+    category_type_ids: list[int] = categories_manager.get_category_type_ids(type_params.category)
+
+    return {TypeSchemaKey.PUBLIC_ID.value: {'$in': category_type_ids}}
+
+
+def prepare_builder_parameters(
+        type_params: TypeIterationParameters,
+        request_user: CmdbUser) -> BuilderParameters:
     """
     Prepares BuilderParameters for running a db query
 
     Args:
         type_params (TypeIterationParameters): the recieved Type request parameters
+        request_user (CmdbUser): CmdbUser requesting the listing; only used to reach the
+            CategoriesManager when a category filter was asked for
 
     Returns:
         BuilderParameters: The prepared BuilderParameters
     """
-    if type_params.active:
-        if isinstance(type_params.filter, dict):
-            if type_params.filter.keys():
-                type_params.filter.update({TypeSchemaKey.ACTIVE: type_params.active})
-            else:
-                type_params.filter = [
-                    {'$match': {TypeSchemaKey.ACTIVE: type_params.active}},
-                    {'$match': type_params.filter},
-                ]
-        elif isinstance(type_params.filter, list):
-            type_params.filter.append({'$match': {TypeSchemaKey.ACTIVE: type_params.active}})
+    builder_args: dict[str, Any] = CollectionParameters.get_builder_params(type_params)
 
-    return BuilderParameters(**CollectionParameters.get_builder_params(type_params))
+    builder_args[BuilderParamKey.CRITERIA.value] = build_type_criteria(type_params.filter, type_params.active)
+
+    builder_params = BuilderParameters(**builder_args)
+
+    category_criteria: dict[str, Any] | None = build_category_criteria(type_params, request_user)
+
+    if category_criteria:
+        builder_params.add_criteria(category_criteria)
+
+    return builder_params
 
 
 def get_types_user_data(

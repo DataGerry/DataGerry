@@ -18,11 +18,16 @@ Implementation of KeyGenerator
 """
 from logging import Logger, getLogger
 
-from Crypto import Random
 from Crypto.PublicKey import RSA
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import SettingsManager
+from cmdb.security.key.secret_resolver import (
+    ASYMMETRIC_KEY_SETTING,
+    SECURITY_SECTION,
+    SYMMETRIC_KEY_SETTING,
+    new_symmetric_aes_key,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -71,15 +76,14 @@ class KeyGenerator:
             'public': public_key
         }
 
-        self.settings_manager.write('security', {'asymmetric_key': asymmetric_key})
+        self.settings_manager.write(SECURITY_SECTION, {ASYMMETRIC_KEY_SETTING: asymmetric_key})
 
 
     def generate_symmetric_aes_key(self) -> None:
         """
         Generates a 256-bit AES key for symmetric encryption.
 
-        This method generates a random AES key using the `Random` module and stores it in the application's settings.
+        The key comes from `new_symmetric_aes_key`, which `SecurityManager` also uses for its lazy
+        fallback: two entry points, one definition of what the key is and where it is written
         """
-        symmetric_aes_key = Random.get_random_bytes(32)
-
-        self.settings_manager.write('security', {'symmetric_aes_key': symmetric_aes_key})
+        self.settings_manager.write(SECURITY_SECTION, {SYMMETRIC_KEY_SETTING: new_symmetric_aes_key()})

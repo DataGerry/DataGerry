@@ -41,11 +41,14 @@ from cmdb.errors.database import DatabaseConnectionError
 from cmdb.errors.manager.users_manager import UsersManagerGetError, UsersManagerInsertError
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
 from cmdb.interface.rest_api.routes import auth_helper, auth_routes
+from cmdb.security.auth.auth_settings_masking import MASKED_SECRET
+from cmdb.models.security_models.auth_settings_constants import AUTH_SETTINGS_ID as AUTH_SETTINGS_SECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGIN_URL: str = '/auth/login'
 SETTINGS_URL: str = '/auth/settings'
 PROVIDERS_URL: str = '/auth/providers'
+LDAP_PROVIDER: str = 'LdapAuthenticationProvider'
 
 CLOUD_USER_ID: int = 99101
 
@@ -346,6 +349,82 @@ class TestAuthSettingsAndProviders:
         class_name = providers[0]['class_name']
 
         assert rest_api.get(f'{PROVIDERS_URL}/{class_name}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    # ---------------------------------------------------------------------------------------------- #
+    #                            THE LDAP BIND PASSWORD IS NEVER SERVED                               #
+    # ---------------------------------------------------------------------------------------------- #
+
+    def test_get_auth_settings_masks_the_bind_password(self, rest_api) -> None:
+        """Until 2026-09-16 `GET /auth/settings` served the LDAP bind credential in cleartext."""
+        body = rest_api.get(SETTINGS_URL).get_json()
+        ldap = next(entry for entry in body['providers'] if entry['class_name'] == LDAP_PROVIDER)
+
+        assert ldap['config']['connection_config']['password'] == MASKED_SECRET
+
+    def test_get_auth_settings_keeps_its_shape(self, rest_api) -> None:
+        """Masking replaces one value; it does not reshape the response."""
+        body = rest_api.get(SETTINGS_URL).get_json()
+
+        assert {'_id', 'providers', 'enable_external', 'token_lifetime'} <= set(body)
+
+    def test_get_provider_config_masks_the_bind_password(self, rest_api) -> None:
+        """The second read path, which served the same credential through a different route."""
+        body = rest_api.get(f'{PROVIDERS_URL}/{LDAP_PROVIDER}').get_json()
+
+        assert body['connection_config']['password'] == MASKED_SECRET
+
+    def test_the_real_password_survives_a_read_modify_write(self, rest_api) -> None:
+        """
+        The half that makes masking safe
+
+        The update route takes the WHOLE section, so a client that reads the settings, changes one
+        field and posts the object back sends the mask where the password was. It must resolve to the
+        stored credential, not overwrite it with the mask - otherwise every LDAP login breaks.
+        """
+        settings_manager = SettingsManager(rest_api.application.database_manager)
+
+        def _stored_password() -> str:
+            stored = settings_manager.get_all_values_from_section(
+                AUTH_SETTINGS_SECTION, default=AuthModule.__DEFAULT_SETTINGS__,
+            )
+            entry = next(item for item in stored['providers'] if item['class_name'] == LDAP_PROVIDER)
+
+            return entry['config']['connection_config']['password']
+
+        before = _stored_password()
+
+        served = rest_api.get(SETTINGS_URL).get_json()
+        served['token_lifetime'] = 4242
+
+        assert rest_api.post(SETTINGS_URL, json=served).status_code == HTTPStatus.OK
+
+        # The exact value, not merely "not the mask": the credential must come through unchanged
+        assert _stored_password() == before
+        assert before != MASKED_SECRET
+        assert settings_manager.get_all_values_from_section(AUTH_SETTINGS_SECTION)['token_lifetime'] == 4242
+
+    def test_a_deliberate_password_change_is_written(self, rest_api) -> None:
+        """A real value at the secret path is a change, not a mask, and must be stored."""
+        served = rest_api.get(SETTINGS_URL).get_json()
+        ldap = next(entry for entry in served['providers'] if entry['class_name'] == LDAP_PROVIDER)
+        ldap['config']['connection_config']['password'] = 'a-deliberately-new-password'
+
+        assert rest_api.post(SETTINGS_URL, json=served).status_code == HTTPStatus.OK
+
+        stored = SettingsManager(
+            rest_api.application.database_manager,
+        ).get_all_values_from_section(AUTH_SETTINGS_SECTION)
+        stored_ldap = next(entry for entry in stored['providers'] if entry['class_name'] == LDAP_PROVIDER)
+
+        assert stored_ldap['config']['connection_config']['password'] == 'a-deliberately-new-password'
+
+    def test_the_update_response_is_masked_too(self, rest_api) -> None:
+        """The update echoes the stored section back, which is a third read of the same credential."""
+        served = rest_api.get(SETTINGS_URL).get_json()
+        body = rest_api.post(SETTINGS_URL, json=served).get_json()
+        ldap = next(entry for entry in body['providers'] if entry['class_name'] == LDAP_PROVIDER)
+
+        assert ldap['config']['connection_config']['password'] == MASKED_SECRET
 
     def test_update_auth_settings_no_body_returns_400(self, rest_api) -> None:
         """An empty update body is rejected with 400."""

@@ -138,11 +138,21 @@ def user_has_right(required_right: str, request_user: CmdbUser | None = None) ->
 
 def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     """
-    Decorator to catch database-related errors and return proper HTTP responses.
+    Maps the two transient database errors onto statuses that tell a caller to retry
 
     Catches:
         - DocumentNetworkError -> 503 Service Unavailable
         - DocumentLockTimeoutError -> 423 Locked
+
+    **It only sees what escapes the view**, being the outermost decorator - which is what made it
+    inert until 2026-09-16: the one route carrying it ends in `except Exception: abort(500, ...)`,
+    and the manager below had already re-wrapped the raw errors into its own type, so neither status
+    had ever been emitted and a lock timeout was reported as an internal server error. Both layers
+    now re-raise these two unchanged (tier 2 T135 / T185)
+
+    So a route decorated with this **must not** swallow them in a blanket `except Exception` of its
+    own; if it does, the decorator silently does nothing and the failure looks like a server fault
+    rather than a retryable one
     """
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:

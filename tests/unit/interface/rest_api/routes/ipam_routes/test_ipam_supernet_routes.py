@@ -309,6 +309,7 @@ def test_invalid_route_forwards_page_page_size_and_search(flask_app: Flask) -> N
 
     args, kwargs = mock_build.call_args
     assert args[2] == SUPERNET_PUBLIC_ID
+    assert kwargs.pop('request_user') is not None  # the read is ACL-scoped to the caller
     assert kwargs == {'page': 2, 'page_size': 25, 'search': '10.0'}
 
 
@@ -322,6 +323,7 @@ def test_invalid_route_applies_defaults_when_no_query_params(flask_app: Flask) -
         bare(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
 
     _, kwargs = mock_build.call_args
+    kwargs.pop('request_user', None)  # the read is ACL-scoped to the caller
     assert kwargs == {'page': 1, 'page_size': IpamPagination.DEFAULT_PAGE_SIZE, 'search': ''}
 
 
@@ -356,6 +358,26 @@ def test_unassign_route_forwards_public_id_and_subnet_ids(flask_app: Flask) -> N
     args = mock_unassign.call_args.args
     assert args[2] == SUPERNET_PUBLIC_ID
     assert args[3] == subnet_ids
+
+
+def test_unassign_route_forwards_the_request_user(flask_app: Flask) -> None:
+    """
+    The user reaches the detacher, which is what makes the write ACL-checked
+
+    Before 2026-09-16 the route deliberately did not forward it (tier 2 T132): the detach is a raw
+    `update_many_raw`, so nothing asked whether the caller may update SUBNET objects at all. It is a
+    keyword argument, so a positional-only assertion would not have caught its absence.
+    """
+    bare = _unwrap(unassign_subnets_route)
+    request_user = MagicMock()
+
+    with patch(f'{ROUTE_PATH}.unassign_subnets_from_supernet', return_value={}) as mock_unassign, \
+         patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+         flask_app.test_request_context(f'/overview/{SUPERNET_PUBLIC_ID}/subnets/unassign', method='POST',
+                                        json={IpamUnassignKey.SUBNET_IDS: [SUBNET_PUBLIC_ID]}):
+        bare(public_id=SUPERNET_PUBLIC_ID, request_user=request_user)
+
+    assert mock_unassign.call_args.kwargs['request_user'] is request_user
 
 
 def test_unassign_route_forwards_none_when_subnet_ids_key_absent(flask_app: Flask) -> None:

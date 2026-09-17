@@ -27,6 +27,21 @@ import pytest
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.security.key.holder import KeyHolder
+from cmdb.security.key.secret_resolver import ASYMMETRIC_KEY_SETTING, SECURITY_SECTION
+
+
+class _CountingSettingsManager:
+    """Wraps a SettingsManager and counts the reads that actually reach it."""
+
+    def __init__(self, wrapped) -> None:
+        self.wrapped = wrapped
+        self.reads = 0
+
+    def get_value(self, name: str, section: str):
+        """Records the call and delegates."""
+        self.reads += 1
+
+        return self.wrapped.get_value(name, section)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -99,3 +114,71 @@ class TestCloudNonLocalMissingEnv:
         with app.app_context():
             with pytest.raises(ValueError):
                 key_holder.get_private_key()
+
+
+class TestTheStoredKeypairIsReadOnce:
+    """
+    On-premise, both halves live in ONE settings document
+
+    A holder that signs asks for both, so an uncached read cost two round trips to build one - and
+    `TokenGenerator` calls `get_private_key()` again for every token it signs, which made it three per
+    login. The keypair is written once when the database is created and never rotated, so a holder
+    caches it for its own lifetime.
+    """
+
+    @staticmethod
+    def _on_premise_holder(database_manager):
+        """Builds a holder on-premise with its settings reads counted."""
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = False
+        app.local_mode = False
+
+        with app.app_context():
+            holder = KeyHolder(database_manager)
+            counter = _CountingSettingsManager(holder.settings_manager)
+            holder.settings_manager = counter
+
+            return app, holder, counter
+
+    def test_building_a_holder_reads_the_document_once(self, database_manager) -> None:
+        """Two keys, one read - counted at the settings manager, not inferred from the cache."""
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = False
+        app.local_mode = False
+
+        with app.app_context():
+            probe = KeyHolder(database_manager, with_private_key=False)
+            counter = _CountingSettingsManager(probe.settings_manager)
+
+            holder = KeyHolder.__new__(KeyHolder)
+            holder.settings_manager = counter
+            holder._stored_keypair = None  # pylint: disable=protected-access
+            holder.rsa_public = holder.get_public_key()
+            holder.rsa_private = holder.get_private_key()
+
+        assert counter.reads == 1
+
+    def test_a_later_key_access_reads_nothing(self, database_manager) -> None:
+        """What `TokenGenerator` does per token must not reach the database."""
+        app, holder, counter = self._on_premise_holder(database_manager)
+
+        with app.app_context():
+            before = counter.reads
+
+            holder.get_private_key()
+            holder.get_public_key()
+
+        assert counter.reads == before
+
+    def test_both_halves_are_the_stored_ones(self, database_manager) -> None:
+        """The cache must not change which key is answered."""
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = False
+        app.local_mode = False
+
+        with app.app_context():
+            holder = KeyHolder(database_manager)
+            stored = holder.settings_manager.get_value(ASYMMETRIC_KEY_SETTING, SECURITY_SECTION)
+
+            assert holder.get_public_key() == stored['public']
+            assert holder.get_private_key() == stored['private']

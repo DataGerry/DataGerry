@@ -73,6 +73,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import IpamRight
 from cmdb.interface.rest_api.responses import DefaultResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -85,6 +86,7 @@ ipam_supernet_blueprint = APIBlueprint('ipam_supernet', __name__)
 @ipam_supernet_blueprint.route('/overview/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated supernet overview payload
@@ -131,6 +133,7 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
             objects_manager,
             types_manager,
             public_id,
+            request_user=request_user,
             page=page,
             page_size=page_size,
             search=search,
@@ -156,6 +159,7 @@ def get_supernet_overview(public_id: int, request_user: CmdbUser) -> Response:
 )
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the direct CIDR-children of a subnet under the given supernet
@@ -190,6 +194,7 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
             types_manager,
             public_id,
             subnet_id,
+            request_user,
         )
 
         return DefaultResponse(children).make_response()
@@ -210,6 +215,7 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/export', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route exporting all assigned subnets of a supernet as a CSV (.csv) file
@@ -237,7 +243,7 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        content: bytes = build_supernet_subnets_csv(objects_manager, types_manager, public_id)
+        content: bytes = build_supernet_subnets_csv(objects_manager, types_manager, public_id, request_user)
 
         filename: str = IpamExport.FILENAME_TEMPLATE.format(
             public_id=public_id,
@@ -267,6 +273,7 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/invalid', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated invalid-subnets-only overview payload
@@ -308,6 +315,7 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
             objects_manager,
             types_manager,
             public_id,
+            request_user=request_user,
             page=page,
             page_size=page_size,
             search=search,
@@ -333,6 +341,7 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
 @ipam_supernet_blueprint.route('/overview/<int:public_id>/subnets/unassign', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_supernet_blueprint.protect(auth=True, right=IpamRight.EDIT.value)
 def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that detaches one or more SUBNETs from the supernet
@@ -346,10 +355,14 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     **How the write happens matters here.** The whole batch is applied as ONE raw
     ``update_many_raw`` whose filters re-assert the current supernet reference, so a SUBNET that a
     concurrent writer reassigned in between is skipped rather than clobbered. That write does not go
-    through ``ObjectsManager.update_object``, which means the detach is **not checked against the
-    SUBNETs' object ACL and leaves no history entry, no version bump and no webhook** - the sibling
-    SUBNET unassign route, which writes per owner, does all four. `request_user` is therefore not
-    forwarded. Recorded as discussion-backlog #152
+    through ``ObjectsManager.update_object``, so three of the four guarantees that method provides
+    are absent: the detach leaves **no history entry, no version bump and no webhook** (the sibling
+    SUBNET unassign route, which writes per owner, does all four).
+
+    The fourth - the ACL - is applied: ``request_user`` is forwarded and
+    ``verify_subnet_write_access`` asks once, before the write, whether the caller's group may
+    update SUBNET objects. One question answers it for the whole batch because an ACL lives on the
+    CmdbType and every target here is a SUBNET. The remaining three are still open as tier-2 T203
 
     Body:
         subnet_ids (list[int]): public_ids of SUBNETs to detach; must be a non-empty list,
@@ -357,13 +370,15 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
 
     Args:
         public_id (int): public_id of the SUPERNET CmdbObject the subnets are detached from
-        request_user (CmdbUser): CmdbUser making the request; used only for manager resolution -
-                                 the write itself is not user-scoped (see above)
+        request_user (CmdbUser): CmdbUser making the request; resolves the managers and is checked
+                                 against the SUBNET CmdbType's ACL before anything is written
 
     Raises:
         HTTPException: 400 when the body is not a JSON object, when 'subnet_ids' is missing / empty /
                        malformed, when an id is not a SUBNET assigned to this supernet, when the
-                       public_id is not a SUPERNET or no SUPERNET / SUBNET CmdbType is defined;
+                       public_id is not a SUPERNET or no SUPERNET / SUBNET CmdbType is defined, or
+                       when more than IpamUnassignLimits.MAX_SUBNET_IDS ids are named;
+                       403 when the SUBNET CmdbType's ACL denies the caller the UPDATE permission;
                        404 when the supernet does not exist
 
     Returns:
@@ -381,6 +396,7 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
             types_manager,
             public_id,
             payload.get(IpamUnassignKey.SUBNET_IDS),
+            request_user=request_user,
         )
 
         return DefaultResponse(result).make_response()

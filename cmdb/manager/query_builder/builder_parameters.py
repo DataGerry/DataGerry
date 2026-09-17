@@ -16,6 +16,9 @@
 """
 Implementation of BuilderParameters
 """
+from typing import Any
+
+from .builder import Builder
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BuilderParameters - CLASS                                              #
@@ -60,6 +63,39 @@ class BuilderParameters:
         """
         return (f"BuilderParameters(criteria={self.criteria}, limit={self.limit}, "
                 f"skip={self.skip}, sort='{self.sort}', order={self.order})")
+
+
+    def add_criteria(self, condition: dict[str, Any]) -> None:
+        """
+        Adds one server-side condition to the criteria, whichever shape the criteria has
+
+        This is how a route narrows a query the **client** supplied - an access-control rule, a
+        category membership - without the caller having to know whether ``criteria`` arrived as a
+        plain filter document or as a full aggregation pipeline. Two properties are deliberate:
+
+        * **The condition goes first.** For a pipeline the ``$match`` is prepended, so it narrows the
+          input before any ``$lookup``, ``$group`` or ``$project`` the client sent. Appending would
+          make a server rule depend on the client's stages - a ``$project`` that drops the field the
+          rule reads would quietly change what the rule decides.
+        * **It never overwrites.** Where a key collides with one the client already used, both are
+          kept under ``$and`` rather than the server's value winning silently
+
+        Args:
+            condition (dict[str, Any]): A MongoDB filter document, e.g. `{'public_id': {'$in': [...]}}`
+        """
+        if isinstance(self.criteria, list):
+            self.criteria = [Builder.match_(condition), *self.criteria]
+            return
+
+        if not self.criteria:
+            self.criteria = dict(condition)
+            return
+
+        if self.criteria.keys() & condition.keys():
+            self.criteria = {'$and': [self.criteria, condition]}
+            return
+
+        self.criteria = {**self.criteria, **condition}
 
 
     def get_criteria(self) -> dict | list[dict]:

@@ -20,18 +20,32 @@ Covers has_framework_data: False only when every collection is empty, True as so
 non-empty, and the short-circuit (later managers are not counted once an earlier one is non-empty);
 and drop_locked_profiles, the license filter that keeps the assistant itself licensing-agnostic.
 
+**The filter used to consult a hand-maintained profile -> feature map, and that map had one entry:
+the RACK profile.** The IPAM profile - which creates the SpecialTypes the IPAM licence actually owns -
+was missing from it, so an unlicensed on-premise installation could seed IPAM special types through
+the assistant that `POST /types/` refuses with a 403. The requirement is now DERIVED from what a
+profile creates, through the same `special_type_license_feature` the type routes use, and the tests
+below pin that derivation rather than a list.
+
 The filter is driven at the feature_locked seam rather than through a real license: the underlying
 request_has_feature caches its answer per request on flask.g, which leaks across a session-scoped app
 context and would make the licensed / unlicensed cases order-dependent.
 """
 from unittest.mock import patch
 
+import pytest
+
 from cmdb.framework.datagerry_assistant.profile_name import ProfileName
+from cmdb.framework.datagerry_assistant.profile_assistant import (
+    PROFILE_BUILDERS,
+    special_types_created_by,
+)
+from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.framework_routes.special_helper import (
-    PROFILE_LICENSE_FEATURES,
     drop_locked_profiles,
     has_framework_data,
+    profile_license_feature,
 )
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.special_helper'
@@ -87,35 +101,90 @@ def test_true_when_objects_present() -> None:
 #                                              drop_locked_profiles                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def test_the_rack_profile_is_the_only_gated_profile_and_maps_to_ipam() -> None:
-    """The interim policy, pinned: Rack View is gated behind IPAM and nothing else is gated"""
-    assert PROFILE_LICENSE_FEATURES == {ProfileName.RACK.value: LicenseFeature.IPAM}
+@pytest.mark.parametrize('profile', [ProfileName.IPAM.value, ProfileName.RACK.value])
+def test_a_profile_creating_a_gated_special_type_requires_its_feature(profile: str) -> None:
+    """
+    Both profiles that build licence-gated SpecialTypes require the licence
+
+    The IPAM one is the regression: it creates the SpecialTypes the IPAM licence owns and was absent
+    from the map this replaced, so the assistant seeded them on an unlicensed installation while
+    `POST /types/` answered 403 for the very same markers.
+    """
+    assert profile_license_feature(profile) == LicenseFeature.IPAM
 
 
-def test_drops_the_rack_profile_when_its_feature_is_locked() -> None:
-    """The assistant writes through the managers, so the locked profile is filtered before it runs"""
+@pytest.mark.parametrize('profile', [
+    ProfileName.LOCATION.value,
+    ProfileName.USER_MANAGEMENT.value,
+    ProfileName.CLIENT_MANAGEMENT.value,
+])
+def test_a_profile_creating_no_gated_special_type_needs_no_feature(profile: str) -> None:
+    """Community profiles must stay seedable without a licence."""
+    assert profile_license_feature(profile) is None
+
+
+def test_an_unknown_profile_needs_no_feature() -> None:
+    """A name the assistant does not know creates nothing, so it gates nothing."""
+    assert profile_license_feature('not-a-profile') is None
+
+
+def test_every_profile_building_a_gated_special_type_is_gated() -> None:
+    """
+    The property the derivation buys, checked across every profile rather than a list of two
+
+    A new profile that creates a licence-gated SpecialType is covered the moment it declares what it
+    builds - which is what the hand-maintained map could not do, and how the IPAM profile came to be
+    missing from it.
+    """
+    for name, _builder in PROFILE_BUILDERS:
+        created = special_types_created_by(name.value)
+        gated = any(SpecialType.is_license_gated(special_type) for special_type in created)
+
+        assert (profile_license_feature(name.value) is not None) == gated
+
+
+def test_the_declaration_matches_what_the_ipam_profile_builds() -> None:
+    """Declared from the definition list the profile iterates, so it cannot fall behind it."""
+    from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
+        IPAM_SPECIAL_TYPE_DEFINITIONS,
+        IpamSpecialTypeKey,
+    )
+
+    built = {definition[IpamSpecialTypeKey.SPECIAL_TYPE] for definition in IPAM_SPECIAL_TYPE_DEFINITIONS}
+
+    assert special_types_created_by(ProfileName.IPAM.value) == built
+
+
+@pytest.mark.parametrize('profile', [ProfileName.IPAM.value, ProfileName.RACK.value])
+def test_drops_a_gated_profile_when_its_feature_is_locked(profile: str) -> None:
+    """The assistant writes through the managers, so a locked profile is filtered before it runs."""
     with patch(f'{HELPER_PATH}.feature_locked', return_value=True):
-        remaining = drop_locked_profiles([ProfileName.RACK.value], None)
-
-    assert remaining == []
+        assert drop_locked_profiles([profile], None) == []
 
 
-def test_keeps_the_other_profiles_when_the_rack_profile_is_dropped() -> None:
-    """One locked profile must not discard the rest - the assistant only ever runs once"""
+def test_keeps_the_ungated_profiles_when_a_gated_one_is_dropped() -> None:
+    """One locked profile must not discard the rest - the assistant only ever runs once."""
     selected = [ProfileName.LOCATION.value, ProfileName.RACK.value, ProfileName.IPAM.value]
 
     with patch(f'{HELPER_PATH}.feature_locked', return_value=True):
         remaining = drop_locked_profiles(selected, None)
 
-    assert remaining == [ProfileName.LOCATION.value, ProfileName.IPAM.value]
+    assert remaining == [ProfileName.LOCATION.value]
 
 
-def test_keeps_the_rack_profile_when_its_feature_is_unlocked() -> None:
-    """With the feature available the profile is seeded as normal"""
+@pytest.mark.parametrize('profile', [ProfileName.IPAM.value, ProfileName.RACK.value])
+def test_keeps_a_gated_profile_when_its_feature_is_unlocked(profile: str) -> None:
+    """With the feature available the profile is seeded as normal."""
     with patch(f'{HELPER_PATH}.feature_locked', return_value=False):
-        remaining = drop_locked_profiles([ProfileName.RACK.value], None)
+        assert drop_locked_profiles([profile], None) == [profile]
 
-    assert remaining == [ProfileName.RACK.value]
+
+def test_the_order_of_the_selection_is_preserved() -> None:
+    """The filter removes, it does not reorder - the assistant has its own fixed build order."""
+    selected = [ProfileName.CLIENT_MANAGEMENT.value, ProfileName.LOCATION.value]
+
+    with patch(f'{HELPER_PATH}.feature_locked', return_value=True):
+        assert drop_locked_profiles(selected, None) == selected
 
 
 def test_ungated_profiles_never_consult_the_license() -> None:

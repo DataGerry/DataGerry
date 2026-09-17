@@ -55,6 +55,7 @@ from cmdb.models.type_model import (
     TypeSchemaKey,
 )
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.object_model import (
     CmdbObject,
@@ -63,6 +64,8 @@ from cmdb.models.object_model import (
 )
 
 from cmdb.framework.results import IterationResult
+from cmdb.security.acl.builder import build_permitted_types_criteria
+from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
@@ -231,12 +234,34 @@ class TypesManager(BaseManager):
             raise TypesManagerGetError(str(err)) from err
 
 
-    def iterate(self, builder_params: BuilderParameters) -> IterationResult[CmdbType]:
+    def iterate(
+        self,
+        builder_params: BuilderParameters,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> IterationResult[CmdbType]:
         """
         Retrieves multiple CmdbTypes
 
+        Pass ``user`` and ``permission`` to restrict the listing to the types that user's group may
+        access; omit them and every type is returned, which is what the callers that have already
+        checked access themselves rely on.
+
+        The access-control rule is merged into the **criteria** rather than appended as pipeline
+        stages the way an object listing does it, and both differences matter:
+
+        * An object's ACL lives on another collection, so ``build_acl_pipeline`` has to resolve the
+          denied type ids in a separate query first. A **types** listing queries the collection the
+          ACL is stored on, so the same rule is one ``$nor`` over this collection - no extra query
+        * ``iterate_query`` runs a second aggregation for the total and builds it from the criteria
+          alone, so a rule that lives only in the pipeline would filter the rows and leave the count
+          beside them unfiltered (the bug **T211** records for the object listing)
+
         Args:
             builder_params (BuilderParameters): Filter for which CmdbTypes should be retrieved
+            user (CmdbUser | None): CmdbUser the request is made for. Defaults to None
+            permission (AccessControlPermission | None): The permission the user's group must hold
+                on a type for it to appear. Defaults to None
 
         Raises:
             TypesManagerIterationError: When the iteration failed
@@ -245,6 +270,9 @@ class TypesManager(BaseManager):
             IterationResult[CmdbTypes]: All CmdbTypes matching the filter
         """
         try:
+            if user and permission:
+                builder_params.add_criteria(build_permitted_types_criteria(int(user.group_id), permission))
+
             aggregation_result, total = self.iterate_query(builder_params)
 
             iteration_result: IterationResult[CmdbType] = IterationResult(

@@ -105,6 +105,49 @@ def build_denied_types_criteria(group_id: int, permission: AccessControlPermissi
     }
 
 
+def build_permitted_types_criteria(group_id: int, permission: AccessControlPermission) -> dict[str, Any]:
+    """
+    Builds the `framework.types` filter selecting the CmdbTypes a group MAY access
+
+    The negation of ``build_denied_types_criteria``, for the callers that are querying
+    `framework.types` **itself**. A listing of types has its access-control rule stored on the very
+    documents it is listing, so it never needs the two-step ``resolve_denied_type_ids`` recipe an
+    object listing does - that one exists only because an object's ACL lives on another collection.
+    One `$nor` over the same criteria costs **no extra query at all**
+
+    Both functions are the same rule, so a change to the denial criteria reaches every caller of
+    either. Note what that rule says about an ``acl`` carrying no ``activated`` key: it denies. The
+    model (``acl/helpers.py``) grants in that case - a divergence tracked as **T208**, deliberately
+    not resolved here
+
+    Args:
+        group_id (int): public_id of the CmdbUserGroup the request is made for
+        permission (AccessControlPermission): The permission the group must hold
+
+    Returns:
+        dict[str, Any]: The criteria for a `framework.types` query
+    """
+    return {'$nor': [build_denied_types_criteria(group_id, permission)]}
+
+
+def build_denied_types_condition(denied_type_ids: list[int]) -> dict[str, Any]:
+    """
+    Builds the filter excluding an already-resolved set of denied CmdbTypes
+
+    The one expression of "exclude these types" - as a filter document, so a caller can put it
+    wherever its query needs it: as its own `$match` stage, merged into a criteria, or `$and`-ed onto
+    one. Every caller that excludes denied types goes through here, so the exclusion cannot drift
+    into two spellings
+
+    Args:
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the group may not access
+
+    Returns:
+        dict[str, Any]: The filter document
+    """
+    return {CmdbObjectKey.TYPE_ID.value: {'$nin': denied_type_ids}}
+
+
 def build_acl_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
     """
     Builds the pipeline stages excluding the denied CmdbTypes
@@ -118,7 +161,7 @@ def build_acl_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
     if not denied_type_ids:
         return []
 
-    return [{'$match': {CmdbObjectKey.TYPE_ID.value: {'$nin': denied_type_ids}}}]
+    return [{'$match': build_denied_types_condition(denied_type_ids)}]
 
 
 def resolve_denied_type_ids(user: 'CmdbUser', permission: AccessControlPermission) -> list[int]:

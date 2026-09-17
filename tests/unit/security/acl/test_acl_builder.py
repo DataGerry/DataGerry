@@ -29,8 +29,10 @@ from cmdb.security.acl.builder import (
     DENIED_TYPES_PROJECTION,
     build_acl_pipeline,
     build_acl_stages,
+    build_denied_types_condition,
     build_denied_types_criteria,
     build_group_permissions_path,
+    build_permitted_types_criteria,
     resolve_denied_type_ids,
 )
 from cmdb.security.acl.permission import AccessControlPermission
@@ -255,3 +257,26 @@ class TestBuildAclPipeline:
         pipeline = build_acl_pipeline(user, AccessControlPermission.READ)
 
         assert {stage_op for stage in pipeline for stage_op in stage} == {'$match'}
+
+
+# --------------------------------------------- build_permitted_types_criteria --------------------------------------- #
+
+def test_build_permitted_types_criteria_is_the_negation_of_the_denial() -> None:
+    """The permitted criteria is exactly the denial criteria under a $nor."""
+    permission = AccessControlPermission.READ
+
+    assert build_permitted_types_criteria(GROUP_ID, permission) == {
+        '$nor': [build_denied_types_criteria(GROUP_ID, permission)]
+    }
+
+
+# ---------------------------------------------- build_denied_types_condition ---------------------------------------- #
+
+def test_build_denied_types_condition_excludes_the_given_ids() -> None:
+    """The one spelling of 'exclude these types', as a filter document."""
+    assert build_denied_types_condition(DENIED_TYPE_IDS) == {TYPE_ID_KEY: {'$nin': DENIED_TYPE_IDS}}
+
+
+def test_build_acl_stages_wraps_the_same_condition() -> None:
+    """The stage builder does not spell the exclusion a second time."""
+    assert build_acl_stages(DENIED_TYPE_IDS) == [{'$match': build_denied_types_condition(DENIED_TYPE_IDS)}]
