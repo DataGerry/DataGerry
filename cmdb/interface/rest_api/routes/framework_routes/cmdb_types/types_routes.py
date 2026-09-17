@@ -34,8 +34,9 @@ per-route ``base.framework.type.*`` right (see ``TypeRight``). Domain logic live
 ``TypesManager`` and ``types_helper``; manager-layer errors map to HTTP 400 (business-rule /
 lookup failures) or HTTP 500 (unexpected), following the codebase convention - 409 is not used.
 
-**Access control**: the two listing routes are additionally filtered by the type ACL, to the types
-the requesting user's group holds READ on. The single-type read and the write routes are **not** -
+**Access control**: the two listing routes are additionally filtered by the type ACL. ``GET /types/``
+filters to the types the caller's group holds the requested permissions on (``?acl=``, default READ);
+``/types/overview`` always uses READ. The single-type read and the write routes are **not** -
 a type filtered out of the listing can still be fetched, edited and deleted by public_id. That is a
 known hole, filed as **T212**; the listings were closed first because they were the routes whose
 only access control was a filter the Angular app posted, which any other API consumer could simply
@@ -61,6 +62,7 @@ from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.interface.rest_api.responses.response_parameters import ParameterKey
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects, request_wants_body
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
@@ -68,6 +70,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
     guard_referenced_section_removal,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    normalize_type_acl,
     verify_type_is_unique,
     prepare_builder_parameters,
     verify_type_deletable,
@@ -136,9 +139,10 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     HTTP `POST` route to insert a CmdbType into the database
 
     Requires the ``base.framework.type.add`` right and ApiLevel.ADMIN. The author and the creation
-    time are stamped server-side, a duplicate type name is refused, and for a SpecialType the IPAM
-    license is checked and the SpecialType wiring (ref_types cross-wiring, predefined sections) runs
-    before the response is built
+    time are stamped server-side, the ``acl`` block is completed to the shape every other write path
+    stores, a duplicate type name is refused, and for a SpecialType the IPAM license is checked and
+    the SpecialType wiring (ref_types cross-wiring, predefined sections) runs before the response is
+    built
 
     Note:
         A payload ``public_id`` is currently honoured - the database only generates one when the key
@@ -170,6 +174,10 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
         data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
+
+        # The insert stores the payload as given, so the ACL is completed here - an update and an
+        # import get the same block for free by going through the model
+        normalize_type_acl(data)
 
         verify_type_is_unique(
             types_manager,
@@ -221,15 +229,21 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
     HTTP `GET`/`HEAD` route for getting multiple CmdbTypes
 
     Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN, and the listing is
-    additionally restricted to the CmdbTypes the requesting user's group may READ under the type
+    additionally restricted to the CmdbTypes the requesting user's group may access under the type
     ACL - the right decides whether the screen opens at all, the ACL decides what is in it.
+
+    ``?acl=`` names the permission that restriction asks about, defaulting to READ. It **replaces**
+    READ rather than adding to it, so ``?acl=CREATE`` answers "the types my group may create an
+    object of", and ``?acl=READ,CREATE`` requires both. The filter is a query, not a boundary: the
+    single-type read applies no ACL at all (tier 2 T212), so nothing here is reachable that was not
+    reachable before.
 
     ``?category=<public_id>`` restricts the listing to the CmdbTypes assigned to that CmdbCategory
     and ``?uncategorized=true`` to the CmdbTypes assigned to none; the two cannot be combined
 
     Args:
-        params (TypeIterationParameters): Filter, sort, pagination, the 'active' flag and the
-            category filters for the requested CmdbTypes
+        params (TypeIterationParameters): Filter, sort, pagination, the 'active' flag, the category
+            filters and the requested ACL permissions for the requested CmdbTypes
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
@@ -246,7 +260,7 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
         iteration_result: IterationResult[CmdbType] = types_manager.iterate(
             builder_params,
             request_user,
-            AccessControlPermission.READ,
+            params.acl,
         )
         types: list[dict[str, Any]] = [CmdbType.to_json(type) for type in iteration_result.results]
 
@@ -282,19 +296,28 @@ def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbU
     the overview renders author/editor names without a per-type user lookup (they are resolved in a
     single bulk query). Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN, and is
     restricted to the CmdbTypes the requesting user's group may READ under the type ACL - the same
-    rule the plain listing applies, so the two never disagree about what exists
+    rule the plain listing applies, so the two never disagree about what exists.
+
+    Unlike ``GET /types/`` this route does **not** take ``?acl=``: it is the type administration
+    table and nothing asks it for another permission. A caller that sends one is refused rather than
+    quietly served a READ listing, because a parameter that is accepted and ignored is worse than
+    one that does not exist
 
     Args:
         params (TypeIterationParameters): Filter/pagination for the requested CmdbTypes
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 400 when the iteration fails; 500 on an unexpected error
+        HTTPException: 400 when ``?acl=`` asks for anything but READ or when the iteration fails;
+            500 on an unexpected error
 
     Returns:
         GetMultiResponse: The matching CmdbTypes, each as a {type_data, user_data} item
     """
     try:
+        if params.acl != [AccessControlPermission.READ]:
+            abort(400, f"The Types overview cannot be filtered by '{ParameterKey.ACL.value}'!")
+
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
 

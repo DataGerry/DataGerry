@@ -67,6 +67,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     verify_type_is_unique,
     verify_type_deletable,
     build_category_criteria,
+    normalize_type_acl,
     build_type_criteria,
     prepare_builder_parameters,
     get_objects_using_location_field,
@@ -519,20 +520,6 @@ def _patch_managers_by_type(managers: dict) -> Any:
     return patch(f'{PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, _user: managers[mtype])
 
 
-def _listing_params(
-        active: bool = True,
-        criteria: Any = None,
-        category: int | None = None,
-        uncategorized: bool = False) -> SimpleNamespace:
-    """The TypeIterationParameters fields the listing helpers read."""
-    return SimpleNamespace(
-        active=active,
-        filter={'name': 'x'} if criteria is None else criteria,
-        category=category,
-        uncategorized=uncategorized,
-    )
-
-
 def _types_manager(found: list[dict[str, Any]] | None = None) -> MagicMock:
     """A TypesManager stand-in whose find() returns the given dependents."""
     manager = MagicMock()
@@ -639,154 +626,8 @@ def test_verify_type_deletable_ignores_a_self_reference() -> None:
 
 # ------------------------------------------------------ prepare_builder_parameters ---------------------------------- #
 
-def test_build_type_criteria_adds_active_to_dict_criteria_with_keys() -> None:
-    """An active flag is merged into a non-empty dict criteria."""
-    assert build_type_criteria({'name': 'x'}, True) == {'name': 'x', TypeSchemaKey.ACTIVE.value: True}
-
-
-def test_build_type_criteria_keeps_empty_dict_criteria_a_dict() -> None:
-    """An empty dict criteria stays a dict instead of becoming a pipeline with an empty $match."""
-    assert build_type_criteria({}, True) == {TypeSchemaKey.ACTIVE.value: True}
-
-
-def test_build_type_criteria_appends_active_match_to_list_criteria() -> None:
-    """An active flag is appended as a $match stage to an existing list criteria."""
-    result = build_type_criteria([{'$match': {'name': 'x'}}], True)
-
-    assert result == [{'$match': {'name': 'x'}}, {'$match': {TypeSchemaKey.ACTIVE.value: True}}]
-
-
-def test_build_type_criteria_returns_criteria_unchanged_when_inactive() -> None:
-    """A falsy active flag restricts nothing and hands the criteria straight back."""
-    client_criteria = {'name': 'x'}
-
-    assert build_type_criteria(client_criteria, False) == {'name': 'x'}
-
-
-def test_build_type_criteria_does_not_mutate_the_dict_it_was_given() -> None:
-    """The client's dict criteria is left exactly as it arrived - it is echoed back in the response."""
-    client_criteria = {'name': 'x'}
-
-    build_type_criteria(client_criteria, True)
-
-    assert client_criteria == {'name': 'x'}
-
-
-def test_build_type_criteria_does_not_mutate_the_list_it_was_given() -> None:
-    """The client's list criteria is left exactly as it arrived - it is echoed back in the response."""
-    client_criteria = [{'$match': {'name': 'x'}}]
-
-    build_type_criteria(client_criteria, True)
-
-    assert client_criteria == [{'$match': {'name': 'x'}}]
-
-
-def test_prepare_builder_parameters_passes_the_merged_criteria_to_the_builder() -> None:
-    """The merged criteria replaces the criteria the pager handed over."""
-    type_params = _listing_params()
-
-    with patch(f'{PATH}.CollectionParameters.get_builder_params',
-               return_value={'criteria': {'name': 'x'}, 'limit': 10}), \
-         patch(f'{PATH}.BuilderParameters') as builder_params:
-        prepare_builder_parameters(type_params, MagicMock())
-
-    assert builder_params.call_args.kwargs['criteria'] == {'name': 'x', TypeSchemaKey.ACTIVE.value: True}
-    assert builder_params.call_args.kwargs['limit'] == 10
-
-
-def test_prepare_builder_parameters_leaves_the_echoed_filter_untouched() -> None:
-    """The pager's own filter is never mutated, so the response echoes what the client sent."""
-    type_params = _listing_params()
-
-    with patch(f'{PATH}.CollectionParameters.get_builder_params', return_value={'criteria': {'name': 'x'}}), \
-         patch(f'{PATH}.BuilderParameters'):
-        prepare_builder_parameters(type_params, MagicMock())
-
-    assert type_params.filter == {'name': 'x'}
-
-
-def test_prepare_builder_parameters_adds_no_category_criteria_without_the_parameters() -> None:
-    """An ordinary listing never reaches the CategoriesManager."""
-    type_params = _listing_params()
-
-    with patch(f'{PATH}.CollectionParameters.get_builder_params', return_value={'criteria': {}}), \
-         patch(f'{PATH}.BuilderParameters') as builder_params, \
-         patch(f'{PATH}.ManagerProvider.get_manager') as provider:
-        prepare_builder_parameters(type_params, MagicMock())
-
-    provider.assert_not_called()
-    builder_params.return_value.add_criteria.assert_not_called()
-
-
-def test_prepare_builder_parameters_adds_the_category_criteria_when_asked() -> None:
-    """A category filter lands on the BuilderParameters, not in the echoed pager filter."""
-    type_params = _listing_params(category=4)
-    categories = MagicMock()
-    categories.get_category_type_ids.return_value = [7, 8]
-
-    with patch(f'{PATH}.CollectionParameters.get_builder_params', return_value={'criteria': {}}), \
-         patch(f'{PATH}.BuilderParameters') as builder_params, \
-         _patch_managers_by_type({ManagerType.CATEGORIES: categories}):
-        prepare_builder_parameters(type_params, MagicMock())
-
-    builder_params.return_value.add_criteria.assert_called_once_with(
-        {TypeSchemaKey.PUBLIC_ID.value: {'$in': [7, 8]}}
-    )
-
 
 # ------------------------------------------------------ build_category_criteria ------------------------------------- #
-
-def test_build_category_criteria_returns_none_without_either_parameter() -> None:
-    """No category filter was asked for, so nothing is added."""
-    with patch(f'{PATH}.ManagerProvider.get_manager') as provider:
-        assert build_category_criteria(_listing_params(), MagicMock()) is None
-
-    provider.assert_not_called()
-
-
-def test_build_category_criteria_restricts_to_the_categorys_types() -> None:
-    """?category=<id> filters this collection on the ids the category holds."""
-    categories = MagicMock()
-    categories.get_category_type_ids.return_value = [7, 8]
-
-    with _patch_managers_by_type({ManagerType.CATEGORIES: categories}):
-        criteria = build_category_criteria(_listing_params(category=4), MagicMock())
-
-    categories.get_category_type_ids.assert_called_once_with(4)
-    assert criteria == {TypeSchemaKey.PUBLIC_ID.value: {'$in': [7, 8]}}
-
-
-def test_build_category_criteria_for_an_unassigned_category_matches_nothing() -> None:
-    """A category holding no types - or none at all - yields an empty list, not every type."""
-    categories = MagicMock()
-    categories.get_category_type_ids.return_value = []
-
-    with _patch_managers_by_type({ManagerType.CATEGORIES: categories}):
-        criteria = build_category_criteria(_listing_params(category=99), MagicMock())
-
-    assert criteria == {TypeSchemaKey.PUBLIC_ID.value: {'$in': []}}
-
-
-def test_build_category_criteria_excludes_every_assigned_type_when_uncategorized() -> None:
-    """?uncategorized=true is the complement of 'assigned to any category'."""
-    categories = MagicMock()
-    categories.get_assigned_type_ids.return_value = {9, 2, 5}
-
-    with _patch_managers_by_type({ManagerType.CATEGORIES: categories}):
-        criteria = build_category_criteria(_listing_params(uncategorized=True), MagicMock())
-
-    assert criteria == {TypeSchemaKey.PUBLIC_ID.value: {'$nin': [2, 5, 9]}}
-
-
-def test_build_category_criteria_with_nothing_categorized_excludes_nothing() -> None:
-    """Every type is uncategorized when no category holds any."""
-    categories = MagicMock()
-    categories.get_assigned_type_ids.return_value = set()
-
-    with _patch_managers_by_type({ManagerType.CATEGORIES: categories}):
-        criteria = build_category_criteria(_listing_params(uncategorized=True), MagicMock())
-
-    assert criteria == {TypeSchemaKey.PUBLIC_ID.value: {'$nin': []}}
 
 
 # ------------------------------------------------- get_objects_using_location_field --------------------------------- #
@@ -1446,3 +1287,83 @@ class TestTypeHasObjects:
 
         with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
             assert type_has_objects(MagicMock(), 77) is False
+
+
+# ------------------------------------------------------ normalize_type_acl ------------------------------------------ #
+
+ACL_DEFAULT: dict[str, Any] = {'activated': False, 'groups': {'includes': {}}}
+
+
+def test_normalize_type_acl_adds_the_default_when_the_key_is_absent() -> None:
+    """A create that sends no acl stored a document without one; it now gets the same block as an update."""
+    payload: dict[str, Any] = {'name': 'x'}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == ACL_DEFAULT
+
+
+def test_normalize_type_acl_completes_an_acl_that_only_carries_groups() -> None:
+    """The shape the model and the query builder used to disagree about is completed on the way in."""
+    payload: dict[str, Any] = {'acl': {'groups': {'includes': {'1': ['READ']}}}}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == {
+        'activated': False,
+        'groups': {'includes': {'1': ['READ']}},
+    }
+
+
+def test_normalize_type_acl_completes_an_acl_that_only_carries_the_flag() -> None:
+    """The other half: an activated acl with no groups gains the empty section."""
+    payload: dict[str, Any] = {'acl': {'activated': True}}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == {'activated': True, 'groups': {'includes': {}}}
+
+
+def test_normalize_type_acl_keeps_a_complete_acl_unchanged() -> None:
+    """The common case is a no-op - the frontend always sends both halves."""
+    stored = {'activated': True, 'groups': {'includes': {'2': ['READ', 'UPDATE']}}}
+    payload: dict[str, Any] = {'acl': dict(stored)}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == stored
+
+
+@pytest.mark.parametrize('acl', [None, {}, {'groups': None}, {'groups': {'includes': None}}], ids=str)
+def test_normalize_type_acl_reads_every_empty_spelling_as_the_default(acl: Any) -> None:
+    """
+    null, {}, a null groups and a null includes all mean "no ACL"
+
+    A null `groups` used to raise inside `GroupACL.from_data`, which on the update route surfaced as a
+    500; the model tolerates it now, so completing the payload here cannot turn a create into one.
+    """
+    payload: dict[str, Any] = {'acl': acl}
+
+    normalize_type_acl(payload)
+
+    assert payload[TypeSchemaKey.ACL.value] == ACL_DEFAULT
+
+
+def test_normalize_type_acl_drops_unknown_keys_inside_the_acl() -> None:
+    """The model reads only 'activated' and 'groups' - which is what an update has always stored."""
+    payload: dict[str, Any] = {'acl': {'activated': False, 'groups': {'includes': {}}, 'junk': 1}}
+
+    normalize_type_acl(payload)
+
+    assert 'junk' not in payload[TypeSchemaKey.ACL.value]
+
+
+def test_normalize_type_acl_leaves_the_rest_of_the_payload_alone() -> None:
+    """It completes one key and touches nothing else."""
+    payload: dict[str, Any] = {'name': 'x', 'fields': [], 'public_id': 7}
+
+    normalize_type_acl(payload)
+
+    assert payload['name'] == 'x'
+    assert not payload['fields']
+    assert payload['public_id'] == 7

@@ -77,6 +77,7 @@ class ParameterKey(BaseStrEnum):
     GROUP_ID = 'group_id'
     CATEGORY = 'category'
     UNCATEGORIZED = 'uncategorized'
+    ACL = 'acl'
 
 
 class BuilderParamKey(BaseStrEnum):

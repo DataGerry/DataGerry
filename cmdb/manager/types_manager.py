@@ -238,7 +238,7 @@ class TypesManager(BaseManager):
         self,
         builder_params: BuilderParameters,
         user: CmdbUser | None = None,
-        permission: AccessControlPermission | None = None
+        permission: AccessControlPermission | list[AccessControlPermission] | None = None
     ) -> IterationResult[CmdbType]:
         """
         Retrieves multiple CmdbTypes
@@ -260,8 +260,9 @@ class TypesManager(BaseManager):
         Args:
             builder_params (BuilderParameters): Filter for which CmdbTypes should be retrieved
             user (CmdbUser | None): CmdbUser the request is made for. Defaults to None
-            permission (AccessControlPermission | None): The permission the user's group must hold
-                on a type for it to appear. Defaults to None
+            permission (AccessControlPermission | list[AccessControlPermission] | None): The
+                permission the user's group must hold on a type for it to appear. Several
+                permissions mean **all** of them, matching `$all`. Defaults to None
 
         Raises:
             TypesManagerIterationError: When the iteration failed
