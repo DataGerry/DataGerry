@@ -60,7 +60,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docap
     DocapiTemplateRight,
 )
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 
 from cmdb.security.license.license_constants import LicenseFeature
 
@@ -74,6 +74,9 @@ from cmdb.errors.manager.docapi_templates_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The DocapiTemplate columns the template list offers a search box over
+DOCAPI_TEMPLATE_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'name', 'label', 'description')
 
 docapi_blueprint = APIBlueprint('docapi', __name__, url_prefix='/docapi')
 
@@ -163,7 +166,7 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Respo
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, DOCAPI_TEMPLATE_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[DocapiTemplate] = docapi_manager.get_templates(builder_params)
 

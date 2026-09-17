@@ -80,10 +80,13 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_he
     resolve_move_target,
     ensure_admin_group_keeps_master_right,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbUserGroup columns the group table offers a search box over
+GROUP_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'name', 'label')
 
 groups_blueprint = APIBlueprint('groups', __name__)
 
@@ -164,7 +167,7 @@ def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, GROUP_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbUserGroup] = groups_manager.iterate(builder_params)
         groups: list[dict[str, Any]] = [CmdbUserGroup.to_json(group) for group in iteration_result.results]

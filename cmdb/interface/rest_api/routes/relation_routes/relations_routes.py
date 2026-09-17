@@ -86,10 +86,19 @@ from cmdb.errors.manager.relations_manager import (
     RelationsManagerDeleteError,
 )
 from cmdb.errors.manager.types_manager import TypesManagerGetError
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbRelation columns the relation table offers a search box over
+RELATION_SEARCHABLE_FIELDS: tuple[str, ...] = (
+    'public_id',
+    'relation_name',
+    'relation_name_parent',
+    'relation_name_child',
+    'description',
+)
 
 relations_blueprint = APIBlueprint('relations', __name__)
 
@@ -191,7 +200,7 @@ def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> 
             request_user
         )
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, RELATION_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbRelation] = relations_manager.iterate(builder_params)
         relation_list = [CmdbRelation.to_json(relation) for relation in iteration_result.results]

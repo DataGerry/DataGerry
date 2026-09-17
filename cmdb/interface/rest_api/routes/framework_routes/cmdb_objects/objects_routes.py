@@ -49,6 +49,8 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.query_builder.builder import Builder
+from cmdb.framework.search.object_list_search import build_object_search_stages
 from cmdb.manager import (
     LocationsManager,
     LogsManager,
@@ -70,6 +72,7 @@ from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_db_errors
 from cmdb.interface.rest_api.routes.routes_helper import (
+    as_pipeline_criteria,
     extract_public_ids,
     fetch_only_active_objects,
     normalize_public_id_list,
@@ -115,7 +118,11 @@ from cmdb.interface.rest_api.responses import (
     GetMultiResponse,
     DefaultResponse,
 )
-from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.interface.rest_api.responses.response_parameters import (
+    BuilderParamKey,
+    CollectionParameters,
+    ParameterKey,
+)
 
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerGetError,
@@ -289,8 +296,13 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjects
 
+    ``?search=<text>`` narrows the listing to the objects whose public_id, timestamps, own field
+    values or **referenced** objects' field values contain the text. The term is matched as a
+    literal, not as a pattern (`framework.search.object_list_search`), and an absent or blank one
+    adds no stages at all.
+
     Args:
-        params (CollectionParameters): Filter for requested CmdbObjects
+        params (CollectionParameters): Filter, paging and the optional ``search`` term
         request_user (CmdbUser): User requesting this data
 
     Returns:
@@ -301,14 +313,17 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
 
         view = params.optional.get('view', ObjectViewMode.NATIVE)
 
-        if fetch_only_active_objects():
-            if isinstance(params.filter, dict):
-                params.filter = [{'$match': params.filter}]
-                params.filter.append({'$match': {CmdbObjectKey.ACTIVE.value: {"$eq": True}}})
-            elif isinstance(params.filter, list):
-                params.filter.append({'$match': {CmdbObjectKey.ACTIVE.value: {"$eq": True}}})
+        criteria = as_pipeline_criteria(params.filter)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        if fetch_only_active_objects():
+            criteria.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {"$eq": True}}))
+
+        criteria.extend(build_object_search_stages(params.optional.get(ParameterKey.SEARCH.value)))
+
+        builder_args = CollectionParameters.get_builder_params(params)
+        builder_args[BuilderParamKey.CRITERIA.value] = criteria
+
+        builder_params = BuilderParameters(**builder_args)
 
         iteration_result: IterationResult[CmdbObject] = objects_manager.iterate(builder_params,
                                                                                 request_user,
@@ -636,9 +651,12 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
     """
     Retrieves references for a given CmdbObject based on specified criteria
 
+    Takes the same ``?search=<text>`` as the object listing, with the same meaning and the same
+    literal matching
+
     Args:
         public_id (int): The public_id of the CmdbObject
-        params (CollectionParameters): Filtering, sorting, and pagination parameters
+        params (CollectionParameters): Filtering, sorting, pagination and the optional ``search`` term
         request_user (CmdbUser): The CmdbUser making the request, used for access control
 
     Returns:
@@ -649,13 +667,14 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
 
         view = params.optional.get('view', ObjectViewMode.NATIVE)
 
-        # references() consumes params.filter as aggregation pipeline stage(s): wrap a raw filter
+        # references() consumes the criteria as aggregation pipeline stage(s): wrap a raw filter
         # dict into a $match stage, then append the active-only stage when the filter is enabled
-        if isinstance(params.filter, dict):
-            params.filter = [{'$match': params.filter}]
+        criteria = as_pipeline_criteria(params.filter)
 
         if fetch_only_active_objects():
-            params.filter.append({'$match': {CmdbObjectKey.ACTIVE.value: {"$eq": True}}})
+            criteria.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {"$eq": True}}))
+
+        criteria.extend(build_object_search_stages(params.optional.get(ParameterKey.SEARCH.value)))
 
         referenced_object = objects_manager.get_object(public_id, request_user, AccessControlPermission.READ)
 
@@ -666,7 +685,7 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
 
         iteration_result: IterationResult[CmdbObject] = objects_manager.references(
                                                                     object_=referenced_object,
-                                                                    criteria=params.filter,
+                                                                    criteria=criteria,
                                                                     limit=params.limit,
                                                                     skip=params.skip,
                                                                     sort=params.sort,

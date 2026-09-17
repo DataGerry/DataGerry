@@ -36,10 +36,16 @@ out of the pipeline (`get_regex_pipes_values`) to highlight the matching fields 
 
 **A TEXT parameter is matched as a regular expression, not as literal text.** The Angular search bar
 escapes the term before sending it (`search-bar.component.ts`), so the UI behaves literally - but an
-API client posting `searchForm: "text"` gets regex semantics: `C++` matches `CCC`, `Data (EU)` does
-not match itself, and `*` fails the query. Aligning the two ends needs the frontend to stop escaping
-at the same time (escaping here would double-escape what it already escaped), so it is recorded as
-discussion-backlog #222 rather than changed here.
+API client posting `searchForm: "text"` gets regex semantics: `Data (EU)` does not match itself.
+Aligning the two ends fully needs the frontend to stop escaping at the same time (escaping every TEXT
+term here would double-escape what it already escaped), so it stays recorded as tier 2 **T187**.
+
+**One of its three symptoms is closed as of 2026-09-17:** a TEXT term that is not a usable pattern is
+matched as a literal instead of being handed to the database to refuse, so `*` and `[unclosed` answer
+results rather than a 400. It needed no frontend change, because every term the search bar sends is
+escaped and therefore always compiles - the fallback can only fire for a term the UI never produces.
+The other two symptoms remain and are the half the two ends have to change together: `C++` and
+`Data (EU)` are both **valid** patterns, so nothing here can tell that they were meant literally.
 """
 from logging import Logger, getLogger
 from typing import Any, TYPE_CHECKING
@@ -51,6 +57,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.framework.search.search_param import SearchParam
 from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS, SearchFormType
+from cmdb.framework.search.search_pattern import as_executable_pattern
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import build_acl_pipeline
 
@@ -167,15 +174,28 @@ class SearchPipelineBuilder(PipelineBuilder):
         """
         Adds one regex `$match` per TEXT or REGEX parameter
 
-        The two forms are matched identically - see the module docstring for why a TEXT term is a
-        regular expression here and what that means for a client that does not escape it
+        Both forms are matched as regular expressions - see the module docstring for what that means
+        for a client that does not escape a TEXT term. The one difference, since 2026-09-17, is that
+        a TEXT term which is **not a usable pattern** is matched as a literal rather than handed to
+        the database to refuse (`as_executable_pattern`): a search box must not answer 400 because
+        somebody typed `*`. A term that *is* a usable pattern is still executed as one, which is the
+        rest of T187. A REGEX term is passed through untouched, because there the caller asked
+        for a pattern and a stricter engine's opinion of it must not silently change their query.
+
+        The parameters keep the order they were sent in - consecutive `$match` stages commute, but
+        the pipeline is read in tests and in logs, and reordering it for no reason makes both harder
 
         Args:
             params (list[SearchParam]): The search parameters to read the text forms from
         """
         for param in _params_of(params, SearchFormType.TEXT, SearchFormType.REGEX):
+            pattern: str = param.search_text
+
+            if param.search_form == SearchFormType.TEXT:
+                pattern = as_executable_pattern(pattern)
+
             self.add_pipe(self.match_(
-                self.regex_(SEARCH_VALUE_FIELD, param.search_text, SEARCH_REGEX_FLAGS)
+                self.regex_(SEARCH_VALUE_FIELD, pattern, SEARCH_REGEX_FLAGS)
             ))
 
 

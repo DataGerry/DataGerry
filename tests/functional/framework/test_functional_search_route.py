@@ -501,3 +501,45 @@ class TestAnUnusableSearchParameterIsRefused:
 
         assert rest_api.post(SEARCH_URL, data=body, content_type='application/json').status_code \
             == HTTPStatus.OK
+
+
+class TestAnUnusableTextTermIsAnswered:
+    """
+    A search box must not answer 400 because somebody typed a regex metacharacter
+
+    A TEXT term reaches MongoDB as a regular expression, so before 2026-09-17 `*` was not a search
+    that found nothing - it was a query the database refused. Tier 2 **T187**; this is the half that
+    needed no frontend change, because the Angular search bar escapes every term it sends and an
+    escaped term always compiles.
+    """
+
+    @pytest.mark.parametrize('term', ['*', '[unclosed', 'a**', '+'], ids=repr)
+    def test_an_unusable_text_term_returns_results_not_400(self, rest_api, term: str) -> None:
+        """It is matched as the literal text it evidently was."""
+        body = json.dumps([{'searchText': term, 'searchForm': 'text'}])
+
+        response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+        assert response.status_code == HTTPStatus.OK
+
+    @pytest.mark.parametrize('term', ['C++', 'Data (EU)'], ids=repr)
+    def test_a_usable_text_term_still_answers(self, rest_api, term: str) -> None:
+        """The terms T187's remaining half is about are valid patterns and were never the 400."""
+        body = json.dumps([{'searchText': term, 'searchForm': 'text'}])
+
+        response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_an_unusable_regex_term_is_still_refused(self, rest_api) -> None:
+        """
+        The REGEX form is not second-guessed
+
+        A caller who asks for a pattern and gives an invalid one is told, rather than quietly served
+        a literal match they did not ask for.
+        """
+        body = json.dumps([{'searchText': '*', 'searchForm': 'regex'}])
+
+        response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST

@@ -70,10 +70,13 @@ from cmdb.interface.rest_api.routes.report_routes.report_category_helper import 
     load_category_or_404,
     normalize_category_params,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbReportCategory columns the category overview offers a search box over
+REPORT_CATEGORY_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'name')
 
 report_categories_blueprint = APIBlueprint('report_categories', __name__)
 
@@ -186,7 +189,7 @@ def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbU
                                                                                 ManagerType.REPORT_CATEGORIES,
                                                                                 request_user)
 
-        builder_params: BuilderParameters = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, REPORT_CATEGORY_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbReportCategory] = report_categories_manager.iterate_items(builder_params)
         report_category_list: list[dict] = [CmdbReportCategory.to_json(report_category) for report_category

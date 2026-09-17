@@ -55,7 +55,7 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WebhookRight
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.framework.results import IterationResult
@@ -68,6 +68,16 @@ from cmdb.errors.manager.webhooks_event_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbWebhookEvent columns the webhook log viewer offers a search box over
+WEBHOOK_EVENT_SEARCHABLE_FIELDS: tuple[str, ...] = (
+    'public_id',
+    'webhook_id',
+    'operation',
+    'status',
+    'response_code',
+    'event_time',
+)
 
 webhook_event_blueprint = APIBlueprint('webhook_events', __name__)
 
@@ -154,7 +164,7 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
         webhook_events_manager: WebhooksEventManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS_EVENT,
                                                                                    request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, WEBHOOK_EVENT_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbWebhookEvent] = webhook_events_manager.iterate_items(builder_params)
         webhook_event_list: list[dict[str, Any]] = [
