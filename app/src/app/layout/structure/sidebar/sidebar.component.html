@@ -50,19 +50,21 @@
 
       <li class="sb-nav-item" data-tip="Categories" (mouseenter)="onGroupMouseEnter('categories', $event)"
         (mouseleave)="onGroupMouseLeave()">
-        <div class="sb-item" [class.is-active]="selectedMenu === 'categories'">
+        <div class="sb-item" [class.is-active]="selectedMenu === 'categories'"
+          [class.is-open]="flyout?.group === 'categories'">
           <span class="sb-icon"><fa-icon icon="th-large"></fa-icon></span>
         </div>
       </li>
       <li *permissionLink="'base.framework.location.view'" class="sb-nav-item" data-tip="Locations"
         (mouseenter)="onGroupMouseEnter('locations', $event)" (mouseleave)="onGroupMouseLeave()">
-        <div class="sb-item" [class.is-active]="selectedMenu === 'locations'">
+        <div class="sb-item" [class.is-active]="selectedMenu === 'locations'"
+          [class.is-open]="flyout?.group === 'locations'">
           <span class="sb-icon"><fa-icon icon="map-marker-alt"></fa-icon></span>
         </div>
       </li>
       <li class="sb-nav-item" data-tip="IPAM" (mouseenter)="onGroupMouseEnter('ipam', $event)"
         (mouseleave)="onGroupMouseLeave()">
-        <div class="sb-item" [class.is-active]="selectedMenu === 'ipam'">
+        <div class="sb-item" [class.is-active]="selectedMenu === 'ipam'" [class.is-open]="flyout?.group === 'ipam'">
           <span class="sb-icon"><fa-icon icon="network-wired"></fa-icon></span>
         </div>
       </li>
@@ -148,7 +150,11 @@
   @if (flyout.group === 'categories') {
   <div class="sb-flyout" [style.top.px]="flyout.top" (mouseenter)="onFlyoutMouseEnter()"
     (mouseleave)="onFlyoutMouseLeave()">
-    <div class="sb-flyout__head">Categories</div>
+    <span class="sb-flyout__arrow" [style.top.px]="flyout.arrowTop" aria-hidden="true"></span>
+    <div class="sb-flyout__head">
+      <span class="sb-flyout__head-icon"><fa-icon icon="th-large"></fa-icon></span>
+      <span class="sb-flyout__head-text">Categories</span>
+    </div>
     <div class="sb-flyout__body">
       @for (node of categoryTree | categoryTreeFilter: ''; track node.category.public_id) {
       <cmdb-sidebar-category [categoryNode]="node">
@@ -170,7 +176,11 @@
   @if (flyout.group === 'locations') {
   <div class="sb-flyout" [style.top.px]="flyout.top" (mouseenter)="onFlyoutMouseEnter()"
     (mouseleave)="onFlyoutMouseLeave()">
-    <div class="sb-flyout__head">Locations</div>
+    <span class="sb-flyout__arrow" [style.top.px]="flyout.arrowTop" aria-hidden="true"></span>
+    <div class="sb-flyout__head">
+      <span class="sb-flyout__head-icon"><fa-icon icon="map-marker-alt"></fa-icon></span>
+      <span class="sb-flyout__head-text">Locations</span>
+    </div>
     <div class="sb-flyout__body">
       <location-tree *permissionLink="'base.framework.location.view'" [isExpanded]="false"
         [showSidebarExpandButton]="false"></location-tree>
@@ -181,7 +191,11 @@
   @if (flyout.group === 'ipam') {
   <div class="sb-flyout" [style.top.px]="flyout.top" (mouseenter)="onFlyoutMouseEnter()"
     (mouseleave)="onFlyoutMouseLeave()">
-    <div class="sb-flyout__head">Networks</div>
+    <span class="sb-flyout__arrow" [style.top.px]="flyout.arrowTop" aria-hidden="true"></span>
+    <div class="sb-flyout__head">
+      <span class="sb-flyout__head-icon"><fa-icon icon="network-wired"></fa-icon></span>
+      <span class="sb-flyout__head-text">Networks</span>
+    </div>
     <div class="sb-flyout__body">
       @if (ipamAvailable) {
       <ipam-tree [isExpanded]="false" [showSidebarExpandButton]="false"></ipam-tree>
