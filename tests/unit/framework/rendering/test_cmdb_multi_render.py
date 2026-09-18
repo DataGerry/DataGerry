@@ -276,6 +276,37 @@ class TestObjectAndTypeInformation:
 
         assert info[RenderTypeInfoKey.USES_PORTS.value] is True
 
+    def test_type_information_carries_the_port_section_index(self, managers) -> None:
+        """
+        Where the ports panel sits is forwarded alongside the flag that decides whether it renders
+
+        `uses_ports` alone only tells a client THAT the panel exists; the object view also has to
+        know where to draw it among the type's sections, and it has the type server-side already.
+        """
+        main_type = _main_type()
+        main_type.uses_ports = True
+        main_type.port_section_index = 3
+        render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
+
+        info = render._CmdbMultiRender__generate_type_information(main_type)
+
+        assert info[RenderTypeInfoKey.PORT_SECTION_INDEX.value] == 3
+
+    def test_a_type_predating_the_port_section_index_still_renders(self, managers) -> None:
+        """
+        A CmdbType whose document never carried the key renders as 0 instead of raising
+
+        `updater_20260918` backfills it, but a render is a read and a read must not depend on that
+        migration having run.
+        """
+        main_type = _main_type()
+        del main_type.__dict__[RenderTypeInfoKey.PORT_SECTION_INDEX.value]
+        render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
+
+        info = render._CmdbMultiRender__generate_type_information(main_type)
+
+        assert info[RenderTypeInfoKey.PORT_SECTION_INDEX.value] == 0
+
     def test_type_information_key_set_is_exactly_the_enum(self, managers) -> None:
         """
         The block is a curated selection, and this is what says so

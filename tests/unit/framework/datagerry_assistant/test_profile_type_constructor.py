@@ -25,7 +25,7 @@ import re
 from typing import Any
 from datetime import datetime
 
-from cmdb.models.type_model import FieldType, TypeSchemaKey
+from cmdb.models.type_model import DEFAULT_PORT_SECTION_INDEX, FieldType, TypeSchemaKey
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
@@ -58,6 +58,20 @@ def test_create_type_config_sets_skeleton_and_defaults(type_constructor: Profile
     assert cfg[TypeSchemaKey.AUTHOR_ID] == 1
     assert cfg[TypeSchemaKey.GLOBAL_TEMPLATE_IDS] == []
     assert cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.ICON] == 'fas fa-cube'
+
+
+def test_create_type_config_carries_the_ports_keys(type_constructor: ProfileTypeConstructor) -> None:
+    """
+    An assistant type is written with the ports pair, like one created through POST /types/
+
+    No profile builds a port-bearing type, so the values are the defaults - but the KEYS have to be
+    there: profile_base inserts this dict as given, and a type missing them is a second stored shape
+    that only its first edit would repair.
+    """
+    cfg: dict[str, Any] = type_constructor.create_type_config([_INFO_SECTION], 'demo', 'Demo', 'fas fa-cube')
+
+    assert cfg[TypeSchemaKey.USES_PORTS] is False
+    assert cfg[TypeSchemaKey.PORT_SECTION_INDEX] == DEFAULT_PORT_SECTION_INDEX
 
 
 def test_create_type_config_non_deterministic_fields_have_valid_shape(

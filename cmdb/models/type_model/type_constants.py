@@ -22,7 +22,8 @@ convention in ``section_template_constants``.
 
 Also holds DG_LOCATION_FIELD_NAME, the reserved name of the one location field a CmdbType may
 declare - the renderer, the CI Explorer, DocAPI and both importers all identify it by that name,
-and NestedSummaryKey, the keyset of a nested-summary entry.
+DEFAULT_PORT_SECTION_INDEX / MIN_PORT_SECTION_INDEX, the position the ports section falls back to and
+the lowest one it may be given, and NestedSummaryKey, the keyset of a nested-summary entry.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -30,6 +31,15 @@ from cmdb.utils import BaseStrEnum
 # Reserved name of the location field. A CmdbType has at most one field of type FieldType.LOCATION
 # and it always carries this name; every consumer that resolves a location value looks it up by it
 DG_LOCATION_FIELD_NAME: str = 'dg_location'
+
+# Where the ports section sits when a CmdbType says nothing about it: first, above every declared
+# section. Also the value forced onto a type that does not use ports, so the key is never a stale
+# position left over from a type that once did
+DEFAULT_PORT_SECTION_INDEX: int = 0
+
+# The lowest position the ports section may be given. Same number as the default, but a different
+# statement: 0 is where an unspecified index lands, and it is also the first slot that exists
+MIN_PORT_SECTION_INDEX: int = 0
 
 
 class TypeRight(BaseStrEnum):

@@ -37,7 +37,7 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
-from cmdb.models.type_model.type_constants import NestedSummaryKey
+from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, NestedSummaryKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_render_meta import TypeRenderMeta
 from cmdb.errors.models.cmdb_type import (
@@ -502,3 +502,76 @@ def test_the_schema_normalises_an_omitted_uses_ports() -> None:
     })
 
     assert validator.document[TypeSchemaKey.USES_PORTS.value] is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 port_section_index                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_port_section_index_defaults_when_the_key_is_absent() -> None:
+    """
+    A stored document written before the key existed still loads
+
+    Every CmdbType in an existing database lacks it until updater_20260918 runs, and each one has to
+    read as "ports section first" rather than raising or coming back as None.
+    """
+    assert _type().port_section_index == DEFAULT_PORT_SECTION_INDEX
+
+
+@pytest.mark.parametrize('stored', [0, 1, 7])
+def test_port_section_index_is_read_from_the_document(stored: int) -> None:
+    """A stored position wins over the default"""
+    assert _type(**{TypeSchemaKey.PORT_SECTION_INDEX.value: stored}).port_section_index == stored
+
+
+def test_port_section_index_defaults_in_the_constructor() -> None:
+    """
+    The constructor default matches from_data's
+
+    A drift between the two would mean a type built directly (the assistant's profile constructor, a
+    test fixture) disagreed with one loaded from the database.
+    """
+    cmdb_type = CmdbType(public_id=PUBLIC_ID, name=TYPE_NAME, author_id=1,
+                         render_meta=TypeRenderMeta.from_data({}))
+
+    assert cmdb_type.port_section_index == DEFAULT_PORT_SECTION_INDEX
+
+
+def test_to_json_emits_port_section_index() -> None:
+    """
+    The position survives serialisation
+
+    to_json is what the update route stores and what the type export writes, so a missing key here
+    would drop the position on every save and on every export -> import round trip.
+    """
+    serialised = CmdbType.to_json(_type(**{TypeSchemaKey.PORT_SECTION_INDEX.value: 2}))
+
+    assert serialised[TypeSchemaKey.PORT_SECTION_INDEX.value] == 2
+
+
+def test_port_section_index_survives_a_round_trip() -> None:
+    """from_data -> to_json -> from_data keeps the position"""
+    for value in (0, 4):
+        original = _type(**{TypeSchemaKey.PORT_SECTION_INDEX.value: value})
+
+        assert CmdbType.from_data(CmdbType.to_json(original)).port_section_index == value
+
+
+def test_the_schema_declares_port_section_index() -> None:
+    """The declared shape is what a client may send: a whole number of 0 or greater"""
+    entry = CmdbType.SCHEMA[TypeSchemaKey.PORT_SECTION_INDEX.value]
+
+    assert entry['type'] == 'integer'
+    assert entry['min'] == DEFAULT_PORT_SECTION_INDEX
+    assert entry['default'] == DEFAULT_PORT_SECTION_INDEX
+
+
+def test_the_schema_normalises_an_omitted_port_section_index() -> None:
+    """The schema default is actually applied by the validator, not merely declared"""
+    validator = Validator(CmdbType.SCHEMA, purge_unknown=True)
+    validator.validate({
+        TypeSchemaKey.NAME.value: TYPE_NAME,
+        TypeSchemaKey.AUTHOR_ID.value: 1,
+        TypeSchemaKey.RENDER_META.value: {},
+    })
+
+    assert validator.document[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX

@@ -58,7 +58,11 @@ from cmdb.errors.manager.port_interface_links_manager import (
     PortInterfaceLinksManagerUpdateError,
 )
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import INTERFACE_ROW_KEY
+from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
+    INTERFACE_ROW_KEY,
+    PORT_INTERFACE_LINKS_KEY,
+)
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PORTS_URL: str = '/ports'
@@ -479,6 +483,104 @@ class TestReadLink:
         response = rest_api.get(f'{PORTS_URL}/{MISSING_PORT_ID}/interface_links/')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the links on the PORT reads                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestThePortReadsCarryTheLinks:
+    """
+    Both port reads answer with each port's interface links attached
+
+    The ports panel shows a port's addresses next to the port. Without this it would have to call
+    ``GET /ports/<id>/interface_links/`` once per row - 48 follow-up requests for a switch - so the
+    links ride along with the ports, exactly as the derived `connected` flag does.
+    """
+
+    def test_the_object_read_carries_the_links_per_port(self, rest_api) -> None:
+        """Grouped by port: a link of one port must not appear on another"""
+        _create(rest_api)
+        _create(rest_api, port_id=OTHER_PORT_ID, multi_data_id=OTHER_ROW_ID)
+
+        ports = rest_api.get(f'{PORTS_URL}/object/{SWITCH_OBJECT_ID}').get_json()
+        by_id = {port[PortKey.PUBLIC_ID.value]: port for port in ports}
+
+        assert [link[PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value]
+                for link in by_id[PORT_ID][PORT_INTERFACE_LINKS_KEY]] == [ROW_ID]
+        assert [link[PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value]
+                for link in by_id[OTHER_PORT_ID][PORT_INTERFACE_LINKS_KEY]] == [OTHER_ROW_ID]
+
+    def test_the_live_row_travels_with_the_link(self, rest_api) -> None:
+        """
+        The addresses come from the row, whole - the same contract the dedicated link route has
+
+        Asserted by field NAME, never by position: a template field added later has to keep working.
+        """
+        _create(rest_api)
+
+        ports = rest_api.get(f'{PORTS_URL}/object/{SWITCH_OBJECT_ID}').get_json()
+        row = next(port for port in ports
+                   if port[PortKey.PUBLIC_ID.value] == PORT_ID)[PORT_INTERFACE_LINKS_KEY][0][INTERFACE_ROW_KEY]
+
+        assert _row_value(row, InterfaceField.IP.value) == ROW_IP
+        assert _row_value(row, InterfaceField.MAC.value) == ROW_MAC
+
+    def test_a_port_with_several_links_keeps_them_all(self, rest_api) -> None:
+        """The N:M case: a bond member, or a stack of VLAN sub-interfaces on one port"""
+        _create(rest_api)
+        _create(rest_api, multi_data_id=OTHER_ROW_ID, relation_type=InterfaceRelationType.VLAN.value)
+
+        ports = rest_api.get(f'{PORTS_URL}/object/{SWITCH_OBJECT_ID}').get_json()
+        links = next(port for port in ports
+                     if port[PortKey.PUBLIC_ID.value] == PORT_ID)[PORT_INTERFACE_LINKS_KEY]
+
+        assert {_row_value(link[INTERFACE_ROW_KEY], InterfaceField.IP.value) for link in links} == {
+            ROW_IP, OTHER_ROW_IP,
+        }
+
+    def test_an_unlinked_port_carries_an_empty_list(self, rest_api) -> None:
+        """Never a missing key - "linked to nothing" must not look like "not answered\""""
+        _create(rest_api)
+
+        ports = rest_api.get(f'{PORTS_URL}/object/{SWITCH_OBJECT_ID}').get_json()
+        other = next(port for port in ports if port[PortKey.PUBLIC_ID.value] == OTHER_PORT_ID)
+
+        assert other[PORT_INTERFACE_LINKS_KEY] == []
+
+    def test_a_dangling_link_is_listed_without_its_row(self, rest_api, seeded) -> None:
+        """Shown, never hidden - the same contract as the dedicated link list"""
+        _create(rest_api)
+        _break_the_row(seeded)
+
+        ports = rest_api.get(f'{PORTS_URL}/object/{SWITCH_OBJECT_ID}').get_json()
+        links = next(port for port in ports
+                     if port[PortKey.PUBLIC_ID.value] == PORT_ID)[PORT_INTERFACE_LINKS_KEY]
+
+        assert len(links) == 1
+        assert INTERFACE_ROW_KEY not in links[0]
+
+    def test_the_connected_flag_is_still_there(self, rest_api) -> None:
+        """The new key is additive: what the panel already read must keep arriving"""
+        _create(rest_api)
+
+        ports = rest_api.get(f'{PORTS_URL}/object/{SWITCH_OBJECT_ID}').get_json()
+
+        assert all(PORT_CONNECTED_KEY in port for port in ports)
+
+    def test_the_single_port_read_carries_the_links_too(self, rest_api) -> None:
+        """A port looks the same whichever read produced it"""
+        _create(rest_api)
+
+        port = rest_api.get(f'{PORTS_URL}/{PORT_ID}').get_json()['result']
+
+        assert _row_value(port[PORT_INTERFACE_LINKS_KEY][0][INTERFACE_ROW_KEY],
+                          InterfaceField.IP.value) == ROW_IP
+
+    def test_the_single_read_of_an_unlinked_port_carries_an_empty_list(self, rest_api) -> None:
+        """Same contract as the object read"""
+        port = rest_api.get(f'{PORTS_URL}/{OTHER_PORT_ID}').get_json()['result']
+
+        assert port[PORT_INTERFACE_LINKS_KEY] == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -489,10 +489,14 @@ class MongoDatabaseManager:
     @retry_operation
     def status(self) -> bool:
         """
-        Check if connector has connection to MongoDB
+        Reports whether the database answered a connection probe
 
-        Returns
-            bool: True is connected, else False
+        A plain boolean, because `MongoConnector.is_connected` catches the connection error rather
+        than re-raising it. Until 2026-09-17 it did re-raise, and this method inherited that: the one
+        route that reads it answered a 500 where it meant to answer `connected: false` (tier 2 T123)
+
+        Returns:
+            bool: True when the database answered, False when it did not
         """
         return self.connector.is_connected()
 

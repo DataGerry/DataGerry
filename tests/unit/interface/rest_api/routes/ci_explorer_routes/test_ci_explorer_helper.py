@@ -24,7 +24,7 @@ without a Flask app context. The request schemas are checked against a real Cerb
 """
 from http import HTTPStatus
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from cerberus import Validator
@@ -35,6 +35,9 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import (
     TOOLTIP_LOG_COMMENT,
+    build_tooltip_change,
+    bump_patch_version,
+    emit_tooltip_webhook,
     get_ci_explorer_label_schema,
     get_ci_explorer_tooltip_schema,
     load_ci_explorer_entity,
@@ -157,3 +160,81 @@ class TestRequestSchemas:
     def test_non_string_value_is_rejected(self, schema: dict[str, Any], key: str) -> None:
         """The field holds text; a number or an object is refused."""
         assert not Validator(schema, purge_unknown=True).validate({key: 5})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    build_tooltip_change / bump_patch_version                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+HELPER_PATH: str = 'cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper'
+
+
+def _stored_object(version: str = '1.2.3') -> dict[str, Any]:
+    """A CmdbObject document complete enough for CmdbObject.from_data."""
+    return {
+        'public_id': PUBLIC_ID,
+        'type_id': 1,
+        'author_id': 1,
+        'active': True,
+        'version': version,
+        'fields': [],
+    }
+
+
+def test_build_tooltip_change_describes_the_edit_once() -> None:
+    """One description, so the history entry and the webhook cannot disagree about the same edit."""
+    assert build_tooltip_change('before', 'after') == [
+        {'type': 'change', 'name': TOOLTIP_KEY, 'old': 'before', 'new': 'after'},
+    ]
+
+
+def test_bump_patch_version_moves_the_patch_component() -> None:
+    """A tooltip edit changes the document, so the version has to move."""
+    assert bump_patch_version(_stored_object('1.2.3')) == '1.2.4'
+
+
+def test_bump_patch_version_never_touches_major_or_minor() -> None:
+    """It is always a patch: a presentation key is not a schema change."""
+    assert bump_patch_version(_stored_object('9.9.9')) == '9.9.10'
+
+
+def test_bump_patch_version_does_not_mutate_the_stored_document() -> None:
+    """The caller writes the returned version itself, as part of its targeted update."""
+    stored = _stored_object('1.0.0')
+
+    bump_patch_version(stored)
+
+    assert stored['version'] == '1.0.0'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             emit_tooltip_webhook                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_emit_tooltip_webhook_sends_the_before_and_after_states() -> None:
+    """A subscriber watching object updates has to see a tooltip edit like any other."""
+    with patch(f'{HELPER_PATH}.send_webhook_event') as send:
+        emit_tooltip_webhook(MagicMock(), _stored_object(), 'before', 'after', '1.2.4')
+
+    before, after = send.call_args.args[2], send.call_args.args[3]
+
+    assert TOOLTIP_KEY not in before  # the stored document had no tooltip yet
+    assert after[TOOLTIP_KEY] == 'after'
+    assert after['version'] == '1.2.4'
+
+
+def test_emit_tooltip_webhook_carries_the_same_change_list_as_the_log() -> None:
+    """The webhook's diff is built by the same function the edit log uses."""
+    with patch(f'{HELPER_PATH}.send_webhook_event') as send:
+        emit_tooltip_webhook(MagicMock(), _stored_object(), 'before', 'after', '1.2.4')
+
+    assert send.call_args.args[4] == build_tooltip_change('before', 'after')
+
+
+def test_emit_tooltip_webhook_swallows_a_failure() -> None:
+    """
+    Best-effort, like the edit log beside it
+
+    The write has already happened when this runs; a webhook that cannot be delivered must not turn a
+    successful edit into an error.
+    """
+    with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')):
+        emit_tooltip_webhook(MagicMock(), _stored_object(), 'before', 'after', '1.2.4')  # must not raise

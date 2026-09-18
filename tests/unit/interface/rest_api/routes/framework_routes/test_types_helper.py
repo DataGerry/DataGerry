@@ -30,7 +30,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from werkzeug.exceptions import HTTPException
 
-from cmdb.models.type_model import FieldKey, FieldType, SectionType, TypeSchemaKey
+from cmdb.models.type_model import (
+    DEFAULT_PORT_SECTION_INDEX,
+    FieldKey,
+    FieldType,
+    SectionType,
+    TypeSchemaKey,
+)
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
@@ -76,6 +82,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     apply_type_changes_to_mds,
     enforce_special_type_license,
     enforce_rack_selectable_as_parent,
+    normalize_port_section_index,
+    normalize_ci_explorer_label,
     enforce_uses_ports_license,
     get_port_usage_of_type,
     build_uses_ports_usage_payload,
@@ -1367,3 +1375,248 @@ def test_normalize_type_acl_leaves_the_rest_of_the_payload_alone() -> None:
     assert payload['name'] == 'x'
     assert not payload['fields']
     assert payload['public_id'] == 7
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            normalize_port_section_index                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _port_type_payload(**overrides: Any) -> dict[str, Any]:
+    """Builds the payload of a port-bearing type, where the index is actually read."""
+    return {TypeSchemaKey.USES_PORTS.value: True, **overrides}
+
+
+def test_normalize_port_section_index_defaults_an_absent_key() -> None:
+    """
+    A payload that says nothing gets the default written in
+
+    POST /types/ stores the payload as given, so without this a created type would not carry the key
+    at all and only its first edit would add it - two stored shapes for one meaning.
+    """
+    payload: dict[str, Any] = _port_type_payload()
+
+    normalize_port_section_index(payload)
+
+    assert payload[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX
+
+
+@pytest.mark.parametrize('sent', [None, ''], ids=['null', 'empty'])
+def test_normalize_port_section_index_defaults_an_empty_value(sent: Any) -> None:
+    """A null or an empty string is "unset", not a bad value: neither is refused"""
+    payload: dict[str, Any] = _port_type_payload(**{TypeSchemaKey.PORT_SECTION_INDEX.value: sent})
+
+    normalize_port_section_index(payload)
+
+    assert payload[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX
+
+
+@pytest.mark.parametrize('sent, expected', [(0, 0), (1, 1), (5, 5), ('3', 3), (2.0, 2)], ids=str)
+def test_normalize_port_section_index_keeps_a_usable_position(sent: Any, expected: int) -> None:
+    """Whole numbers from 0 up are stored as ints, including the JSON/string spellings of one"""
+    payload: dict[str, Any] = _port_type_payload(**{TypeSchemaKey.PORT_SECTION_INDEX.value: sent})
+
+    normalize_port_section_index(payload)
+
+    assert payload[TypeSchemaKey.PORT_SECTION_INDEX.value] == expected
+
+
+@pytest.mark.parametrize('sent', [-1, -10, 1.5, 'left', [], {}, True], ids=str)
+def test_normalize_port_section_index_aborts_400_on_an_unusable_value(sent: Any) -> None:
+    """
+    An index that cannot mean a position is reported, not silently corrected
+
+    True is in the list on purpose: bool is an int subclass in Python, so a client sending it would
+    otherwise be read as position 1. The type IMPORT is the one path that falls back to the default
+    instead of refusing.
+    """
+    payload: dict[str, Any] = _port_type_payload(**{TypeSchemaKey.PORT_SECTION_INDEX.value: sent})
+
+    with pytest.raises(HTTPException) as err:
+        normalize_port_section_index(payload)
+
+    assert err.value.code == 400
+
+
+@pytest.mark.parametrize('uses_ports', [False, None, ''], ids=['false', 'absent', 'empty'])
+def test_normalize_port_section_index_resets_a_type_without_ports(uses_ports: Any) -> None:
+    """
+    A type that does not use ports always stores the default
+
+    The index is only read while the flag is on, so keeping a position here would resurface it if the
+    flag were ever set again - a placement the user never made for that type.
+    """
+    payload: dict[str, Any] = {
+        TypeSchemaKey.USES_PORTS.value: uses_ports,
+        TypeSchemaKey.PORT_SECTION_INDEX.value: 4,
+    }
+
+    normalize_port_section_index(payload)
+
+    assert payload[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX
+
+
+def test_normalize_port_section_index_validates_before_it_resets() -> None:
+    """
+    A broken index is refused even on a type without ports
+
+    The value is about to be discarded either way, but reporting it is what tells a client its
+    payload is wrong instead of letting the bug ride until someone turns ports on.
+    """
+    payload: dict[str, Any] = {
+        TypeSchemaKey.USES_PORTS.value: False,
+        TypeSchemaKey.PORT_SECTION_INDEX.value: -3,
+    }
+
+    with pytest.raises(HTTPException) as err:
+        normalize_port_section_index(payload)
+
+    assert err.value.code == 400
+
+
+def test_normalize_port_section_index_leaves_the_rest_of_the_payload_alone() -> None:
+    """It completes one key and touches nothing else"""
+    payload: dict[str, Any] = _port_type_payload(name='x', fields=[], public_id=7)
+
+    normalize_port_section_index(payload)
+
+    assert (payload['name'], payload['fields'], payload['public_id']) == ('x', [], 7)
+    assert payload[TypeSchemaKey.USES_PORTS.value] is True
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            normalize_ci_explorer_label                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+LABEL_FIELD: str = 'hostname'
+LABEL_MDS_FIELD: str = 'port-name'
+
+
+def _label_payload(**overrides: Any) -> dict[str, Any]:
+    """A type payload with one plain field and one multi-data-section field."""
+    payload: dict[str, Any] = {
+        TypeSchemaKey.NAME.value: 'server',
+        TypeSchemaKey.FIELDS.value: [
+            {FieldKey.NAME.value: LABEL_FIELD, FieldKey.TYPE.value: FieldType.TEXT.value},
+            {FieldKey.NAME.value: LABEL_MDS_FIELD, FieldKey.TYPE.value: FieldType.TEXT.value},
+        ],
+        TypeSchemaKey.RENDER_META.value: {
+            TypeSchemaKey.SECTIONS.value: [
+                {SectionKey.TYPE.value: SectionType.SECTION.value, SectionKey.NAME.value: 'info',
+                 SectionKey.FIELDS.value: [LABEL_FIELD]},
+                {SectionKey.TYPE.value: SectionType.MDS_SECTION.value, SectionKey.NAME.value: 'ports',
+                 SectionKey.FIELDS.value: [LABEL_MDS_FIELD]},
+            ],
+        },
+    }
+    payload.update(overrides)
+
+    return payload
+
+
+def _stored_type(label_field: Any) -> SimpleNamespace:
+    """The stored CmdbType an update is judged against - only two attributes are read."""
+    return SimpleNamespace(ci_explorer_label=label_field, public_id=42)
+
+
+def test_normalize_ci_explorer_label_keeps_a_usable_nomination() -> None:
+    """The ordinary case: the nominated field is one the Type declares"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: LABEL_FIELD})
+
+    normalize_ci_explorer_label(payload)
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] == LABEL_FIELD
+
+
+@pytest.mark.parametrize('sent', [None, ''], ids=['null', 'empty'])
+def test_normalize_ci_explorer_label_normalises_an_unset_value(sent: Any) -> None:
+    """
+    Both spellings of "no field chosen" become the stored one
+
+    The frontend writes an empty string when it clears the pick and None when it starts fresh; one
+    stored spelling keeps the key answerable by a single query.
+    """
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: sent})
+
+    normalize_ci_explorer_label(payload)
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] is None
+
+
+def test_normalize_ci_explorer_label_fills_in_an_absent_key() -> None:
+    """A create that says nothing stores the key as None rather than not at all"""
+    payload = _label_payload()
+
+    normalize_ci_explorer_label(payload)
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] is None
+
+
+def test_normalize_ci_explorer_label_aborts_400_on_an_unknown_field() -> None:
+    """
+    A display string sent where a field name belongs is refused
+
+    Stored, it would render every node of the Type as "Label not selected" with nothing anywhere
+    saying why - so the caller is told at the write instead.
+    """
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: 'Switch'})
+
+    with pytest.raises(HTTPException) as err:
+        normalize_ci_explorer_label(payload)
+
+    assert err.value.code == 400
+
+
+def test_normalize_ci_explorer_label_aborts_400_on_a_multi_data_section_field() -> None:
+    """An MDS field resolves to a flat entry that carries none of the section's rows"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: LABEL_MDS_FIELD})
+
+    with pytest.raises(HTTPException) as err:
+        normalize_ci_explorer_label(payload)
+
+    assert err.value.code == 400
+
+
+def test_normalize_ci_explorer_label_refuses_a_newly_chosen_bad_field_on_an_update() -> None:
+    """An update that CHANGES the nomination to something unusable is still a client bug"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: 'Switch'})
+
+    with pytest.raises(HTTPException) as err:
+        normalize_ci_explorer_label(payload, _stored_type(LABEL_FIELD))
+
+    assert err.value.code == 400
+
+
+def test_normalize_ci_explorer_label_clears_a_nomination_whose_field_was_removed() -> None:
+    """
+    Removing the nominated field clears the nomination instead of refusing the update
+
+    The nomination is unchanged - the update did not choose it, it only stopped resolving - and
+    refusing a field removal over a cosmetic key would be the wrong trade. The stale nomination has
+    to go either way.
+    """
+    payload = _label_payload(**{
+        TypeSchemaKey.CI_EXPLORER_LABEL.value: LABEL_FIELD,
+        TypeSchemaKey.FIELDS.value: [],
+        TypeSchemaKey.RENDER_META.value: {TypeSchemaKey.SECTIONS.value: []},
+    })
+
+    normalize_ci_explorer_label(payload, _stored_type(LABEL_FIELD))
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] is None
+
+
+def test_normalize_ci_explorer_label_repairs_a_nomination_that_was_already_stale() -> None:
+    """A Type carrying a dangling nomination from before this rule is cleaned up on its next save"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: 'Switch'})
+
+    normalize_ci_explorer_label(payload, _stored_type('Switch'))
+
+    assert payload[TypeSchemaKey.CI_EXPLORER_LABEL.value] is None
+
+
+def test_normalize_ci_explorer_label_leaves_the_rest_of_the_payload_alone() -> None:
+    """It completes one key and touches nothing else"""
+    payload = _label_payload(**{TypeSchemaKey.CI_EXPLORER_LABEL.value: LABEL_FIELD, 'public_id': 7})
+
+    normalize_ci_explorer_label(payload)
+
+    assert payload['public_id'] == 7
+    assert len(payload[TypeSchemaKey.FIELDS.value]) == 2

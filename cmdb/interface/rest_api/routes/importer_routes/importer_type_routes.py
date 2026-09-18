@@ -62,8 +62,10 @@ def add_type(request_user: CmdbUser) -> Response:
     A fresh public_id and creation timestamp are assigned to each imported type, so any public_id in
     the upload is dropped, and the requesting user becomes the author. Only the name, fields and
     sections are really required: the optional `active`, `selectable_as_parent`, `uses_ports`,
-    `label`, `version`, `ci_explorer_label`, `ci_explorer_color` and `acl` are defaulted when the
-    upload omits them (`uses_ports` to False, the other two flags to True).
+    `port_section_index`, `label`, `version`, `ci_explorer_label`, `ci_explorer_color` and `acl` are
+    defaulted when the upload omits them (`uses_ports` to False, the other two flags to True). An
+    unusable `port_section_index` falls back to 0 instead of failing the entry, and a type that does
+    not use ports always stores 0.
     A type declaring a `special_type` must name a known one, requires the IPAM feature, and is refused
     when that marker is already claimed; an entry enabling `uses_ports` requires the IPAM feature
     too; the type name must be present and unique, and the field /

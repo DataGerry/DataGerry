@@ -91,6 +91,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     enforce_special_type_license,
     enforce_rack_selectable_as_parent,
     enforce_uses_ports_license,
+    normalize_port_section_index,
+    normalize_ci_explorer_label,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
 from cmdb.interface.blueprints import APIBlueprint
@@ -171,6 +173,14 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         # Declaring a Type as port-bearing requires a valid IPAM license
         enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
+
+        # Where the frontend draws the ports section. Completed here for the same reason the ACL is:
+        # the insert stores the payload as given, so an absent key would stay absent
+        normalize_port_section_index(data)
+
+        # 'ci_explorer_label' names one of the Type's own fields - the one whose value the CI
+        # Explorer shows on every node of the Type - so a name the Type does not offer is refused
+        normalize_ci_explorer_label(data)
 
         data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
         data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
@@ -702,6 +712,14 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # Turning 'uses_ports' on requires a valid IPAM license. Only the requested value is gated,
         # so an unlicensed instance can still turn the flag back off
         enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
+
+        # Applied before CmdbType.from_data below, so the validated (and, without ports, reset) index
+        # is what reaches the instance that gets written
+        normalize_port_section_index(data)
+
+        # The CI Explorer label field, judged against THIS payload: an update that removes the
+        # nominated field clears the nomination instead of being refused over it
+        normalize_ci_explorer_label(data, old_type)
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id

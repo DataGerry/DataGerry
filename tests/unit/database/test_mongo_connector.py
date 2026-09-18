@@ -310,17 +310,44 @@ def test_disconnect_without_a_client_is_a_no_op() -> None:
     assert (status.get_status(), status.message) == (False, "No active database connection to close.")
 
 
-def test_disconnect_swallows_a_failing_close_and_keeps_the_client() -> None:
-    """#143: a failed close reports the same connected=False and leaves the broken client in place"""
+def test_disconnect_reports_a_failing_close_instead_of_disguising_it() -> None:
+    """
+    T124: a failed close used to answer the same connected=False a successful one does
+
+    Only the message differed, so no caller could tell a close from a failure to close.
+    """
     client = MagicMock()
     client.close.side_effect = RuntimeError('boom')
     connector = _with_client(_connector({}), client)
 
-    status = connector.disconnect()
+    with pytest.raises(DatabaseConnectionError):
+        connector.disconnect()
 
-    assert status.get_status() is False
-    assert status.message == 'Error while disconnecting: boom'
-    assert connector._client is client  # pylint: disable=protected-access
+
+def test_disconnect_drops_the_client_even_when_the_close_failed() -> None:
+    """
+    T124: a client whose close() failed must not be handed to the next caller
+
+    It used to be left in place, so the next `client` access returned the same broken object instead
+    of building a new one - the close had failed AND the connector kept the corpse.
+    """
+    client = MagicMock()
+    client.close.side_effect = RuntimeError('boom')
+    connector = _with_client(_connector({}), client)
+
+    with pytest.raises(DatabaseConnectionError):
+        connector.disconnect()
+
+    assert connector._client is None  # pylint: disable=protected-access
+
+
+def test_disconnect_drops_the_client_after_a_successful_close() -> None:
+    """The ordinary path clears it too, so the property rebuilds one on demand."""
+    connector = _with_client(_connector({}), MagicMock())
+
+    connector.disconnect()
+
+    assert connector._client is None  # pylint: disable=protected-access
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -335,11 +362,45 @@ def test_is_connected_is_true_when_the_server_answers() -> None:
     assert connector.is_connected() is True
 
 
-def test_is_connected_raises_instead_of_returning_false() -> None:
-    """#141: the documented 'False otherwise' never happens - callers have to catch"""
+def test_is_connected_is_false_when_the_server_does_not_answer() -> None:
+    """
+    T123: the method answers the question it is named for, rather than raising
+
+    It used to re-raise, which is why `GET /rest/` - the probe whose whole job is to report
+    connectivity - answered 500 instead of `connected: false` when the database was down.
+    """
     client = MagicMock()
     client.admin.command.side_effect = ConnectionFailure('server down')
     connector = _with_client(_connector({}), client)
 
-    with pytest.raises(DatabaseConnectionError):
-        connector.is_connected()
+    assert connector.is_connected() is False
+
+
+def test_is_connected_is_false_when_the_response_is_not_acknowledged() -> None:
+    """Not only an unreachable server: an unexpected reply is a negative answer, not an error."""
+    client = MagicMock()
+    client.admin.command.return_value = {MONGO_COMMAND_OK_KEY: 0}
+    connector = _with_client(_connector({}), client)
+
+    assert connector.is_connected() is False
+
+
+def test_is_connected_does_not_swallow_the_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The False means "the retries are spent", not "the first attempt failed"
+
+    `connect()` carries @retry_operation and reaching the database is side-effect free, so a transient
+    failure is repeated before it arrives here. This pins that the catch is around the retried call
+    rather than replacing it.
+    """
+    attempts: list[int] = []
+    connector = _connector({})
+
+    def _always_fails(_self=None):
+        attempts.append(1)
+        raise DatabaseConnectionError('down')
+
+    monkeypatch.setattr(type(connector), 'connect', _always_fails)
+
+    assert connector.is_connected() is False
+    assert len(attempts) == 1

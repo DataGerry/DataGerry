@@ -87,6 +87,37 @@ class TestRenderedTypeInformation:
         assert type_information['uses_ports'] is False
         assert type_information['selectable_as_parent'] is True
 
+    def test_type_information_carries_the_port_section_index(self, rest_api) -> None:
+        """
+        Where the ports panel sits reaches the client with the flag that decides whether it renders
+
+        The seeded type document carries no `port_section_index` at all - the shape of every type
+        before updater_20260918 - so this also pins what such a document renders as.
+        """
+        response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['type_information']['port_section_index'] == 0
+
+    def test_the_port_section_index_follows_the_stored_type(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """Placing the ports section on the Type changes what the rendered object reports"""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        types.update_one({'public_id': TYPE_ID}, {'$set': {'uses_ports': True, 'port_section_index': 2}})
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}')
+
+            assert response.get_json()['type_information']['port_section_index'] == 2
+        finally:
+            types.update_one(
+                {'public_id': TYPE_ID},
+                {'$set': {'uses_ports': False}, '$unset': {'port_section_index': ''}},
+            )
+
     def test_uses_ports_follows_the_stored_type(
         self,
         rest_api,

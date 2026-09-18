@@ -47,7 +47,7 @@ from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.models.type_model.type_constants import NestedSummaryKey
+from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, NestedSummaryKey
 from cmdb.class_schema.type_model.cmdb_type_schema import get_cmdb_type_schema
 
 from cmdb.errors.models.cmdb_type import (
@@ -95,6 +95,7 @@ class CmdbType(CmdbDAO):
         special_type: str | None = None,
         selectable_as_parent: bool = True,
         uses_ports: bool = False,
+        port_section_index: int = DEFAULT_PORT_SECTION_INDEX,
         global_template_ids: list[str] | None = None,
         fields: list[dict[str, Any]] | None = None,
         version: str | None = None,
@@ -124,6 +125,10 @@ class CmdbType(CmdbDAO):
             selectable_as_parent (bool): Whether this CmdbType can be a parent Location. Defaults to True
             uses_ports (bool): Whether CmdbObjects of this CmdbType may carry physical ports.
                                 Defaults to False, so every existing CmdbType reads as not using ports
+            port_section_index (int): Where among this CmdbType's sections the frontend draws the
+                                        ports section - 0 puts it first, 1 second, and so on. Only
+                                        read while `uses_ports` is true; the write paths force it back
+                                        to DEFAULT_PORT_SECTION_INDEX whenever the flag is off
             global_template_ids (list[str]): Names of the global CmdbSectionTemplates used by this
                                                 CmdbType (the name is also the render_meta section name)
             fields (list): A list of fields associated with the CmdbType
@@ -144,6 +149,7 @@ class CmdbType(CmdbDAO):
             self.version: str = version or CmdbType.DEFAULT_VERSION
             self.selectable_as_parent: bool = selectable_as_parent
             self.uses_ports: bool = uses_ports
+            self.port_section_index: int = port_section_index
             self.global_template_ids: list[str] = global_template_ids or []
             self.active: bool = active
             self.special_type: str | None = special_type
@@ -193,6 +199,8 @@ class CmdbType(CmdbDAO):
                 name=data[TypeSchemaKey.NAME.value],
                 selectable_as_parent=data.get(TypeSchemaKey.SELECTABLE_AS_PARENT.value, True),
                 uses_ports=data.get(TypeSchemaKey.USES_PORTS.value, False),
+                port_section_index=data.get(TypeSchemaKey.PORT_SECTION_INDEX.value,
+                                            DEFAULT_PORT_SECTION_INDEX),
                 global_template_ids=data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value, []),
                 active=data.get(TypeSchemaKey.ACTIVE.value, True),
                 special_type=data.get(TypeSchemaKey.SPECIAL_TYPE.value),
@@ -233,6 +241,7 @@ class CmdbType(CmdbDAO):
                 TypeSchemaKey.NAME.value: instance.name,
                 TypeSchemaKey.SELECTABLE_AS_PARENT.value: instance.selectable_as_parent,
                 TypeSchemaKey.USES_PORTS.value: instance.uses_ports,
+                TypeSchemaKey.PORT_SECTION_INDEX.value: instance.port_section_index,
                 TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: instance.global_template_ids,
                 TypeSchemaKey.ACTIVE.value: instance.active,
                 TypeSchemaKey.SPECIAL_TYPE.value: instance.special_type,
