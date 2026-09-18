@@ -110,6 +110,7 @@ import { GraphCanvasComponent } from './object-view/graph-editor/components/grap
 import { GraphToolbarComponent } from './object-view/graph-editor/components/graph-toolbar/graph-toolbar.component';
 import { GraphFilterPanelComponent } from './object-view/graph-editor/components/graph-filter-panel/graph-filter-panel.component';
 import { GraphNodeComponent } from './object-view/graph-editor/components/graph-node/graph-node.component';
+import { GraphLegendComponent } from './object-view/graph-editor/components/graph-legend/graph-legend.component';
 import { GraphMinimapComponent } from './object-view/graph-editor/components/graph-minimap/graph-minimap.component';
 import { GraphContextMenuComponent } from './object-view/graph-editor/components/graph-context-menu/graph-context-menu.component';
 import { NodeDetailsModalComponent } from './object-view/graph-editor/modals/node-details/node-details-modal.component';
@@ -189,6 +190,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         GraphFilterPanelComponent,
         GraphNodeComponent,
         GraphMinimapComponent,
+        GraphLegendComponent,
         GraphContextMenuComponent,
         NodeDetailsModalComponent,
         ProfileManagerModalComponent,

@@ -25,7 +25,7 @@ import {
     GraphRespParents
 } from 'src/app/framework/models/ci-explorer.model';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
-import { undirectedNeighbours } from '../utils/graph-edge.util';
+import { cableColorOf, edgeByNeighbour, undirectedNeighbours } from '../utils/graph-edge.util';
 import { GraphDataService } from './graph-data.service';
 import { firstValueFrom } from 'rxjs';
 import { ConnectionTrackerService } from './connection-tracker.service';
@@ -119,19 +119,26 @@ export class GraphExpansionService {
                 });
 
                 const undirected = undirectedNeighbours(parentEdges, id);
+                const byNeighbour = edgeByNeighbour(parentEdges, id);
 
                 const before = nodes?.length;
                 this.graphData?.mergeNodes(nodes, parents, nodeTypeConfigs);
                 const added = nodes?.slice(before);
 
                 added?.forEach(p => {
+                    const edge = byNeighbour.get(p?.id);
+
                     connections.push({
                         from: p?.id, to: id,
                         fromLevel: p?.level, toLevel: ui?.level,
                         fromUid: p?.uid, toUid: ui?.uid,
-                        relationLabel: 'parent',
-                        relationColor: cn?.relation_color,
+                        relationLabel: edge?.meta?.relation_label,
+                        relationColor: edge?.meta?.relation_color ?? cn?.relation_color,
+                        relationIcon: edge?.meta?.relation_icon,
+                        metadata: edge?.meta,
                         undirected: undirected.has(p?.id),
+                        kind: edge?.kind ?? 'unknown',
+                        cableColor: cableColorOf(edge?.meta),
                         isValid: true, strength: 1
                     });
                 });
@@ -157,19 +164,26 @@ export class GraphExpansionService {
                 });
 
                 const undirected = undirectedNeighbours(childEdges, id);
+                const byNeighbour = edgeByNeighbour(childEdges, id);
 
                 const before = nodes?.length;
                 this.graphData?.mergeNodes(nodes, kids, nodeTypeConfigs);
                 const added = nodes?.slice(before);
 
                 added?.forEach(k => {
+                    const edge = byNeighbour.get(k?.id);
+
                     connections.push({
                         from: id, to: k?.id,
                         fromLevel: ui?.level, toLevel: k?.level,
                         fromUid: ui?.uid, toUid: k?.uid,
-                        relationLabel: 'child',
-                        relationColor: cn?.relation_color,
+                        relationLabel: edge?.meta?.relation_label,
+                        relationColor: edge?.meta?.relation_color ?? cn?.relation_color,
+                        relationIcon: edge?.meta?.relation_icon,
+                        metadata: edge?.meta,
                         undirected: undirected.has(k?.id),
+                        kind: edge?.kind ?? 'unknown',
+                        cableColor: cableColorOf(edge?.meta),
                         isValid: true, strength: 1
                     });
                 });

@@ -20,6 +20,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  computed,
   ElementRef,
   EventEmitter,
   inject,
@@ -46,6 +47,7 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { KEYBOARD_SHORTCUTS } from './constants/graph.constants';
 import { GraphCanvasComponent } from './components/graph-canvas/graph-canvas.component';
+import { EdgeKindCounts } from './components/graph-legend/graph-legend.component';
 import { Connection, FilterProfile, GraphNode, NodeGroup } from './interfaces/graph.interfaces';
 import {
   ConnectionDetailsData,
@@ -111,6 +113,18 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
 
   readonly store = inject(GraphEditorStore);
 
+  /** How many of each edge kind are on screen, which is what the legend explains. */
+  readonly edgeKindCounts = computed<EdgeKindCounts>(() => {
+    const counts: EdgeKindCounts = {};
+
+    this.store.visibleConnections().forEach(conn => {
+      const kind = conn.kind ?? 'unknown';
+      counts[kind] = (counts[kind] ?? 0) + 1;
+    });
+
+    return counts;
+  });
+
   // Filter bar
   showFilterBar = false;
   filterForm: FormGroup;
@@ -137,6 +151,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   contextMenuX = 0;
   contextMenuY = 0;
   showMinimap = false;
+  showLegend = true;
   isFullscreen = false;
 
   private readonly destroy$ = new Subject<void>();
@@ -359,7 +374,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
       return;
     }
 
-    this.openConnectionDetailsModal(fromNode, toNode, this.resolveConnectionRows(conn, fromNode, toNode));
+    this.openConnectionDetailsModal(conn, fromNode, toNode, this.resolveConnectionRows(conn, fromNode, toNode));
   }
 
   navigateNodes(direction: 'up' | 'down' | 'left' | 'right'): void {
@@ -428,6 +443,8 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   }
 
   toggleMinimap(): void { this.showMinimap = !this.showMinimap; }
+
+  toggleLegend(): void { this.showLegend = !this.showLegend; }
   toggleFilterBar(): void { this.showFilterBar = !this.showFilterBar; }
 
   /* ---------------------------------------------------- FILTERS ----------------------------------------------------- */
@@ -717,6 +734,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   }
 
   private openConnectionDetailsModal(
+    conn: Connection,
     fromNode: GraphNode,
     toNode: GraphNode,
     connections: ConnectionDetailsData[]
@@ -732,6 +750,6 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
     modalRef.componentInstance.sourceNode = toNodeDetails(fromNode);
     modalRef.componentInstance.targetNode = toNodeDetails(toNode);
     modalRef.componentInstance.connections = connections;
-    modalRef.componentInstance.direction = resolveDirection(fromNode, toNode);
+    modalRef.componentInstance.direction = resolveDirection(fromNode, toNode, conn);
   }
 }

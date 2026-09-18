@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { CINode } from 'src/app/framework/models/ci-explorer.model';
+import { CINode, RelationMeta } from 'src/app/framework/models/ci-explorer.model';
 
 export interface GraphNode {
   /* persistent CI identity */
@@ -52,6 +52,9 @@ export interface GraphNode {
   metadata?: any;
 }
 
+/** Which source produced an edge; `unknown` keeps the default relation styling. */
+export type GraphEdgeKind = 'relation' | 'cable' | 'ipam' | 'location' | 'unknown';
+
 export interface Connection {
   from: number;
   to: number;
@@ -70,6 +73,9 @@ export interface Connection {
   dataFlow?: boolean;
   /** Port connections run both ways, so they are drawn without an arrow head. */
   undirected?: boolean;
+  kind?: GraphEdgeKind;
+  /** The physical cable's own colour, already allow-listed for painting. */
+  cableColor?: string | null;
   metadata?: any;
 }
 
@@ -97,13 +103,8 @@ export interface FilterProfile {
       toNodeId: number;
       fromUid: string;
       toUid: string;
-      metadata: {
-          relation_id: number;
-          relation_name: string;
-          relation_label: string;
-          relation_color: string;
-          relation_icon?: string;
-      };
+      /** The edge's own relation block, kept whole so `source` reaches the details modal. */
+      metadata?: RelationMeta;
       source: 'initial' | 'expansion';
       instanceId: number; // Unique identifier for each edge instance
   }

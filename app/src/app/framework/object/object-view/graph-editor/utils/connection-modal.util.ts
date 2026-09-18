@@ -25,7 +25,8 @@ const LOCATION_RELATION = {
     relation_id: 0,
     relation_label: 'Location',
     relation_color: '#666',
-    relation_icon: 'location_on'
+    relation_icon: 'location_on',
+    source: 'location'
 } as const;
 
 /**
@@ -55,23 +56,28 @@ export function toNodeDetails(node: GraphNode): NodeDetailsData {
 }
 
 /** Children sit at a higher level than their parents, which is what names the direction. */
-export function resolveDirection(fromNode: GraphNode, toNode: GraphNode): 'incoming' | 'outgoing' {
+export function resolveDirection(
+    fromNode: GraphNode,
+    toNode: GraphNode,
+    conn?: Connection
+): 'incoming' | 'outgoing' | 'bidirectional' {
+    if (conn?.undirected || conn?.kind === 'cable') {
+        return 'bidirectional';
+    }
+
     return fromNode.level < toNode.level ? 'outgoing' : 'incoming';
 }
 
-function toModalMetadata(meta: RelationMeta | undefined, fromNode: GraphNode): ConnectionDetailsData['metadata'] {
-    if (meta?.source) {
-        return {
-            relation_id: meta.relation_id,
-            relation_name: meta.relation_name,
-            relation_label: meta.relation_label,
-            relation_color: meta.relation_color,
-            relation_icon: normalizeRelationIcon(meta.relation_icon),
-            source: meta.source
-        } as ConnectionDetailsData['metadata'];
-    }
+/**
+ * A location edge arrives bare, so an edge that names itself is never one. A port
+ * connection and an IPAM edge both carry a source instead of a relation id.
+ */
+function isLocationEdge(meta: RelationMeta): boolean {
+    return !meta.relation_id && !meta.source && !meta.relation_name;
+}
 
-    if (!meta || !meta.relation_id) {
+function toModalMetadata(meta: RelationMeta | undefined, fromNode: GraphNode): ConnectionDetailsData['metadata'] {
+    if (!meta || isLocationEdge(meta)) {
         return { ...LOCATION_RELATION, relation_name: fromNode.label };
     }
 
@@ -80,7 +86,8 @@ function toModalMetadata(meta: RelationMeta | undefined, fromNode: GraphNode): C
         relation_name: meta.relation_name,
         relation_label: meta.relation_label,
         relation_color: meta.relation_color,
-        relation_icon: meta.relation_icon
+        relation_icon: normalizeRelationIcon(meta.relation_icon),
+        source: meta.source
     } as ConnectionDetailsData['metadata'];
 }
 
@@ -118,8 +125,27 @@ export function rowsFromTrackedConnections(
         toLevel: toNode.level,
         fromUid: conn.fromUid,
         toUid: conn.toUid,
-        metadata: toModalMetadata(conn.metadata as RelationMeta, fromNode)
+        metadata: toModalMetadata(conn.metadata, fromNode)
     }));
+}
+
+/** The drawn edge names its relation only as a label, so its own metadata is preferred. */
+function renderedMetadata(conn: Connection, fromNode: GraphNode): ConnectionDetailsData['metadata'] {
+    if (conn.metadata) {
+        return toModalMetadata(conn.metadata, fromNode);
+    }
+
+    if (!conn.relationLabel || conn.relationLabel === 'Unknown') {
+        return { ...LOCATION_RELATION, relation_name: fromNode.label };
+    }
+
+    return {
+        relation_id: 0,
+        relation_name: conn.relationLabel,
+        relation_label: conn.relationLabel,
+        relation_color: conn.relationColor,
+        relation_icon: conn.relationIcon
+    } as ConnectionDetailsData['metadata'];
 }
 
 /** Last resort: rebuild a single row from what the rendered edge itself carries. */
@@ -128,8 +154,6 @@ export function rowsFromRenderedConnection(
     fromNode: GraphNode,
     toNode: GraphNode
 ): ConnectionDetailsData[] {
-    const hasRelation = !!conn.relationLabel && conn.relationLabel !== 'Unknown';
-
     return [{
         from: conn.from,
         to: conn.to,
@@ -137,14 +161,6 @@ export function rowsFromRenderedConnection(
         toLevel: toNode.level,
         fromUid: conn.fromUid ?? '',
         toUid: conn.toUid ?? '',
-        metadata: hasRelation
-            ? {
-                relation_id: 0,
-                relation_name: conn.relationLabel,
-                relation_label: conn.relationLabel,
-                relation_color: conn.relationColor,
-                relation_icon: conn.relationIcon
-            } as ConnectionDetailsData['metadata']
-            : { ...LOCATION_RELATION, relation_name: fromNode.label }
+        metadata: renderedMetadata(conn, fromNode)
     }];
 }

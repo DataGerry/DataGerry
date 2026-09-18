@@ -31,6 +31,7 @@ export class GraphToolbarComponent {
     readonly zoom = input(1);
     readonly focusMode = input(false);
     readonly filterBarOpen = input(false);
+    readonly legendOpen = input(false);
     readonly minimapOpen = input(false);
     readonly fullscreen = input(false);
 
@@ -40,6 +41,7 @@ export class GraphToolbarComponent {
     readonly toggleFocusMode = output<void>();
     readonly exportImage = output<void>();
     readonly toggleFilterBar = output<void>();
+    readonly toggleLegend = output<void>();
     readonly toggleMinimap = output<void>();
     readonly toggleFullscreen = output<void>();
 }

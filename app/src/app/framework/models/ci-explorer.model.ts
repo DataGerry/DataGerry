@@ -16,6 +16,8 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { ResolvedCable } from '../object/object-view/ports-overview/models/port-connection.types';
+
 /** Guards every CI Explorer read route, and with it the graph view of an object. */
 export const CI_EXPLORER_VIEW_RIGHT = 'base.framework.ciExplorer.view';
 
@@ -90,6 +92,14 @@ export interface Field {
   }
   
   /* -------- Edge & relation metadata ----------------------------------- */
+  /** One physical hop of a collapsed port connection; `cable` is absent on a panel's internal pairing. */
+  export interface CiExplorerPathHop {
+    public_id: number;
+    endpoints: number[];
+    connection_type: string;
+    cable?: ResolvedCable | null;
+  }
+
   export interface RelationMeta {
     relation_id: number | null;
     relation_name?: string;
@@ -100,6 +110,8 @@ export interface Field {
     source?: string;
     /** A port connection has no direction, so it is drawn without an arrow head. */
     undirected?: boolean;
+    /** The physical hops a port connection collapsed, focal end first. */
+    path?: CiExplorerPathHop[];
   }
   
   export interface CIEdge {

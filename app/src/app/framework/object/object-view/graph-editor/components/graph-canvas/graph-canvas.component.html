@@ -20,17 +20,19 @@
       </stop>
     </linearGradient>
 
-    <marker id="arrow-valid" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
-      markerUnits="strokeWidth">
-      <path d="M0,0 L0,8 L11,4 z" fill="#2196F3" />
+    <!-- userSpaceOnUse keeps every head one size; strokeWidth would scale it per edge kind.
+         context-stroke takes the colour of the edge it sits on, so each head matches its line. -->
+    <marker id="arrow-valid" markerWidth="15" markerHeight="11" refX="14.5" refY="5.5" orient="auto"
+      markerUnits="userSpaceOnUse">
+      <path d="M0,0 L0,11 L15,5.5 z" fill="context-stroke" />
     </marker>
-    <marker id="arrow-invalid" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
-      markerUnits="strokeWidth">
-      <path d="M0,0 L0,8 L11,4 z" fill="#F44336" />
+    <marker id="arrow-invalid" markerWidth="15" markerHeight="11" refX="14.5" refY="5.5" orient="auto"
+      markerUnits="userSpaceOnUse">
+      <path d="M0,0 L0,11 L15,5.5 z" fill="context-stroke" />
     </marker>
-    <marker id="arrow-data-flow" markerWidth="12" markerHeight="12" refX="11" refY="4" orient="auto"
-      markerUnits="strokeWidth">
-      <path d="M0,0 L0,8 L11,4 z" fill="#00BCD4" />
+    <marker id="arrow-data-flow" markerWidth="15" markerHeight="11" refX="14.5" refY="5.5" orient="auto"
+      markerUnits="userSpaceOnUse">
+      <path d="M0,0 L0,11 L15,5.5 z" fill="context-stroke" />
     </marker>
   </defs>
 
@@ -46,8 +48,9 @@
       <path [attr.d]="calculatePath(conn)" class="connection-path" [class.valid]="conn.isValid"
         [class.invalid]="!conn.isValid" [class.highlighted]="isConnectionHighlighted(conn)"
         [class.hovered]="store.hoveredConnection === conn"
-        [attr.stroke]="conn.isValid ? 'url(#valid-gradient)' : 'url(#invalid-gradient)'"
+        [attr.stroke]="getConnectionStroke(conn)"
         [attr.stroke-width]="getConnectionStrokeWidth(conn)"
+        [attr.stroke-dasharray]="getConnectionDash(conn)"
         [attr.marker-end]="getArrowMarker(conn)"
         fill="none" (click)="connectionClicked.emit({ event: $event, connection: conn })" pointer-events="none" />
     }

@@ -4,6 +4,7 @@
     [zoom]="zoom"
     [focusMode]="focusMode"
     [filterBarOpen]="showFilterBar"
+    [legendOpen]="showLegend"
     [minimapOpen]="showMinimap"
     [fullscreen]="isFullscreen"
     (zoomIn)="zoomIn()"
@@ -12,6 +13,7 @@
     (toggleFocusMode)="toggleFocusMode()"
     (exportImage)="exportGraphAsImage()"
     (toggleFilterBar)="toggleFilterBar()"
+    (toggleLegend)="toggleLegend()"
     (toggleMinimap)="toggleMinimap()"
     (toggleFullscreen)="toggleFullscreen()">
   </cmdb-graph-toolbar>
@@ -36,8 +38,8 @@
   </cmdb-graph-filter-panel>
 
   <!-- Main Graph Area -->
-  <div class="graph-viewport" #graphContainer [class.panning]="isPanning" (mousedown)="onCanvasMouseDown($event)"
-    (contextmenu)="onGraphContextMenu($event)">
+  <div class="graph-viewport" #graphContainer [class.panning]="isPanning" [class.grid-hidden]="!nodes.length"
+    (mousedown)="onCanvasMouseDown($event)" (contextmenu)="onGraphContextMenu($event)">
 
     <div class="focus-overlay" [class.active]="focusMode"
       [style.--focus-x]="focusedNodeId ? getNodeById(focusedNodeId).x + 'px' : '50%'"
@@ -58,6 +60,10 @@
       (connectionClicked)="onConnectionClick($event.connection, $event.event)">
     </cmdb-graph-canvas>
   </div>
+
+  @if (showLegend) {
+    <cmdb-graph-legend [counts]="edgeKindCounts()"></cmdb-graph-legend>
+  }
 
   @if (showMinimap) {
     <cmdb-graph-minimap

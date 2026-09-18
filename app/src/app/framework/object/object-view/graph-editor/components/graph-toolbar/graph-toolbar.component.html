@@ -31,6 +31,11 @@
       <span class="material-icons" aria-hidden="true">tune</span>
     </button>
 
+    <button type="button" class="control-btn" [class.active]="legendOpen()" (click)="toggleLegend.emit()"
+      title="Toggle Legend" aria-label="Toggle legend" [attr.aria-pressed]="legendOpen()">
+      <span class="material-icons" aria-hidden="true">legend_toggle</span>
+    </button>
+
     <button type="button" class="control-btn" [class.active]="minimapOpen()" (click)="toggleMinimap.emit()"
       title="Toggle Minimap" aria-label="Toggle minimap" [attr.aria-pressed]="minimapOpen()">
       <span class="material-icons" aria-hidden="true">map</span>

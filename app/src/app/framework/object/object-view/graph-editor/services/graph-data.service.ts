@@ -28,7 +28,7 @@ import {
 } from 'src/app/framework/models/ci-explorer.model';
 import { CiExplorerService } from 'src/app/framework/services/ci-explorer.service';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
-import { edgeMeta } from '../utils/graph-edge.util';
+import { cableColorOf, edgeKind, edgeMeta } from '../utils/graph-edge.util';
 
 @Injectable()
 export class GraphDataService {
@@ -242,6 +242,8 @@ export class GraphDataService {
             relationIcon: meta?.relation_icon,
             metadata: meta,
             undirected: meta?.undirected === true,
+            kind: edgeKind(meta),
+            cableColor: cableColorOf(meta),
             isValid: true,
             strength: 1,
             dataFlow: false
