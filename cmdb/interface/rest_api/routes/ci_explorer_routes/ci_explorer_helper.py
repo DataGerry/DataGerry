@@ -14,54 +14,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Helper methods shared by the CI Explorer REST routes
+Helper methods of the CI Explorer REST routes
 
-Holds the request schemas of the two single-field update routes, the fetch-guard-persist step both
-share, and the edit log the object-side write records
+Holds the request schema of the label-field update route and the fetch-or-404 step it takes before
+writing.
+
+Until 2026-09-18 there was a second field route, ``PUT /ci_explorer/tooltip/<object_id>``, and most of
+this module belonged to it: its own schema, the version bump, the edit log and the UPDATE webhook that
+made a tooltip edit carry the four guarantees of an object edit. The route was removed because nothing
+called it, and its machinery went with it. ``load_ci_explorer_entity`` stayed - it is the shared
+fetch-or-404, and the label-field route still needs it
 """
 from logging import Logger, getLogger
 from typing import Any, Callable
 
 from flask import abort
 
-from cmdb.manager.logs_manager import LogsManager
-
-from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.models.object_model.cmdb_object import CmdbObject
-from cmdb.models.log_model.log_action_enum import LogAction
-from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.models.user_model import CmdbUser
-from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
-from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# Comment stored on the edit log of a tooltip change, so the history says where the change came from
-TOOLTIP_LOG_COMMENT: str = 'CI Explorer tooltip changed'
-
-
-def get_ci_explorer_tooltip_schema() -> dict[str, Any]:
-    """
-    Builds the request schema of the ``/tooltip/<public_id>`` route
-
-    The body carries the new tooltip and nothing else; the validator purges unknown keys, so a caller
-    can not smuggle further CmdbObject keys into the write. An empty string is allowed - it is how a
-    tooltip is cleared - but a missing key is not, because that would silently store nothing
-
-    Returns:
-        dict[str, Any]: Field name to Cerberus rule mapping for the tooltip body
-    """
-    return {
-        CmdbObjectKey.CI_EXPLORER_TOOLTIP.value: {
-            'type': 'string',
-            'required': True,
-            'nullable': True,
-            'empty': True,
-        },
-    }
-
 
 def get_ci_explorer_label_schema() -> dict[str, Any]:
     """
@@ -121,121 +93,3 @@ def load_ci_explorer_entity(
         abort(404, f"The {entity_label} with ID:{public_id} was not found!")
 
     return entity, entity.get(field)
-
-
-def build_tooltip_change(previous_value: Any, new_value: Any) -> list[dict[str, Any]]:
-    """
-    The field-level diff of a tooltip edit, in the shape the edit log and the webhook both take
-
-    One description of what changed, so the history entry and the webhook payload cannot disagree
-    about the same edit
-
-    Args:
-        previous_value (Any): The tooltip before the change
-        new_value (Any): The tooltip after the change
-
-    Returns:
-        list[dict[str, Any]]: A single-entry change list
-    """
-    return [{
-        'type': 'change',
-        'name': CmdbObjectKey.CI_EXPLORER_TOOLTIP.value,
-        'old': previous_value,
-        'new': new_value,
-    }]
-
-
-def bump_patch_version(stored_object: dict[str, Any]) -> str:
-    """
-    Answers the version a tooltip edit leaves the CmdbObject on
-
-    Always a **patch** bump, and deliberately not the field-level diff `apply_object_update` runs: a
-    tooltip is a presentation key and never appears in `fields`, so that diff would be empty on every
-    call and the version would never move. An edit that changes the stored document has to move it -
-    that is what makes a version comparable between two reads
-
-    Args:
-        stored_object (dict[str, Any]): The object document as it was read before the write
-
-    Returns:
-        str: The new version string
-    """
-    instance: CmdbObject = CmdbObject.from_data(stored_object)
-
-    return instance.update_version(CmdbObject.VERSIONING_PATCH)
-
-
-def emit_tooltip_webhook(
-    request_user: CmdbUser,
-    stored_object: dict[str, Any],
-    previous_value: Any,
-    new_value: Any,
-    new_version: str,
-) -> None:
-    """
-    Sends the UPDATE webhook for a tooltip change
-
-    A tooltip edit is a change to the CmdbObject, so a subscriber watching object updates has to see
-    it - the same argument that already puts it in the object's history. Best-effort and isolated,
-    like the log: a webhook failure must not fail a write that has already happened
-
-    Args:
-        request_user (CmdbUser): The CmdbUser making the request
-        stored_object (dict[str, Any]): The object document as it was read before the write
-        previous_value (Any): The tooltip before the change
-        new_value (Any): The tooltip after the change
-        new_version (str): The version the object now carries
-    """
-    try:
-        after: dict[str, Any] = {
-            **stored_object,
-            CmdbObjectKey.CI_EXPLORER_TOOLTIP.value: new_value,
-            CmdbObjectKey.VERSION.value: new_version,
-        }
-
-        send_webhook_event(
-            request_user,
-            WebhookEventType.UPDATE,
-            stored_object,
-            after,
-            build_tooltip_change(previous_value, new_value),
-        )
-    except Exception as err:
-        LOGGER.error("[emit_tooltip_webhook] Failed to send the webhook. Error: %s. Type: %s", err, type(err))
-
-
-def record_tooltip_edit_log(
-    logs_manager: LogsManager,
-    request_user: CmdbUser,
-    stored_object: dict[str, Any],
-    previous_value: Any,
-    new_value: Any,
-) -> None:
-    """
-    Writes the CmdbObject edit log for a tooltip change
-
-    A tooltip set from the CI Explorer is a change to the CmdbObject, so it belongs in that object's
-    history like any other edit. Best-effort and isolated: a logging failure is logged and swallowed
-    so it never fails the write that already happened. There is no CmdbType history in DataGerry,
-    which is why the ``/type_label`` route has no counterpart to this
-
-    Args:
-        logs_manager (LogsManager): Manager used to persist the edit log
-        request_user (CmdbUser): The CmdbUser making the request
-        stored_object (dict[str, Any]): The object document as it was read before the write
-        previous_value (Any): The tooltip before the change
-        new_value (Any): The tooltip after the change
-    """
-    try:
-        logs_manager.insert_log(
-            action=LogAction.EDIT,
-            log_type=CmdbObjectLog.__name__,
-            object_id=stored_object[CmdbObjectKey.PUBLIC_ID.value],
-            version=stored_object.get(CmdbObjectKey.VERSION.value),
-            user_id=request_user.get_public_id(),
-            user_name=request_user.get_display_name(),
-            comment=TOOLTIP_LOG_COMMENT,
-            changes=build_tooltip_change(previous_value, new_value),
-        )
-    except Exception as err:
-        LOGGER.error("[record_tooltip_edit_log] Failed to create Log. Error: %s. Type: %s", err, type(err))
