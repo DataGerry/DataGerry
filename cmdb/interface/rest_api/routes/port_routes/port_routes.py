@@ -79,6 +79,7 @@ from cmdb.interface.rest_api.responses import (
     UpdateSingleResponse,
 )
 
+from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import with_interface_links
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
     PORT_NAME_TAKEN_MESSAGE,
     PortRequestKey,
@@ -199,10 +200,14 @@ def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     HTTP `GET`/`HEAD` route to retrieve a single CmdbPort
 
     The owner object is resolved even though it is not returned: reading a port means reading part of
-    that object, so the object's ACL decides whether the caller may.
+    that object, so the object's ACL decides whether the caller may - and its interface rows are what
+    the port's links resolve against, so it is handed to the link projection instead of being read
+    twice.
 
-    The response carries the derived `connected` flag, which is computed here and never stored - see
-    cmdb.framework.port.connected
+    The response carries the derived `connected` flag, which is computed here and never stored (see
+    cmdb.framework.port.connected), and the port's `interface_links`, each with its live interface row
+    where it still resolves. Both are attached by the same helpers the object-level read uses, so a
+    port looks the same whichever read produced it
 
     Args:
         public_id (int): public_id of the CmdbPort
@@ -213,21 +218,26 @@ def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
                        exist; 500 on an unexpected error
 
     Returns:
-        GetSingleResponse: The requested CmdbPort, carrying its derived `connected` flag
+        GetSingleResponse: The requested CmdbPort, carrying its derived `connected` flag and its
+            `interface_links`
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
         port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
             ManagerType.PORT_CONNECTIONS, request_user)
+        port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
+            ManagerType.PORT_INTERFACE_LINKS, request_user)
 
         port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
 
-        get_accessible_owner_or_abort(
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
             objects_manager, port.get(PortKey.OBJECT_ID.value), request_user, AccessControlPermission.READ,
         )
 
         with_connected_flag(port_connections_manager, [port])
+        # The owner is handed over so the links' rows resolve without reading it a second time
+        with_interface_links(port_interface_links_manager, objects_manager, [port], owner)
 
         return GetSingleResponse(port, body=request_wants_body()).make_response()
     except HTTPException as http_err:
@@ -255,8 +265,12 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
     port without a number still has a stable place. An object with no ports answers with an empty
     list, not a 404 - "this object has no ports yet" is a normal state.
 
-    Every port carries its derived `connected` flag, resolved for the WHOLE page in one batched query
-    rather than one per port - a 48-port switch costs two reads in total
+    Every port carries its derived `connected` flag and its `interface_links` - the IPAM interface rows
+    linked to it, each link with its live row where it still resolves and without one where the row is
+    gone (a dangling link is shown, never hidden). Both are resolved for the WHOLE page in one batched
+    query each rather than one per port, and the links' rows cost no read at all: an interface lives on
+    the port's own object, which was already read for the ACL check. A 48-port switch therefore costs
+    four reads in total, whatever it is linked to
 
     Args:
         object_id (int): public_id of the owner CmdbObject
@@ -267,21 +281,28 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
                        500 on an unexpected error
 
     Returns:
-        DefaultResponse: The object's CmdbPorts as a list, each carrying its `connected` flag
+        DefaultResponse: The object's CmdbPorts as a list, each carrying its `connected` flag and its
+            `interface_links`
     """
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
         port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
             ManagerType.PORT_CONNECTIONS, request_user)
+        port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
+            ManagerType.PORT_INTERFACE_LINKS, request_user)
 
-        get_accessible_owner_or_abort(
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
             objects_manager, object_id, request_user, AccessControlPermission.READ,
         )
 
         ports: list[dict[str, Any]] = ports_manager.get_ports_of_object(object_id)
 
-        return DefaultResponse(with_connected_flag(port_connections_manager, ports)).make_response()
+        with_connected_flag(port_connections_manager, ports)
+        # One batched read for the page's links; their rows resolve out of the owner already in hand
+        with_interface_links(port_interface_links_manager, objects_manager, ports, owner)
+
+        return DefaultResponse(ports).make_response()
     except HTTPException as http_err:
         raise http_err
     except AccessDeniedError as err:

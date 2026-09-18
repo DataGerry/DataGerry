@@ -51,6 +51,7 @@ from cmdb.framework.port.interface_links import find_interface_row, resolve_link
 
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
     INTERFACE_ROW_KEY,
+    PORT_INTERFACE_LINKS_KEY,
     LINK_ALREADY_EXISTS_MESSAGE,
     LINK_FIELD_IMMUTABLE_MESSAGE,
     LINK_INTERFACE_OBJECT_NOT_FOUND_MESSAGE,
@@ -62,7 +63,10 @@ from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants im
     LINK_RELATION_TYPE_INVALID_MESSAGE,
     InterfaceLinkRequestKey,
 )
-from cmdb.interface.rest_api.routes.port_routes.port_route_helper import get_accessible_owner_or_abort
+from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
+    collect_port_ids,
+    get_accessible_owner_or_abort,
+)
 from cmdb.models.port_model import PortKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -366,7 +370,8 @@ def enforce_interface_on_port_object(port: dict[str, Any], candidate: dict[str, 
 
 def with_interface_rows(
         objects_manager: ObjectsManager,
-        links: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        links: list[dict[str, Any]],
+        known_objects: dict[int, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """
     Adds each link's live interface row to a read response, where it still resolves
 
@@ -381,15 +386,21 @@ def with_interface_rows(
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         links (list[dict[str, Any]]): The link documents about to be returned
+        known_objects (dict[int, dict[str, Any]] | None): CmdbObjects the caller has already read,
+            keyed by public_id. A link pointing at one of them costs no read at all - which is the
+            whole saving on the object-level port read, where every link points at the owner object
+            the route loaded for the ACL check (an interface must live on the port's own object)
 
     Returns:
         list[dict[str, Any]]: The same link documents, each carrying its interface row when resolvable
     """
+    resolved: dict[int, dict[str, Any]] = dict(known_objects or {})
+
     object_ids: set[Any] = {
         link.get(PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value) for link in links
     }
     interface_objects: dict[Any, Any] = {
-        object_id: objects_manager.get_object(object_id)
+        object_id: resolved[object_id] if object_id in resolved else objects_manager.get_object(object_id)
         for object_id in object_ids if isinstance(object_id, int)
     }
 
@@ -402,6 +413,62 @@ def with_interface_rows(
             link[INTERFACE_ROW_KEY] = row
 
     return links
+
+
+def with_interface_links(
+        port_interface_links_manager: PortInterfaceLinksManager,
+        objects_manager: ObjectsManager,
+        ports: list[dict[str, Any]],
+        owner_object: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """
+    Adds each port's interface links, with their resolved rows, to a port read response
+
+    The ports panel shows a port's addresses next to the port, so both port reads answer with the
+    links already attached rather than making the client fetch
+    ``GET /ports/<id>/interface_links/`` per row - 48 follow-up requests for a switch.
+
+    **One batched query for the whole page**, the same shape the connected flag uses: the links of
+    every port on the page come back in a single indexed `$in`. Resolving their rows normally costs
+    nothing on top, because an interface has to live on the port's OWN object and the caller passes
+    that object in - it was already read for the ACL check.
+
+    A port with no links carries an empty list, never a missing key: "this port is linked to nothing"
+    is the common state and the client should not have to tell it apart from "the server did not
+    answer that question". A DANGLING link is listed too, without its row - the same contract the
+    dedicated link routes have
+
+    Args:
+        port_interface_links_manager (PortInterfaceLinksManager): db interface for the links
+        objects_manager (ObjectsManager): db interface for CmdbObjects, used only for a row whose
+            object the caller did not already read
+        ports (list[dict[str, Any]]): The port documents about to be returned, modified in place
+        owner_object (dict[str, Any] | None): The ports' owner CmdbObject when the caller already has
+            it, so its rows resolve without a second read
+
+    Returns:
+        list[dict[str, Any]]: The same port documents, each carrying its interface links
+    """
+    port_ids: list[int] = collect_port_ids(ports)
+
+    links: list[dict[str, Any]] = port_interface_links_manager.get_links_of_ports(port_ids)
+
+    known_objects: dict[int, dict[str, Any]] = {}
+    owner_object_id: Any = (owner_object or {}).get(CmdbObjectKey.PUBLIC_ID.value)
+
+    if owner_object and isinstance(owner_object_id, int):
+        known_objects[owner_object_id] = owner_object
+
+    with_interface_rows(objects_manager, links, known_objects)
+
+    links_by_port: dict[Any, list[dict[str, Any]]] = {}
+
+    for link in links:
+        links_by_port.setdefault(link.get(PortInterfaceLinkKey.PORT_ID.value), []).append(link)
+
+    for port in ports:
+        port[PORT_INTERFACE_LINKS_KEY] = links_by_port.get(port.get(PortKey.PUBLIC_ID.value), [])
+
+    return ports
 
 
 def read_interface_objects(

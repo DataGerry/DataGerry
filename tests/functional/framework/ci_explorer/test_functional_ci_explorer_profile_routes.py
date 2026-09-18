@@ -14,10 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional smoke for the ``/ci_explorer`` CRUD + tooltip / type_label REST routes
+Functional smoke for the ``/ci_explorer`` CRUD + tooltip / label_field REST routes
 
 Covers the route-layer concerns the manager suites cannot: the profile create / list / update /
-delete status codes, the update-route public_id pinning, and the ``/tooltip`` + ``/type_label``
+delete status codes, the update-route public_id pinning, and the ``/tooltip`` + ``/label_field``
 routes that read their value from the request body and persist it (the regression guard for the
 missing body-injection bug). The CI Explorer graph route (``/items``) is covered separately.
 """
@@ -26,9 +26,9 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
-from cmdb.errors.ci_explorer import CiExplorerGraphBuildError
 from werkzeug.exceptions import NotFound
 
+from cmdb.errors.ci_explorer import CiExplorerGraphBuildError
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import CiExplorerProfileManager, ObjectsManager, TypesManager
 from cmdb.models.object_model import CmdbObject
@@ -244,8 +244,8 @@ class TestProfileCrud:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  TOOLTIP / LABEL                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestTooltipAndTypeLabel:
-    """PUT /ci_explorer/tooltip/<id> and /type_label/<id> read the body and persist the value."""
+class TestTooltipAndLabelField:
+    """PUT /ci_explorer/tooltip/<id> and /label_field/<id> read the body and persist the value."""
 
     def test_update_tooltip_persists_value(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -288,18 +288,19 @@ class TestTooltipAndTypeLabel:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """
-        Only the tooltip key is written (regression)
+        Only the tooltip and the version are written (regression)
 
         The route used to persist the whole fetched document, so anything changed meanwhile was
-        overwritten. Here another field is edited behind the route's back after it read the object; a
-        full-document write would restore the old value
+        overwritten. Here another key is edited behind the route's back after it read the object; a
+        full-document write would restore the old value. The version IS written, deliberately - a
+        tooltip edit changes the object, so it bumps the patch version like any other edit (T58/D3).
         """
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
         objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
         types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
         objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
         try:
-            objects.update_one({'public_id': OBJECT_FOR_TOOLTIP}, {'$set': {'version': '9.9.9'}})
+            objects.update_one({'public_id': OBJECT_FOR_TOOLTIP}, {'$set': {'author_id': 4242}})
 
             response = rest_api.put(
                 f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
@@ -309,8 +310,35 @@ class TestTooltipAndTypeLabel:
             assert response.status_code == HTTPStatus.OK
             stored = objects.find_one({'public_id': OBJECT_FOR_TOOLTIP})
             assert stored['ci_explorer_tooltip'] == TOOLTIP_TEXT
-            assert stored['version'] == '9.9.9'
+            assert stored['author_id'] == 4242
             assert stored['fields'] == _object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP)['fields']
+        finally:
+            objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
+            types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
+
+    def test_update_tooltip_bumps_the_patch_version(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        A tooltip edit changes the stored document, so the version has to move (T58/D3)
+
+        It is always a PATCH bump and deliberately not the field-level diff the ordinary update
+        pipeline runs: a tooltip never appears in `fields`, so that diff would be empty every time and
+        the version would never move.
+        """
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
+        objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
+        try:
+            objects.update_one({'public_id': OBJECT_FOR_TOOLTIP}, {'$set': {'version': '9.9.9'}})
+
+            rest_api.put(
+                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
+                json={'ci_explorer_tooltip': TOOLTIP_TEXT},
+            )
+
+            assert objects.find_one({'public_id': OBJECT_FOR_TOOLTIP})['version'] == '9.9.10'
         finally:
             objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
             types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
@@ -360,7 +388,7 @@ class TestTooltipAndTypeLabel:
             objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
             types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
 
-    def test_update_type_label_writes_only_the_label(
+    def test_update_label_field_writes_only_the_nomination(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """A label write leaves the type's fields and render_meta as they are."""
@@ -370,7 +398,7 @@ class TestTooltipAndTypeLabel:
             types.update_one({'public_id': TYPE_FOR_LABEL}, {'$set': {'version': '9.9.9'}})
 
             response = rest_api.put(
-                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}', json={'ci_explorer_label': LABEL_TEXT},
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}', json={'ci_explorer_label': LABEL_TEXT},
             )
 
             assert response.status_code == HTTPStatus.OK
@@ -388,7 +416,7 @@ class TestTooltipAndTypeLabel:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
-    def test_update_type_label_persists_value(
+    def test_update_label_field_persists_value(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """PUT /type_label sets ci_explorer_label on the type and returns the persisted value."""
@@ -396,7 +424,7 @@ class TestTooltipAndTypeLabel:
         types.insert_one(_type_doc(TYPE_FOR_LABEL))
         try:
             response = rest_api.put(
-                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                 json={'ci_explorer_label': LABEL_TEXT},
             )
 
@@ -405,7 +433,7 @@ class TestTooltipAndTypeLabel:
         finally:
             types.delete_one({'public_id': TYPE_FOR_LABEL})
 
-    def test_update_type_label_missing_body_returns_400(
+    def test_update_label_field_missing_body_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """PUT /type_label without the label key is rejected with 400."""
@@ -413,15 +441,15 @@ class TestTooltipAndTypeLabel:
         types.insert_one(_type_doc(TYPE_FOR_LABEL))
         try:
             assert rest_api.put(
-                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}', json={},
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}', json={},
             ).status_code == HTTPStatus.BAD_REQUEST
         finally:
             types.delete_one({'public_id': TYPE_FOR_LABEL})
 
-    def test_update_type_label_missing_type_returns_404(self, rest_api) -> None:
+    def test_update_label_field_missing_type_returns_404(self, rest_api) -> None:
         """PUT /type_label for a missing type returns 404."""
         assert rest_api.put(
-            f'{ROUTE_URL}/type_label/{MISSING_ID}', json={'ci_explorer_label': LABEL_TEXT},
+            f'{ROUTE_URL}/label_field/{MISSING_ID}', json={'ci_explorer_label': LABEL_TEXT},
         ).status_code == HTTPStatus.NOT_FOUND
 
 
@@ -552,7 +580,10 @@ class TestErrorMapping:
 
     def test_tooltip_update_error_returns_400(self, rest_api, monkeypatch) -> None:
         """An ObjectsManagerUpdateError while persisting the tooltip surfaces as 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', lambda *_a, **_k: {'public_id': OBJECT_FOR_TOOLTIP})
+        monkeypatch.setattr(
+            ObjectsManager, 'get_object',
+            lambda *_a, **_k: _object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP),
+        )
         monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(ObjectsManagerUpdateError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
@@ -566,26 +597,27 @@ class TestErrorMapping:
                             json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_type_label_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A TypesManager error while updating the label surfaces as 400."""
+    def test_label_field_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManager error while loading the Type surfaces as 400."""
         monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_type_label_update_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A TypesManagerUpdateError while persisting the label surfaces as 400."""
-        monkeypatch.setattr(TypesManager, 'get_type', lambda *_a, **_k: {'public_id': TYPE_FOR_LABEL})
+    def test_label_field_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerUpdateError while persisting the nomination surfaces as 400."""
+        monkeypatch.setattr(TypesManager, 'get_type',
+                            lambda *_a, **_k: _type_doc(TYPE_FOR_LABEL))
         monkeypatch.setattr(TypesManager, 'update_type_field', _raiser(TypesManagerUpdateError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_type_label_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """An unexpected error while updating the label surfaces as 500."""
+    def test_label_field_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating the nomination surfaces as 500."""
         monkeypatch.setattr(TypesManager, 'get_type', _raiser(RuntimeError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -626,3 +658,126 @@ class TestErrorMapping:
         monkeypatch.setattr(CiExplorerProfileManager, 'iterate_items', _raiser(NotFound('forced')))
 
         assert rest_api.get(f'{ROUTE_URL}/profile').status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         TOOLTIP WRITE - THE OBJECT ACL                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+ADMIN_GROUP_ID: int = 1
+
+
+def _acl_type_doc(public_id: int, permissions: list[str]) -> dict[str, Any]:
+    """The seed type with an activated ACL granting the caller's group exactly the given permissions."""
+    doc = _type_doc(public_id)
+    doc['acl'] = {'activated': True, 'groups': {'includes': {str(ADMIN_GROUP_ID): permissions}}}
+
+    return doc
+
+
+class TestTooltipWriteRespectsTheObjectAcl:
+    """
+    ``PUT /ci_explorer/tooltip/<id>`` enforces the object ACL, not only the CI Explorer right
+
+    The graph's reads have always been filtered against it - a denied neighbour is omitted, a denied
+    focal object answers 404 - while this write consulted nothing until 2026-09-17 (tier 2 T58). There
+    was no test of the route's ACL in either direction, which is how it stayed that way.
+    """
+
+    @staticmethod
+    def _seed(database_manager: MongoDatabaseManager, database_name: str, permissions: list[str]) -> None:
+        """Seeds the type with the given ACL permissions and one object of it."""
+        database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_one(
+            _acl_type_doc(TYPE_FOR_TOOLTIP, permissions)
+        )
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(
+            _object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP)
+        )
+
+    @staticmethod
+    def _cleanup(database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Removes the seeded type and object."""
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_one(
+            {'public_id': OBJECT_FOR_TOOLTIP}
+        )
+        database_manager.get_collection(CmdbType.COLLECTION, database_name).delete_one(
+            {'public_id': TYPE_FOR_TOOLTIP}
+        )
+
+    def test_a_denied_update_is_refused_with_403(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Holding base.framework.ciExplorer.edit is not enough when the type's ACL denies UPDATE."""
+        self._seed(database_manager, database_name, ['READ'])
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}', json={'ci_explorer_tooltip': TOOLTIP_TEXT},
+            )
+
+            assert response.status_code == HTTPStatus.FORBIDDEN
+        finally:
+            self._cleanup(database_manager, database_name)
+
+    def test_a_denied_update_leaves_the_tooltip_untouched(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A refusal has to refuse the write, not merely report one."""
+        self._seed(database_manager, database_name, ['READ'])
+        try:
+            rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}', json={'ci_explorer_tooltip': TOOLTIP_TEXT})
+
+            stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one(
+                {'public_id': OBJECT_FOR_TOOLTIP}
+            )
+
+            assert stored.get('ci_explorer_tooltip') != TOOLTIP_TEXT
+        finally:
+            self._cleanup(database_manager, database_name)
+
+    def test_a_denied_read_is_refused_too(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The route reads the object before it writes, and puts its previous value in a history entry
+
+        So READ is required as well as UPDATE - a group holding only UPDATE cannot use it.
+        """
+        self._seed(database_manager, database_name, ['UPDATE'])
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}', json={'ci_explorer_tooltip': TOOLTIP_TEXT},
+            )
+
+            assert response.status_code == HTTPStatus.FORBIDDEN
+        finally:
+            self._cleanup(database_manager, database_name)
+
+    def test_a_permitted_user_still_succeeds(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An activated ACL granting both permissions changes nothing for the caller."""
+        self._seed(database_manager, database_name, ['READ', 'UPDATE'])
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}', json={'ci_explorer_tooltip': TOOLTIP_TEXT},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+        finally:
+            self._cleanup(database_manager, database_name)
+
+    def test_a_type_without_an_activated_acl_is_unaffected(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Access control is opt-in, so the ordinary installation sees no change at all."""
+        database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_one(_type_doc(TYPE_FOR_TOOLTIP))
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(
+            _object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP)
+        )
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}', json={'ci_explorer_tooltip': TOOLTIP_TEXT},
+            )
+
+            assert response.status_code == HTTPStatus.OK
+        finally:
+            self._cleanup(database_manager, database_name)

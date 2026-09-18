@@ -27,10 +27,13 @@ from flask import abort
 from cmdb.manager.logs_manager import LogsManager
 
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
+from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -62,12 +65,17 @@ def get_ci_explorer_tooltip_schema() -> dict[str, Any]:
 
 def get_ci_explorer_label_schema() -> dict[str, Any]:
     """
-    Builds the request schema of the ``/type_label/<public_id>`` route
+    Builds the request schema of the ``/label_field/<public_id>`` route
 
-    Mirrors the tooltip schema for the CmdbType side
+    Mirrors the tooltip schema for the CmdbType side, but the value means something else: it is the
+    NAME of one of the Type's own fields, whose value the CI Explorer then shows on every node of the
+    Type - never a label to display. The schema can only say "a string"; that the string names a
+    field the Type offers is checked in the route, against the Type it just loaded
+    (``ci_explorer.label_field.label_field_error``). Null and the empty string both mean "no field
+    nominated"
 
     Returns:
-        dict[str, Any]: Field name to Cerberus rule mapping for the type-label body
+        dict[str, Any]: Field name to Cerberus rule mapping for the label-field body
     """
     return {
         TypeSchemaKey.CI_EXPLORER_LABEL.value: {
@@ -88,7 +96,7 @@ def load_ci_explorer_entity(
     """
     Loads the entity a CI Explorer field write targets
 
-    Shared by the ``/tooltip`` and ``/type_label`` routes: both have to answer 404 for an unknown id
+    Shared by the ``/tooltip`` and ``/label_field`` routes: both have to answer 404 for an unknown id
     and both need what the field held before, the tooltip route to record the change in the object's
     history. The write itself stays in the route, because each entity has its own targeted
     single-field update
@@ -113,6 +121,87 @@ def load_ci_explorer_entity(
         abort(404, f"The {entity_label} with ID:{public_id} was not found!")
 
     return entity, entity.get(field)
+
+
+def build_tooltip_change(previous_value: Any, new_value: Any) -> list[dict[str, Any]]:
+    """
+    The field-level diff of a tooltip edit, in the shape the edit log and the webhook both take
+
+    One description of what changed, so the history entry and the webhook payload cannot disagree
+    about the same edit
+
+    Args:
+        previous_value (Any): The tooltip before the change
+        new_value (Any): The tooltip after the change
+
+    Returns:
+        list[dict[str, Any]]: A single-entry change list
+    """
+    return [{
+        'type': 'change',
+        'name': CmdbObjectKey.CI_EXPLORER_TOOLTIP.value,
+        'old': previous_value,
+        'new': new_value,
+    }]
+
+
+def bump_patch_version(stored_object: dict[str, Any]) -> str:
+    """
+    Answers the version a tooltip edit leaves the CmdbObject on
+
+    Always a **patch** bump, and deliberately not the field-level diff `apply_object_update` runs: a
+    tooltip is a presentation key and never appears in `fields`, so that diff would be empty on every
+    call and the version would never move. An edit that changes the stored document has to move it -
+    that is what makes a version comparable between two reads
+
+    Args:
+        stored_object (dict[str, Any]): The object document as it was read before the write
+
+    Returns:
+        str: The new version string
+    """
+    instance: CmdbObject = CmdbObject.from_data(stored_object)
+
+    return instance.update_version(CmdbObject.VERSIONING_PATCH)
+
+
+def emit_tooltip_webhook(
+    request_user: CmdbUser,
+    stored_object: dict[str, Any],
+    previous_value: Any,
+    new_value: Any,
+    new_version: str,
+) -> None:
+    """
+    Sends the UPDATE webhook for a tooltip change
+
+    A tooltip edit is a change to the CmdbObject, so a subscriber watching object updates has to see
+    it - the same argument that already puts it in the object's history. Best-effort and isolated,
+    like the log: a webhook failure must not fail a write that has already happened
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        stored_object (dict[str, Any]): The object document as it was read before the write
+        previous_value (Any): The tooltip before the change
+        new_value (Any): The tooltip after the change
+        new_version (str): The version the object now carries
+    """
+    try:
+        after: dict[str, Any] = {
+            **stored_object,
+            CmdbObjectKey.CI_EXPLORER_TOOLTIP.value: new_value,
+            CmdbObjectKey.VERSION.value: new_version,
+        }
+
+        send_webhook_event(
+            request_user,
+            WebhookEventType.UPDATE,
+            stored_object,
+            after,
+            build_tooltip_change(previous_value, new_value),
+        )
+    except Exception as err:
+        LOGGER.error("[emit_tooltip_webhook] Failed to send the webhook. Error: %s. Type: %s", err, type(err))
 
 
 def record_tooltip_edit_log(
@@ -146,12 +235,7 @@ def record_tooltip_edit_log(
             user_id=request_user.get_public_id(),
             user_name=request_user.get_display_name(),
             comment=TOOLTIP_LOG_COMMENT,
-            changes=[{
-                'type': 'change',
-                'name': CmdbObjectKey.CI_EXPLORER_TOOLTIP.value,
-                'old': previous_value,
-                'new': new_value,
-            }],
+            changes=build_tooltip_change(previous_value, new_value),
         )
     except Exception as err:
         LOGGER.error("[record_tooltip_edit_log] Failed to create Log. Error: %s. Type: %s", err, type(err))

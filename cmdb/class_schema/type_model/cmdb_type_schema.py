@@ -76,6 +76,14 @@ def get_cmdb_type_schema() -> dict[str, Any]:
             'type': 'boolean',
             'default': False
         },
+        # Position of the ports section among this CmdbType's sections (0 = first). Only meaningful
+        # while 'uses_ports' is True - the write paths force it back to 0 when the flag is off
+        'port_section_index': {
+            'type': 'integer',
+            'required': False,
+            'min': 0,
+            'default': 0
+        },
         'global_template_ids': {  # The names of the global CmdbSectionTemplates used by this CmdbType
             'type': 'list',
             'required': False,

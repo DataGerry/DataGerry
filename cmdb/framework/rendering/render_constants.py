@@ -109,6 +109,8 @@ class RenderTypeInfoKey(BaseStrEnum):
         ACL: The type's serialised AccessControlList
         SELECTABLE_AS_PARENT: Whether objects of this type may be a CmdbLocation parent
         USES_PORTS: Whether objects of this type may carry physical ports (Port Connectivity)
+        PORT_SECTION_INDEX: Where the ports section is drawn among the type's sections (0 = first).
+            Only meaningful while USES_PORTS is true, and always 0 when it is not
     """
     TYPE_ID = 'type_id'
     TYPE_NAME = 'type_name'
@@ -122,3 +124,4 @@ class RenderTypeInfoKey(BaseStrEnum):
     ACL = 'acl'
     SELECTABLE_AS_PARENT = 'selectable_as_parent'
     USES_PORTS = 'uses_ports'
+    PORT_SECTION_INDEX = 'port_section_index'

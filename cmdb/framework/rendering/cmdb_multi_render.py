@@ -56,6 +56,7 @@ from cmdb.manager import (
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import (
     CmdbType,
+    DEFAULT_PORT_SECTION_INDEX,
     TypeReference,
     TypeExternalLink,
     TypeFieldSection,
@@ -240,15 +241,19 @@ class CmdbMultiRender:
             RenderTypeInfoKey.ACTIVE.value: type_instance.active,
             RenderTypeInfoKey.VERSION.value: type_instance.version,
             RenderTypeInfoKey.ACL.value: type_instance.acl.to_json(type_instance.acl),
-            # Both are TYPE-level capability flags a client needs while rendering an object: whether
-            # the object may be picked as a location parent, and whether it may carry ports (which is
-            # what decides if the ports panel renders at all). Read with getattr-style defaults so a
-            # CmdbType built from a document predating either flag renders instead of raising
+            # TYPE-level presentation state a client needs while rendering an object: whether the
+            # object may be picked as a location parent, whether it may carry ports (which is what
+            # decides if the ports panel renders at all) and, when it does, where that panel sits
+            # among the type's sections. Read with getattr-style defaults so a CmdbType built from a
+            # document predating any of them renders instead of raising
             RenderTypeInfoKey.SELECTABLE_AS_PARENT.value: bool(
                 getattr(type_instance, TypeSchemaKey.SELECTABLE_AS_PARENT.value, False),
             ),
             RenderTypeInfoKey.USES_PORTS.value: bool(
                 getattr(type_instance, TypeSchemaKey.USES_PORTS.value, False),
+            ),
+            RenderTypeInfoKey.PORT_SECTION_INDEX.value: getattr(
+                type_instance, TypeSchemaKey.PORT_SECTION_INDEX.value, DEFAULT_PORT_SECTION_INDEX,
             ),
         }
 

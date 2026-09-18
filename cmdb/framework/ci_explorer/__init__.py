@@ -27,6 +27,8 @@ Modules:
   - enrichment: batched ref-field and dg_location flattening (one $in query per source,
       shared by root + linked-object + location-grafted nodes)
   - nodes: title resolution, type_info shaping, single node composer used everywhere
+  - label_field: the WRITE-side rule for CmdbType.ci_explorer_label - which field a Type may
+      nominate as the value its nodes show (the counterpart of nodes.resolve_title)
   - edges: edge composers for relation edges (with metadata) and location edges (bare)
   - locations: dg_location grafting (one hop up + one hop down), with consistent
       item_limit and types_filter accounting

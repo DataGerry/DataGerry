@@ -17,8 +17,9 @@
 Helper methods for CmdbType API routes
 
 Holds the licence and SpecialType guards, the lookups a route performs before it writes, the
-uses_ports / selectable_as_parent / location-field change guards and the persistence side effects an
-update or a delete owes the rest of the database.
+uses_ports / selectable_as_parent / location-field change guards, the payload normalisations a write
+applies in place (the ACL block, the ports section index, the CI Explorer label field) and the
+persistence side effects an update or a delete owes the rest of the database.
 
 The **reference-section** dependency cluster - who depends on a section, what an edit would break and
 the pre-check payload behind it - lives in `types_reference_section_helper` since 2026-09-11; it is one
@@ -45,11 +46,13 @@ from cmdb.manager import (
     SectionTemplatesManager,
 )
 
+from cmdb.utils import coerce_whole_number
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, MIN_PORT_SECTION_INDEX
 from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.user_model.cmdb_user import CmdbUser
@@ -57,6 +60,7 @@ from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.port_model import PortKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.location_model.location_constants import LocationKey
+from cmdb.framework.ci_explorer.label_field import label_field_error, is_label_field_unset
 from cmdb.framework.ipam.special_type_wiring import (
     handle_special_types,
     cleanup_type_references_from_all_types,
@@ -79,6 +83,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     FIELD_IDENTIFIER_IMMUTABLE_MESSAGE,
+    PORT_SECTION_INDEX_INVALID_MESSAGE,
     MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,
     USES_PORTS_DISABLE_MESSAGE,
@@ -199,6 +204,101 @@ def enforce_rack_selectable_as_parent(special_type: Any, data: dict[str, Any]) -
                    "otherwise no object could ever be placed in a Rack!")
 
     data[TypeSchemaKey.SELECTABLE_AS_PARENT] = True
+
+
+def normalize_port_section_index(data: dict[str, Any]) -> None:
+    """
+    Validates and completes the 'port_section_index' of a CmdbType payload, in place
+
+    The value is where the frontend draws the (virtual) ports section among the type's own sections:
+    0 puts it first, 1 second, and so on. It is presentation state the frontend owns - the backend
+    only guarantees it is storable and consistent with 'uses_ports':
+
+    * an absent, null or empty value becomes DEFAULT_PORT_SECTION_INDEX. `POST /types/` stores the
+      raw payload (the manager only BSON-round-trips it), so without this a created type would not
+      carry the key at all and only the first edit would add it - the same two-shapes-for-one-meaning
+      problem `normalize_type_acl` solves for the ACL
+    * anything else that is not a whole number of 0 or greater is REFUSED with 400. Lenient coercion
+      belongs to the type import, which has no user to report to; an API client sending -1 or 'left'
+      has a bug worth hearing about
+    * a type that does not use ports is forced back to the default. The index means nothing without
+      the flag, and keeping a stale position would resurface it if the flag were ever set again
+
+    Args:
+        data (dict[str, Any]): The CmdbType payload, modified in place
+
+    Raises:
+        HTTPException: 400 when the payload carries an unusable index
+    """
+    raw_index: Any = data.get(TypeSchemaKey.PORT_SECTION_INDEX.value)
+
+    if raw_index is None or raw_index == '':
+        index: int = DEFAULT_PORT_SECTION_INDEX
+    else:
+        coerced: int | None = coerce_whole_number(raw_index)
+
+        if coerced is None or coerced < MIN_PORT_SECTION_INDEX:
+            abort(400, PORT_SECTION_INDEX_INVALID_MESSAGE.format(value=repr(raw_index)))
+
+        index = coerced
+
+    # The index is only read while the flag is on, so a type without ports always stores the default
+    if not data.get(TypeSchemaKey.USES_PORTS.value):
+        index = DEFAULT_PORT_SECTION_INDEX
+
+    data[TypeSchemaKey.PORT_SECTION_INDEX.value] = index
+
+
+def normalize_ci_explorer_label(data: dict[str, Any], old_type: CmdbType | None = None) -> None:
+    """
+    Validates the CI Explorer label nomination of a CmdbType payload, in place
+
+    ``ci_explorer_label`` is the **name of one of the Type's own fields**, not a string to display:
+    the CI Explorer reads that field off every object of the Type and shows its value on the node
+    (`ci_explorer.nodes.resolve_title`). A nomination that resolves to nothing renders every node of
+    the Type as "Label not selected", which is indistinguishable from never having chosen one - so it
+    is caught at the write instead.
+
+    Three outcomes:
+
+    * **usable, or nothing nominated** - kept. An empty string is normalised to None, the stored form
+      of "no field chosen", so the key has one spelling in the collection
+    * **unusable and newly set** - refused with 400, reporting which names the Type does offer
+    * **unusable but UNCHANGED from the stored Type** - cleared to None instead of refused. That is
+      the field-was-removed case: an update that drops the nominated field would otherwise be
+      refused over a cosmetic key, and the stale nomination has to go anyway. It also repairs a Type
+      whose nomination went stale before this rule existed, on its next save
+
+    Args:
+        data (dict[str, Any]): The CmdbType payload, modified in place
+        old_type (CmdbType | None): The stored Type on an update; None on a create, where there is no
+            previous nomination and every unusable value is therefore a refusal
+
+    Raises:
+        HTTPException: 400 when the payload newly nominates a field the Type does not offer
+    """
+    nominated: Any = data.get(TypeSchemaKey.CI_EXPLORER_LABEL.value)
+
+    if is_label_field_unset(nominated):
+        data[TypeSchemaKey.CI_EXPLORER_LABEL.value] = None
+        return
+
+    error: str | None = label_field_error(data, nominated)
+
+    if not error:
+        return
+
+    # Unchanged from the stored Type: this update did not choose it, it only stopped being resolvable
+    if old_type is not None and nominated == old_type.ci_explorer_label:
+        LOGGER.info(
+            "[normalize_ci_explorer_label] Cleared the stale CI Explorer label field %s of Type ID:%s",
+            repr(nominated), old_type.public_id,
+        )
+        data[TypeSchemaKey.CI_EXPLORER_LABEL.value] = None
+
+        return
+
+    abort(400, error)
 
 
 def get_type_or_404(types_manager: TypesManager, public_id: int) -> dict[str, Any]:

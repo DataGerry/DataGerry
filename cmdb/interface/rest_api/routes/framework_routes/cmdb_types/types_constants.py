@@ -95,6 +95,16 @@ USES_PORTS_DISABLE_MESSAGE: str = (
 )
 
 
+# Refusal (HTTP 400) when a type payload carries an unusable 'port_section_index'. The value is the
+# position of the ports section among the type's sections, so only a whole number from 0 up can mean
+# anything; a negative index, a fraction or a non-number is a client bug and is reported rather than
+# silently corrected (the type IMPORT is the one path that falls back to the default instead)
+PORT_SECTION_INDEX_INVALID_MESSAGE: str = (
+    "Invalid 'port_section_index': {value}. It is the position of the ports section among the "
+    'sections of this Type and must be a whole number of 0 or greater.'
+)
+
+
 class UsesPortsUsageKey(BaseStrEnum):
     """
     Response keys of the ``/types/uses_ports_usage/<public_id>`` pre-check

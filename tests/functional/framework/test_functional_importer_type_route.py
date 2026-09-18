@@ -1003,7 +1003,8 @@ class TestOptionalTypeFields:
             'active': False,
             'selectable_as_parent': False,
             'label': 'Imported Label',
-            'ci_explorer_label': 'IMP',
+            # The NAME of one of the uploaded type's own fields - make_type_doc declares 'dg-name'
+            'ci_explorer_label': 'dg-name',
             'ci_explorer_color': '#123ABC',
             # group 2 is the predefined 'user' group, so the grant resolves and the ACL stays on
             'acl': {'activated': True, 'groups': {'includes': {'2': ['READ']}}},
@@ -1018,7 +1019,7 @@ class TestOptionalTypeFields:
         assert stored['active'] is False
         assert stored['selectable_as_parent'] is False
         assert stored['label'] == 'Imported Label'
-        assert stored['ci_explorer_label'] == 'IMP'
+        assert stored['ci_explorer_label'] == 'dg-name'
         assert stored['ci_explorer_color'] == '#123ABC'
         assert stored['acl']['activated'] is True
 
@@ -2100,6 +2101,75 @@ class TestImportUsesPortsFlag:
         assert response.status_code == HTTPStatus.OK
         assert _errors(response) != []
         assert _imported_count(response) == 0
+
+
+class TestImportPortSectionIndex:
+    """
+    The ports section position an upload brings is repaired, never reported
+
+    The routes refuse an unusable index with a 400; the import cannot, because there is nobody to
+    report a cosmetic value to and an export of a type that predates the key is the ordinary case.
+    Every unusable value therefore falls back to the default instead of failing the entry.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _ipam_licensed(self, monkeypatch: pytest.MonkeyPatch):
+        """A port-bearing type may only be imported with the IPAM licence (decision D6)"""
+        monkeypatch.setattr(
+            LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM,
+        )
+
+    def _import(self, rest_api, **keys: Any):
+        """Uploads one new port-bearing type carrying the given top-level keys"""
+        payload = make_type_doc(0, NEW_TYPE_NAME)
+        payload.pop('public_id')
+        payload['uses_ports'] = True
+        payload.update(keys)
+
+        return rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
+
+    def _stored(self, database_manager: MongoDatabaseManager, database_name: str) -> dict[str, Any]:
+        """Reads the imported type back out of the collection"""
+        return database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .find_one({'name': NEW_TYPE_NAME})
+
+    def test_a_usable_position_survives_the_import(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An export carrying a placement keeps it - that is the point of exporting the key"""
+        response = self._import(rest_api, port_section_index=4)
+
+        assert _imported_count(response) == 1
+        assert self._stored(database_manager, database_name)['port_section_index'] == 4
+
+    @pytest.mark.parametrize('sent', [-1, 'left', 1.5, True], ids=str)
+    def test_an_unusable_position_falls_back_to_the_default(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, sent: Any,
+    ) -> None:
+        """The entry still imports; only the cosmetic value is replaced"""
+        response = self._import(rest_api, port_section_index=sent)
+
+        assert _errors(response) == []
+        assert _imported_count(response) == 1
+        assert self._stored(database_manager, database_name)['port_section_index'] == 0
+
+    def test_an_absent_key_is_filled_in(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """An export of a type that predates the key imports with the default position"""
+        response = self._import(rest_api)
+
+        assert _imported_count(response) == 1
+        assert self._stored(database_manager, database_name)['port_section_index'] == 0
+
+    def test_a_type_without_ports_is_reset(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The index is only read while the flag is on, so it may not ride in without it"""
+        response = self._import(rest_api, uses_ports=False, port_section_index=4)
+
+        assert _imported_count(response) == 1
+        assert self._stored(database_manager, database_name)['port_section_index'] == 0
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

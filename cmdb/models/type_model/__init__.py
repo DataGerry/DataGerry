@@ -31,7 +31,11 @@ from .section_key_enum import SectionKey
 from .section_reference_key_enum import SectionReferenceKey
 from .type_reference_key_enum import TypeReferenceKey
 from .type_schema_key_enum import TypeSchemaKey
-from .type_constants import DG_LOCATION_FIELD_NAME
+from .type_constants import (
+    DG_LOCATION_FIELD_NAME,
+    DEFAULT_PORT_SECTION_INDEX,
+    MIN_PORT_SECTION_INDEX,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -51,4 +55,6 @@ __all__: list[str] = [
     'TypeReferenceKey',
     'TypeSchemaKey',
     'DG_LOCATION_FIELD_NAME',
+    'DEFAULT_PORT_SECTION_INDEX',
+    'MIN_PORT_SECTION_INDEX',
 ]
