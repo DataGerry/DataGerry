@@ -42,6 +42,11 @@ from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants im
     INTERFACE_ROW_KEY,
     PORT_INTERFACE_LINKS_KEY,
 )
+from cmdb.interface.rest_api.routes.port_routes.port_bulk_helper import (
+    abort_bulk_action,
+    get_selection_or_abort,
+    read_ports_by_id,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import (
     enforce_interface_on_port_object,
     with_interface_links,
@@ -914,3 +919,70 @@ class TestWithInterfaceLinks:
 
         assert with_interface_links(links_manager, MagicMock(), [], _owner_with_rows()) == []
         links_manager.get_links_of_ports.assert_called_once_with([])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the bulk ACTION helpers (§30-35)                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBulkActionHelpers:
+    """The request-shaped half of the bulk actions: the ones that abort, and the one read."""
+
+    def test_a_usable_selection_is_read(self, ctx) -> None:
+        """The ordinary case"""
+        del ctx
+
+        assert get_selection_or_abort({'port_ids': [PORT_ID, OTHER_PORT_ID]}, 'port_ids') == [
+            PORT_ID, OTHER_PORT_ID,
+        ]
+
+    @pytest.mark.parametrize('body', [{}, {'port_ids': []}, {'port_ids': 'all'}], ids=str)
+    def test_an_unusable_selection_aborts_400(self, ctx, body: dict[str, Any]) -> None:
+        """A bulk action over nothing, or over something that is not a list of ids, is a client bug"""
+        del ctx
+
+        with pytest.raises(HTTPException) as raised:
+            get_selection_or_abort(body, 'port_ids')
+
+        assert raised.value.code == 400
+
+    def test_no_blockers_is_a_no_op(self, ctx) -> None:
+        """The happy path of every bulk action goes through here"""
+        del ctx
+
+        assert abort_bulk_action([]) is None
+
+    def test_every_blocker_reaches_the_message(self, ctx) -> None:
+        """
+        One refusal, every reason - and it says nothing was changed
+
+        That sentence is the part a caller relies on: a bulk action is validated as a whole, so a
+        refusal means the selection is untouched rather than partially applied.
+        """
+        del ctx
+
+        with pytest.raises(HTTPException) as raised:
+            abort_bulk_action(['first reason', 'second reason'])
+
+        assert raised.value.code == 400
+        assert 'first reason' in raised.value.description
+        assert 'second reason' in raised.value.description
+        assert 'nothing was changed' in raised.value.description
+
+    def test_the_selected_ports_are_read_in_one_query(self) -> None:
+        """One batched `$in` for the whole selection"""
+        manager = MagicMock(name='ports_manager')
+        manager.find.return_value = [_port(), _port(**{PortKey.PUBLIC_ID.value: OTHER_PORT_ID})]
+
+        ports = read_ports_by_id(manager, [PORT_ID, OTHER_PORT_ID])
+
+        assert set(ports) == {PORT_ID, OTHER_PORT_ID}
+        manager.find.assert_called_once_with(
+            criteria={PortKey.PUBLIC_ID.value: {'$in': [PORT_ID, OTHER_PORT_ID]}},
+        )
+
+    def test_an_empty_selection_costs_no_query(self) -> None:
+        """Unreachable from the routes, which refuse an empty selection - but the helper is reusable"""
+        manager = MagicMock(name='ports_manager')
+
+        assert read_ports_by_id(manager, []) == {}
+        manager.find.assert_not_called()

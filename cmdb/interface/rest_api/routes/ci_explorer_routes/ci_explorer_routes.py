@@ -20,20 +20,26 @@ Three resources share one blueprint:
 
 - ``/ci_explorer/items``                  the node/edge graph around one CmdbObject (read)
 - ``/ci_explorer/profile``                the saved filters, a full CRUD surface
-- ``/ci_explorer/tooltip|label_field``    the two presentation settings the graph renders
+- ``/ci_explorer/label_field``            which field of a Type the graph draws on its nodes
 
 Every route is guarded by a ``CiExplorerRight`` on top of ``ApiLevel.LOCKED``. LOCKED is a refusal
 rather than a level: ``__check_api_level`` denies it outright, so the CI Explorer is reachable from
 the DataGerry frontend only and never from the cloud API
 
 Saved profiles are deliberately GLOBAL - they carry no owner, so a profile saved by one user is a
-preset every user sees. The two field routes write a single key of a CmdbObject / CmdbType through a
-targeted update, so an edit of any other field can not be overwritten by them.
+preset every user sees. The field route writes a single key of a CmdbType through a targeted update,
+so an edit of any other field can not be overwritten by it.
 
 ``/label_field`` was called ``/type_label`` until 2026-09-18. The old name read as "set a display
 label", which is what the value is NOT: it names one of the Type's own fields, and the graph shows
 that field's value per object. The route had no caller anywhere (the type builder sends the whole
-Type through ``PUT /types/<id>``), so it was renamed rather than left misleading
+Type through ``PUT /types/<id>``), so it was renamed rather than left misleading.
+
+**There was a second field route, ``PUT /ci_explorer/tooltip/<object_id>``, removed 2026-09-18.** It
+wrote ``ci_explorer_tooltip`` on a CmdbObject with all four guarantees of an object edit, and nothing
+ever called it: no frontend caller, no UI to set a tooltip and none to render one. The OBJECT FIELD
+stays - it is on the model, an object create sends it, and the graph carries it inside
+``linked_object`` - so a tooltip is still writable the ordinary way, through ``PUT /objects/<id>``
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -49,7 +55,6 @@ from cmdb.manager import (
     ObjectRelationsManager,
     CiExplorerProfileManager,
     LocationsManager,
-    LogsManager,
 )
 from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
@@ -57,7 +62,6 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.ci_explorer_model import NodeType, CmdbCiExplorerProfile
@@ -96,8 +100,6 @@ from cmdb.errors.manager.ci_explorer_profile_manager import (
     CiExplorerProfileManagerDeleteError,
     CiExplorerProfileManagerIterationError,
 )
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
-from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.types_manager import TypesManagerGetError, TypesManagerUpdateError
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants import (
     CiExplorerParam,
@@ -106,12 +108,8 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants imp
 )
 from cmdb.framework.ci_explorer.label_field import label_field_error, selectable_label_fields
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import (
-    bump_patch_version,
-    emit_tooltip_webhook,
     get_ci_explorer_label_schema,
-    get_ci_explorer_tooltip_schema,
     load_ci_explorer_entity,
-    record_tooltip_edit_log,
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
@@ -364,85 +362,6 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
 
 # ----------------------------------- PRESENTATION FIELDS - CmdbObject / CmdbType ------------------------------------ #
 
-@ci_explorer_blueprint.route('/tooltip/<int:public_id>', methods=['PUT', 'PATCH'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
-@ci_explorer_blueprint.validate(get_ci_explorer_tooltip_schema())
-def update_tooltip(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
-    """
-    HTTP `PUT`/`PATCH` route to set the ci_explorer_tooltip of a CmdbObject from the CI Explorer
-
-    Requires the ``base.framework.ciExplorer.edit`` right **and** the object ACL: the caller's group
-    has to hold READ on the CmdbType to load the object and UPDATE to write it. Holding the CI
-    Explorer right is not enough - the graph's reads have always been ACL-filtered, and until
-    2026-09-17 this write was the one place in the feature that was not (tier 2 T58).
-
-    The body is ``{'ci_explorer_tooltip': <string>}``; only that key and the bumped version are
-    written, so an edit of any other field made meanwhile survives. The change is recorded in the
-    object's history, bumps its patch version and emits the UPDATE webhook - a tooltip is a change to
-    the CmdbObject, so it carries the same four guarantees any other edit does
-
-    Args:
-        public_id (int): public_id of the CmdbObject which should be updated
-        data (dict[str, Any]): The validated body carrying the new tooltip
-        request_user (CmdbUser): User requesting this data
-
-    Raises:
-        HTTPException: 403 when the user lacks the right or the object's ACL denies them; 400 when the
-                       body is invalid or the ObjectsManager fails; 404 when the Object does not
-                       exist; 500 on an unexpected failure
-
-    Returns:
-        DefaultResponse: The tooltip which was set for the CmdbObject
-    """
-    try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
-
-        tooltip: Any = data[CmdbObjectKey.CI_EXPLORER_TOOLTIP.value]
-
-        stored_object, previous_tooltip = load_ci_explorer_entity(
-            lambda target_id: objects_manager.get_object(target_id, request_user, AccessControlPermission.READ),
-            public_id,
-            CmdbObjectKey.CI_EXPLORER_TOOLTIP.value,
-            "Object",
-        )
-
-        new_version: str = bump_patch_version(stored_object)
-
-        # Only the tooltip and the version are written, so an edit of any other field meanwhile is
-        # not overwritten
-        objects_manager.update_object(
-            public_id,
-            {
-                CmdbObjectKey.CI_EXPLORER_TOOLTIP.value: tooltip,
-                CmdbObjectKey.VERSION.value: new_version,
-            },
-            request_user,
-            AccessControlPermission.UPDATE,
-            partial=True,
-        )
-
-        record_tooltip_edit_log(logs_manager, request_user, stored_object, previous_tooltip, tooltip)
-        emit_tooltip_webhook(request_user, stored_object, previous_tooltip, tooltip, new_version)
-
-        return DefaultResponse({CmdbObjectKey.CI_EXPLORER_TOOLTIP.value: tooltip}).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except AccessDeniedError as err:
-        # The manager re-raises this unwrapped precisely so a denial can be answered as one; without
-        # this arm it would fall through to the 500 below and look like a server fault
-        LOGGER.error("[update_tooltip] AccessDeniedError: %s", err, exc_info=True)
-        abort(403, "No permission for this action!")
-    except (ObjectsManagerGetError, ObjectsManagerUpdateError) as err:
-        LOGGER.error("[update_tooltip] %s: %s", type(err).__name__, err, exc_info=True)
-        abort(400, f"Failed to update the Tooltip for Object-ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_tooltip] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the Tooltip for Object-ID: {public_id}!")
-
-
 @ci_explorer_blueprint.route('/label_field/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
@@ -463,8 +382,8 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
     fields are not offered: their values live per row, and a node can only show one.
 
     Only that one key of the CmdbType is written, so a concurrent edit of the type's fields or
-    sections can not be overwritten. Unlike the tooltip this records no history entry - DataGerry
-    keeps a history for CmdbObjects only
+    sections can not be overwritten. It records no history entry, because DataGerry keeps a history
+    for CmdbObjects only and this writes a CmdbType
 
     Args:
         public_id (int): public_id of the CmdbType which should be updated

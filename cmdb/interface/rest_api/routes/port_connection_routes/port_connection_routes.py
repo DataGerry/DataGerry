@@ -118,6 +118,11 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     collect_port_ids,
     get_accessible_owner_or_abort,
 )
+from cmdb.framework.port.bulk_action_constants import BulkActionKey, BulkActionRequestKey
+from cmdb.interface.rest_api.routes.port_routes.port_bulk_helper import (
+    get_selected_connections_or_abort,
+    get_selection_or_abort,
+)
 from cmdb.interface.rest_api.routes.port_connection_routes.port_connection_route_helper import (
     build_cable_info,
     build_cable_usage_payload,
@@ -655,3 +660,71 @@ def delete_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Respo
     except Exception as err:
         LOGGER.error("[delete_cmdb_port_connection] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, f'An internal server error occured while deleting the Port connection ID: {public_id}!')
+
+@port_connection_blueprint.route('/object/<int:object_id>/bulk', methods=['DELETE'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@port_connection_blueprint.protect(auth=True, right=ConnectionRight.DELETE.value)
+def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `DELETE` route to resolve several CmdbPortConnections of one CmdbObject's ports at once
+
+    The body is ``{'connection_ids': [...]}``, and the ids are CONNECTIONS, never ports - that is what
+    makes resolving **granular** (§34). A patch-panel pair carries a front connection, a rear
+    connection and an internal pairing; only an id per connection can express "the internal one, and
+    nothing else", so §35's rule that **resolving one connection never deletes another** is structural
+    here rather than something the code has to remember.
+
+    Scoped to the object whose table the selection was made in: every id must have at least ONE
+    endpoint among that object's ports. A cable legitimately reaches another device, and resolving it
+    from either end is the same act.
+
+    Nothing but the connection rows is touched - the ports at both ends simply become free, which
+    needs no write because `connected` is computed on read. **Validated as a whole**: one unusable id
+    refuses the request and nothing is resolved
+
+    Args:
+        object_id (int): public_id of the CmdbObject whose connections are resolved
+        request_user (CmdbUser): CmdbUser requesting this operation
+
+    Raises:
+        HTTPException: 400 when the selection is unusable, names no connection, or names one that does
+                       not touch this object; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: How many connections were resolved, and which
+    """
+    try:
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
+
+        payload: dict[str, Any] = request.get_json(silent=True) or {}
+
+        connection_ids: list[int] = get_selection_or_abort(
+            payload, BulkActionRequestKey.CONNECTION_IDS.value,
+        )
+
+        # No object ACL, deliberately: a connection is governed by the connection rights alone
+        # (decision Q13), and it belongs to neither of the two devices it joins. The object here is
+        # the SCOPE of the selection, not its owner
+        get_selected_connections_or_abort(
+            port_connections_manager, ports_manager, object_id, connection_ids,
+        )
+
+        port_connections_manager.delete_many(
+            {PortConnectionKey.PUBLIC_ID.value: {'$in': connection_ids}},
+        )
+
+        return DefaultResponse({
+            BulkActionKey.RESOLVED.value: len(connection_ids),
+            BulkActionKey.CONNECTION_IDS.value: connection_ids,
+        }).make_response()
+    except HTTPException as http_err:
+        raise http_err
+    except (PortConnectionsManagerGetError, PortConnectionsManagerDeleteError) as err:
+        LOGGER.error("[bulk_resolve_port_connections] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(400, f'Failed to resolve the selected Port connections of CmdbObject ID: {object_id}!')
+    except Exception as err:
+        LOGGER.error("[bulk_resolve_port_connections] Exception: %s. Type: %s", err, type(err), exc_info=True)
+        abort(500, 'An internal server error occured while resolving the selected Port connections!')

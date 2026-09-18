@@ -88,6 +88,9 @@ PLAIN_TYPE_ID: int = 9922
 
 OWNER_OBJECT_ID: int = 9930
 PEER_OBJECT_ID: int = 9931
+# A CABLE joins two devices, so the switch is a device of its own - its ports are the cross-object
+# peer of the server's. Two ports of ONE object may only be paired by an INTERNAL connection
+SWITCH_OBJECT_ID: int = 9936
 CABLE_CI_ID: int = 9932
 OTHER_CABLE_CI_ID: int = 9933
 PLAIN_OBJECT_ID: int = 9934
@@ -117,8 +120,8 @@ CABLE_TYPE_LABEL: str = 'CAT6'
 
 ALL_TYPE_IDS: list[int] = [PORT_TYPE_ID, CABLE_TYPE_ID, PLAIN_TYPE_ID]
 ALL_OBJECT_IDS: list[int] = [
-    OWNER_OBJECT_ID, PEER_OBJECT_ID, CABLE_CI_ID, OTHER_CABLE_CI_ID, PLAIN_OBJECT_ID,
-    INACTIVE_CABLE_CI_ID,
+    OWNER_OBJECT_ID, PEER_OBJECT_ID, SWITCH_OBJECT_ID, CABLE_CI_ID, OTHER_CABLE_CI_ID,
+    PLAIN_OBJECT_ID, INACTIVE_CABLE_CI_ID,
 ]
 ALL_PORT_IDS: list[int] = [
     FRONT_PORT_ID, REAR_PORT_ID, SERVER_PORT_ID, SWITCH_PORT_ID, SPARE_PORT_ID,
@@ -241,6 +244,7 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
     objects.insert_many([
         _object_doc(OWNER_OBJECT_ID, PORT_TYPE_ID),
         _object_doc(PEER_OBJECT_ID, PORT_TYPE_ID),
+        _object_doc(SWITCH_OBJECT_ID, PORT_TYPE_ID),
         _cable_ci_doc(CABLE_CI_ID, CABLE_NAME_SECOND),
         _cable_ci_doc(OTHER_CABLE_CI_ID, CABLE_NAME_FIRST),
         _cable_ci_doc(INACTIVE_CABLE_CI_ID, CABLE_NAME_INACTIVE, active=False),
@@ -250,8 +254,8 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
         _port_doc(FRONT_PORT_ID, OWNER_OBJECT_ID, '1', PortSide.FRONT.value),
         _port_doc(REAR_PORT_ID, OWNER_OBJECT_ID, '1', PortSide.REAR.value),
         _port_doc(SERVER_PORT_ID, PEER_OBJECT_ID, 'eth0'),
-        _port_doc(SWITCH_PORT_ID, PEER_OBJECT_ID, 'Gi0/1'),
-        _port_doc(SPARE_PORT_ID, PEER_OBJECT_ID, 'Gi0/2'),
+        _port_doc(SWITCH_PORT_ID, SWITCH_OBJECT_ID, 'Gi0/1'),
+        _port_doc(SPARE_PORT_ID, SWITCH_OBJECT_ID, 'Gi0/2'),
     ])
 
     yield connections
@@ -435,6 +439,104 @@ class TestCreateConnection:
         response = _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID], cable_ci_id=MISSING_CONNECTION_ID)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      which device each end may sit on, over HTTP                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTheTwoEndsBelongToTheRightDevices:
+    """
+    A CABLE joins two devices; an INTERNAL pairs two faces of one
+
+    The two halves are each other's refusal: cabling two ports of one object is a panel pairing
+    written the wrong way, and an INTERNAL spanning two objects is not a pairing at all.
+    """
+
+    def test_a_cable_between_two_objects_is_created(self, rest_api) -> None:
+        """The ordinary case, stated so the refusals below cannot be passing for the wrong reason"""
+        response = _create(rest_api, [SERVER_PORT_ID, SWITCH_PORT_ID])
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+    def test_a_cable_between_two_ports_of_one_object_is_refused(self, rest_api) -> None:
+        """
+        The rule asked for: a device cabled to itself is not a link, it is a mis-click
+
+        The panel's own pairing has its own connection type, which the message points at.
+        """
+        response = _create(rest_api, [SWITCH_PORT_ID, SPARE_PORT_ID])
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+        message: str = response.get_json()['message']
+
+        assert str(SWITCH_OBJECT_ID) in message
+        assert ConnectionType.INTERNAL.value in message
+
+    def test_the_refusal_names_both_ports(self, rest_api) -> None:
+        """A caller has to see which pair it sent, not just that something was wrong"""
+        message: str = _create(rest_api, [SWITCH_PORT_ID, SPARE_PORT_ID]).get_json()['message']
+
+        assert str(SWITCH_PORT_ID) in message
+        assert str(SPARE_PORT_ID) in message
+
+    def test_an_internal_within_one_object_is_created(self, rest_api) -> None:
+        """The patch panel's front-to-rear pairing, which is what the exemption is for"""
+        response = _create(
+            rest_api, [FRONT_PORT_ID, REAR_PORT_ID], connection_type=ConnectionType.INTERNAL.value,
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+    def test_an_internal_across_two_objects_is_refused(self, rest_api) -> None:
+        """
+        The other half of the same rule
+
+        An INTERNAL spanning two devices would be followed by the CI Explorer, which walks THROUGH a
+        panel rather than drawing it - straight into the wrong device.
+        """
+        response = _create(
+            rest_api, [FRONT_PORT_ID, SERVER_PORT_ID], connection_type=ConnectionType.INTERNAL.value,
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+        message: str = response.get_json()['message']
+
+        assert str(OWNER_OBJECT_ID) in message
+        assert str(PEER_OBJECT_ID) in message
+        assert ConnectionType.CABLE.value in message
+
+    def test_the_rule_is_reported_with_the_other_reasons(self, rest_api) -> None:
+        """
+        One payload, every reason - the contract the whole validator has
+
+        A cable field on an INTERNAL and a cross-object INTERNAL are two independent faults, and the
+        caller should not have to discover them one request at a time.
+        """
+        response = _create(
+            rest_api, [FRONT_PORT_ID, SERVER_PORT_ID],
+            connection_type=ConnectionType.INTERNAL.value, cable_name='Patch 1',
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+        message: str = response.get_json()['message']
+
+        assert PortConnectionKey.CABLE_NAME.value in message
+        assert str(PEER_OBJECT_ID) in message
+
+    def test_a_missing_port_is_still_reported_as_missing(self, rest_api) -> None:
+        """
+        The device rule stays silent when an end does not exist
+
+        Two messages for one fault would send the caller in circles; "no Port with ID x" is the one
+        that helps.
+        """
+        message: str = _create(rest_api, [SERVER_PORT_ID, MISSING_PORT_ID]).get_json()['message']
+
+        assert str(MISSING_PORT_ID) in message
+        assert 'INTERNAL connection' not in message
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

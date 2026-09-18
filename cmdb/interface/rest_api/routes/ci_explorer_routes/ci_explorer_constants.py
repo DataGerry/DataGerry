@@ -19,11 +19,12 @@ Constants for the CI Explorer REST routes
 Names the ACL rights guarding the ``/ci_explorer`` routes, the query-string parameters they read and
 the response keys the label-field route adds of its own.
 
-The CI Explorer FIELD keys are deliberately not repeated here: ``ci_explorer_tooltip`` belongs to the
-CmdbObject document (``CmdbObjectKey.CI_EXPLORER_TOOLTIP``) and ``ci_explorer_label`` /
-``ci_explorer_color`` to the CmdbType document (``TypeSchemaKey.CI_EXPLORER_*``), so the models own
-them and every reader - these routes included - takes them from there. The node-direction values live
-in cmdb.models.ci_explorer_model.NodeType
+The CI Explorer FIELD keys are deliberately not repeated here: ``ci_explorer_label`` and
+``ci_explorer_color`` belong to the CmdbType document (``TypeSchemaKey.CI_EXPLORER_*``), so the models
+own them and every reader - these routes included - takes them from there. ``ci_explorer_tooltip`` is
+a CmdbObject key (``CmdbObjectKey.CI_EXPLORER_TOOLTIP``) that these routes no longer write at all: its
+route was removed 2026-09-18 for want of a caller, and the field travels to the graph inside the
+node's ``linked_object``. The node-direction values live in cmdb.models.ci_explorer_model.NodeType
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
