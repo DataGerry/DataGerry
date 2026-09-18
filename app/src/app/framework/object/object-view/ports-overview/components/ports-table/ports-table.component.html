@@ -61,6 +61,48 @@
   </div>
 </ng-template>
 
+<ng-template #interfaceTemplate let-item="item">
+  @if (item.interfaces.label) {
+    <div class="ports-interfaces">
+      <span class="ports-interfaces__label">
+        {{ item.interfaces.label }}
+
+        @if (item.interfaces.additionalLabels.length) {
+          <span
+            class="ports-badge ports-interfaces__more"
+            tabindex="0"
+            [ngbTooltip]="moreInterfacesTooltip(item)"
+            tooltipClass="ports-interfaces-tooltip"
+            [openDelay]="200"
+            container="body"
+            placement="top"
+            attr.aria-label="{{ item.interfaces.additionalLabels.length }} further interfaces: {{ moreInterfacesTooltip(item) }}">
+            +{{ item.interfaces.additionalLabels.length }}
+          </span>
+        }
+      </span>
+
+      @if (item.interfaces.address) {
+        <small class="ports-interfaces__address">{{ item.interfaces.address }}</small>
+      }
+
+      @if (item.interfaces.dangling) {
+        <small class="ports-interfaces__dangling">
+          <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+          {{ item.interfaces.dangling }} link(s) point to a removed interface
+        </small>
+      }
+    </div>
+  } @else if (item.interfaces.dangling) {
+    <span class="ports-interfaces__dangling">
+      <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+      Interface no longer exists
+    </span>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
 <ng-template #valueTemplate let-data="data">
   @if (data !== null && data !== undefined && data !== '') {
     <span>{{ data }}</span>

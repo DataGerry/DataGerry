@@ -37,6 +37,7 @@ import { PortRow } from '../../models/ports-overview.types';
 const OPTIONAL_COLUMN_INPUTS = [
     'showSideColumn',
     'showConnectionColumn',
+    'showInterfaceColumn',
     'canEdit',
     'canDelete',
     'canConnect',
@@ -68,6 +69,9 @@ export class PortsTableComponent implements OnInit, OnChanges {
     /** Only shown once the backend reports a connection state; see `hasConnectionState`. */
     @Input() public showConnectionColumn = false;
 
+    /** Only shown once the read route embeds the interface links; see `hasInterfaceLinks`. */
+    @Input() public showInterfaceColumn = false;
+
     /** Each gates its own action AND, together, the whole actions column. */
     @Input() public canEdit = false;
     @Input() public canDelete = false;
@@ -92,6 +96,7 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @ViewChild('sideTemplate', { static: true }) public sideTemplate: TemplateRef<unknown>;
     @ViewChild('statusTemplate', { static: true }) public statusTemplate: TemplateRef<unknown>;
     @ViewChild('connectionTemplate', { static: true }) public connectionTemplate: TemplateRef<unknown>;
+    @ViewChild('interfaceTemplate', { static: true }) public interfaceTemplate: TemplateRef<unknown>;
     @ViewChild('valueTemplate', { static: true }) public valueTemplate: TemplateRef<unknown>;
     @ViewChild('actionsTemplate', { static: true }) public actionsTemplate: TemplateRef<unknown>;
 
@@ -158,6 +163,12 @@ export class PortsTableComponent implements OnInit, OnChanges {
     /** A row without any permitted action shows a dash instead of an empty menu. */
     public hasRowActions(row: PortRow): boolean {
         return this.canEdit || this.canDelete || this.canViewInterfaces || this.hasConnectionActions(row);
+    }
+
+
+    /** The further interfaces of a port, one per line, as the badge's tooltip lists them. */
+    public moreInterfacesTooltip(row: PortRow): string {
+        return row.interfaces.additionalLabels.join('\n');
     }
 
 
@@ -247,6 +258,15 @@ export class PortsTableComponent implements OnInit, OnChanges {
                 style: { 'min-width': '180px' }
             },
             {
+                display: 'Interfaces',
+                name: 'interfaces',
+                data: 'interfaceLabel',
+                sortable: true,
+                searchable: false,
+                template: this.interfaceTemplate,
+                style: { 'min-width': '180px' }
+            },
+            {
                 display: 'Description',
                 name: 'description',
                 data: 'description',
@@ -278,6 +298,10 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
         if (name === 'connected') {
             return this.showConnectionColumn;
+        }
+
+        if (name === 'interfaces') {
+            return this.showInterfaceColumn;
         }
 
         if (name === 'actions') {

@@ -16,6 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { PortOptionType } from 'src/app/framework/models/port-option-type';
+import { PortInterfaceLink, PortInterfaceSummary } from './interface-link.types';
 import { PortConnectionState } from './port-connection.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -58,6 +59,9 @@ export interface CmdbPort {
     creation_time: { $date: number } | null;
     last_edit_time: { $date: number } | null;
     connected?: boolean;
+
+    /** Embedded by the read route, with each link's `interface_row` resolved. Omitted by older backends. */
+    interface_links?: PortInterfaceLink[];
 }
 
 
@@ -83,6 +87,12 @@ export interface PortRow {
 
     /** The panel port on the other side of the internal pairing, which belongs to the same object. */
     pairedPortName: string | null;
+
+    /** What the interfaces cell reads. */
+    interfaces: PortInterfaceSummary;
+
+    /** The interface label on its own, because the column sorts by a plain value. */
+    interfaceLabel: string | null;
 }
 
 

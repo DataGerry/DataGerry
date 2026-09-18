@@ -58,6 +58,7 @@ import { indexConnectionsByPort } from './utils/port-connection.util';
 import {
     clampPage,
     hasConnectionState,
+    hasInterfaceLinks,
     hasPanelSides,
     pagePortRows,
     sortPortRows,
@@ -115,6 +116,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     public sort: Sort = { name: 'port_number', order: SortDirection.ASCENDING };
     public showSideColumn = false;
     public showConnectionColumn = false;
+    public showInterfaceColumn = false;
     public hasError = false;
     public readonly isLoading$ = this.loaderService.isLoading$;
     public readonly portAddRight = PORT_ADD_RIGHT;
@@ -399,6 +401,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
         this.portsById = new Map(ports.map((port) => [port.public_id, port]));
         this.showSideColumn = hasPanelSides(this.allRows);
         this.showConnectionColumn = hasConnectionState(ports);
+        this.showInterfaceColumn = hasInterfaceLinks(ports);
         this.applyQuery();
     }
 
@@ -422,6 +425,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
         this.totalRows = 0;
         this.showSideColumn = false;
         this.showConnectionColumn = false;
+        this.showInterfaceColumn = false;
         this.hasError = false;
         this.changesRef.markForCheck();
     }
