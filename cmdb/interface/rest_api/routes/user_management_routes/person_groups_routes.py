@@ -47,6 +47,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.person_membership_hel
 )
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -79,7 +80,7 @@ person_group_blueprint = APIBlueprint('person_group', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.add')
-@person_group_blueprint.validate(CmdbPersonGroup.SCHEMA)
+@person_group_blueprint.validate(build_write_schema(CmdbPersonGroup.SCHEMA))
 def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbPersonGroup into the database
@@ -219,7 +220,7 @@ def get_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.edit')
-@person_group_blueprint.validate(CmdbPersonGroup.SCHEMA)
+@person_group_blueprint.validate(build_write_schema(CmdbPersonGroup.SCHEMA))
 def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbPersonGroup

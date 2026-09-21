@@ -34,6 +34,7 @@ from cmdb.models.extendable_option_model import (
     normalize_extendable_option_document,
 )
 
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -73,7 +74,7 @@ extendable_option_blueprint = APIBlueprint('extendable_options', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.ADD.value)
-@extendable_option_blueprint.validate(CmdbExtendableOption.SCHEMA)
+@extendable_option_blueprint.validate(build_write_schema(CmdbExtendableOption.SCHEMA))
 def insert_cmdb_extendable_option(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbExtendableOption into the database
@@ -230,7 +231,7 @@ def get_cmdb_extendable_option(public_id: int, request_user: CmdbUser) -> Respon
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.EDIT.value)
-@extendable_option_blueprint.validate(CmdbExtendableOption.SCHEMA)
+@extendable_option_blueprint.validate(build_write_schema(CmdbExtendableOption.SCHEMA))
 def update_cmdb_extendable_option(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbExtendableOption

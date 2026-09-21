@@ -42,6 +42,7 @@ from cmdb.models.object_group_model.object_reference_type_enum import ObjectRefe
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
@@ -66,7 +67,7 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -158,7 +159,7 @@ def build_ra_naming(
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.add')
-@risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
+@risk_assessment_blueprint.validate(build_write_schema(IsmsRiskAssessment.SCHEMA))
 def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskAssessment into the database
@@ -227,6 +228,9 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
         abort(500, "An internal server error occured while creating the RiskAssessment!")
 
 
+# The DOCUMENT schema, deliberately: on this route the body's `public_id` is not the identity of
+# anything being written - it names the SOURCE assessment the duplicates are copied from, and the
+# handler pops it. Every other write route here validates the derived request schema
 @risk_assessment_blueprint.route('/duplicate/<string:duplicate_mode>/<string:public_ids>', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
@@ -561,7 +565,7 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.edit')
-@risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
+@risk_assessment_blueprint.validate(build_write_schema(IsmsRiskAssessment.SCHEMA))
 def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskAssessment
@@ -646,6 +650,9 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
         risk_assessment_manager.recalculate_risk_values(data)
 
         # Update the actual RiskAssessment
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+        pin_public_id(data, public_id)
+
         risk_assessment_manager.update_item(public_id, IsmsRiskAssessment.from_data(data))
 
         return UpdateSingleResponse(data).make_response()

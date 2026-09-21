@@ -50,6 +50,9 @@ CMA_ID_FOR_ENRICH: int = 98404
 CMA_ID_FOR_OBJECT_ENRICH: int = 98405
 MISSING_CMA_ID: int = 98499
 
+# The id a forged body claims; it must never end up in the collection
+FORGED_CMA_ID: int = 98498
+
 RISK_ASSESSMENT_ID: int = 98450
 RISK_ID: int = 98451
 OBJECT_GROUP_ID: int = 98452
@@ -61,7 +64,8 @@ MISSING_CONTROL_MEASURE_ID: int = 98461
 RISK_NAME: str = 'Enrichment Risk'
 OBJECT_GROUP_NAME: str = 'Enrichment Group'
 
-ALL_CMA_IDS: list[int] = [CMA_ID_FOR_GET, CMA_ID_FOR_UPDATE, CMA_ID_FOR_DELETE, CMA_ID_FOR_ENRICH]
+ALL_CMA_IDS: list[int] = [CMA_ID_FOR_GET, CMA_ID_FOR_UPDATE, CMA_ID_FOR_DELETE, CMA_ID_FOR_ENRICH,
+                          FORGED_CMA_ID]
 ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
 ALL_RISK_IDS: list[int] = [RISK_ID]
 ALL_OBJECT_GROUP_IDS: list[int] = [OBJECT_GROUP_ID]
@@ -229,6 +233,46 @@ class TestPutControlMeasureAssignment:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}').get_json()['result']['priority'] == 3
+
+    def test_a_body_public_id_can_not_move_the_document(self, rest_api,
+                                                       database_manager: MongoDatabaseManager,
+                                                       database_name: str) -> None:
+        """
+        The URL owns the identity
+
+        Before the identity was pinned, the body's public_id was `$set` onto the document: the update
+        answered 202 and the row moved to the client's id, leaving the URL's id pointing at nothing.
+        """
+        _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)
+        payload = _cma_payload(CMA_ID_FOR_UPDATE)
+        payload['public_id'] = FORGED_CMA_ID
+        payload['priority'] = 3
+
+        response = rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        collection = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
+        assert collection.find_one({'public_id': FORGED_CMA_ID}) is None
+        assert collection.find_one({'public_id': CMA_ID_FOR_UPDATE})['priority'] == 3
+
+    def test_a_body_without_a_public_id_updates_normally(self, rest_api,
+                                                        database_manager: MongoDatabaseManager,
+                                                        database_name: str) -> None:
+        """
+        The identity is optional in a request body, and omitting it used to be a 500
+
+        `public_id` is not part of the request schema at all now, so a consumer that treats it as
+        server-owned - the correct assumption - gets a normal update instead of an unexplained 500.
+        """
+        _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)
+        payload = _cma_payload(CMA_ID_FOR_UPDATE)
+        payload.pop('public_id')
+        payload['priority'] = 4
+
+        response = rest_api.put(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert rest_api.get(f'{ROUTE_URL}/{CMA_ID_FOR_UPDATE}').get_json()['result']['priority'] == 4
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent assignment returns 404."""

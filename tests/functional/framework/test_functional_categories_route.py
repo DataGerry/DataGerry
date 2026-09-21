@@ -142,7 +142,9 @@ class TestPostCategory:
             )
 
             assert response.status_code == HTTPStatus.CREATED
-            follow_up = rest_api.get(f'{ROUTE_URL}/{CATEGORY_ID_FOR_CREATE}')
+            # `public_id` is server-owned: the payload's id is purged, so the route names the real one
+            created_id = response.get_json()['result_id']
+            follow_up = rest_api.get(f'{ROUTE_URL}/{created_id}')
             assert follow_up.status_code == HTTPStatus.OK
         finally:
             _drop_category(database_manager, database_name, CATEGORY_ID_FOR_CREATE)

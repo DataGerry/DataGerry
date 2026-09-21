@@ -96,9 +96,14 @@ def _seed_types(database_manager: MongoDatabaseManager, database_name: str):
         ports_type,
     ])
     yield
-    types.delete_many({'public_id': {'$in': [
-        SPECIAL_TYPE_ID, NORMAL_TYPE_ID, NEW_SPECIAL_TYPE_ID, PORTS_TYPE_ID, NEW_PORTS_TYPE_ID,
-    ]}})
+    # Also keyed on the NAMES this module posts: `public_id` is server-owned, so a Type created
+    # THROUGH the route carries an id the test never chose and a leftover would collide on the name
+    types.delete_many({'$or': [
+        {'public_id': {'$in': [
+            SPECIAL_TYPE_ID, NORMAL_TYPE_ID, NEW_SPECIAL_TYPE_ID, PORTS_TYPE_ID, NEW_PORTS_TYPE_ID,
+        ]}},
+        {'name': {'$regex': '^lic-'}},
+    ]})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -201,7 +206,9 @@ def test_create_type_with_uses_ports_allowed_when_licensed(rest_api, monkeypatch
     response = rest_api.post(f'{TYPES_URL}/', json=_ports_type_payload(NEW_PORTS_TYPE_ID, uses_ports=True))
 
     assert response.status_code == HTTPStatus.CREATED
-    assert rest_api.get(f'{TYPES_URL}/{NEW_PORTS_TYPE_ID}').get_json()['result']['uses_ports'] is True
+    # The identity is server-owned: the created Type is read back under the id the route assigned
+    created_id = response.get_json()['result_id']
+    assert rest_api.get(f'{TYPES_URL}/{created_id}').get_json()['result']['uses_ports'] is True
 
 
 def test_an_omitted_uses_ports_is_stored_as_false(rest_api) -> None:
@@ -214,5 +221,8 @@ def test_an_omitted_uses_ports_is_stored_as_false(rest_api) -> None:
     payload = _ports_type_payload(NEW_PORTS_TYPE_ID, uses_ports=False)
     payload.pop('uses_ports')
 
-    assert rest_api.post(f'{TYPES_URL}/', json=payload).status_code == HTTPStatus.CREATED
-    assert rest_api.get(f'{TYPES_URL}/{NEW_PORTS_TYPE_ID}').get_json()['result']['uses_ports'] is False
+    created = rest_api.post(f'{TYPES_URL}/', json=payload)
+
+    assert created.status_code == HTTPStatus.CREATED
+    created_id = created.get_json()['result_id']
+    assert rest_api.get(f'{TYPES_URL}/{created_id}').get_json()['result']['uses_ports'] is False

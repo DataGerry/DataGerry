@@ -30,13 +30,14 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsControlMeasure
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     bulk_delete_reporting_in_use,
 )
-from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids, request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids, request_wants_body, pin_public_id
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -67,7 +68,7 @@ control_measure_blueprint = APIBlueprint('control_measure', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.add')
-@control_measure_blueprint.validate(IsmsControlMeasure.SCHEMA)
+@control_measure_blueprint.validate(build_write_schema(IsmsControlMeasure.SCHEMA))
 def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsControlMeasure into the database
@@ -188,7 +189,7 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.edit')
-@control_measure_blueprint.validate(IsmsControlMeasure.SCHEMA)
+@control_measure_blueprint.validate(build_write_schema(IsmsControlMeasure.SCHEMA))
 def update_isms_control_measure(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasure
@@ -207,6 +208,10 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
 
         get_item_or_404(control_measure_manager, public_id,
                         f"The ControlMeasure with ID:{public_id} was not found!", as_dict=False)
+
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+
+        pin_public_id(data, public_id)
 
         control_measure_manager.update_item(public_id, IsmsControlMeasure.from_data(data))
 

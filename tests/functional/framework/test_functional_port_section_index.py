@@ -39,7 +39,6 @@ from cmdb.security.license.license_constants import LicenseFeature
 
 TYPES_URL: str = '/types'
 
-TYPE_ID: int = 9650
 TYPE_NAME: str = 'port-section-index-type'
 TYPE_LABEL: str = 'Port Section Index Type'
 
@@ -59,7 +58,6 @@ def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
 def _type_payload(**overrides: Any) -> dict[str, Any]:
     """A port-bearing Type with two ordinary sections, so a position between them means something."""
     payload: dict[str, Any] = {
-        'public_id': TYPE_ID,
         'name': TYPE_NAME,
         'label': TYPE_LABEL,
         'author_id': AUTHOR_ID,
@@ -92,8 +90,10 @@ def _type_payload(**overrides: Any) -> dict[str, Any]:
 def fixture_cleanup_type(database_manager: MongoDatabaseManager, database_name: str):
     """Removes the Type after each test - every test creates it itself, with its own payload."""
     def _purge() -> None:
+        # Keyed on the NAME: `public_id` is server-owned, so the payload cannot choose the id and the
+        # test does not know it until the route answers
         database_manager.get_collection(CmdbType.COLLECTION, database_name)\
-            .delete_many({'public_id': TYPE_ID})
+            .delete_many({'name': TYPE_NAME})
 
     _purge()
     yield
@@ -105,13 +105,31 @@ def _create(rest_api, **overrides: Any):
     return rest_api.post(f'{TYPES_URL}/', json=_type_payload(**overrides))
 
 
-def _stored_index(rest_api) -> int:
-    """Reads the Type back through the route and returns its stored position"""
-    response = rest_api.get(f'{TYPES_URL}/{TYPE_ID}')
+def _stored_type(rest_api) -> dict[str, Any]:
+    """
+    Reads the Type back through the list route, found by its NAME
+
+    The id is assigned by the server (`public_id` is not part of a request body), and the name is
+    unique - so the name is what a test can look the Type up by.
+    """
+    response = rest_api.get(f'{TYPES_URL}/?filter={{"name":"{TYPE_NAME}"}}')
 
     assert response.status_code == HTTPStatus.OK
+    results: list[dict[str, Any]] = response.get_json()['results']
 
-    return response.get_json()['result']['port_section_index']
+    assert len(results) == 1
+
+    return results[0]
+
+
+def _stored_id(rest_api) -> int:
+    """The public_id the route assigned to the Type this module creates"""
+    return _stored_type(rest_api)['public_id']
+
+
+def _stored_index(rest_api) -> int:
+    """Reads the Type back through the route and returns its stored position"""
+    return _stored_type(rest_api)['port_section_index']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -173,7 +191,7 @@ class TestUpdate:
     def test_the_position_can_be_moved(self, rest_api) -> None:
         """Dragging the section elsewhere in the type builder is an ordinary full-document update"""
         response = rest_api.put(
-            f'{TYPES_URL}/{TYPE_ID}', json=_type_payload(port_section_index=MOVED_INDEX),
+            f'{TYPES_URL}/{_stored_id(rest_api)}', json=_type_payload(port_section_index=MOVED_INDEX),
         )
 
         assert response.status_code == HTTPStatus.ACCEPTED
@@ -187,7 +205,7 @@ class TestUpdate:
         user may never make again the moment the flag came back.
         """
         response = rest_api.put(
-            f'{TYPES_URL}/{TYPE_ID}',
+            f'{TYPES_URL}/{_stored_id(rest_api)}',
             json=_type_payload(uses_ports=False, port_section_index=PLACED_INDEX),
         )
 
@@ -196,7 +214,7 @@ class TestUpdate:
 
     def test_an_unusable_position_is_refused(self, rest_api) -> None:
         """The refusal is the same on the update path, and the stored position is left alone"""
-        response = rest_api.put(f'{TYPES_URL}/{TYPE_ID}', json=_type_payload(port_section_index=-2))
+        response = rest_api.put(f'{TYPES_URL}/{_stored_id(rest_api)}', json=_type_payload(port_section_index=-2))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert _stored_index(rest_api) == PLACED_INDEX
@@ -211,7 +229,7 @@ class TestUpdate:
         payload = _type_payload()
         payload.pop('port_section_index', None)
 
-        response = rest_api.put(f'{TYPES_URL}/{TYPE_ID}', json=payload)
+        response = rest_api.put(f'{TYPES_URL}/{_stored_id(rest_api)}', json=payload)
 
         assert response.status_code == HTTPStatus.ACCEPTED
         assert _stored_index(rest_api) == 0

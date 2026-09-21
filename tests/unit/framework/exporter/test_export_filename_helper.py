@@ -32,7 +32,10 @@ from cmdb.framework.exporter.exporter_constants import (
     EXPORT_FILENAME_SUBJECT_MAX_LENGTH,
     EXPORT_FILENAME_MAX_LENGTH,
 )
+from cmdb.models.special_type_model.ipam_constants import IpamExport, IpamSubnetIpsExport
 from cmdb.framework.exporter.export_filename_helper import (
+    build_document_export_filename,
+    build_ipam_export_filename,
     build_export_filename_timestamp,
     build_export_filename,
     build_object_export_filename,
@@ -212,6 +215,69 @@ class TestBuildObjectTemplateFilename:
         filename = build_object_template_filename('r' * 500, 'csv')
 
         assert len(filename.rsplit('.', 1)[0]) <= EXPORT_FILENAME_MAX_LENGTH
+
+
+class TestBuildDocumentExportFilename:
+    """The rendered-document filename: timestamp, the template LABEL and the object it was rendered for."""
+
+    def test_names_the_template_and_the_object(self) -> None:
+        """One template renders a different document per object, so both identify the file."""
+        filename = build_document_export_filename('Invoice', 42, 'pdf')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_document_invoice-42\\.pdf', filename)
+
+    def test_the_label_is_sanitised_like_every_other_part(self) -> None:
+        """A template label is free text and ends up in a Content-Disposition header."""
+        filename = build_document_export_filename('Invoice (DE) / 2026', 7, 'pdf')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_document_invoice-de-2026-7\\.pdf', filename)
+
+    def test_an_unusable_label_leaves_the_object_id_alone(self) -> None:
+        """A label that sanitises away must not leave a leading separator in the subject."""
+        filename = build_document_export_filename('???', 42, 'pdf')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_document_42\\.pdf', filename)
+
+    def test_two_objects_of_one_template_do_not_share_a_name(self) -> None:
+        """The object id is what keeps two renders taken in the same second apart."""
+        assert build_document_export_filename('Invoice', 1, 'pdf') \
+               != build_document_export_filename('Invoice', 2, 'pdf')
+
+    def test_the_assembled_name_is_length_capped(self) -> None:
+        """A very long label cannot push the name past the shared cap."""
+        filename = build_document_export_filename('i' * 500, 42, 'pdf')
+
+        assert len(filename.rsplit('.', 1)[0]) <= EXPORT_FILENAME_MAX_LENGTH
+
+
+class TestBuildIpamExportFilename:
+    """The two IPAM overview exports: one kind, the subject tells them apart."""
+
+    def test_names_the_kind_and_the_subject(self) -> None:
+        """A subnet IP overview and a supernet subnet list share the kind and differ in the subject."""
+        subnet = build_ipam_export_filename('subnet-7-ips', 'csv')
+        supernet = build_ipam_export_filename('supernet-42-subnets', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_subnet-7-ips\\.csv', subnet)
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_supernet-42-subnets\\.csv', supernet)
+
+    def test_the_subject_is_sanitised_like_every_other_part(self) -> None:
+        """The subject is built from a template, but it is reduced like any other filename part."""
+        filename = build_ipam_export_filename('Subnet 7 / IPs', 'csv')
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_subnet-7-ips\\.csv', filename)
+
+    def test_the_ipam_subject_templates_produce_the_documented_names(self) -> None:
+        """The wording lives in the IPAM constants; this pins what the two of them assemble to."""
+        subnet = build_ipam_export_filename(
+            IpamSubnetIpsExport.FILENAME_SUBJECT_TEMPLATE.format(public_id=7), IpamExport.FILE_EXTENSION,
+        )
+        supernet = build_ipam_export_filename(
+            IpamExport.FILENAME_SUBJECT_TEMPLATE.format(public_id=42), IpamExport.FILE_EXTENSION,
+        )
+
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_subnet-7-ips\\.csv', subnet)
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_supernet-42-subnets\\.csv', supernet)
 
 
 class TestBuildExportFilename:

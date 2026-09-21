@@ -278,6 +278,11 @@ class GenericManager(BaseManager):
         A model instance is serialised via the model's to_json() before the update; a dict is passed
         through the model's own document normalisation first (see insert_item)
 
+        **The data is written wholesale** (`$set` of the whole document), so every key it carries is
+        stored - including `public_id`. A route that builds the model from a request body must pin the
+        identity to the URL first (`routes_helper.pin_public_id`), or a payload id moves the document
+        to a new identity instead of updating the one addressed
+
         Args:
             public_id (int): The public_id of the item to update
             data (CmdbDAO | dict[str, Any]): The new document or model instance

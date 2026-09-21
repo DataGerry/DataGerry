@@ -41,6 +41,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -73,7 +74,7 @@ object_group_blueprint = APIBlueprint('object_group', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.add')
-@object_group_blueprint.validate(CmdbObjectGroup.SCHEMA)
+@object_group_blueprint.validate(build_write_schema(CmdbObjectGroup.SCHEMA))
 def insert_cmdb_object_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbObjectGroup into the database
@@ -214,7 +215,7 @@ def get_cmdb_object_group(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @object_group_blueprint.protect(auth=True, right='base.framework.objectGroup.edit')
-@object_group_blueprint.validate(CmdbObjectGroup.SCHEMA)
+@object_group_blueprint.validate(build_write_schema(CmdbObjectGroup.SCHEMA))
 def update_cmdb_object_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbObjectGroup

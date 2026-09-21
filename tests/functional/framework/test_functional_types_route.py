@@ -55,6 +55,9 @@ SEED_AUTHOR_ID: int = 1
 SEED_VERSION: str = '1.0.0'
 
 TYPE_ID_FOR_CREATE: int = 9701
+# `_type_payload` names a type after the id it is built FOR; the create tests look their type up by
+# this name, because the id itself is assigned by the server
+TYPE_NAME_FOR_CREATE: str = f'type-{TYPE_ID_FOR_CREATE}'
 TYPE_ID_FOR_DUPLICATE: int = 9702
 TYPE_ID_FOR_GET: int = 9703
 TYPE_ID_FOR_UPDATE: int = 9704
@@ -238,15 +241,22 @@ class TestPostType:
         database_manager: MongoDatabaseManager,
         database_name: str,
     ) -> None:
-        """A POST with a fresh public_id + name succeeds; the type is then queryable."""
+        """A POST with a fresh name succeeds; the type is then queryable under the id the SERVER gave it."""
+        created_id: int | None = None
+
         try:
             response = rest_api.post(f'{ROUTE_URL}/', json=_type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL))
 
             assert response.status_code == HTTPStatus.CREATED
-            follow_up = rest_api.get(f'{ROUTE_URL}/{TYPE_ID_FOR_CREATE}')
+            # `public_id` is server-owned: the payload's id is purged, so the answer names the real one
+            created_id = response.get_json()['result_id']
+            assert created_id != TYPE_ID_FOR_CREATE
+
+            follow_up = rest_api.get(f'{ROUTE_URL}/{created_id}')
             assert follow_up.status_code == HTTPStatus.OK
         finally:
-            _drop_type(database_manager, database_name, TYPE_ID_FOR_CREATE)
+            if created_id is not None:
+                _drop_type(database_manager, database_name, created_id)
 
     def test_duplicate_name_returns_400(
         self,
@@ -528,6 +538,19 @@ def _raiser(exc: Exception):
 
 class TestTypeErrorMapping:
     """Each route maps its manager exceptions to the documented HTTP status codes."""
+
+    @pytest.fixture(autouse=True)
+    def _drop_anything_created(self, database_manager: MongoDatabaseManager, database_name: str):
+        """
+        Removes a Type a failing-create test managed to store
+
+        A create that fails AFTER the insert still leaves a document - `get_type` raising on the
+        read-back is exactly that case - and the next test posts the same (unique) name, so without
+        this the failure cascades into a duplicate-name 400.
+        """
+        yield
+        database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .delete_many({'name': TYPE_NAME_FOR_CREATE})
 
     # ---- CREATE ---- #
     def test_insert_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
@@ -1165,9 +1188,14 @@ class TestCreateNormalisesTheAcl:
 
     @staticmethod
     def _stored_acl(database_manager: MongoDatabaseManager, database_name: str) -> dict[str, Any]:
-        """The acl block as it actually landed in the collection."""
+        """
+        The acl block as it actually landed in the collection
+
+        Found by the type NAME: the payload cannot choose the id (it is server-owned), and the name
+        is unique.
+        """
         stored = database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one(
-            {'public_id': TYPE_ID_FOR_CREATE}
+            {'name': TYPE_NAME_FOR_CREATE}
         )
 
         return stored['acl']
@@ -1176,7 +1204,8 @@ class TestCreateNormalisesTheAcl:
     def _cleanup(self, database_manager: MongoDatabaseManager, database_name: str):
         """Removes the created type after each test."""
         yield
-        _drop_type(database_manager, database_name, TYPE_ID_FOR_CREATE)
+        database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .delete_many({'name': TYPE_NAME_FOR_CREATE})
 
     def test_a_payload_without_an_acl_stores_the_default(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
@@ -1237,9 +1266,9 @@ class TestCreateNormalisesTheAcl:
         """The response and the stored document agree, so no client sees a different shape."""
         payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
         del payload['acl']
-        rest_api.post(f'{ROUTE_URL}/', json=payload)
+        created = rest_api.post(f'{ROUTE_URL}/', json=payload)
 
-        body = rest_api.get(f'{ROUTE_URL}/{TYPE_ID_FOR_CREATE}').get_json()
+        body = rest_api.get(f"{ROUTE_URL}/{created.get_json()['result_id']}").get_json()
 
         assert body['result']['acl'] == {'activated': False, 'groups': {'includes': {}}}
 

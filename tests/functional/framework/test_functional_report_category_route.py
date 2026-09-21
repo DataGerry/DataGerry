@@ -481,11 +481,30 @@ class TestFrontendRequestShape:
     @pytest.mark.parametrize('body, reason', [
         ({'name': 123}, 'name-not-a-string'),
         ({'name': 'x', 'predefined': 'true'}, 'predefined-not-a-boolean'),
-        ({'name': 'x', 'public_id': 'nine'}, 'public_id-not-an-integer'),
     ], ids=lambda value: value if isinstance(value, str) else '')
     def test_schema_rejects_wrongly_typed_values(self, rest_api, body: dict[str, Any], reason: str) -> None:
         """What the schema buys over the old hand-rolled check: types are enforced, not just presence"""
         assert rest_api.post(f'{ROUTE_URL}/', json=body).status_code == HTTPStatus.BAD_REQUEST, reason
+
+    def test_a_payload_public_id_is_ignored_whatever_it_holds(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The identity is not part of the request contract, so its type cannot be wrong
+
+        It used to be declared and validated - an unusable value was a 400. Now the key is purged
+        before the handler sees it, so a category is created under the id the server assigns.
+        """
+        response = rest_api.post(f'{ROUTE_URL}/', json={'name': 'ignored-id-category', 'public_id': 'nine'})
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        # This route answers the bare public_id (DefaultResponse), not an insert envelope
+        created_id = response.get_json()
+
+        assert isinstance(created_id, int)
+
+        database_manager.get_collection(CmdbReportCategory.COLLECTION, database_name)\
+            .delete_many({'public_id': created_id})
 
     def test_delete_without_a_trailing_slash_is_not_redirected(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,

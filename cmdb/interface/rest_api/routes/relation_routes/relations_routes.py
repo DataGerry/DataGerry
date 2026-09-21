@@ -54,6 +54,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.relation_model import CmdbRelation, RelationKey
 from cmdb.models.object_relation_model import ObjectRelationKey
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -112,7 +113,7 @@ IN_USE_PROBE_LIMIT: int = 1
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right=RelationRight.ADD.value)
-@relations_blueprint.validate(CmdbRelation.SCHEMA)
+@relations_blueprint.validate(build_write_schema(CmdbRelation.SCHEMA))
 def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbRelation into the database
@@ -266,7 +267,7 @@ def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right=RelationRight.EDIT.value)
-@relations_blueprint.validate(CmdbRelation.SCHEMA)
+@relations_blueprint.validate(build_write_schema(CmdbRelation.SCHEMA))
 def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbRelation

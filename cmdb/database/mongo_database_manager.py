@@ -511,6 +511,15 @@ class MongoDatabaseManager:
         means the document duplicates one already stored, so it is reported as such immediately - see
         is_public_id_conflict.
 
+        **A caller-supplied public_id is honoured and the counter is raised to match it.** Two write
+        paths choose the id themselves rather than drawing it from the counter: `POST /objects/` (an
+        id that is already taken is a 400) and the object importer (an unused id is imported under
+        that id). Without the reconciliation the counter would stay below the stored id, so every
+        later insert would first draw an id that is already taken, burn a retry - and a block of
+        MAX_DUPLICATE_KEY_RETRIES consecutive supplied ids would exhaust the loop and fail the insert
+        outright. `update_public_id_counter` only ever moves the counter forward (max(counter, value)),
+        so reconciling costs one counter write on the rare explicit-id insert and nothing otherwise.
+
         Args:
             collection (str): Name of the database collection.
             db_name (str): Name of the database owning the collection
@@ -534,11 +543,19 @@ class MongoDatabaseManager:
                 return data.get('public_id')
 
             for attempt in range(MAX_DUPLICATE_KEY_RETRIES):
-                if 'public_id' not in data:
+                # A caller-supplied id is not drawn from the counter, so the counter has to be told
+                # about it - see the note in the docstring
+                caller_supplied_id: bool = 'public_id' in data
+
+                if not caller_supplied_id:
                     data['public_id'] = self.get_next_public_id(collection, db_name, inc_id=True)
 
                 try:
                     self.get_collection(collection, db_name).insert_one(data)
+
+                    if caller_supplied_id:
+                        self.update_public_id_counter(collection, db_name, value=data['public_id'])
+
                     return data['public_id']
 
                 except DuplicateKeyError as err:
@@ -838,9 +855,11 @@ class MongoDatabaseManager:
                         upsert=True  # Insert if document does not exist)
                     )
 
-            # If something got created, update the public_id counter in database
+            # If something got created, the id came from the caller (the criteria IS the public_id),
+            # so the counter is raised TO that id rather than bumped by one - an upsert creating
+            # public_id 500 while the counter sits at 3 used to leave it at 4
             if result.upserted_id:
-                self.update_public_id_counter(collection, db_name, data['public_id'], increment=True)
+                self.update_public_id_counter(collection, db_name, value=data['public_id'])
 
             return result
         except Exception as err:

@@ -40,6 +40,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import (
     DeleteSingleResponse,
@@ -72,7 +73,7 @@ users_blueprint = APIBlueprint('users', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.add')
-@users_blueprint.validate(CmdbUser.SCHEMA)
+@users_blueprint.validate(build_write_schema(CmdbUser.SCHEMA))
 def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbUser into the database
@@ -200,7 +201,7 @@ def get_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)
 @users_blueprint.protect(auth=True, right='base.user-management.user.edit', excepted={'public_id': 'public_id'})
-@users_blueprint.validate(CmdbUser.SCHEMA)
+@users_blueprint.validate(build_write_schema(CmdbUser.SCHEMA))
 def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUser

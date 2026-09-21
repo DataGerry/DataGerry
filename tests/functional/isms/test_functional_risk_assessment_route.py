@@ -282,9 +282,11 @@ class TestPostRiskAssessment:
         response = rest_api.post(f'{ROUTE_URL}/', json=payload)
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        # The assessment's identity is server-owned, so the link points at the id the route assigned
+        created_id: int = response.get_json()['result_id']
         created = cma_collection.find_one({'public_id': CMA_ID_TO_CREATE})
         assert created is not None
-        assert created['risk_assessment_id'] == RA_ID_FOR_GET
+        assert created['risk_assessment_id'] == created_id
 
 
 class TestRequiredFieldsGuard:

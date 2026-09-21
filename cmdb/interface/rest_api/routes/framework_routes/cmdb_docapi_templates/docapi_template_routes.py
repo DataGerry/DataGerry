@@ -49,6 +49,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.docapi_model.docapi_renderer import DocApiRenderer
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
+from cmdb.framework.exporter.export_filename_helper import build_document_export_filename
 from cmdb.framework.results import IterationResult
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import GetMultiResponse, DefaultResponse
@@ -57,6 +58,8 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
     RENDER_OBJECT_RIGHT,
+    RENDERED_DOCUMENT_EXTENSION,
+    RENDERED_DOCUMENT_MIMETYPE,
     DocapiTemplateRight,
 )
 from cmdb.interface.blueprints import APIBlueprint
@@ -343,8 +346,9 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
     from the object's field values - and the licensed DOCUMENT_GENERATOR feature. The object is read
     WITHOUT the object ACL, which is a filed decision rather than an oversight
 
-    Every render answers with the same attachment name, ``output.pdf``; the frontend names the download
-    itself
+    The attachment is named by ``build_document_export_filename`` - the same helper the object and type
+    exports use - so a rendered document carries its template, its object and the time it was taken
+    instead of the one shared ``output.pdf`` every render used to answer with
 
     Args:
         public_id (int): public_id of DocapiTemplate which should be used
@@ -382,11 +386,21 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 
         output = docapi_renderer.render_object_template(request_user)
 
+        # The label is optional on the model, the name is required and unique, so the name stands in for
+        # a template that carries no label
+        filename: str = build_document_export_filename(
+            target_template.get_label() or target_template.get_name(),
+            object_id,
+            RENDERED_DOCUMENT_EXTENSION,
+        )
+
         return Response(
             output,
-            mimetype="application/pdf",
+            mimetype=RENDERED_DOCUMENT_MIMETYPE,
             headers={
-                "Content-Disposition": "attachment; filename=output.pdf"
+                # Quoted like every other export in the repo: the template label reaches this value, and
+                # an unquoted header cannot carry a separator character
+                "Content-Disposition": f'attachment; filename="{filename}"'
             }
         )
     except HTTPException as http_err:

@@ -30,6 +30,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsProtectionGoal
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
@@ -51,7 +52,7 @@ from cmdb.errors.manager.protection_goal_manager import (
     ProtectionGoalManagerIterationError,
     ProtectionGoalManagerRiskUsageError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -64,7 +65,7 @@ protection_goal_blueprint = APIBlueprint('protection_goal', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @protection_goal_blueprint.protect(auth=True, right='base.isms.protectionGoal.add')
-@protection_goal_blueprint.validate(IsmsProtectionGoal.SCHEMA)
+@protection_goal_blueprint.validate(build_write_schema(IsmsProtectionGoal.SCHEMA))
 def insert_isms_protection_goal(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsProtectionGoal into the database
@@ -198,7 +199,7 @@ def get_isms_protection_goal(public_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @protection_goal_blueprint.protect(auth=True, right='base.isms.protectionGoal.edit')
-@protection_goal_blueprint.validate(IsmsProtectionGoal.SCHEMA)
+@protection_goal_blueprint.validate(build_write_schema(IsmsProtectionGoal.SCHEMA))
 def update_isms_protection_goal(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsProtectionGoal
@@ -233,6 +234,10 @@ def update_isms_protection_goal(public_id: int, data: dict[str, Any], request_us
 
         if goal_with_name and goal_with_name.get('public_id') != public_id:
             abort(400, f"A ProtectionGoal with the name {data.get('name')} already exists!")
+
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+
+        pin_public_id(data, public_id)
 
         protection_goal_manager.update_item(public_id, IsmsProtectionGoal.from_data(data))
 

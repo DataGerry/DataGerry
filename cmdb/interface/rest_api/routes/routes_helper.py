@@ -25,6 +25,7 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
 
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.framework.search.list_search import build_list_search_stages
 from cmdb.interface.rest_api.responses.response_parameters import (
     BuilderParamKey,
@@ -201,6 +202,33 @@ def append_criteria_to_filter(
         pipeline.append({'$match': criteria})
 
     return pipeline
+
+
+def pin_public_id(data: dict[str, Any], public_id: int) -> dict[str, Any]:
+    """
+    Pins a write payload's identity to the public_id the URL names
+
+    Every update route addresses its document by the URL's public_id, but the validated body may
+    carry a ``public_id`` of its own - the request schemas declare the key, and a model's ``to_json``
+    writes whatever it was built with, so an unpinned route hands the manager a document whose id is
+    the CLIENT's. The manager updates by the URL id and ``$set``s the body wholesale, which moves the
+    stored document to the client's id: the row silently changes identity, or collides with the
+    document already living there
+
+    Pinning also removes the opposite failure. ``public_id`` is optional in the schemas, so a body
+    without one is valid - and ``CmdbDAO.__init__`` calls ``int(public_id)``, which raises on None and
+    surfaced as a 500. After pinning there is always an id to build the model from
+
+    Args:
+        data (dict[str, Any]): The validated request body; mutated in place
+        public_id (int): public_id from the URL - the only identity a write route may act on
+
+    Returns:
+        dict[str, Any]: The same dict, so the call can wrap the argument at the call site
+    """
+    data[CmdbDAO.PUBLIC_ID_KEY] = public_id
+
+    return data
 
 
 def extract_public_ids(public_ids: str) -> list[int]:

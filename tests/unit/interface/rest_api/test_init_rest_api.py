@@ -160,6 +160,29 @@ def test_local_mode_runs_the_update_checks_with_the_local_flag(monkeypatch: pyte
     mock_checks.assert_called_once_with(mock_checks.call_args.args[0], local_mode=True)
 
 
+@pytest.mark.parametrize('header', ['X-API-Version', 'X-Total-Count', 'Content-Disposition'])
+def test_the_api_exposes_the_headers_a_cross_origin_frontend_reads(
+    monkeypatch: pytest.MonkeyPatch, header: str,
+) -> None:
+    """
+    A browser can only read a response header the server exposes
+
+    `Content-Disposition` is the one that matters in practice: it carries the filename every export
+    route builds, and the Angular app runs on its own origin under `ng serve`, so without it the
+    frontend reads no name and falls back to inventing one.
+    """
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+
+    @app.route('/cors-probe')
+    def _probe() -> str:
+        return 'ok'
+
+    response = app.test_client().get('/cors-probe', headers={'Origin': 'http://localhost:4200'})
+    exposed = [value.strip() for value in response.headers['Access-Control-Expose-Headers'].split(',')]
+
+    assert header in exposed
+
+
 def test_a_failing_startup_routine_exits_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """A startup failure is fatal: the process exits 1 rather than serving a half-built API"""
     monkeypatch.setattr(cmdb, '__MODE__', 'PRODUCTION', raising=False)

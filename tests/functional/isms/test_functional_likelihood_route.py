@@ -62,11 +62,16 @@ ALL_LIKELIHOOD_IDS: list[int] = [
 ]
 ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
 
+# The name every payload in this module carries. `public_id` is server-owned, so a likelihood created
+# THROUGH the route lands under an id the test never chose - the purge keys on the name as well
+PAYLOAD_NAME: str = 'Likelihood'
+
 BASIS_DEFAULT: float = 1.5
 BASIS_OTHER: float = 2.5
 
 
-def _likelihood_payload(public_id: int, basis: float = BASIS_DEFAULT, name: str = 'Likelihood') -> dict[str, Any]:
+def _likelihood_payload(public_id: int, basis: float = BASIS_DEFAULT,
+                        name: str = PAYLOAD_NAME) -> dict[str, Any]:
     """Builds an IsmsLikelihood body accepted by POST / PUT (name + calculation_basis are required)."""
     return {'public_id': public_id, 'name': name, 'calculation_basis': basis}
 
@@ -82,7 +87,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Removes any likelihoods / risk assessments seeded by a test, before and after each test."""
     def _purge() -> None:
         database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_LIKELIHOOD_IDS}})
+            .delete_many({'$or': [{'public_id': {'$in': ALL_LIKELIHOOD_IDS}}, {'name': PAYLOAD_NAME}]})
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_ASSESSMENT_IDS}})
 
@@ -119,17 +124,20 @@ class TestLikelihoodWithoutADescriptionCanBeSaved:
 
     def test_the_list_answers_null_and_accepts_it_back(self, rest_api) -> None:
         """The exact chain: created without one, answered as null, saved unchanged."""
-        assert rest_api.post(f'{ROUTE_URL}/', json=_likelihood_payload(LIKELIHOOD_ID_FOR_GET))\
-            .status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        created = rest_api.post(f'{ROUTE_URL}/', json=_likelihood_payload(LIKELIHOOD_ID_FOR_GET))
+
+        assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        # The identity is server-owned, so the level is found under the id the route assigned
+        created_id: int = created.get_json()['result_id']
 
         listed = rest_api.get(f'{ROUTE_URL}/?limit=0')
 
         assert listed.status_code == HTTPStatus.OK
         answered = next(level for level in listed.get_json()['results']
-                        if level['public_id'] == LIKELIHOOD_ID_FOR_GET)
+                        if level['public_id'] == created_id)
         assert answered['description'] is None
 
-        response = rest_api.put(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_GET}', json=answered)
+        response = rest_api.put(f'{ROUTE_URL}/{created_id}', json=answered)
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
 

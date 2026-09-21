@@ -47,6 +47,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -84,7 +85,7 @@ categories_blueprint = APIBlueprint('categories', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @categories_blueprint.protect(auth=True, right='base.framework.category.add')
-@categories_blueprint.validate(CmdbCategory.SCHEMA)
+@categories_blueprint.validate(build_write_schema(CmdbCategory.SCHEMA))
 def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
     """
     POST ``/rest/categories/`` - insert a CmdbCategory
@@ -282,7 +283,7 @@ def get_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @categories_blueprint.protect(auth=True, right='base.framework.category.edit')
-@categories_blueprint.validate(CmdbCategory.SCHEMA)
+@categories_blueprint.validate(build_write_schema(CmdbCategory.SCHEMA))
 def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     PUT/PATCH ``/rest/categories/<public_id>`` - update a CmdbCategory

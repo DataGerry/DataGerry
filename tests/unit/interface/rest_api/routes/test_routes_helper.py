@@ -36,6 +36,7 @@ from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.routes_helper import (
+    pin_public_id,
     append_criteria_to_filter,
     as_pipeline_criteria,
     build_searchable_builder_params,
@@ -380,3 +381,24 @@ def test_the_callers_filter_is_not_mutated() -> None:
     build_searchable_builder_params(_params(client_filter, 'needle'), SEARCHABLE)
 
     assert client_filter == [{'$match': {'a': 1}}]
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  pin_public_id                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_pin_public_id_overwrites_a_body_identity() -> None:
+    """The URL owns the identity: a forged body public_id is replaced, never honoured."""
+    data = {'public_id': 4711, 'name': 'x'}
+
+    assert pin_public_id(data, 7) == {'public_id': 7, 'name': 'x'}
+
+
+def test_pin_public_id_supplies_a_missing_identity() -> None:
+    """A body without an id gets one, so a model built from it cannot fail on int(None)."""
+    assert pin_public_id({'name': 'x'}, 7)['public_id'] == 7
+
+
+def test_pin_public_id_mutates_in_place_and_returns_the_same_dict() -> None:
+    """Callers pass the payload straight on, so the pin has to be visible on their own reference."""
+    data: dict = {'name': 'x'}
+
+    assert pin_public_id(data, 7) is data

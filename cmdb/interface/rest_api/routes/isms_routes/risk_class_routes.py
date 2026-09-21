@@ -34,6 +34,7 @@ from cmdb.models.isms_model.isms_helper import remove_deleted_risk_class_from_ma
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_RISK_CLASSES
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
@@ -57,7 +58,7 @@ from cmdb.errors.manager.risk_class_manager import (
     RiskClassManagerDeleteError,
     RiskClassManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -70,7 +71,7 @@ risk_class_blueprint = APIBlueprint('risk_classes', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.add')
-@risk_class_blueprint.validate(IsmsRiskClass.SCHEMA)
+@risk_class_blueprint.validate(build_write_schema(IsmsRiskClass.SCHEMA))
 def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskClass into the database
@@ -189,7 +190,7 @@ def get_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.edit')
-@risk_class_blueprint.validate(IsmsRiskClass.SCHEMA)
+@risk_class_blueprint.validate(build_write_schema(IsmsRiskClass.SCHEMA))
 def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskClass
@@ -207,6 +208,10 @@ def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: C
 
         get_item_or_404(risk_class_manager, public_id,
                         f"The RiskClass with ID:{public_id} was not found!", as_dict=False)
+
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+
+        pin_public_id(data, public_id)
 
         risk_class_manager.update_item(public_id, IsmsRiskClass.from_data(data))
 

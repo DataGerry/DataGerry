@@ -112,10 +112,13 @@ class TestPostUser:
             response = rest_api.post(f'{ROUTE_URL}/', json=_user_payload(USER_ID_FOR_CREATE))
 
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
-            follow_up = rest_api.get(f'{ROUTE_URL}/{USER_ID_FOR_CREATE}')
+            # `public_id` is server-owned: the payload's id is purged, so the route names the real one
+            created_id = response.get_json()['result_id']
+            follow_up = rest_api.get(f'{ROUTE_URL}/{created_id}')
             assert follow_up.status_code == HTTPStatus.OK
         finally:
             _drop_user(database_manager, database_name, USER_ID_FOR_CREATE)
+            _drop_user(database_manager, database_name, created_id)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

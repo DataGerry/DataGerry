@@ -40,6 +40,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import ReportCategoriesManager
 
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -86,7 +87,7 @@ report_categories_blueprint = APIBlueprint('report_categories', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @report_categories_blueprint.protect(auth=True, right=ReportRight.ADD.value)
-@report_categories_blueprint.validate(CmdbReportCategory.SCHEMA)
+@report_categories_blueprint.validate(build_write_schema(CmdbReportCategory.SCHEMA))
 def create_cmdb_report_category(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbReportCategory into the database
@@ -217,7 +218,7 @@ def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbU
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @report_categories_blueprint.protect(auth=True, right=ReportRight.EDIT.value)
-@report_categories_blueprint.validate(CmdbReportCategory.SCHEMA)
+@report_categories_blueprint.validate(build_write_schema(CmdbReportCategory.SCHEMA))
 def update_cmdb_report_category(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbReportCategory
