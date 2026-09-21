@@ -39,7 +39,6 @@ LABEL_FIELD_URL: str = '/ci_explorer/label_field'
 TYPES_URL: str = '/types'
 OBJECTS_URL: str = '/objects'
 
-TYPE_ID: int = 9660
 OBJECT_ID: int = 9661
 MISSING_TYPE_ID: int = 987654
 
@@ -58,7 +57,6 @@ VERSION: str = '1.0.0'
 def _type_payload(**overrides: Any) -> dict[str, Any]:
     """A Type with two ordinary fields and one multi-data-section field."""
     payload: dict[str, Any] = {
-        'public_id': TYPE_ID,
         'name': TYPE_NAME,
         'label': 'Label Field Type',
         'author_id': AUTHOR_ID,
@@ -91,29 +89,37 @@ def _type_payload(**overrides: Any) -> dict[str, Any]:
 
 @pytest.fixture(name='label_field_type', autouse=True)
 def fixture_label_field_type(rest_api, database_manager: MongoDatabaseManager, database_name: str):
-    """Creates the Type through the route and removes it (and its objects) afterwards."""
+    """
+    Creates the Type through the route and removes it (and its objects) afterwards
+
+    Yields the id the SERVER assigned - `public_id` is server-owned on a write route, so the payload
+    cannot carry one. The purge keys on the Type NAME, which is unique and known up front.
+    """
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
     def _purge() -> None:
-        database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
-            .delete_many({'type_id': TYPE_ID})
-        database_manager.get_collection(CmdbType.COLLECTION, database_name)\
-            .delete_many({'public_id': TYPE_ID})
+        for stored in types.find({'name': TYPE_NAME}, {'public_id': 1}):
+            database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+                .delete_many({'type_id': stored['public_id']})
+        types.delete_many({'name': TYPE_NAME})
 
     _purge()
-    assert rest_api.post(f'{TYPES_URL}/', json=_type_payload()).status_code == HTTPStatus.CREATED
+    response = rest_api.post(f'{TYPES_URL}/', json=_type_payload())
+    assert response.status_code == HTTPStatus.CREATED
 
-    yield
+    yield response.get_json()['result_id']
 
     _purge()
 
 
-def _nominate(rest_api, field_name: Any):
+def _nominate(rest_api, type_id: int, field_name: Any):
     """Sends the nomination through the CI Explorer route"""
-    return rest_api.put(f'{LABEL_FIELD_URL}/{TYPE_ID}', json={'ci_explorer_label': field_name})
+    return rest_api.put(f'{LABEL_FIELD_URL}/{type_id}', json={'ci_explorer_label': field_name})
 
 
-def _stored_nomination(rest_api) -> Any:
+def _stored_nomination(rest_api, type_id: int) -> Any:
     """Reads the Type back through the route and returns its nomination"""
-    response = rest_api.get(f'{TYPES_URL}/{TYPE_ID}')
+    response = rest_api.get(f'{TYPES_URL}/{type_id}')
 
     assert response.status_code == HTTPStatus.OK
 
@@ -126,57 +132,57 @@ def _stored_nomination(rest_api) -> Any:
 class TestTheCiExplorerRoute:
     """What the frontend will call when it lets a user pick the field from the graph."""
 
-    def test_a_field_of_the_type_is_nominated(self, rest_api) -> None:
+    def test_a_field_of_the_type_is_nominated(self, rest_api, label_field_type: int) -> None:
         """The stored value is the FIELD NAME, and the answer repeats it"""
-        response = _nominate(rest_api, PLAIN_FIELD)
+        response = _nominate(rest_api, label_field_type, PLAIN_FIELD)
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()['ci_explorer_label'] == PLAIN_FIELD
-        assert _stored_nomination(rest_api) == PLAIN_FIELD
+        assert _stored_nomination(rest_api, label_field_type) == PLAIN_FIELD
 
-    def test_the_answer_lists_what_the_type_offers(self, rest_api) -> None:
+    def test_the_answer_lists_what_the_type_offers(self, rest_api, label_field_type: int) -> None:
         """
         So a client can refresh its picker from the same answer
 
         The multi-data-section field is not in the list: its values live per row and a node can only
         show one.
         """
-        selectable = _nominate(rest_api, PLAIN_FIELD).get_json()['selectable_fields']
+        selectable = _nominate(rest_api, label_field_type, PLAIN_FIELD).get_json()['selectable_fields']
 
         assert selectable == [PLAIN_FIELD, SECOND_FIELD]
 
     @pytest.mark.parametrize('sent', [None, ''], ids=['null', 'empty'])
-    def test_the_nomination_can_be_cleared(self, rest_api, sent: Any) -> None:
+    def test_the_nomination_can_be_cleared(self, rest_api, sent: Any, label_field_type: int) -> None:
         """Both spellings of "no field chosen" store None, and the nodes go back to unlabelled"""
-        assert _nominate(rest_api, PLAIN_FIELD).status_code == HTTPStatus.OK
+        assert _nominate(rest_api, label_field_type, PLAIN_FIELD).status_code == HTTPStatus.OK
 
-        response = _nominate(rest_api, sent)
+        response = _nominate(rest_api, label_field_type, sent)
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()['ci_explorer_label'] is None
-        assert _stored_nomination(rest_api) is None
+        assert _stored_nomination(rest_api, label_field_type) is None
 
-    def test_a_name_the_type_does_not_have_is_refused(self, rest_api) -> None:
+    def test_a_name_the_type_does_not_have_is_refused(self, rest_api, label_field_type: int) -> None:
         """
         The defect this rule exists for: a display string sent where a field name belongs
 
         Stored, it would render every node of the Type as "Label not selected" with nothing anywhere
         saying why.
         """
-        response = _nominate(rest_api, 'Switch')
+        response = _nominate(rest_api, label_field_type, 'Switch')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert 'Switch' in response.get_json()['message']
-        assert _stored_nomination(rest_api) is None
+        assert _stored_nomination(rest_api, label_field_type) is None
 
-    def test_a_multi_data_section_field_is_refused(self, rest_api) -> None:
+    def test_a_multi_data_section_field_is_refused(self, rest_api, label_field_type: int) -> None:
         """It would resolve - to a flat entry carrying none of the section's rows"""
-        response = _nominate(rest_api, MDS_FIELD)
+        response = _nominate(rest_api, label_field_type, MDS_FIELD)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert 'multi-data-section' in response.get_json()['message']
 
-    def test_an_unknown_type_is_404(self, rest_api) -> None:
+    def test_an_unknown_type_is_404(self, rest_api, label_field_type: int) -> None:
         """The lookup answers before the rule does"""
         response = rest_api.put(
             f'{LABEL_FIELD_URL}/{MISSING_TYPE_ID}', json={'ci_explorer_label': PLAIN_FIELD},
@@ -184,13 +190,13 @@ class TestTheCiExplorerRoute:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
-    def test_the_write_is_targeted(self, rest_api) -> None:
+    def test_the_write_is_targeted(self, rest_api, label_field_type: int) -> None:
         """Only the one key is written - the Type's fields, sections and version are untouched"""
-        before = rest_api.get(f'{TYPES_URL}/{TYPE_ID}').get_json()['result']
+        before = rest_api.get(f'{TYPES_URL}/{label_field_type}').get_json()['result']
 
-        assert _nominate(rest_api, SECOND_FIELD).status_code == HTTPStatus.OK
+        assert _nominate(rest_api, label_field_type, SECOND_FIELD).status_code == HTTPStatus.OK
 
-        after = rest_api.get(f'{TYPES_URL}/{TYPE_ID}').get_json()['result']
+        after = rest_api.get(f'{TYPES_URL}/{label_field_type}').get_json()['result']
 
         assert after['fields'] == before['fields']
         assert after['render_meta'] == before['render_meta']
@@ -207,27 +213,31 @@ class TestTheTypeRoutes:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """Nothing is stored - the Type is refused as a whole"""
+        # The fixture's Type holds the name, and a duplicate name would be refused for that reason
+        # instead of for the nomination the test is about
         database_manager.get_collection(CmdbType.COLLECTION, database_name)\
-            .delete_many({'public_id': TYPE_ID})
+            .delete_many({'name': TYPE_NAME})
 
         response = rest_api.post(f'{TYPES_URL}/', json=_type_payload(ci_explorer_label='Switch'))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .find_one({'name': TYPE_NAME}) is None
 
-    def test_an_update_choosing_an_unknown_field_is_refused(self, rest_api) -> None:
+    def test_an_update_choosing_an_unknown_field_is_refused(self, rest_api, label_field_type: int) -> None:
         """Choosing a bad nomination on an update is as much a client bug as on a create"""
-        response = rest_api.put(f'{TYPES_URL}/{TYPE_ID}', json=_type_payload(ci_explorer_label='Switch'))
+        response = rest_api.put(f'{TYPES_URL}/{label_field_type}', json=_type_payload(ci_explorer_label='Switch'))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_removing_the_nominated_field_clears_the_nomination(self, rest_api) -> None:
+    def test_removing_the_nominated_field_clears_the_nomination(self, rest_api, label_field_type: int) -> None:
         """
         The update is NOT refused over a cosmetic key
 
         Dropping a field is a legitimate edit; the nomination is unchanged, it only stopped
         resolving, so it is cleared instead of blocking the whole write.
         """
-        assert _nominate(rest_api, PLAIN_FIELD).status_code == HTTPStatus.OK
+        assert _nominate(rest_api, label_field_type, PLAIN_FIELD).status_code == HTTPStatus.OK
 
         without_the_field = _type_payload(
             ci_explorer_label=PLAIN_FIELD,
@@ -238,14 +248,14 @@ class TestTheTypeRoutes:
         ]
         without_the_field['render_meta']['summary'] = {'fields': [SECOND_FIELD]}
 
-        response = rest_api.put(f'{TYPES_URL}/{TYPE_ID}', json=without_the_field)
+        response = rest_api.put(f'{TYPES_URL}/{label_field_type}', json=without_the_field)
 
         assert response.status_code == HTTPStatus.ACCEPTED
-        assert _stored_nomination(rest_api) is None
+        assert _stored_nomination(rest_api, label_field_type) is None
 
-    def test_a_create_without_a_nomination_stores_the_key(self, rest_api) -> None:
+    def test_a_create_without_a_nomination_stores_the_key(self, rest_api, label_field_type: int) -> None:
         """One stored spelling of "no field chosen", whichever route wrote the Type"""
-        assert _stored_nomination(rest_api) is None
+        assert _stored_nomination(rest_api, label_field_type) is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -255,11 +265,11 @@ class TestTheRenderedNode:
     """The nomination is only worth enforcing because of what it does to the graph."""
 
     @pytest.fixture(name='one_object', autouse=True)
-    def fixture_one_object(self, rest_api):
+    def fixture_one_object(self, rest_api, label_field_type: int):
         """One object of the Type, carrying a value in both ordinary fields"""
         response = rest_api.post(f'{OBJECTS_URL}/', json={
             'public_id': OBJECT_ID,
-            'type_id': TYPE_ID,
+            'type_id': label_field_type,
             'active': True,
             'author_id': AUTHOR_ID,
             'version': VERSION,
@@ -271,22 +281,22 @@ class TestTheRenderedNode:
 
         assert response.status_code == HTTPStatus.OK
 
-    def test_the_node_title_is_the_objects_own_value(self, rest_api) -> None:
+    def test_the_node_title_is_the_objects_own_value(self, rest_api, label_field_type: int) -> None:
         """
         The whole point: ONE nomination, a different title per object
 
         A static label would put the same string on every node of the Type.
         """
-        assert _nominate(rest_api, PLAIN_FIELD).status_code == HTTPStatus.OK
+        assert _nominate(rest_api, label_field_type, PLAIN_FIELD).status_code == HTTPStatus.OK
 
         response = rest_api.get(f'/ci_explorer/items?target_id={OBJECT_ID}&with_root=true')
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()['root_node']['title'] == HOSTNAME_VALUE
 
-    def test_nominating_another_field_changes_the_title(self, rest_api) -> None:
+    def test_nominating_another_field_changes_the_title(self, rest_api, label_field_type: int) -> None:
         """The graph follows the nomination without the objects being touched"""
-        assert _nominate(rest_api, SECOND_FIELD).status_code == HTTPStatus.OK
+        assert _nominate(rest_api, label_field_type, SECOND_FIELD).status_code == HTTPStatus.OK
 
         response = rest_api.get(f'/ci_explorer/items?target_id={OBJECT_ID}&with_root=true')
 

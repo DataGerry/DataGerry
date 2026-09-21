@@ -39,6 +39,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import (
     GroupDeletionParameters,
@@ -96,7 +97,7 @@ groups_blueprint = APIBlueprint('groups', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right=GROUP_ADD_RIGHT)
-@groups_blueprint.validate(CmdbUserGroup.SCHEMA)
+@groups_blueprint.validate(build_write_schema(CmdbUserGroup.SCHEMA))
 def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP ``POST`` to insert a single CmdbUserGroup
@@ -237,7 +238,7 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right=GROUP_EDIT_RIGHT)
-@groups_blueprint.validate(CmdbUserGroup.SCHEMA)
+@groups_blueprint.validate(build_write_schema(CmdbUserGroup.SCHEMA))
 def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP ``PUT`` / ``PATCH`` route to update a single CmdbUserGroup

@@ -55,6 +55,10 @@ RISK_ID: int = 99650
 EXISTING_NAME: str = 'ImportTest Existing Goal'
 OTHER_NAME: str = 'ImportTest Other Goal'
 
+# The name every payload in this module carries. `public_id` is server-owned, so a goal created
+# THROUGH the route lands under an id the test never chose - the purge keys on the name as well
+PAYLOAD_NAME: str = 'ImportTest Goal'
+
 ALL_PG_IDS: list[int] = [
     PG_ID_FOR_GET, PG_ID_FOR_UPDATE, PG_ID_FOR_DELETE, PG_ID_PREDEFINED,
     PG_ID_OTHER, PG_ID_FOR_BLOCKED_DELETE,
@@ -62,7 +66,7 @@ ALL_PG_IDS: list[int] = [
 ALL_RISK_IDS: list[int] = [RISK_ID]
 
 
-def _pg_payload(public_id: int, name: str = 'ImportTest Goal', predefined: bool = False) -> dict[str, Any]:
+def _pg_payload(public_id: int, name: str = PAYLOAD_NAME, predefined: bool = False) -> dict[str, Any]:
     """Builds an IsmsProtectionGoal body (name + predefined are required)."""
     return {'public_id': public_id, 'name': name, 'predefined': predefined}
 
@@ -78,7 +82,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Removes any protection goals / risks seeded by a test, before and after each test."""
     def _purge() -> None:
         database_manager.get_collection(IsmsProtectionGoal.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_PG_IDS}})
+            .delete_many({'$or': [{'public_id': {'$in': ALL_PG_IDS}}, {'name': PAYLOAD_NAME}]})
         database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_IDS}})
 

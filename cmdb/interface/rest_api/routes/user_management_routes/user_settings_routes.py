@@ -36,6 +36,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -66,7 +67,7 @@ user_settings_blueprint = APIBlueprint('user_settings', __name__)
 @user_settings_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@user_settings_blueprint.validate(CmdbUserSetting.SCHEMA)
+@user_settings_blueprint.validate(build_write_schema(CmdbUserSetting.SCHEMA))
 def insert_cmdb_user_setting(user_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbUserSetting into the database
@@ -187,7 +188,7 @@ def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -
 @user_settings_blueprint.route('/<string:resource>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@user_settings_blueprint.validate(CmdbUserSetting.SCHEMA)
+@user_settings_blueprint.validate(build_write_schema(CmdbUserSetting.SCHEMA))
 def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUserSetting or create it if it does not exist

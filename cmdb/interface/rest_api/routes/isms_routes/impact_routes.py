@@ -32,6 +32,7 @@ from cmdb.models.isms_model.isms_helper import calculate_risk_matrix
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
@@ -52,7 +53,7 @@ from cmdb.errors.manager.impact_manager import (
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -79,7 +80,7 @@ def _coerce_calculation_basis(data: dict[str, Any]) -> None:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.add')
-@impact_blueprint.validate(IsmsImpact.SCHEMA)
+@impact_blueprint.validate(build_write_schema(IsmsImpact.SCHEMA))
 def insert_isms_impact(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsImpact into the database
@@ -210,7 +211,7 @@ def get_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.edit')
-@impact_blueprint.validate(IsmsImpact.SCHEMA)
+@impact_blueprint.validate(build_write_schema(IsmsImpact.SCHEMA))
 def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsImpact
@@ -237,6 +238,10 @@ def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbU
         # A changed basis must not collide with another Impact's basis (insert enforces the same rule)
         if basis_changed and impact_manager.impact_calculation_basis_exists(data['calculation_basis']):
             abort(400, "The calculation basis is already used by another Impact!")
+
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document, and
+        # both branches below build the model from this payload
+        pin_public_id(data, public_id)
 
         # If the calculation_basis changed, also update IsmsRiskAssessments
         if basis_changed:

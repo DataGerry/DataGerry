@@ -38,6 +38,7 @@ from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRisk
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
@@ -58,7 +59,7 @@ from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerDeleteError,
     ControlMeasureAssignmentManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -122,7 +123,7 @@ def build_cma_summary(
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_assignment_blueprint.protect(auth=True, right='base.isms.controlMeasureAssignment.add')
-@control_measure_assignment_blueprint.validate(IsmsControlMeasureAssignment.SCHEMA)
+@control_measure_assignment_blueprint.validate(build_write_schema(IsmsControlMeasureAssignment.SCHEMA))
 def insert_isms_control_measure_assignment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsControlMeasureAssignment into the database
@@ -358,7 +359,7 @@ def get_isms_control_measure_assignment(public_id: int, request_user: CmdbUser) 
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_assignment_blueprint.protect(auth=True, right='base.isms.controlMeasureAssignment.edit')
-@control_measure_assignment_blueprint.validate(IsmsControlMeasureAssignment.SCHEMA)
+@control_measure_assignment_blueprint.validate(build_write_schema(IsmsControlMeasureAssignment.SCHEMA))
 def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasureAssignment
@@ -379,6 +380,10 @@ def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any],
 
         get_item_or_404(c_m_assignment_manager, public_id,
                         f"The ControlMeasure Assignment with ID:{public_id} was not found!", as_dict=False)
+
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+
+        pin_public_id(data, public_id)
 
         c_m_assignment_manager.update_item(public_id, IsmsControlMeasureAssignment.from_data(data))
 

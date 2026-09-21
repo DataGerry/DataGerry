@@ -64,7 +64,7 @@ from cmdb.framework.ipam.supernet_overview import (
 )
 from cmdb.framework.ipam.subnet_export import build_supernet_subnets_csv
 from cmdb.framework.ipam.supernet_membership import unassign_subnets_from_supernet
-from cmdb.framework.exporter.export_filename_helper import build_export_filename_timestamp
+from cmdb.framework.exporter.export_filename_helper import build_ipam_export_filename
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_json_object_body,
     read_pagination_params,
@@ -245,9 +245,9 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
 
         content: bytes = build_supernet_subnets_csv(objects_manager, types_manager, public_id, request_user)
 
-        filename: str = IpamExport.FILENAME_TEMPLATE.format(
-            public_id=public_id,
-            timestamp=build_export_filename_timestamp(),
+        filename: str = build_ipam_export_filename(
+            IpamExport.FILENAME_SUBJECT_TEMPLATE.format(public_id=public_id),
+            IpamExport.FILE_EXTENSION,
         )
 
         return Response(

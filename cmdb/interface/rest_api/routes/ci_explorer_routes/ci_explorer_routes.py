@@ -77,6 +77,7 @@ from cmdb.framework.ci_explorer.context import CiExplorerGraphRequest, CiExplore
 from cmdb.framework.ci_explorer.graph import build_ci_explorer_graph
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
@@ -125,7 +126,7 @@ ci_explorer_blueprint = APIBlueprint('ci_explorer', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
-@ci_explorer_blueprint.validate(CmdbCiExplorerProfile.SCHEMA)
+@ci_explorer_blueprint.validate(build_write_schema(CmdbCiExplorerProfile.SCHEMA))
 def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbCiExplorerProfile into the database
@@ -445,7 +446,7 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
-@ci_explorer_blueprint.validate(CmdbCiExplorerProfile.SCHEMA)
+@ci_explorer_blueprint.validate(build_write_schema(CmdbCiExplorerProfile.SCHEMA))
 def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbCiExplorerProfile

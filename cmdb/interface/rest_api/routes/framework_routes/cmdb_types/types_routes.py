@@ -95,6 +95,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     normalize_ci_explorer_label,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
 from cmdb.interface.rest_api.responses import (
@@ -135,7 +136,7 @@ USES_PORTS_USAGE_SUBJECT: str = 'port usage'
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.ADD.value)
-@types_blueprint.validate(CmdbType.SCHEMA)
+@types_blueprint.validate(build_write_schema(CmdbType.SCHEMA))
 def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbType into the database
@@ -665,7 +666,7 @@ def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) ->
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.EDIT.value)
-@types_blueprint.validate(CmdbType.SCHEMA)
+@types_blueprint.validate(build_write_schema(CmdbType.SCHEMA))
 def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbType

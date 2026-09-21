@@ -34,6 +34,7 @@ framework's message and seeing a generic server error, so each route is checked 
 """
 from typing import Any, Callable
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -256,9 +257,12 @@ def test_export_subnet_ips_returns_csv_attachment(flask_app: Flask) -> None:
     assert response.get_data() == b'csv-bytes'
     assert response.mimetype == 'text/csv'
     disposition: str = response.headers['Content-Disposition']
-    # Quoted like every other export in the repo
-    assert disposition.startswith('attachment; filename="subnet_5_ips_')
-    assert disposition.endswith('.csv"')
+    # Quoted like every other export in the repo, and named by the shared scheme:
+    # <timestamp>_ipam_subnet-<id>-ips.csv
+    assert re.fullmatch(
+        r'attachment; filename="\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}_ipam_subnet-5-ips\.csv"',
+        disposition,
+    )
 
 
 def test_export_subnet_ips_propagates_too_big_abort(flask_app: Flask) -> None:

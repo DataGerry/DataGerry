@@ -485,14 +485,17 @@ class IpamExport:
     used / free counts). USAGE_HEADER is the IPv4-only trailing 'Usage (%)' column: it is appended
     to HEADERS for an IPv4 supernet's export but omitted for an IPv6 one, where a used/total ratio
     against a 2**n address space is meaningless. IP_RANGE_SEPARATOR joins the range's first and last
-    address into a single cell. MIMETYPE is the CSV content type and FILENAME_TEMPLATE builds the
-    download filename
+    address into a single cell. MIMETYPE is the CSV content type, FILE_EXTENSION the extension of the
+    download (both are shared with the subnet IP export) and FILENAME_SUBJECT_TEMPLATE names what the
+    file contains - the download filename itself is assembled by
+    `cmdb.framework.exporter.export_filename_helper.build_ipam_export_filename`, like every other export
     """
     HEADERS: list[str] = ['CIDR', 'IP Range', 'Used IPs', 'Free IPs']
     USAGE_HEADER: str = 'Usage (%)'
     IP_RANGE_SEPARATOR: str = ' - '
     MIMETYPE: str = 'text/csv'
-    FILENAME_TEMPLATE: str = 'supernet_{public_id}_subnets_{timestamp}.csv'
+    FILE_EXTENSION: str = 'csv'
+    FILENAME_SUBJECT_TEMPLATE: str = 'supernet-{public_id}-subnets'
 
 
 class IpamSubnetIpsExport:
@@ -504,9 +507,11 @@ class IpamSubnetIpsExport:
     address, its type label, its status, the assigned owner's summary line and its MAC.
     MAX_EXPORT_ROWS caps how many IP rows may be exported - an export that would exceed it is
     rejected (HTTP 400) and no file is built; the counted volume is the IPv4 assignable count (free +
-    assigned) or the IPv6 assigned count. FILENAME_TEMPLATE builds the download filename. The CSV
-    content type is shared via IpamExport.MIMETYPE
+    assigned) or the IPv6 assigned count. FILENAME_SUBJECT_TEMPLATE names what the file contains, and
+    the download filename is assembled around it by
+    `cmdb.framework.exporter.export_filename_helper.build_ipam_export_filename`. The CSV content type
+    and the file extension are shared via IpamExport.MIMETYPE / IpamExport.FILE_EXTENSION
     """
     HEADERS: list[str] = ['IP', 'Type', 'Status', 'Assigned To', 'MAC Address']
     MAX_EXPORT_ROWS: int = 2500
-    FILENAME_TEMPLATE: str = 'subnet_{public_id}_ips_{timestamp}.csv'
+    FILENAME_SUBJECT_TEMPLATE: str = 'subnet-{public_id}-ips'

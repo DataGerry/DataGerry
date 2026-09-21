@@ -112,6 +112,42 @@ class TestPostThreat:
         created_id = response.get_json()['raw']['public_id']
         assert rest_api.get(f'{ROUTE_URL}/{created_id}').status_code == HTTPStatus.OK
 
+    def test_a_payload_public_id_is_ignored(self, rest_api, database_manager: MongoDatabaseManager,
+                                            database_name: str) -> None:
+        """
+        The identity is server-owned on create: a payload id is purged, not honoured
+
+        It used to be stored as given, which also left the collection counter pointing below it.
+        """
+        forged_id: int = 98599
+        database_manager.get_collection(IsmsThreat.COLLECTION, database_name)\
+            .delete_many({'public_id': forged_id})
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=_threat_payload(forged_id, name='forged-id-threat'))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        assert response.get_json()['raw']['public_id'] != forged_id
+        assert rest_api.get(f'{ROUTE_URL}/{forged_id}').status_code == HTTPStatus.NOT_FOUND
+
+    def test_a_body_public_id_can_not_move_a_threat(self, rest_api,
+                                                   database_manager: MongoDatabaseManager,
+                                                   database_name: str) -> None:
+        """A PUT is addressed by the URL; a forged body id must not move the stored document."""
+        forged_id: int = 98598
+        collection = database_manager.get_collection(IsmsThreat.COLLECTION, database_name)
+        collection.delete_many({'public_id': {'$in': [THREAT_ID_FOR_UPDATE, forged_id]}})
+        collection.insert_one({'public_id': THREAT_ID_FOR_UPDATE, 'name': 'stored', 'source': None,
+                               'identifier': None, 'description': None})
+
+        payload = _threat_payload(forged_id, name='renamed')
+        response = rest_api.put(f'{ROUTE_URL}/{THREAT_ID_FOR_UPDATE}', json=payload)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert collection.find_one({'public_id': forged_id}) is None
+        assert collection.find_one({'public_id': THREAT_ID_FOR_UPDATE})['name'] == 'renamed'
+
+        collection.delete_many({'public_id': {'$in': [THREAT_ID_FOR_UPDATE, forged_id]}})
+
     def test_invalid_payload_returns_400(self, rest_api) -> None:
         """A POST missing the required name fails schema validation with 400."""
         assert rest_api.post(f'{ROUTE_URL}/', json={'identifier': 'x'}).status_code == HTTPStatus.BAD_REQUEST

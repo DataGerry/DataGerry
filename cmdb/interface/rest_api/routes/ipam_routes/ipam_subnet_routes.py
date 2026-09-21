@@ -76,7 +76,7 @@ from cmdb.framework.ipam.subnet_overview import (
 from cmdb.framework.ipam.subnet_options import build_subnet_options_page
 from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
 from cmdb.framework.ipam.subnet_export import build_subnet_ips_csv
-from cmdb.framework.exporter.export_filename_helper import build_export_filename_timestamp
+from cmdb.framework.exporter.export_filename_helper import build_ipam_export_filename
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_ipam_managers,
     read_json_object_body,
@@ -438,9 +438,9 @@ def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
 
         content: bytes = build_subnet_ips_csv(objects_manager, types_manager, public_id, request_user)
 
-        filename: str = IpamSubnetIpsExport.FILENAME_TEMPLATE.format(
-            public_id=public_id,
-            timestamp=build_export_filename_timestamp(),
+        filename: str = build_ipam_export_filename(
+            IpamSubnetIpsExport.FILENAME_SUBJECT_TEMPLATE.format(public_id=public_id),
+            IpamExport.FILE_EXTENSION,
         )
 
         return Response(

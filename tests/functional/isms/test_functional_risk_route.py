@@ -149,11 +149,15 @@ class TestRiskWithUnsetTextFieldsCanBeSaved:
         payload = _risk_payload(RISK_ID_FOR_GET, risk_type=RiskType.EVENT)
         payload.pop('identifier', None)
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        created = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        # The identity is server-owned, so the risk is found under the id the route assigned
+        created_id: int = created.get_json()['result_id']
 
         listed = rest_api.get(f'{ROUTE_URL}/?limit=0')
         answered = next(risk for risk in listed.get_json()['results']
-                        if risk['public_id'] == RISK_ID_FOR_GET)
+                        if risk['public_id'] == created_id)
 
         assert answered['identifier'] is None
         assert answered['protection_goals'] == []

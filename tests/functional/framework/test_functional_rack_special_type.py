@@ -129,11 +129,20 @@ def _clean_rack_types(database_manager: MongoDatabaseManager, database_name: str
     make the next one's creation fail - and would also hide RACK from the ?available=true listing.
     """
     types = _types_collection(database_manager, database_name)
-    types.delete_many({'public_id': {'$in': ALL_TYPE_IDS}})
+
+    def _purge() -> None:
+        # Also keyed on the NAMES this module posts: `public_id` is server-owned, so a Type created
+        # THROUGH the route carries an id the test never chose
+        types.delete_many({'$or': [
+            {'public_id': {'$in': ALL_TYPE_IDS}},
+            {'name': {'$regex': '^rack-'}},
+        ]})
+
+    _purge()
 
     yield
 
-    types.delete_many({'public_id': {'$in': ALL_TYPE_IDS}})
+    _purge()
 
 
 def _insert_rack_type(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
@@ -241,7 +250,9 @@ class TestCreateRackType:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
 
-        stored = _types_collection(database_manager, database_name).find_one({'public_id': RACK_TYPE_ID})
+        # The identity is server-owned, so the stored Type is read back under the id the route gave it
+        stored = _types_collection(database_manager, database_name)\
+            .find_one({'public_id': response.get_json()['result_id']})
         assert stored is not None
         assert stored[TypeSchemaKey.SPECIAL_TYPE.value] == SpecialType.RACK.value
 
@@ -256,9 +267,10 @@ class TestCreateRackType:
 
         Without it the Rack's location node could never parent the mounted objects' nodes.
         """
-        rest_api.post(f'{TYPES_URL}/', json=_rack_type_payload(RACK_TYPE_ID))
+        created = rest_api.post(f'{TYPES_URL}/', json=_rack_type_payload(RACK_TYPE_ID))
 
-        stored = _types_collection(database_manager, database_name).find_one({'public_id': RACK_TYPE_ID})
+        stored = _types_collection(database_manager, database_name)\
+            .find_one({'public_id': created.get_json()['result_id']})
         assert stored[TypeSchemaKey.SELECTABLE_AS_PARENT.value] is True
 
     def test_create_rejects_a_rack_that_is_not_selectable_as_parent(self, rest_api) -> None:

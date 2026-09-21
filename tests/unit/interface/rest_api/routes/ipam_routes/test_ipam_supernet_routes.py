@@ -38,6 +38,7 @@ a generic server error, so each route is checked separately.
 from typing import Any, Callable
 import csv
 from io import StringIO
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -229,10 +230,14 @@ def test_export_route_returns_csv_attachment_download(
     assert response.data == content
 
     disposition: str = response.headers['Content-Disposition']
-    # Quoted like every other export in the repo
-    assert disposition.startswith('attachment; filename="')
-    assert f'supernet_{SUPERNET_PUBLIC_ID}_subnets_' in disposition
-    assert disposition.endswith('.csv"')
+    # Quoted like every other export in the repo, and named by the shared scheme:
+    # <timestamp>_ipam_supernet-<id>-subnets.csv
+    assert re.fullmatch(
+        r'attachment; filename="\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}_ipam_supernet-'
+        + str(SUPERNET_PUBLIC_ID)
+        + r'-subnets\.csv"',
+        disposition,
+    )
 
     mock_build.assert_called_once()
 

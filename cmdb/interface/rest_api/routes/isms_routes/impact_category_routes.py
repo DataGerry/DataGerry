@@ -30,6 +30,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsImpactCategory
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
@@ -54,7 +55,7 @@ from cmdb.errors.manager.impact_category_manager import (
     ImpactCategoryManagerDeleteError,
     ImpactCategoryManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -67,7 +68,7 @@ impact_category_blueprint = APIBlueprint('impact_categories', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.add')
-@impact_category_blueprint.validate(IsmsImpactCategory.SCHEMA)
+@impact_category_blueprint.validate(build_write_schema(IsmsImpactCategory.SCHEMA))
 def insert_isms_impact_category(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsImpactCategory into the database
@@ -186,7 +187,7 @@ def get_isms_impact_category(public_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.edit')
-@impact_category_blueprint.validate(IsmsImpactCategory.SCHEMA)
+@impact_category_blueprint.validate(build_write_schema(IsmsImpactCategory.SCHEMA))
 def update_isms_impact_category(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsImpactCategory
@@ -205,6 +206,10 @@ def update_isms_impact_category(public_id: int, data: dict[str, Any], request_us
 
         get_item_or_404(impact_category_manager, public_id,
                         f"The ImpactCategory with ID:{public_id} was not found!", as_dict=False)
+
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+
+        pin_public_id(data, public_id)
 
         impact_category_manager.update_item(public_id, IsmsImpactCategory.from_data(data))
 

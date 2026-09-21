@@ -69,12 +69,13 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     incompletely-initialised API. In cloud mode that means one tenant database failing its update
     aborts startup for **every** tenant - see discussion-backlog #156
 
-    **CORS is unrestricted.** Only ``expose_headers`` is configured; flask-cors' defaults apply for
-    everything else, so any origin may call the API with any of the standard methods. That is not a
-    session-riding hole - DataGerry authenticates with a Bearer JWT in a header rather than a cookie,
-    and ``supports_credentials`` stays False, so a foreign origin has no token to ride - but it does
-    mean an operator cannot restrict origins for a hardened deployment. Recorded as
-    discussion-backlog #157
+    **CORS is unrestricted.** Only ``expose_headers`` is configured - ``X-API-Version``,
+    ``X-Total-Count`` and ``Content-Disposition``, the last so a cross-origin frontend can read the
+    filename an export route sent - and flask-cors' defaults apply for everything else, so any origin
+    may call the API with any of the standard methods. That is not a session-riding hole - DataGerry
+    authenticates with a Bearer JWT in a header rather than a cookie, and ``supports_credentials``
+    stays False, so a foreign origin has no token to ride - but it does mean an operator cannot
+    restrict origins for a hardened deployment. Recorded as discussion-backlog #157
 
     Args:
         database_manager (MongoDatabaseManager): Manager that owns the MongoDB connection
@@ -90,7 +91,11 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     app.url_map.strict_slashes = True
 
     # Import App Extensions
-    CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count'])
+    # `Content-Disposition` carries the download filename every export route builds
+    # (cmdb.framework.exporter.export_filename_helper). A browser can only read a response header that
+    # is exposed, so without it a cross-origin frontend - which is exactly the `ng serve` setup the
+    # Angular app is developed in - reads none and falls back to naming downloads itself
+    CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count', 'Content-Disposition'])
 
     # Lock the external REST API (HTTP Basic auth) behind the REST_API license feature. On-premise
     # only; a no-op in cloud/local mode. The UI (login + Bearer JWT) is unaffected.

@@ -263,18 +263,25 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
 def get_global_section_template_count(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Returns how many types and objects use a CmdbSectionTemplate (zero when it is not global)
+    Returns what deleting a CmdbSectionTemplate would affect
 
     Requires the ``base.framework.sectionTemplate.view`` right. The frontend asks this before offering
-    a delete, so the user is told what the deletion would touch
+    a delete, so the user is told what the deletion would touch: ``types`` is every type claiming the
+    template (the set the delete cascade visits) and ``objects`` is the objects of the types that
+    actually carry its section (the only ones the cascade changes)
+
+    ``is_global`` is part of the payload because a non-global template is never propagated and always
+    reports zero usage - without that flag, `{'types': 0, 'objects': 0}` would mean both "global and
+    unused" and "the count does not apply here". The object count is deliberately **not** ACL-scoped:
+    it states what the deletion would change, not what the caller may read
 
     Args:
         public_id (int): public_id of the CmdbSectionTemplate to inspect
         request_user (CmdbUser): The user making the request
 
     Returns:
-        Response: DefaultResponse wrapping {'types': int, 'objects': int}; aborts 404 when the
-            template does not exist
+        Response: DefaultResponse wrapping {'types': int, 'objects': int, 'is_global': bool}; aborts
+            404 when the template does not exist
     """
     try:
         section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
