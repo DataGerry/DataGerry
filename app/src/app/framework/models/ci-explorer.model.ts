@@ -81,16 +81,21 @@ export interface Field {
     level: number; //  0 = root, +1 = child, –1 = parent, …
     direction: Direction; //  "root" | "child" | "parent"
     color: string; 
-    title: string; //  short label shown in the node
+    title: string | null; //  short label shown in the node
     relation_color?: string;
     ci_explorer_tooltip?: string;
-    ci_explorer_label?: string;
+    ci_explorer_label?: string | null;
   
     /* domain data -------------------------------------------------------- */
     linked_object: LinkedObject;
     type_info: TypeInfo;
   }
   
+  /** Response of the label-field route; the type's new CI Explorer label field, or none. */
+  export interface CiExplorerLabelField {
+    ci_explorer_label: string | null;
+  }
+
   /* -------- Edge & relation metadata ----------------------------------- */
   /** One physical hop of a collapsed port connection; `cable` is absent on a panel's internal pairing. */
   export interface CiExplorerPathHop {

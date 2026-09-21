@@ -17,6 +17,8 @@
 */
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
+import { CI_EXPLORER_EDIT_RIGHT } from 'src/app/framework/models/ci-explorer.model';
+
 import { GraphNode } from '../../interfaces/graph.interfaces';
 
 /** Right-click actions for a single node. */
@@ -41,4 +43,7 @@ export class GraphContextMenuComponent {
     readonly setAsRoot = output<void>();
     readonly toggleExpand = output<MouseEvent>();
     readonly focusNode = output<void>();
+    readonly changeLabelField = output<void>();
+
+    readonly ciExplorerEditRight = CI_EXPLORER_EDIT_RIGHT;
 }

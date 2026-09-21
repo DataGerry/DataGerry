@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
+  CiExplorerLabelField,
   CiExplorerScope,
   DEFAULT_CI_EXPLORER_SCOPE,
   GraphRespWithRoot,
@@ -78,5 +79,14 @@ export class CiExplorerService extends BaseApiService<never> {
       this.buildFilters(types, relations);
 
     return this.handleGetRequest<GraphRespParents>(url);
+  }
+
+  /* ---------------- CI Explorer label field ---------------------- */
+  /** The label field belongs to the type, so `typeId` is a type public_id, not an object one. */
+  updateLabelField(typeId: number, fieldName: string | null): Observable<CiExplorerLabelField> {
+    return this.handlePutRequest<CiExplorerLabelField>(
+      `ci_explorer/label_field/${typeId}`,
+      { ci_explorer_label: fieldName }
+    );
   }
 }

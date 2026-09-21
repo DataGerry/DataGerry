@@ -281,6 +281,57 @@ describe('GraphDataService (characterization)', () => {
         });
     });
 
+    describe('relabelNodesOfType', () => {
+        /** A type can be rendered on several levels at once, and one save has to reach them all. */
+        it('relabels every copy of the type, whichever level it sits on', () => {
+            const fields = [{ name: 'name', value: 'becon GmbH' }, { name: 'city', value: 'Bremen' }];
+            const company = (id: number, level: number) => ciNode(id, level, {
+                title: 'becon GmbH',
+                type_info: typeInfo({ type_id: 42, label: 'Company' }),
+                linked_object: linkedObject({ public_id: id, type_id: 42, fields })
+            });
+            const nodes: GraphNode[] = [];
+            service.mergeNodes(nodes, [company(7, 5), company(7, -1), ciNode(9, 1)], new Map());
+
+            service.relabelNodesOfType(nodes, 42, 'city');
+
+            expect(nodes.filter(n => n.type === 'Company').map(n => n.label)).toEqual(['Bremen', 'Bremen']);
+            expect(nodes[2].label).toBe('CI 9');
+        });
+
+        it('falls back to the unset wording when the label field is cleared', () => {
+            const nodes: GraphNode[] = [];
+            service.mergeNodes(nodes, [ciNode(1, 0, { type_info: typeInfo({ type_id: 42 }) })], new Map());
+
+            service.relabelNodesOfType(nodes, 42, null);
+
+            expect(nodes[0].label).toBe('Label not selected');
+        });
+
+        it('reads the object that has no such field as empty', () => {
+            const nodes: GraphNode[] = [];
+            service.mergeNodes(nodes, [ciNode(1, 0, { type_info: typeInfo({ type_id: 42 }) })], new Map());
+
+            service.relabelNodesOfType(nodes, 42, 'city');
+
+            expect(nodes[0].label).toBe('Label is empty');
+        });
+
+        /** mergeNodes shallow-copies the CINode, so the cache needs updating on its own. */
+        it('keeps the cached CINode in step', () => {
+            const nodes: GraphNode[] = [];
+            service.mergeNodes(nodes, [ciNode(3, 0, {
+                type_info: typeInfo({ type_id: 42 }),
+                linked_object: linkedObject({ public_id: 3, type_id: 42, fields: [{ name: 'city', value: 'Bremen' }] })
+            })], new Map());
+
+            service.relabelNodesOfType(nodes, 42, 'city');
+
+            expect(service.getCINode(3)!.title).toBe('Bremen');
+            expect(service.getCINode(3)!.ci_explorer_label).toBe('city');
+        });
+    });
+
     describe('removeNodeInstancesByUID', () => {
         it('removes the named instances and every connection touching them', () => {
             const nodes: GraphNode[] = [];

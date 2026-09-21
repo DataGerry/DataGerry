@@ -85,7 +85,8 @@
       [expandLabel]="getContextExpandLabel(selectedNode)"
       (setAsRoot)="selectAsRootNode()"
       (toggleExpand)="onContextToggleExpand($event)"
-      (focusNode)="centerOnNode(selectedNode!)">
+      (focusNode)="centerOnNode(selectedNode!)"
+      (changeLabelField)="openLabelFieldModal()">
 
       @if (showPerformanceHints) {
         <div class="performance-hints" [class.hidden]="!getPerformanceHint()">

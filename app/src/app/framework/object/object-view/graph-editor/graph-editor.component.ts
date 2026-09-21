@@ -53,6 +53,7 @@ import {
   ConnectionDetailsData,
   ConnectionDetailsModalComponent
 } from './modals/connection-details/connection-details-modal.component';
+import { CiExplorerLabelModalComponent } from './modals/ci-explorer-label/ci-explorer-label-modal.component';
 import { NodeDetailsModalComponent } from './modals/node-details/node-details-modal.component';
 import { CiExplorerExportService } from './services/ci-explorer-export.service';
 import { ConnectionTrackerService } from './services/connection-tracker.service';
@@ -176,8 +177,8 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   private readonly permissionService = inject(PermissionService);
   private readonly toastService = inject(ToastService);
 
-  /** `*permissionLink` only hides the buttons, so both profile write paths re-check the right. */
-  private readonly canEditProfiles = this.permissionService.hasRight(CI_EXPLORER_EDIT_RIGHT)
+  /** `*permissionLink` only hides the buttons, so every write path re-checks the right. */
+  private readonly canEdit = this.permissionService.hasRight(CI_EXPLORER_EDIT_RIGHT)
     || this.permissionService.hasExtendedRight(CI_EXPLORER_EDIT_RIGHT);
 
   constructor(
@@ -490,8 +491,38 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
     this.showFilterBar = false;
   }
 
+  /** The label belongs to the type, so the change lands on every node of it, on every level. */
+  openLabelFieldModal(): void {
+    this.contextMenuVisible = false;
+
+    const node = this.selectedNode;
+    const typeId = node?.ciNode?.type_info?.type_id;
+
+    if (!this.canEdit || !typeId) {
+      return;
+    }
+
+    const modalRef = this.fullscreenModalService.open(this.modalService, CiExplorerLabelModalComponent, {
+      backdrop: 'static',
+      windowClass: 'dg-modal-window',
+      backdropClass: 'dg-modal-window-backdrop'
+    });
+
+    modalRef.componentInstance.typeId = typeId;
+    modalRef.componentInstance.typeLabel = node.type;
+    modalRef.componentInstance.sampleNode = node;
+
+    modalRef.result.then(
+      (fieldName: string | null) => {
+        this.store.applyLabelField(typeId, fieldName ?? null);
+        this.refresh();
+      },
+      () => undefined
+    );
+  }
+
   openProfileManager(): void {
-    if (!this.canEditProfiles) {
+    if (!this.canEdit) {
       return;
     }
 
@@ -504,7 +535,7 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   }
 
   saveCurrentFiltersAsProfile(): void {
-    if (!this.canEditProfiles) {
+    if (!this.canEdit) {
       return;
     }
 
@@ -590,6 +621,10 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
   }
 
   private handleKeyboard(event: KeyboardEvent): void {
+    if (this.isTypingElsewhere(event)) {
+      return;
+    }
+
     const action = KEYBOARD_SHORTCUTS[this.keyCombo(event) as keyof typeof KEYBOARD_SHORTCUTS];
 
     if (action) {
@@ -597,6 +632,17 @@ export class GraphEditorComponent implements OnInit, AfterViewInit, OnChanges, O
       this.keyboardActions[action]();
     }
     this.refresh();
+  }
+
+  /**
+   * Canvas shortcuts stay on the canvas.
+   *
+   * They are bound to the document, so without this an open modal would lose Enter to
+   * `preventDefault` and never activate its own buttons.
+   */
+  private isTypingElsewhere(event: KeyboardEvent): boolean {
+    const target = event.target as Element | null;
+    return !!target?.closest?.('input, textarea, select, [contenteditable="true"], ngb-modal-window');
   }
 
   /** Spelling has to match the combos used as keys in KEYBOARD_SHORTCUTS. */

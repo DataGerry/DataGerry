@@ -116,6 +116,7 @@ import { GraphContextMenuComponent } from './object-view/graph-editor/components
 import { NodeDetailsModalComponent } from './object-view/graph-editor/modals/node-details/node-details-modal.component';
 import { ProfileManagerModalComponent } from './object-view/graph-editor/modals/profile-manager/profile-manager-modal.component';
 import { ProfileDeleteModalComponent } from './object-view/graph-editor/modals/profile-delete/profile-delete-modal.component';
+import { CiExplorerLabelModalComponent } from './object-view/graph-editor/modals/ci-explorer-label/ci-explorer-label-modal.component';
 import { ConnectionDetailsModalComponent } from './object-view/graph-editor/modals/connection-details/connection-details-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -195,6 +196,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         NodeDetailsModalComponent,
         ProfileManagerModalComponent,
         ProfileDeleteModalComponent,
+        CiExplorerLabelModalComponent,
         ConnectionDetailsModalComponent
        ],
     imports: [

@@ -329,6 +329,17 @@ export class GraphEditorStore {
         return node.isRoot ? this.nodes.some(n => !n.isRoot) : !!node.expanded;
     }
 
+    /* ------------------------------------------------- LABEL FIELD ---------------------------------------------------- */
+
+    /**
+     * A CI Explorer label belongs to the type, so changing it on one node relabels every
+     * copy of that type, whichever level it sits on.
+     */
+    applyLabelField(typeId: number, fieldName: string | null): void {
+        this.graphData.relabelNodesOfType(this.nodes, typeId, fieldName);
+        this.tick();
+    }
+
     /* ---------------------------------------------------- SELECTION --------------------------------------------------- */
 
     select(node: GraphNode, additive = false): void {

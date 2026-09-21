@@ -29,6 +29,7 @@ import {
 import { CiExplorerService } from 'src/app/framework/services/ci-explorer.service';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
 import { cableColorOf, edgeKind, edgeMeta } from '../utils/graph-edge.util';
+import { titleForLabelField } from '../utils/graph-label.util';
 
 @Injectable()
 export class GraphDataService {
@@ -153,6 +154,34 @@ export class GraphDataService {
     } else {
       return cn.title;
     }
+  }
+
+
+  /**
+   * Repoints every rendered copy of a type at a new label field.
+   *
+   * The label belongs to the type, so a node of that type is relabelled on every level it
+   * appears on, and the cached CINodes follow so a later collapse keeps the new label.
+   */
+  relabelNodesOfType(nodes: GraphNode[], typeId: number, fieldName: string | null): void {
+    nodes?.forEach(node => {
+      const ci = node.ciNode;
+
+      if (ci?.type_info?.type_id !== typeId) {
+        return;
+      }
+
+      ci.ci_explorer_label = fieldName;
+      ci.title = titleForLabelField(ci, fieldName);
+      node.label = this.extractLabel(ci);
+    });
+
+    this.nodesMap?.forEach(ci => {
+      if (ci?.type_info?.type_id === typeId) {
+        ci.ci_explorer_label = fieldName;
+        ci.title = titleForLabelField(ci, fieldName);
+      }
+    });
   }
 
 
