@@ -54,6 +54,7 @@ import {
 import { PortConnectionService } from './services/port-connection.service';
 import { PortDialogService } from './services/port-dialog.service';
 import { PortService } from './services/port.service';
+import { distinctCableConnectionIds } from './utils/port-bulk.util';
 import { indexConnectionsByPort } from './utils/port-connection.util';
 import {
     clampPage,
@@ -246,6 +247,44 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
             canEdit: this.canEdit,
             canDelete: this.canDelete
         }));
+    }
+
+
+    /** Writes the same status, type, speed or description onto every ticked port. */
+    public onBulkEditPorts(rows: PortRow[]): void {
+        if (this.objectId == null || !rows.length) {
+            return;
+        }
+
+        this.reloadWhenStored(this.portDialogs.openBulkEdit(this.objectId, this.objectLabel, rows));
+    }
+
+
+    /** The dialog reads the delete preview itself, so the section only has to reload afterwards. */
+    public onBulkDeletePorts(rows: PortRow[]): void {
+        if (this.objectId == null || !rows.length) {
+            return;
+        }
+
+        this.reloadWhenStored(this.portDialogs.openBulkDelete(this.objectId, this.objectLabel, rows));
+    }
+
+
+    /** Cuts the cables of the ticked ports. A panel's internal pairing is never part of that. */
+    public onBulkDisconnectPorts(rows: PortRow[]): void {
+        const objectId = this.objectId;
+        const connectionIds = distinctCableConnectionIds(rows);
+
+        if (objectId == null || !connectionIds.length) {
+            return;
+        }
+
+        this.portDialogs.confirmBulkDisconnect(rows.length, connectionIds.length)
+            .pipe(takeUntil(this.destroy$))
+            .subscribe(() => this.remove(
+                this.portConnectionService.bulkDeleteConnections(objectId, connectionIds),
+                `${ connectionIds.length } connection(s) were successfully removed!`
+            ));
     }
 
 

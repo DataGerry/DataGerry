@@ -215,3 +215,18 @@
     text-align: left;
     max-width: 22rem;
 }
+
+/* The selection bar rides in the table toolbar, so it only takes room once rows are ticked. */
+.ports-bulk {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.ports-bulk__count {
+    color: var(--dg-muted);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    white-space: nowrap;
+}

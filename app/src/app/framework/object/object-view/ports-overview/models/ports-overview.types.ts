@@ -112,3 +112,10 @@ export interface PortPayload {
     speed: number | null;
     description: string | null;
 }
+
+
+/** The least a bulk dialog needs of a port: what to send, and what to name in the confirmation. */
+export interface PortSelection {
+    publicId: number;
+    name: string;
+}

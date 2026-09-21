@@ -9,7 +9,9 @@
   [pageSize]="pageSize"
   [sort]="sort"
   [loading]="loading"
-  [selectEnabled]="false"
+  [selectEnabled]="selectEnabled"
+  [selectedItems]="selectedRows"
+  [customButtons]="bulkButtonTemplates"
   [toggleable]="false"
   [searchEnabled]="false"
   [paginationEnabled]="true"
@@ -17,8 +19,50 @@
   [emptyMessage]="'No ports to display.'"
   (pageChange)="onPageChange($event)"
   (pageSizeChange)="onPageSizeChange($event)"
-  (sortChange)="onSortChange($event)">
+  (sortChange)="onSortChange($event)"
+  (selectedChange)="onSelectedChange($event)">
 </cmdb-table>
+
+<ng-template #bulkActionsTemplate>
+  @if (selectedCount) {
+    <div class="ports-bulk" role="group" aria-label="Actions for the selected ports">
+      <span class="ports-bulk__count" aria-live="polite">{{ selectedCount }} selected</span>
+
+      @if (canEdit) {
+        <app-button
+          label="Edit"
+          icon="fas fa-pen-to-square"
+          bootstrapClass="btn-outline-secondary btn-sm"
+          [title]="'Edit the ' + selectedCount + ' selected ports'"
+          (clicked)="onBulkEdit()">
+        </app-button>
+      }
+
+      @if (canDisconnect) {
+        <app-button
+          label="Disconnect"
+          icon="fas fa-unlink"
+          bootstrapClass="btn-outline-secondary btn-sm"
+          [disabled]="!selectedConnectedRows.length"
+          [title]="selectedConnectedRows.length
+            ? 'Cut the cables of ' + selectedConnectedRows.length + ' selected ports'
+            : 'None of the selected ports carries a cable'"
+          (clicked)="onBulkDisconnect()">
+        </app-button>
+      }
+
+      @if (canDelete) {
+        <app-button
+          label="Delete"
+          icon="fas fa-trash-can"
+          bootstrapClass="btn-danger btn-sm"
+          [title]="'Delete the ' + selectedCount + ' selected ports'"
+          (clicked)="onBulkDelete()">
+        </app-button>
+      }
+    </div>
+  }
+</ng-template>
 
 <ng-template #nameTemplate let-data="data">
   @if (data) {

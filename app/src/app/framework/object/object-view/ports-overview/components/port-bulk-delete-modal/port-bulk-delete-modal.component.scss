@@ -1,0 +1,81 @@
+/*
+* DATAGERRY - OpenSource Enterprise CMDB
+* Copyright (C) 2026 becon GmbH
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Affero General Public License as
+* published by the Free Software Foundation, either version 3 of the
+* License, or (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Affero General Public License for more details.
+*
+* You should have received a copy of the GNU Affero General Public License
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.port-bulk-delete {
+    &__lead {
+        margin: 0 0 1rem;
+        max-width: 74ch;
+        color: var(--dg-ink);
+        font-size: 0.9375rem;
+        line-height: 1.5;
+    }
+
+    &__impact {
+        margin-top: 1rem;
+    }
+
+    &__impact-title {
+        margin: 0 0 0.5rem;
+        color: var(--dg-label);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    /* A whole panel can be selected at once, so the list scrolls instead of stretching the dialog. */
+    &__list {
+        display: grid;
+        gap: 0.35rem;
+        margin: 0;
+        padding: 0;
+        max-height: 15rem;
+        overflow-y: auto;
+        list-style: none;
+    }
+
+    &__item {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem 0.6rem;
+        padding: 0.45rem 0.75rem;
+        border: 1px solid var(--dg-border);
+        border-radius: var(--dg-radius-sm);
+        background: var(--dg-surface);
+    }
+
+    &__name {
+        color: var(--dg-ink);
+        font-size: 0.875rem;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+    }
+
+    &__badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.1rem 0.45rem;
+        border-radius: var(--dg-radius-sm);
+        background: rgba(var(--dg-danger-rgb), 0.1);
+        color: var(--dg-danger);
+        font-size: 0.75rem;
+        white-space: nowrap;
+    }
+}
