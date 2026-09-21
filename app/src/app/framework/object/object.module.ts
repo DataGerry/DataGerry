@@ -54,6 +54,8 @@ import { IpamAssignIpModalComponent } from './object-view/ipam-overview/componen
 import { PortsOverviewComponent } from './object-view/ports-overview/ports-overview.component';
 import { PortsTableComponent } from './object-view/ports-overview/components/ports-table/ports-table.component';
 import { PortFormModalComponent } from './object-view/ports-overview/components/port-form-modal/port-form-modal.component';
+import { PortBulkEditModalComponent } from './object-view/ports-overview/components/port-bulk-edit-modal/port-bulk-edit-modal.component';
+import { PortBulkDeleteModalComponent } from './object-view/ports-overview/components/port-bulk-delete-modal/port-bulk-delete-modal.component';
 import { PortCreateWizardModalComponent } from './object-view/ports-overview/components/port-create-wizard-modal/port-create-wizard-modal.component';
 import { ConnectionFormModalComponent } from './object-view/ports-overview/components/connection-form-modal/connection-form-modal.component';
 import { InterfaceLinksModalComponent } from './object-view/ports-overview/components/interface-links-modal/interface-links-modal.component';
@@ -116,6 +118,7 @@ import { GraphContextMenuComponent } from './object-view/graph-editor/components
 import { NodeDetailsModalComponent } from './object-view/graph-editor/modals/node-details/node-details-modal.component';
 import { ProfileManagerModalComponent } from './object-view/graph-editor/modals/profile-manager/profile-manager-modal.component';
 import { ProfileDeleteModalComponent } from './object-view/graph-editor/modals/profile-delete/profile-delete-modal.component';
+import { CiExplorerLabelModalComponent } from './object-view/graph-editor/modals/ci-explorer-label/ci-explorer-label-modal.component';
 import { ConnectionDetailsModalComponent } from './object-view/graph-editor/modals/connection-details/connection-details-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -139,6 +142,8 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         PortsOverviewComponent,
         PortsTableComponent,
         PortFormModalComponent,
+        PortBulkEditModalComponent,
+        PortBulkDeleteModalComponent,
         PortCreateWizardModalComponent,
         ConnectionFormModalComponent,
         InterfaceLinksModalComponent,
@@ -195,6 +200,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         NodeDetailsModalComponent,
         ProfileManagerModalComponent,
         ProfileDeleteModalComponent,
+        CiExplorerLabelModalComponent,
         ConnectionDetailsModalComponent
        ],
     imports: [

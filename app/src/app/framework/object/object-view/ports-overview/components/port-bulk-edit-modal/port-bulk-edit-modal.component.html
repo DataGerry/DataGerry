@@ -1,0 +1,145 @@
+<dg-modal
+  icon="fas fa-pen-to-square"
+  eyebrow="Ports"
+  [title]="title"
+  [subtitle]="objectLabel"
+  (dismiss)="activeModal.dismiss()">
+
+  <div class="bulk-edit__selection">
+    <span class="bulk-edit__count">{{ ports.length }} ports selected</span>
+
+    <span class="bulk-edit__chips">
+      @for (port of visiblePorts; track port.publicId) {
+        <span class="bulk-edit__chip">{{ port.name }}</span>
+      }
+      @if (remainingPortCount) {
+        <span class="bulk-edit__chip bulk-edit__chip--more">+{{ remainingPortCount }}</span>
+      }
+    </span>
+  </div>
+
+  <p class="bulk-edit__lead">
+    Switch on a field to write it to all {{ ports.length }} ports. A field you switch on but leave
+    empty is cleared on every one of them.
+  </p>
+
+  <form class="bulk-edit__fields" [formGroup]="form" novalidate autocomplete="off" (ngSubmit)="onSubmit()">
+    <div class="bulk-edit__field" [class.bulk-edit__field--on]="isFieldEnabled('status')">
+      <app-checkbox
+        class="bulk-edit__toggle"
+        id="port-bulk-edit-status-toggle"
+        label="Status"
+        [checked]="isFieldEnabled('status')"
+        (checkedChange)="onToggleField('status', $event)">
+      </app-checkbox>
+
+      <div class="bulk-edit__control">
+        <app-form-select
+          label="Status"
+          placeholder="Leave empty to clear"
+          bindLabel="label"
+          bindValue="name"
+          dropdownDirection="auto"
+          [appendTo]="dropdownHost"
+          [items]="statusOptions"
+          formControlName="status">
+        </app-form-select>
+      </div>
+    </div>
+
+    <div class="bulk-edit__field" [class.bulk-edit__field--on]="isFieldEnabled('portType')">
+      <app-checkbox
+        class="bulk-edit__toggle"
+        id="port-bulk-edit-port-type-toggle"
+        label="Port type"
+        [checked]="isFieldEnabled('portType')"
+        (checkedChange)="onToggleField('portType', $event)">
+      </app-checkbox>
+
+      <div class="bulk-edit__control">
+        <app-form-select
+          label="Port type"
+          placeholder="Leave empty to clear"
+          bindLabel="label"
+          bindValue="name"
+          dropdownDirection="auto"
+          [appendTo]="dropdownHost"
+          [items]="portTypeOptions"
+          formControlName="portType">
+        </app-form-select>
+      </div>
+    </div>
+
+    <div class="bulk-edit__field" [class.bulk-edit__field--on]="isFieldEnabled('speed')">
+      <app-checkbox
+        class="bulk-edit__toggle"
+        id="port-bulk-edit-speed-toggle"
+        label="Speed"
+        [checked]="isFieldEnabled('speed')"
+        (checkedChange)="onToggleField('speed', $event)">
+      </app-checkbox>
+
+      <div class="bulk-edit__control">
+        <app-form-select
+          label="Speed"
+          placeholder="Leave empty to clear"
+          bindLabel="label"
+          bindValue="name"
+          dropdownDirection="auto"
+          [appendTo]="dropdownHost"
+          [items]="speedOptions"
+          formControlName="speed">
+        </app-form-select>
+      </div>
+    </div>
+
+    <div class="bulk-edit__field" [class.bulk-edit__field--on]="isFieldEnabled('description')">
+      <app-checkbox
+        class="bulk-edit__toggle"
+        id="port-bulk-edit-description-toggle"
+        label="Description"
+        [checked]="isFieldEnabled('description')"
+        (checkedChange)="onToggleField('description', $event)">
+      </app-checkbox>
+
+      <div class="bulk-edit__control">
+        <app-form-textarea
+          label="Description"
+          placeholder="Leave empty to clear"
+          [rows]="2"
+          [errorMessage]="descriptionError"
+          formControlName="description">
+        </app-form-textarea>
+      </div>
+    </div>
+  </form>
+
+  @if (hasChanges) {
+    <app-warning-alert
+      title="This overwrites every selected port:"
+      message="A field you switched on is written to all of them, and clears on all of them when you leave it empty.">
+    </app-warning-alert>
+  }
+
+  <app-button
+    dgModalFooter
+    label="Cancel"
+    bootstrapClass="btn-secondary"
+    (clicked)="activeModal.dismiss()">
+  </app-button>
+
+  <app-button
+    dgModalFooter
+    label="Apply to selected"
+    icon="fas fa-save"
+    bootstrapClass="btn-success"
+    [disabled]="!hasChanges"
+    title="Switch on at least one field to apply it"
+    (clicked)="onSubmit()">
+  </app-button>
+</dg-modal>
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

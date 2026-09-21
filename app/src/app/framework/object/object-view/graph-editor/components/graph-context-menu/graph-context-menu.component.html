@@ -25,6 +25,13 @@
     <span class="material-icons" aria-hidden="true">filter_center_focus</span>
     <span class="menu-item-text">Focus</span>
   </div>
+
+  <div *permissionLink="[ciExplorerEditRight]" class="menu-item" role="button" tabindex="0"
+    (click)="changeLabelField.emit()" (keydown.enter)="changeLabelField.emit()"
+    (keydown.space)="changeLabelField.emit()">
+    <span class="material-icons" aria-hidden="true">label</span>
+    <span class="menu-item-text">Change Node Label</span>
+  </div>
 </div>
 
 <div class="menu-divider"></div>

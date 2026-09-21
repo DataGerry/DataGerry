@@ -93,3 +93,57 @@ export interface PortBulkResult {
     total_ports: number;
     total_connections: number;
 }
+
+
+/**
+ * The port fields a bulk edit may set, as `PATCH /ports/object/<id>/bulk` takes them.
+ *
+ * An omitted key leaves the field alone; an explicit null clears it on every selected port. That is
+ * the whole tri-state of the dialog, so a key is only written once the user enabled its field.
+ */
+export interface PortBulkUpdateValues {
+    status?: number | null;
+    port_type?: number | null;
+    speed?: number | null;
+    description?: string | null;
+}
+
+
+/** Body of `PATCH /ports/object/<id>/bulk`. */
+export interface PortBulkUpdateRequest {
+    port_ids: number[];
+    values: PortBulkUpdateValues;
+}
+
+
+/** One port of a delete preview, with what the delete would take with it. */
+export interface PortDeletePreviewEntry {
+    port_id: number;
+    name: string;
+    side: PortSide;
+    connection_ids: number[];
+    interface_link_ids: number[];
+}
+
+
+/**
+ * Answer of `POST /ports/object/<id>/bulk/delete_preview`.
+ *
+ * The top-level id lists are distinct across the whole selection, so a connection joining two
+ * selected ports is counted once - the per-port lists name it twice.
+ */
+export interface PortBulkDeletePreview {
+    ports: PortDeletePreviewEntry[];
+    port_ids: number[];
+    connection_ids: number[];
+    interface_link_ids: number[];
+}
+
+
+/** Answer of `DELETE /ports/object/<id>/bulk`, counted the same way as the preview. */
+export interface PortBulkDeleteResult {
+    deleted: number;
+    port_ids: number[];
+    connection_ids: number[];
+    interface_link_ids: number[];
+}

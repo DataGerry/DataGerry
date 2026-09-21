@@ -19,6 +19,7 @@ import { FieldOption } from 'src/app/framework/models/cmdb-section-template';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { PortConnectionInfo, PortConnectionState } from '../models/port-connection.types';
 import { CmdbPort, PortRow, PortSide } from '../models/ports-overview.types';
+import { summarisePortInterfaces } from './interface-row.util';
 import { cableSummary, peerPortIdOf } from './port-connection.util';
 import { normalizeSide, portSideLabel } from './port-side.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -35,6 +36,7 @@ const SORT_FIELDS: Record<string, keyof PortRow> = {
     port_type: 'portType',
     speed: 'speed',
     connected: 'connectionLabel',
+    interfaces: 'interfaceLabel',
     description: 'description'
 };
 
@@ -56,6 +58,7 @@ export function toPortRows(
         const side = normalizeSide(port.side);
         const connection = connectionsByPort.get(port.public_id) ?? null;
         const pairedPortName = pairedPortNameOf(connection, port.public_id, namesByPortId);
+        const interfaces = summarisePortInterfaces(port.interface_links ?? []);
 
         return {
             publicId: port.public_id,
@@ -71,7 +74,9 @@ export function toPortRows(
             connectionState: connection?.state ?? PortConnectionState.FREE,
             connectionLabel: connectionLabelOf(connection, pairedPortName),
             cableConnectionId: connection?.cable?.public_id ?? null,
-            pairedPortName
+            pairedPortName,
+            interfaces,
+            interfaceLabel: interfaces.label
         };
     });
 }
@@ -94,6 +99,12 @@ export function toOptionLabels(optionsByType: Map<string, FieldOption[]>): Map<s
 /** Whether the backend sends `connected` at all; without it the column would claim "Free" for every port. */
 export function hasConnectionState(ports: readonly CmdbPort[]): boolean {
     return ports.some((port) => 'connected' in port);
+}
+
+
+/** Whether the read route embeds the interface links; without the key the column would claim every port has none. */
+export function hasInterfaceLinks(ports: readonly CmdbPort[]): boolean {
+    return ports.some((port) => 'interface_links' in port);
 }
 
 
