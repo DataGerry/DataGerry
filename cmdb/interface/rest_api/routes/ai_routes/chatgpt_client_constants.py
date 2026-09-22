@@ -48,6 +48,34 @@ class ChatGptKeys(BaseStrEnum):
     MODEL = 'gpt-5-mini'
 
 
+class ChatGptStatusKey(BaseStrEnum):
+    """
+    Keys of the `GET /chatgpt/status` response
+
+    One boolean and nothing else: the route answers whether an API key is configured, never which
+    source holds it and never any part of its value
+
+    Attributes:
+        CONFIGURED: True when a usable API key is configured for the current mode
+    """
+    CONFIGURED = 'configured'
+
+
+# What the caller is told when no usable API key exists, one per place a key is configured. Both name
+# the setting AND the restart, because neither mode re-reads its source while the process runs: the
+# config file is parsed once at startup and the environment is read per process. Written out here
+# rather than in the route so the two modes are distinguished where they are already told apart
+CHATGPT_NOT_CONFIGURED_CONFIG_MESSAGE: str = (
+    f"ChatGPT is not configured: add a [{ChatGptKeys.CONFIG_SECTION.value}] section carrying an "
+    f"'{ChatGptKeys.CONFIG_API_KEY.value}' to the DataGerry configuration file and restart DataGerry!"
+)
+
+CHATGPT_NOT_CONFIGURED_ENV_MESSAGE: str = (
+    f"ChatGPT is not configured: set the {ChatGptKeys.ENV_API_KEY.value} environment variable and "
+    "restart DataGerry!"
+)
+
+
 # The embedded system prompt that drives the document generator. Used in non-cloud mode and as
 # the fallback when ``ChatGptKeys.ENV_DOCGEN_PROMPT`` is unset / empty in cloud mode. The two
 # E501 findings on the long bullet lines below are deliberate: rewrapping them would change the

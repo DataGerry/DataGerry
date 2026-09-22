@@ -32,7 +32,13 @@ class TypeReferenceKey(BaseStrEnum):
     Owned by the model layer because `TypeReference` produces the payload; before 2026-09-10 every
     consumer described the same seven keys with literals or constants of its own. Use these members
     instead of bare string literals so a typo becomes an AttributeError instead of a silently missing
-    key in a rendered object
+    key in a rendered object.
+
+    All SEVEN keys are always present: the payload comes from `TypeReference.to_json`, and the single
+    place that fills it during a render is `CmdbMultiRender.__merge_references` - which answers
+    `TypeReference.empty()` (OBJECT_ID 0) rather than a short dict when nothing resolves. A location
+    field is the one field that does NOT carry this payload; its placeholder is described by
+    `RenderedLocationReferenceKey`
     """
     #: public_id of the referenced object's CmdbType (0 on the empty reference)
     TYPE_ID = 'type_id'

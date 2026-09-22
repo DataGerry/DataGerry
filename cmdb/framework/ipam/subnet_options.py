@@ -33,10 +33,12 @@ picker: {page, page_size, total, search, type, rows}
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import IpamOverviewKey, IpamTreeKey
 from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.search import active_search
+from cmdb.framework.ipam.read_scope import resolve_read_scope
 from cmdb.framework.ipam.references import resolve_special_type_icon
 from cmdb.framework.ipam.tree_overview import (
     load_all_special_type_objects,
@@ -121,6 +123,7 @@ def build_subnet_options_page(
     page_size: int,
     search: str,
     family: str = '',
+    request_user: CmdbUser | None = None,
 ) -> dict[str, Any]:
     """
     Builds the paginated subnet-options payload for the interface section's subnet picker
@@ -160,6 +163,7 @@ def build_subnet_options_page(
     """
     subnet_objs: list[dict[str, Any]] = load_all_special_type_objects(
         objects_manager, types_manager, SpecialType.SUBNET,
+        denied_type_ids=resolve_read_scope(request_user),
     )
     subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
 

@@ -50,7 +50,6 @@ PORTS_URL: str = '/ports'
 EXPORTER_URL: str = '/exporter'
 SECTION_TEMPLATES_URL: str = '/section_templates'
 
-TYPE_ID: int = 9642
 TYPE_NAME: str = 'empty-ports-type'
 TYPE_LABEL: str = 'Empty Ports Type'
 OBJECT_ID: int = 9643
@@ -76,7 +75,6 @@ def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
 def _type_payload() -> dict[str, Any]:
     """The empty port-bearing Type: uses_ports, and no field or section of its own."""
     return {
-        'public_id': TYPE_ID,
         'name': TYPE_NAME,
         'label': TYPE_LABEL,
         'author_id': AUTHOR_ID,
@@ -91,11 +89,11 @@ def _type_payload() -> dict[str, Any]:
     }
 
 
-def _object_payload() -> dict[str, Any]:
+def _object_payload(type_id: int) -> dict[str, Any]:
     """An object of the empty Type - it has no field to carry."""
     return {
         'public_id': OBJECT_ID,
-        'type_id': TYPE_ID,
+        'type_id': type_id,
         'active': True,
         'author_id': AUTHOR_ID,
         'version': VERSION,
@@ -105,22 +103,28 @@ def _object_payload() -> dict[str, Any]:
 
 @pytest.fixture(name='empty_type', autouse=True)
 def fixture_empty_type(rest_api, database_manager: MongoDatabaseManager, database_name: str):
-    """Creates the empty Type through the route and removes it, its objects and their ports after."""
+    """
+    Creates the empty Type through the route and removes it, its objects and their ports after
+
+    Yields the id the SERVER assigned: `public_id` is server-owned on a write route, so the payload
+    cannot choose one (see cmdb.class_schema.write_schema_helper).
+    """
     response = rest_api.post(f'{TYPES_URL}/', json=_type_payload())
     assert response.status_code == HTTPStatus.CREATED
-    yield
+    type_id: int = response.get_json()['result_id']
+    yield type_id
     database_manager.get_collection(CmdbPort.COLLECTION, database_name).delete_many({'object_id': OBJECT_ID})
-    database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many({'type_id': TYPE_ID})
-    database_manager.get_collection(CmdbType.COLLECTION, database_name).delete_one({'public_id': TYPE_ID})
+    database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_many({'type_id': type_id})
+    database_manager.get_collection(CmdbType.COLLECTION, database_name).delete_one({'public_id': type_id})
     # Creating and deleting an object through the routes writes CmdbObjectLogs; the log routes page
     # through the whole collection, so a suite that leaves its logs behind breaks THEIR assertions
     database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name).delete_many({'object_id': OBJECT_ID})
 
 
 @pytest.fixture(name='empty_object')
-def fixture_empty_object(rest_api):
-    """Creates one object of the empty Type."""
-    response = rest_api.post(f'{OBJECTS_URL}/', json=_object_payload())
+def fixture_empty_object(rest_api, empty_type: int):
+    """Creates one object of the empty Type (an object MAY carry its own id - that is contract)."""
+    response = rest_api.post(f'{OBJECTS_URL}/', json=_object_payload(empty_type))
     assert response.status_code == HTTPStatus.OK
 
 
@@ -130,9 +134,9 @@ def fixture_empty_object(rest_api):
 class TestEmptyTypeItself:
     """The Type routes accept and return a Type carrying no field and no section."""
 
-    def test_the_type_is_created_by_the_route(self, rest_api) -> None:
+    def test_the_type_is_created_by_the_route(self, rest_api, empty_type: int) -> None:
         """POST /types/ accepts the empty shape - the fixture's assertion, restated as its own test."""
-        response = rest_api.get(f'{TYPES_URL}/{TYPE_ID}')
+        response = rest_api.get(f'{TYPES_URL}/{empty_type}')
 
         assert response.status_code == HTTPStatus.OK
         result = response.get_json()['result']
@@ -140,15 +144,15 @@ class TestEmptyTypeItself:
         assert result['render_meta']['sections'] == []
         assert result['uses_ports'] is True
 
-    def test_the_type_lists_and_appears_in_the_overview(self, rest_api) -> None:
+    def test_the_type_lists_and_appears_in_the_overview(self, rest_api, empty_type: int) -> None:
         """A Type with no content must not drop out of the list or the overview."""
         listed = rest_api.get(f'{TYPES_URL}/')
         overview = rest_api.get(f'{TYPES_URL}/overview')
 
         assert listed.status_code == HTTPStatus.OK
         assert overview.status_code == HTTPStatus.OK
-        assert TYPE_ID in [item['public_id'] for item in listed.get_json()['results']]
-        assert TYPE_ID in [item['type_data']['public_id'] for item in overview.get_json()['results']]
+        assert empty_type in [item['public_id'] for item in listed.get_json()['results']]
+        assert empty_type in [item['type_data']['public_id'] for item in overview.get_json()['results']]
 
     def test_the_ports_virtual_template_is_served_independently(self, rest_api) -> None:
         """The object form's ports section comes from the virtual template, not from the Type."""
@@ -186,9 +190,9 @@ class TestObjectsOfTheEmptyType:
         assert rendered['fields'] == []
         assert rendered['sections'] == []
 
-    def test_the_object_can_be_updated(self, rest_api, empty_object) -> None:
+    def test_the_object_can_be_updated(self, rest_api, empty_object, empty_type: int) -> None:
         """A full update of a fieldless object is a normal update, not an empty-payload rejection."""
-        response = rest_api.put(f'{OBJECTS_URL}/{OBJECT_ID}', json=_object_payload())
+        response = rest_api.put(f'{OBJECTS_URL}/{OBJECT_ID}', json=_object_payload(empty_type))
 
         assert response.status_code == HTTPStatus.ACCEPTED
 
@@ -214,12 +218,12 @@ class TestPortsOfTheEmptyType:
         assert listed.status_code == HTTPStatus.OK
         assert [port['name'] for port in listed.get_json()] == [PORT_NAME]
 
-    def test_the_type_reports_its_port_usage(self, rest_api, empty_object) -> None:
+    def test_the_type_reports_its_port_usage(self, rest_api, empty_object, empty_type: int) -> None:
         """The uses_ports usage route counts the ports of a Type that declares nothing else."""
         assert rest_api.post(f'{PORTS_URL}/', json={'object_id': OBJECT_ID, 'name': PORT_NAME}).status_code \
             == HTTPStatus.CREATED
 
-        response = rest_api.get(f'{TYPES_URL}/uses_ports_usage/{TYPE_ID}')
+        response = rest_api.get(f'{TYPES_URL}/uses_ports_usage/{empty_type}')
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()['port_count'] == 1
@@ -237,29 +241,30 @@ class TestExportOfTheEmptyType:
         'XmlExportFormat',
         'XlsxExportFormat',
     ])
-    def test_objects_export_in_every_format(self, rest_api, empty_object, export_format: str) -> None:
+    def test_objects_export_in_every_format(self, rest_api, empty_object, empty_type: int,
+                                            export_format: str) -> None:
         """Every tabular and document format copes with an object that has no column to write."""
         response = rest_api.get(
-            f'{EXPORTER_URL}/?filter={{"type_id":{TYPE_ID}}}&classname={export_format}&zip=false'
+            f'{EXPORTER_URL}/?filter={{"type_id":{empty_type}}}&classname={export_format}&zip=false'
         )
 
         assert response.status_code == HTTPStatus.OK
 
-    def test_the_type_itself_exports(self, rest_api) -> None:
+    def test_the_type_itself_exports(self, rest_api, empty_type: int) -> None:
         """The Type export carries the empty Type, so it can be moved to another installation."""
-        response = rest_api.post(f'/export/type/{TYPE_ID}')
+        response = rest_api.post(f'/export/type/{empty_type}')
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()[0]['name'] == TYPE_NAME
 
-    def test_the_import_template_is_refused(self, rest_api) -> None:
+    def test_the_import_template_is_refused(self, rest_api, empty_type: int) -> None:
         """
         The one deliberate refusal: a Type declaring no field has no column to put in a template
 
         The identity columns alone are not a document anyone can fill in, so the route says so
         instead of answering with them.
         """
-        response = rest_api.get(f'{EXPORTER_URL}/template/{TYPE_ID}')
+        response = rest_api.get(f'{EXPORTER_URL}/template/{empty_type}')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert 'declares no fields' in response.get_json()['message']

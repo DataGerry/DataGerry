@@ -41,6 +41,13 @@ class PortConnectionError(BaseStrEnum):
                                 'not be set on the connection - edit the Cable CI instead!'
     CABLE_CI_NOT_FOUND = 'No CmdbObject with ID {cable_ci_id} exists!'
     CABLE_CI_NOT_A_CABLE = 'The CmdbObject with ID {cable_ci_id} is not a Cable!'
+    SAME_OBJECT_CABLE = 'A CABLE connection joins two devices: Port {first_port_id} and Port ' \
+                        '{second_port_id} both belong to CmdbObject ID {object_id}. Two faces of ' \
+                        'ONE device are paired with an INTERNAL connection instead!'
+    CROSS_OBJECT_INTERNAL = 'An INTERNAL connection pairs two faces of ONE device: Port ' \
+                            '{first_port_id} belongs to CmdbObject ID {first_object_id} and Port ' \
+                            '{second_port_id} to CmdbObject ID {second_object_id}. Two devices are ' \
+                            'joined with a CABLE connection instead!'
 
 
 # Prefix of the aggregated abort message the connection routes build from the reasons above

@@ -209,7 +209,7 @@ class TestGetDeleteLogs:
             _log_doc(LOG_ID_EDIT_A, OBJECT_ID_WITH_EDITS, action=LogAction.EDIT),
         ])
 
-        response = rest_api.get(f'{ROUTE_URL}/object/deleted')
+        response = rest_api.get(f'{ROUTE_URL}/object/deleted?limit=0')
 
         assert response.status_code == HTTPStatus.OK
         ids = _result_ids(response.json)
@@ -229,8 +229,8 @@ class TestExistingVsDeletedObjects:
             _log_doc(LOG_ID_OBJECT_EXISTS, EXISTING_OBJECT_ID)
         )
 
-        exists = rest_api.get(f'{ROUTE_URL}/object/exists')
-        notexists = rest_api.get(f'{ROUTE_URL}/object/notexists')
+        exists = rest_api.get(f'{ROUTE_URL}/object/exists?limit=0')
+        notexists = rest_api.get(f'{ROUTE_URL}/object/notexists?limit=0')
 
         assert exists.status_code == HTTPStatus.OK
         assert notexists.status_code == HTTPStatus.OK
@@ -245,8 +245,8 @@ class TestExistingVsDeletedObjects:
             _log_doc(LOG_ID_OBJECT_DELETED, DELETED_OBJECT_ID)
         )
 
-        exists = rest_api.get(f'{ROUTE_URL}/object/exists')
-        notexists = rest_api.get(f'{ROUTE_URL}/object/notexists')
+        exists = rest_api.get(f'{ROUTE_URL}/object/exists?limit=0')
+        notexists = rest_api.get(f'{ROUTE_URL}/object/notexists?limit=0')
 
         assert LOG_ID_OBJECT_DELETED in _result_ids(notexists.json)
         assert LOG_ID_OBJECT_DELETED not in _result_ids(exists.json)

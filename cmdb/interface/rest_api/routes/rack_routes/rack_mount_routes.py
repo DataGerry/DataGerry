@@ -40,7 +40,6 @@ from typing import Any
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.rack_mounts_manager import RackMountsManager
@@ -59,7 +58,7 @@ from cmdb.errors.manager.rack_mounts_manager import (
 )
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     InsertSingleResponse,
@@ -116,6 +115,7 @@ rack_mounts_blueprint = APIBlueprint('rack_mounts', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.EDIT.value)
+@handle_route_errors("while mounting the object into the Rack")
 def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to mount a CmdbObject into a Rack
@@ -197,8 +197,6 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
         )
 
         return InsertSingleResponse(created, mount_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RackMountsManagerInsertError as err:
         LOGGER.error("[insert_rack_mount] %s", err, exc_info=True)
         abort(400, "Could not mount the object into the Rack!")
@@ -208,9 +206,6 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
     except RackMountsManagerDeleteError as err:
         LOGGER.error("[insert_rack_mount] %s", err, exc_info=True)
         abort(400, "Could not remove the object from the Rack it is currently in!")
-    except Exception as err:
-        LOGGER.error("[insert_rack_mount] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while mounting the object into the Rack!")
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CRUD - READ                                                       #
@@ -220,6 +215,7 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.VIEW.value)
+@handle_route_errors("while retrieving the Rack mounts")
 def get_rack_mounts(rack_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to list the CmdbRackMounts of a Rack
@@ -250,14 +246,9 @@ def get_rack_mounts(rack_id: int, request_user: CmdbUser) -> Response:
         area: str | None = get_area_filter_or_abort(request.args.get(RackMountParam.AREA.value))
 
         return DefaultResponse(rack_mounts_manager.get_mounts_of_rack(rack_id, area)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RackMountsManagerGetError as err:
         LOGGER.error("[get_rack_mounts] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the mounts of the Rack!")
-    except Exception as err:
-        LOGGER.error("[get_rack_mounts] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the Rack mounts!")
 
 
 
@@ -265,6 +256,7 @@ def get_rack_mounts(rack_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.VIEW.value)
+@handle_route_errors("while checking the Rack mount candidate")
 def validate_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a mount candidate without writing anything
@@ -310,20 +302,16 @@ def validate_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
             RackValidationResponseKey.VALID.value: not blockers,
             RackValidationResponseKey.ERRORS.value: [build_error(message) for message in blockers],
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RackMountsManagerGetError as err:
         LOGGER.error("[validate_rack_mount] %s", err, exc_info=True)
         abort(400, "Failed to check the Rack mount candidate!")
-    except Exception as err:
-        LOGGER.error("[validate_rack_mount] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while checking the Rack mount candidate!")
 
 
 @rack_mounts_blueprint.route('/<int:rack_id>/overview', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.VIEW.value)
+@handle_route_errors("while building the Rack overview")
 def get_rack_overview(rack_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve everything needed to draw one Rack
@@ -374,20 +362,16 @@ def get_rack_overview(rack_id: int, request_user: CmdbUser) -> Response:
         )
 
         return DefaultResponse(overview).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RackMountsManagerGetError as err:
         LOGGER.error("[get_rack_overview] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the mounts of the Rack!")
-    except Exception as err:
-        LOGGER.error("[get_rack_overview] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while building the Rack overview!")
 
 
 @rack_mounts_blueprint.route('/<int:rack_id>/height_conflicts', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.VIEW.value)
+@handle_route_errors("while checking the Rack height")
 def get_rack_height_conflicts(rack_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to check which mounts a height reduction would displace
@@ -431,20 +415,16 @@ def get_rack_height_conflicts(rack_id: int, request_user: CmdbUser) -> Response:
             ],
             RackConflictKey.TOTAL.value: len(conflicts),
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RackMountsManagerGetError as err:
         LOGGER.error("[get_rack_height_conflicts] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the mounts of the Rack!")
-    except Exception as err:
-        LOGGER.error("[get_rack_height_conflicts] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while checking the Rack height!")
 
 
 @rack_mounts_blueprint.route('/mounts/object/<int:object_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.VIEW.value)
+@handle_route_errors("while retrieving the Rack mount of the object")
 def get_rack_mount_of_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to answer "where is this CmdbObject mounted?"
@@ -468,14 +448,9 @@ def get_rack_mount_of_object(object_id: int, request_user: CmdbUser) -> Response
             ManagerType.RACK_MOUNTS, request_user)
 
         return DefaultResponse(rack_mounts_manager.get_mount_of_object(object_id)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RackMountsManagerGetError as err:
         LOGGER.error("[get_rack_mount_of_object] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Rack mount of the object!")
-    except Exception as err:
-        LOGGER.error("[get_rack_mount_of_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the Rack mount of the object!")
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - UPDATE                                                      #
@@ -485,6 +460,7 @@ def get_rack_mount_of_object(object_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.EDIT.value)
+@handle_route_errors("while updating the Rack mount")
 def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route to place, move, resize, reorder or unplace a mounted CmdbObject
@@ -549,17 +525,12 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
             abort(404, "Could not retrieve the updated Rack mount from the database!")
 
         return UpdateSingleResponse(updated).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RackMountsManagerUpdateError as err:
         LOGGER.error("[update_rack_mount] %s", err, exc_info=True)
         abort(400, "Could not update the Rack mount!")
     except RackMountsManagerGetError as err:
         LOGGER.error("[update_rack_mount] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the updated Rack mount from the database!")
-    except Exception as err:
-        LOGGER.error("[update_rack_mount] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating the Rack mount!")
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - DELETE                                                      #
@@ -569,6 +540,7 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_mounts_blueprint.protect(auth=True, right=RackRight.EDIT.value)
+@handle_route_errors("while removing the object from the Rack")
 def delete_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to remove a CmdbObject from a Rack
@@ -615,11 +587,6 @@ def delete_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
         )
 
         return DeleteSingleResponse(mount).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RackMountsManagerDeleteError as err:
         LOGGER.error("[delete_rack_mount] %s", err, exc_info=True)
         abort(400, "Could not remove the object from the Rack!")
-    except Exception as err:
-        LOGGER.error("[delete_rack_mount] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while removing the object from the Rack!")

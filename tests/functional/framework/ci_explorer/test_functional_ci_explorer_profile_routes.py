@@ -14,28 +14,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional smoke for the ``/ci_explorer`` CRUD + tooltip / type_label REST routes
+Functional smoke for the ``/ci_explorer`` CRUD + label_field REST routes
 
 Covers the route-layer concerns the manager suites cannot: the profile create / list / update /
-delete status codes, the update-route public_id pinning, and the ``/tooltip`` + ``/type_label``
-routes that read their value from the request body and persist it (the regression guard for the
+delete status codes, the update-route public_id pinning, and the ``/label_field``
+route that reads its value from the request body and persists it (the regression guard for the
 missing body-injection bug). The CI Explorer graph route (``/items``) is covered separately.
+
+There was a second field route, ``/ci_explorer/tooltip/<object_id>``, until 2026-09-18 - it wrote a
+CmdbObject with all four guarantees of an object edit, and its tests went with it when the route was
+removed for want of a caller.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
 
 import pytest
-from cmdb.errors.ci_explorer import CiExplorerGraphBuildError
 from werkzeug.exceptions import NotFound
 
+from cmdb.errors.ci_explorer import CiExplorerGraphBuildError
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import CiExplorerProfileManager, ObjectsManager, TypesManager
-from cmdb.models.object_model import CmdbObject
+from cmdb.manager import CiExplorerProfileManager, TypesManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.ci_explorer_model import CmdbCiExplorerProfile
-from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.errors.manager.ci_explorer_profile_manager import (
     CiExplorerProfileManagerInsertError,
     CiExplorerProfileManagerGetError,
@@ -43,7 +44,6 @@ from cmdb.errors.manager.ci_explorer_profile_manager import (
     CiExplorerProfileManagerDeleteError,
     CiExplorerProfileManagerIterationError,
 )
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
 from cmdb.errors.manager.types_manager import TypesManagerGetError, TypesManagerUpdateError
 import cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_routes as ci_explorer_routes_module
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -55,8 +55,6 @@ PROFILE_FOR_UPDATE: int = 9911
 PROFILE_FOR_DELETE: int = 9912
 PROFILE_MISMATCH_PAYLOAD_ID: int = 9913
 
-TYPE_FOR_TOOLTIP: int = 9920
-OBJECT_FOR_TOOLTIP: int = 9921
 TYPE_FOR_LABEL: int = 9922
 MISSING_ID: int = 9999
 
@@ -66,7 +64,6 @@ ALL_PROFILE_IDS: list[int] = [
 
 ORIGINAL_NAME: str = 'Original Profile'
 UPDATED_NAME: str = 'Updated Profile'
-TOOLTIP_TEXT: str = 'A helpful tooltip'
 LABEL_TEXT: str = 'name'
 
 
@@ -99,19 +96,6 @@ def _type_doc(public_id: int) -> dict[str, Any]:
         'ci_explorer_label': 'name',
         'acl': {'activated': False, 'groups': {'includes': None}},
         'version': '1.0.0',
-        'creation_time': datetime.now(timezone.utc),
-    }
-
-
-def _object_doc(public_id: int, type_id: int) -> dict[str, Any]:
-    """Builds a minimal CmdbObject doc of the given type."""
-    return {
-        'public_id': public_id,
-        'type_id': type_id,
-        'active': True,
-        'author_id': 1,
-        'version': '1.0.0',
-        'fields': [{'type': 'text', 'name': 'name', 'value': 'obj'}],
         'creation_time': datetime.now(timezone.utc),
     }
 
@@ -242,125 +226,13 @@ class TestProfileCrud:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                  TOOLTIP / LABEL                                                     #
+#                                                    LABEL FIELD                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestTooltipAndTypeLabel:
-    """PUT /ci_explorer/tooltip/<id> and /type_label/<id> read the body and persist the value."""
+class TestLabelField:
+    """PUT /ci_explorer/label_field/<id> reads the body and persists the nomination."""
 
-    def test_update_tooltip_persists_value(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """PUT /tooltip sets ci_explorer_tooltip on the object and returns the persisted value."""
-        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
-        objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
-        try:
-            response = rest_api.put(
-                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                json={'ci_explorer_tooltip': TOOLTIP_TEXT},
-            )
 
-            assert response.status_code == HTTPStatus.OK
-            stored = objects.find_one({'public_id': OBJECT_FOR_TOOLTIP})
-            assert stored['ci_explorer_tooltip'] == TOOLTIP_TEXT
-        finally:
-            objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
-            types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
-
-    def test_update_tooltip_missing_body_returns_400(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """PUT /tooltip without the tooltip key is rejected with 400 instead of silently writing None."""
-        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
-        objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
-        try:
-            response = rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}', json={})
-
-            assert response.status_code == HTTPStatus.BAD_REQUEST
-        finally:
-            objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
-            types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
-
-    def test_update_tooltip_writes_only_the_tooltip(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """
-        Only the tooltip key is written (regression)
-
-        The route used to persist the whole fetched document, so anything changed meanwhile was
-        overwritten. Here another field is edited behind the route's back after it read the object; a
-        full-document write would restore the old value
-        """
-        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
-        objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
-        try:
-            objects.update_one({'public_id': OBJECT_FOR_TOOLTIP}, {'$set': {'version': '9.9.9'}})
-
-            response = rest_api.put(
-                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                json={'ci_explorer_tooltip': TOOLTIP_TEXT},
-            )
-
-            assert response.status_code == HTTPStatus.OK
-            stored = objects.find_one({'public_id': OBJECT_FOR_TOOLTIP})
-            assert stored['ci_explorer_tooltip'] == TOOLTIP_TEXT
-            assert stored['version'] == '9.9.9'
-            assert stored['fields'] == _object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP)['fields']
-        finally:
-            objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
-            types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
-
-    def test_update_tooltip_records_an_edit_log(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """A tooltip change appears in the object's history, like any other edit."""
-        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        logs = database_manager.get_collection(CmdbObjectLog.COLLECTION, database_name)
-        types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
-        objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
-        try:
-            rest_api.put(
-                f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                json={'ci_explorer_tooltip': TOOLTIP_TEXT},
-            )
-
-            log_entry = logs.find_one({'object_id': OBJECT_FOR_TOOLTIP, 'action': LogAction.EDIT.value})
-            assert log_entry is not None
-            assert log_entry['changes'] == [{
-                'type': 'change',
-                'name': 'ci_explorer_tooltip',
-                'old': None,
-                'new': TOOLTIP_TEXT,
-            }]
-        finally:
-            logs.delete_many({'object_id': OBJECT_FOR_TOOLTIP})
-            objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
-            types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
-
-    def test_update_tooltip_rejects_a_non_string_value(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """The body is validated, so a number is refused before the object is touched."""
-        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        types.insert_one(_type_doc(TYPE_FOR_TOOLTIP))
-        objects.insert_one(_object_doc(OBJECT_FOR_TOOLTIP, TYPE_FOR_TOOLTIP))
-        try:
-            response = rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}', json={'ci_explorer_tooltip': 5})
-
-            assert response.status_code == HTTPStatus.BAD_REQUEST
-            assert 'ci_explorer_tooltip' not in objects.find_one({'public_id': OBJECT_FOR_TOOLTIP})
-        finally:
-            objects.delete_one({'public_id': OBJECT_FOR_TOOLTIP})
-            types.delete_one({'public_id': TYPE_FOR_TOOLTIP})
-
-    def test_update_type_label_writes_only_the_label(
+    def test_update_label_field_writes_only_the_nomination(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """A label write leaves the type's fields and render_meta as they are."""
@@ -370,7 +242,7 @@ class TestTooltipAndTypeLabel:
             types.update_one({'public_id': TYPE_FOR_LABEL}, {'$set': {'version': '9.9.9'}})
 
             response = rest_api.put(
-                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}', json={'ci_explorer_label': LABEL_TEXT},
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}', json={'ci_explorer_label': LABEL_TEXT},
             )
 
             assert response.status_code == HTTPStatus.OK
@@ -382,13 +254,8 @@ class TestTooltipAndTypeLabel:
         finally:
             types.delete_one({'public_id': TYPE_FOR_LABEL})
 
-    def test_update_tooltip_missing_object_returns_404(self, rest_api) -> None:
-        """PUT /tooltip for a missing object returns 404."""
-        response = rest_api.put(f'{ROUTE_URL}/tooltip/{MISSING_ID}', json={'ci_explorer_tooltip': TOOLTIP_TEXT})
 
-        assert response.status_code == HTTPStatus.NOT_FOUND
-
-    def test_update_type_label_persists_value(
+    def test_update_label_field_persists_value(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """PUT /type_label sets ci_explorer_label on the type and returns the persisted value."""
@@ -396,7 +263,7 @@ class TestTooltipAndTypeLabel:
         types.insert_one(_type_doc(TYPE_FOR_LABEL))
         try:
             response = rest_api.put(
-                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                 json={'ci_explorer_label': LABEL_TEXT},
             )
 
@@ -405,7 +272,7 @@ class TestTooltipAndTypeLabel:
         finally:
             types.delete_one({'public_id': TYPE_FOR_LABEL})
 
-    def test_update_type_label_missing_body_returns_400(
+    def test_update_label_field_missing_body_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """PUT /type_label without the label key is rejected with 400."""
@@ -413,15 +280,15 @@ class TestTooltipAndTypeLabel:
         types.insert_one(_type_doc(TYPE_FOR_LABEL))
         try:
             assert rest_api.put(
-                f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}', json={},
+                f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}', json={},
             ).status_code == HTTPStatus.BAD_REQUEST
         finally:
             types.delete_one({'public_id': TYPE_FOR_LABEL})
 
-    def test_update_type_label_missing_type_returns_404(self, rest_api) -> None:
+    def test_update_label_field_missing_type_returns_404(self, rest_api) -> None:
         """PUT /type_label for a missing type returns 404."""
         assert rest_api.put(
-            f'{ROUTE_URL}/type_label/{MISSING_ID}', json={'ci_explorer_label': LABEL_TEXT},
+            f'{ROUTE_URL}/label_field/{MISSING_ID}', json={'ci_explorer_label': LABEL_TEXT},
         ).status_code == HTTPStatus.NOT_FOUND
 
 
@@ -543,49 +410,30 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/profile/{PROFILE_FOR_DELETE}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_tooltip_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManager error while updating the tooltip surfaces as 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(ObjectsManagerGetError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_tooltip_update_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerUpdateError while persisting the tooltip surfaces as 400."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', lambda *_a, **_k: {'public_id': OBJECT_FOR_TOOLTIP})
-        monkeypatch.setattr(ObjectsManager, 'update_object', _raiser(ObjectsManagerUpdateError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code == HTTPStatus.BAD_REQUEST
-
-    def test_tooltip_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """An unexpected error while updating the tooltip surfaces as 500."""
-        monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(RuntimeError('boom')))
-
-        assert rest_api.put(f'{ROUTE_URL}/tooltip/{OBJECT_FOR_TOOLTIP}',
-                            json={'ci_explorer_tooltip': TOOLTIP_TEXT}).status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
-
-    def test_type_label_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A TypesManager error while updating the label surfaces as 400."""
+    def test_label_field_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManager error while loading the Type surfaces as 400."""
         monkeypatch.setattr(TypesManager, 'get_type', _raiser(TypesManagerGetError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_type_label_update_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A TypesManagerUpdateError while persisting the label surfaces as 400."""
-        monkeypatch.setattr(TypesManager, 'get_type', lambda *_a, **_k: {'public_id': TYPE_FOR_LABEL})
+    def test_label_field_update_error_returns_400(self, rest_api, monkeypatch) -> None:
+        """A TypesManagerUpdateError while persisting the nomination surfaces as 400."""
+        monkeypatch.setattr(TypesManager, 'get_type',
+                            lambda *_a, **_k: _type_doc(TYPE_FOR_LABEL))
         monkeypatch.setattr(TypesManager, 'update_type_field', _raiser(TypesManagerUpdateError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_type_label_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """An unexpected error while updating the label surfaces as 500."""
+    def test_label_field_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """An unexpected error while updating the nomination surfaces as 500."""
         monkeypatch.setattr(TypesManager, 'get_type', _raiser(RuntimeError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/type_label/{TYPE_FOR_LABEL}',
+        assert rest_api.put(f'{ROUTE_URL}/label_field/{TYPE_FOR_LABEL}',
                             json={'ci_explorer_label': LABEL_TEXT}).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 

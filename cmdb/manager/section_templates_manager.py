@@ -20,7 +20,8 @@ The manager owns CRUD for CmdbSectionTemplates plus the propagation of *global* 
 template changes onto every CmdbType that uses the template and onto those types' CmdbObjects:
 
 - CRUD: insert / iterate / get / update / delete a single CmdbSectionTemplate document.
-- Usage reporting: how many types / objects reference a global template.
+- Usage reporting: what deleting a global template would affect - the types that CLAIM it and the
+  objects of the types that actually CARRY its section (``get_global_template_usage_count``).
 - Change propagation (``handle_section_template_changes``): when a global template's label or
   field set changes, the matching section is re-applied to every consuming CmdbType (label,
   section field list, type.fields definitions, summary) and the change is materialized on the
@@ -66,6 +67,7 @@ from cmdb.models.object_model import (
 )
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
+from cmdb.models.section_template_model.section_template_constants import SectionTemplateUsageKey
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.permission import AccessControlPermission
 
@@ -87,6 +89,26 @@ PUBLIC_ID_FIELD: str = 'public_id'
 # Key of the CmdbType document array listing the names of the global templates a type uses;
 # queried as a plain field on the types collection
 GLOBAL_TEMPLATE_IDS_FIELD: str = 'global_template_ids'
+
+
+def types_using_template_criteria(template_name: str) -> dict[str, str]:
+    """
+    Builds the criteria matching every CmdbType that CLAIMS a global section template
+
+    The claim is the template's name in the type's ``global_template_ids``. Every consumer question -
+    the propagation, the delete cascade and the usage count - asks it through this one builder, so
+    "which types use this template" has a single definition
+
+    Note what a claim does NOT prove: a type can list the name without carrying the section (see
+    ``SectionTemplatesManager.get_global_template_usage_count`` and ``cleanup_global_section_templates``)
+
+    Args:
+        template_name (str): Name of the global section template
+
+    Returns:
+        dict[str, str]: The criteria to query the types collection with
+    """
+    return {GLOBAL_TEMPLATE_IDS_FIELD: template_name}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -203,43 +225,64 @@ class SectionTemplatesManager(BaseManager):
             raise SectionTemplatesManagerGetError(err) from err
 
 
-    def get_global_template_usage_count(self, template_name: str, is_global: bool) -> dict[str, int]:
+    def get_global_template_usage_count(self, template_name: str, is_global: bool) -> dict[str, int | bool]:
         """
-        Counts the types and objects using a (global) CmdbSectionTemplate
+        Counts the types and objects a (global) CmdbSectionTemplate would affect
 
-        A non-global template is used by exactly one type and is never propagated, so it reports
-        zero. That zero is a contract the frontend reads: the counts drive the "this template is
-        used by N types / M objects" warning shown before a template is edited or deleted, so a
-        non-global template deliberately shows none rather than the one type embedding it
+        The counts drive the "this action affects N types and M objects" warning the frontend shows
+        before a template is deleted, so both numbers answer one question: **what would the delete
+        cascade touch?**
 
-        The type ids are resolved with a ``distinct`` projection and the objects with a count
-        query, so neither the CmdbTypes nor the CmdbObjects are materialised
+        * ``types`` counts every type that CLAIMS the template in ``global_template_ids``, because
+          ``cleanup_global_section_templates`` visits exactly that set - it drops the claim even from
+          a type that no longer carries the section
+        * ``objects`` counts only the objects of the types that actually CARRY the section. A type
+          can claim a template without carrying it (the inconsistency the propagation logs a warning
+          about), and the cascade removes nothing from such a type's objects - counting them would
+          overstate the damage the user is being warned about
+        * ``is_global`` makes a zero readable. A non-global template is never propagated and reports
+          no usage at all; without this key that zero is indistinguishable from "global and unused",
+          which is the question the frontend asks before offering the delete
+
+        **The object count is deliberately NOT ACL-scoped.** It answers what the deletion would
+        change, not what the caller may read, and a scoped number would understate the impact of an
+        administrative action. The route is guarded by the sectionTemplate VIEW right and
+        ``ApiLevel.ADMIN``
 
         Args:
             template_name (str): Name of the CmdbSectionTemplate
             is_global (bool): Whether the CmdbSectionTemplate is global
 
         Returns:
-            dict[str, int]: {'types': <count>, 'objects': <count>} for the template
+            dict[str, int | bool]: {'types': <count>, 'objects': <count>, 'is_global': <bool>}
         """
-        counts: dict[str, int] = {
-            'types': 0,
-            'objects': 0,
+        counts: dict[str, int | bool] = {
+            SectionTemplateUsageKey.TYPES.value: 0,
+            SectionTemplateUsageKey.OBJECTS.value: 0,
+            SectionTemplateUsageKey.IS_GLOBAL.value: is_global,
         }
 
         if not is_global:
             return counts
 
-        type_ids: list[int] = self.types_manager.get_distinct(
-            PUBLIC_ID_FIELD, {GLOBAL_TEMPLATE_IDS_FIELD: template_name},
-        )
+        consuming_types: list[CmdbType] = self.get_types_using_template(template_name)
 
-        if not type_ids:
+        if not consuming_types:
             return counts
 
-        counts['types'] = len(type_ids)
-        counts['objects'] = self.objects_manager.count_documents(
-            {CmdbObjectKey.TYPE_ID.value: {"$in": type_ids}},
+        counts[SectionTemplateUsageKey.TYPES.value] = len(consuming_types)
+
+        # Only a type that carries the section has objects the cascade would change; a claim-only
+        # type loses its reference and nothing else
+        carrying_type_ids: list[int] = [
+            a_type.public_id for a_type in consuming_types if a_type.get_section(template_name)
+        ]
+
+        if not carrying_type_ids:
+            return counts
+
+        counts[SectionTemplateUsageKey.OBJECTS.value] = self.objects_manager.count_documents(
+            {CmdbObjectKey.TYPE_ID.value: {"$in": carrying_type_ids}},
         )
 
         return counts
@@ -498,7 +541,7 @@ class SectionTemplatesManager(BaseManager):
         Returns:
             list[CmdbType]: All types referencing the given global template
         """
-        return self.types_manager.find_types({GLOBAL_TEMPLATE_IDS_FIELD: template_name})
+        return self.types_manager.find_types(types_using_template_criteria(template_name))
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            OBJECT-LEVEL FIELD MUTATIONS                                              #

@@ -36,6 +36,11 @@ from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
+from cmdb.framework.media_library.media_file import MediaFile
+from cmdb.framework.media_library.media_file_keys import (
+    GRIDFS_FILES_SUFFIX,
+    MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
+)
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_management_constants import __FIXED_GROUPS__
@@ -760,6 +765,77 @@ class TestTheCacheDatabase:
 
         dbm.create_database.assert_called_once_with(DG_CACHE_DB)
         dbm.create_collection.assert_called_once_with(CmdbCachedUser.COLLECTION, DG_CACHE_DB)
+
+
+class TestTheMediaLibraryIndexes:
+    """The one framework collection the registry loop cannot reach."""
+
+    def test_it_reconciles_on_the_gridfs_files_collection(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """
+        `MediaFile.COLLECTION` is the GridFS BUCKET name; the documents live in `<bucket>.files`
+
+        Registering the class in `__COLLECTIONS__` - the obvious fix for the index never being built -
+        would have created an empty collection under the bucket name and indexed that instead.
+        """
+        dbm.get_index_info.return_value = {}
+
+        validator.init_media_library_indexes()
+
+        dbm.create_indexes.assert_called_once()
+        assert dbm.create_indexes.call_args.args[0] == f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
+
+    def test_it_builds_what_the_model_declares(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """The spec is read from the model, so the two cannot drift apart."""
+        dbm.get_index_info.return_value = {}
+
+        validator.init_media_library_indexes()
+
+        built = {index.document['name'] for index in dbm.create_indexes.call_args.args[2]}
+
+        assert MEDIA_FILE_FILENAME_PARENT_INDEX_NAME in built
+
+    def test_an_up_to_date_collection_is_left_alone(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """The reconcile is additive, so a boot with nothing to add writes nothing."""
+        dbm.get_index_info.return_value = {
+            index.document['name']: {} for index in MediaFile.get_index_keys()
+        }
+
+        validator.init_media_library_indexes()
+
+        dbm.create_indexes.assert_not_called()
+
+    def test_a_failing_index_build_does_not_stop_the_boot(
+        self, validator: CollectionValidator, dbm: MagicMock,
+    ) -> None:
+        """
+        A database still holding colliding filenames must not become unbootable
+
+        Building the unique index over duplicates is exactly what fails here, and `updater_20260916`
+        is what resolves it - on the next pass the index builds.
+        """
+        dbm.get_index_info.return_value = {}
+        dbm.create_indexes.side_effect = RuntimeError('duplicate key')
+
+        validator.init_media_library_indexes()
+
+    def test_the_step_runs_as_part_of_the_full_pass(self, validator: CollectionValidator) -> None:
+        """A step nothing calls is a step that does not happen."""
+        validator.init_database = MagicMock()
+        validator.get_all_db_collections = MagicMock(return_value=[])
+        validator.init_framework_collections = MagicMock()
+        validator.init_management_collections = MagicMock()
+        validator.init_cache_db = MagicMock()
+        validator.init_media_library_indexes = MagicMock()
+
+        validator.validate_collections()
+
+        validator.init_media_library_indexes.assert_called_once()
 
 
 class TestTheCollectionListing:

@@ -28,6 +28,7 @@ from logging import Logger, getLogger
 import sys
 
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_services import (
@@ -41,17 +42,7 @@ from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.config import app_config, config_name_for_mode
 from cmdb.interface.custom_converters import RegexConverter
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import enforce_rest_api_license
-from cmdb.interface.rest_api.responses.error_handlers import (
-    internal_server_error,
-    page_gone,
-    not_acceptable,
-    method_not_allowed,
-    page_not_found,
-    forbidden,
-    unauthorized,
-    bad_request,
-    service_unavailable,
-)
+from cmdb.interface.rest_api.responses.error_handlers import http_exception
 
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -76,14 +67,15 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     checks). A failure inside that startup routine is logged and terminates the process via
     ``sys.exit(1)`` so the supervising ``ProcessManager`` does not bring up an
     incompletely-initialised API. In cloud mode that means one tenant database failing its update
-    aborts startup for **every** tenant - see discussion-backlog #156
+    aborts startup for **every** tenant
 
-    **CORS is unrestricted.** Only ``expose_headers`` is configured; flask-cors' defaults apply for
-    everything else, so any origin may call the API with any of the standard methods. That is not a
-    session-riding hole - DataGerry authenticates with a Bearer JWT in a header rather than a cookie,
-    and ``supports_credentials`` stays False, so a foreign origin has no token to ride - but it does
-    mean an operator cannot restrict origins for a hardened deployment. Recorded as
-    discussion-backlog #157
+    **CORS is unrestricted.** Only ``expose_headers`` is configured - ``X-API-Version``,
+    ``X-Total-Count`` and ``Content-Disposition``, the last so a cross-origin frontend can read the
+    filename an export route sent - and flask-cors' defaults apply for everything else, so any origin
+    may call the API with any of the standard methods. That is not a session-riding hole - DataGerry
+    authenticates with a Bearer JWT in a header rather than a cookie, and ``supports_credentials``
+    stays False, so a foreign origin has no token to ride - but it does mean an operator cannot
+    restrict origins for a hardened deployment
 
     Args:
         database_manager (MongoDatabaseManager): Manager that owns the MongoDB connection
@@ -99,7 +91,11 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     app.url_map.strict_slashes = True
 
     # Import App Extensions
-    CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count'])
+    # `Content-Disposition` carries the download filename every export route builds
+    # (cmdb.framework.exporter.export_filename_helper). A browser can only read a response header that
+    # is exposed, so without it a cross-origin frontend - which is exactly the `ng serve` setup the
+    # Angular app is developed in - reads none and falls back to naming downloads itself
+    CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count', 'Content-Disposition'])
 
     # Lock the external REST API (HTTP Basic auth) behind the REST_API license feature. On-premise
     # only; a no-op in cloud/local mode. The UI (login + Bearer JWT) is unaffected.
@@ -174,8 +170,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     are gated first and registered immediately afterwards
 
     Pylint rules R0914 (too many locals) and R0915 (too many statements) are disabled because the
-    registration list is intentionally flat for readability; splitting it per domain is recorded as
-    discussion-backlog #158
+    registration list is intentionally flat for readability
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -215,6 +210,9 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_routes import webhook_event_blueprint
     from cmdb.interface.rest_api.routes.relation_routes.relations_routes import relations_blueprint
     from cmdb.interface.rest_api.routes.relation_routes.object_relation_routes import object_relations_blueprint
+    from cmdb.interface.rest_api.routes.relation_routes.object_relation_logs_routes import (
+        object_relation_logs_blueprint,
+    )
     from cmdb.interface.rest_api.routes.rack_routes.rack_mount_routes import rack_mounts_blueprint
     from cmdb.interface.rest_api.routes.rack_routes.rack_assignable_routes import rack_assignable_blueprint
     from cmdb.interface.rest_api.routes.port_routes import (
@@ -224,7 +222,6 @@ def register_blueprints(app: BaseCmdbApp) -> None:
         port_preview_blueprint,
     )
     from cmdb.interface.rest_api.routes.port_connection_routes import port_connection_blueprint
-    from cmdb.interface.rest_api.routes.log_routes.object_relation_logs_routes import object_relation_logs_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.persons_routes import person_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import isms_importer_blueprint
@@ -269,7 +266,19 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.cmdb_license import license_activation_blueprint, license_blueprint
 
     app.register_blueprint(auth_blueprint, url_prefix='/auth')
-    app.register_blueprint(setup_blueprint, url_prefix='/setup')
+
+    # CLOUD ONLY, and the registration is the whole guard. These three routes exist for the DataGerry
+    # Service Portal to tear down a tenant - drop its database, evict it from the user cache - and an
+    # on-premise installation has no portal, no subscriptions and nothing to tear down.
+    #
+    # They carry no `@insert_request_user` and no `.protect`; their only decorator is
+    # `verify_api_access`, which returns immediately when the process is not in cloud mode. So
+    # registering them on-premise published an UNAUTHENTICATED `DELETE /rest/setup/subscriptions?
+    # database=<name>` that drops any database on the cluster - verified against the running app.
+    # Not registering them is what closes that, and it changes nothing for the portal.
+    if cmdb.__CLOUD_MODE__:
+        app.register_blueprint(setup_blueprint, url_prefix='/setup')
+
     app.register_blueprint(date_blueprint, url_prefix='/date')
     app.register_blueprint(objects_blueprint, url_prefix='/objects')
     app.register_blueprint(types_blueprint, url_prefix='/types')
@@ -446,48 +455,80 @@ def register_blueprints(app: BaseCmdbApp) -> None:
 
 def register_error_pages(app: BaseCmdbApp) -> None:
     """
-    Wires the JSON error handlers for the HTTP status codes the REST API emits
+    Wires the REST API's single error handler, for every HTTP status there is
 
-    Each handler is a thin wrapper from ``responses.error_handlers`` returning the structured JSON
-    body the frontend parses (``{description, message, response, status}``) instead of Flask's
-    default HTML page. Registered: 400 (bad request), 401 (unauthorized), 403 (forbidden), 404 (not
-    found), 405 (method not allowed), 406 (not acceptable), 410 (gone), 500 (internal server error)
-    and 503 (service unavailable)
+    ``http_exception`` is registered for the ``HTTPException`` **class**, so it answers the
+    structured JSON body the frontend parses (``{description, message, response, status}``) for any
+    status - the ones the route layer aborts, the ones Werkzeug raises while parsing a request, and
+    the ones a future route invents. Flask routes an unhandled non-HTTP exception here too, having
+    converted it to an ``InternalServerError`` first
 
-    The set does not currently match what the route layer raises, in both directions:
-
-    * **423 (Locked) is raised but not registered.** ``route_utils.handle_db_errors`` aborts 423 on a
-      ``DocumentLockTimeoutError``, and with no handler Flask answers it with an HTML page - the one
-      error response in the API that is not JSON. Recorded as discussion-backlog #155
-    * **406 and 410 are registered but never raised** anywhere in ``cmdb/``; they are kept as
-      defensive handlers for codes Werkzeug itself can produce
+    **A whitelist of codes would not be enough.** Werkzeug raises some statuses before any route
+    runs - 415 among them - so a status no ``abort()`` in ``cmdb/`` names can still reach a client,
+    and under a whitelist it would fall through to Flask's HTML page and break the envelope for a
+    client that reads ``message`` off it. Handling the exception CLASS covers every status without
+    anyone having to enumerate them
 
     Args:
-        app (BaseCmdbApp): Flask app the error handlers are attached to
+        app (BaseCmdbApp): Flask app the error handler is attached to
     """
-    app.register_error_handler(400, bad_request)
-    app.register_error_handler(401, unauthorized)
-    app.register_error_handler(403, forbidden)
-    app.register_error_handler(404, page_not_found)
-    app.register_error_handler(405, method_not_allowed)
-    app.register_error_handler(406, not_acceptable)
-    app.register_error_handler(410, page_gone)
-    app.register_error_handler(500, internal_server_error)
-    app.register_error_handler(503, service_unavailable)
+    app.register_error_handler(HTTPException, http_exception)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, local_mode: bool = False) -> None:
+    """
+    Brings one database to the current schema: validate the collections, then migrate or stamp
+
+    **A database this call CREATES is stamped at the current version instead of being migrated.**
+    ``CollectionValidator`` builds a new database from the current models - current collections,
+    current indexes, current predefined data - so it is already at the current schema, and every
+    registered migration is a no-op against it (each either transforms data that cannot exist yet, or
+    seeds exactly what the validator has just seeded). Replaying them would be work with no effect.
+
+    This is what the cloud tenant-creation path has always done (``route_utils.init_db_routine``
+    stamps a new tenant and runs nothing). The on-premise boot did the opposite: with no stored
+    version, ``get_current_update_version`` seeds ``BASELINE_UPDATER_VERSION``, which sits BELOW the
+    earliest registered migration, so a brand-new installation replayed the entire history. The two
+    now agree, which also retires a constraint nothing stated or tested: that every future migration
+    must additionally be correct against an empty, already-current database.
+
+    An EXISTING database is migrated exactly as before - the stamp is only ever applied to one this
+    call brought into being.
+
+    Args:
+        dbm (MongoDatabaseManager): Manager owning the MongoDB connection
+        db_name (str): Name of the database to bring up to date
+        local_mode (bool): Passed to CollectionValidator, where it gates the key generation and the
+            default admin user. Defaults to False
+    """
+    # Read BEFORE validating: validate_collections creates the database when it is missing, so asking
+    # afterwards would always answer "it exists" and the distinction would be lost
+    database_existed: bool = dbm.check_database_exists(db_name)
+
+    CollectionValidator(db_name, dbm, local_mode=local_mode).validate_collections()
+
+    database_updater = DatabaseUpdater(dbm, db_name)
+
+    if not database_existed:
+        database_updater.set_update_version(database_updater.get_highest_update_version())
+
+        return
+
+    if database_updater.is_update_available():
+        database_updater.run_updates()
 
 
 def start_datagerry_setup(dbm: MongoDatabaseManager) -> None:
     """
     Runs the on-prem startup routine against the single configured database
 
-    Reads the database name from ``etc/cmdb.conf`` via ``SystemConfigReader``, validates that
-    every required collection / index exists (creating any that are missing in local mode),
-    and applies pending schema updates from ``cmdb/database/updater/versions`` when the
-    installed schema version is behind. Invoked by ``create_rest_api`` when DataGerry runs in
-    on-prem mode (i.e. ``cmdb.__CLOUD_MODE__`` is False)
+    Reads the database name from ``etc/cmdb.conf`` via ``SystemConfigReader`` and hands it to
+    ``bring_database_up_to_date``, which validates the collections and then either migrates an
+    existing database or stamps a newly created one at the current version. Invoked by
+    ``create_rest_api`` when DataGerry runs in on-prem mode (i.e. ``cmdb.__CLOUD_MODE__`` is False)
 
     Args:
         dbm (MongoDatabaseManager): Manager owning the MongoDB connection used for both
@@ -495,12 +536,7 @@ def start_datagerry_setup(dbm: MongoDatabaseManager) -> None:
     """
     db_name = SystemConfigReader().get_value('database_name', 'Database')
 
-    CollectionValidator(db_name, dbm, local_mode=True).validate_collections()
-
-    database_updater = DatabaseUpdater(dbm, db_name)
-
-    if database_updater.is_update_available():
-        database_updater.run_updates()
+    bring_database_up_to_date(dbm, db_name, local_mode=True)
 
 
 def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -> None:
@@ -524,10 +560,4 @@ def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -
 
     # # Check each database if it is up to date
     for db_name in db_names:
-        # Validate Collections
-        CollectionValidator(db_name, dbm).validate_collections()
-
-        database_updater = DatabaseUpdater(dbm, db_name)
-
-        if database_updater.is_update_available():
-            database_updater.run_updates()
+        bring_database_up_to_date(dbm, db_name)

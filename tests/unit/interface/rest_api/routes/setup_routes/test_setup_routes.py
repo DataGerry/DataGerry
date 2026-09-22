@@ -17,7 +17,7 @@
 Unit tests for cmdb.interface.rest_api.routes.setup_routes.setup_routes
 
 Each handler is unwrapped past its decorator chain (route / verify_api_access) and driven inside a
-Flask test_request_context; CachedUserManager is patched at the route module path and the database
+Flask test_request_context; the cached-user manager is patched at the route module path (`get_cached_user_manager`) and the database
 drop goes through the app's MagicMock database_manager, so no MongoDB is involved
 
 Pinned here: the error mapping of all three routes (a missing database only produces a 400, a failed
@@ -38,6 +38,8 @@ from cmdb.interface.rest_api.routes.setup_routes.setup_routes import (
     delete_subscription,
     delete_cached_user,
     delete_all_cached_users,
+    refuse_outside_cloud_mode,
+    NOT_IN_CLOUD_MODE_MESSAGE,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -72,11 +74,70 @@ def fixture_flask_app() -> Flask:
 
 @pytest.fixture(name='cached_user_manager')
 def fixture_cached_user_manager() -> Iterator[MagicMock]:
-    """Patches CachedUserManager at the route path and yields the manager instance mock."""
+    """Patches `get_cached_user_manager` at the route path and yields the manager instance mock."""
     manager = MagicMock()
 
-    with patch(f'{ROUTE_PATH}.CachedUserManager', return_value=manager):
+    with patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=manager):
         yield manager
+
+
+class TestTheCloudModeBackstop:
+    """
+    The `before_request` guard on the blueprint
+
+    It is a backstop, not the primary control: `init_rest_api` does not register this blueprint
+    outside cloud mode, so in normal operation it never runs. That makes it unreachable through the
+    app, which is why it is exercised directly here - a guard nobody can call is worth having only if
+    something proves it works.
+    """
+
+    def test_it_refuses_outside_cloud_mode(self, flask_app: Flask) -> None:
+        """The whole point: on-premise this surface does not exist."""
+        flask_app.cloud_mode = False
+
+        with flask_app.test_request_context(SUBSCRIPTIONS_ROUTE, method=DELETE_METHOD):
+            with pytest.raises(HTTPException) as err:
+                refuse_outside_cloud_mode()
+
+        assert err.value.code == NotFound.code
+
+    def test_the_refusal_says_why(self, flask_app: Flask) -> None:
+        """404 rather than a bare one, so an operator is not left guessing."""
+        flask_app.cloud_mode = False
+
+        with flask_app.test_request_context(SUBSCRIPTIONS_ROUTE, method=DELETE_METHOD):
+            with pytest.raises(HTTPException) as err:
+                refuse_outside_cloud_mode()
+
+        assert NOT_IN_CLOUD_MODE_MESSAGE in str(err.value)
+
+    def test_it_passes_in_cloud_mode(self, flask_app: Flask) -> None:
+        """Where the routes do belong, the backstop must be invisible."""
+        flask_app.cloud_mode = True
+
+        with flask_app.test_request_context(SUBSCRIPTIONS_ROUTE, method=DELETE_METHOD):
+            assert refuse_outside_cloud_mode() is None
+
+    @pytest.mark.parametrize('route', [SUBSCRIPTIONS_ROUTE, CACHE_USER_ROUTE, CACHE_USER_ALL_ROUTE])
+    def test_it_covers_every_route_on_the_blueprint(self, route: str) -> None:
+        """
+        Blueprint-wide is the point
+
+        Registered on the blueprint, so EVERY route it carries is covered - including one added later,
+        which a per-handler check would rely on someone remembering. A per-route guard that was relied
+        on, and was inert in one mode, is what published this surface in the first place.
+
+        The blueprint is mounted on a throwaway app here precisely because the real one does not mount
+        it outside cloud mode.
+        """
+        from cmdb.interface.rest_api.routes.setup_routes.setup_routes import setup_blueprint
+
+        app = Flask(__name__)
+        app.cloud_mode = False
+        app.database_manager = MagicMock()
+        app.register_blueprint(setup_blueprint, url_prefix='/setup')
+
+        assert app.test_client().delete(f'/setup{route}').status_code == NotFound.code
 
 
 class TestDeleteSubscription:
@@ -182,7 +243,7 @@ class TestDeleteCachedUser:
 
     def test_invalid_email_type_aborts_400(self, flask_app: Flask, cached_user_manager: MagicMock) -> None:
         """A non-string, non-list 'email' is rejected with 400."""
-        del cached_user_manager  # only needed to activate the CachedUserManager patch
+        del cached_user_manager  # only needed to activate the get_cached_user_manager patch
 
         with flask_app.test_request_context(CACHE_USER_ROUTE, method=DELETE_METHOD, json={'email': 5}):
             with pytest.raises(HTTPException) as exc_info:
@@ -192,7 +253,7 @@ class TestDeleteCachedUser:
 
     def test_missing_email_key_aborts_400(self, flask_app: Flask, cached_user_manager: MagicMock) -> None:
         """A payload without the 'email' key is rejected with 400."""
-        del cached_user_manager  # only needed to activate the CachedUserManager patch
+        del cached_user_manager  # only needed to activate the get_cached_user_manager patch
 
         with flask_app.test_request_context(CACHE_USER_ROUTE, method=DELETE_METHOD, json={'other': 'x'}):
             with pytest.raises(HTTPException) as exc_info:

@@ -718,7 +718,7 @@ class TestUsesPortsGuard:
         assert body['object_count'] == 2
 
     def test_the_usage_route_carries_no_id_list(self, rest_api) -> None:
-        """Counts only - the equivalent location payload is unbounded (backlog #187)."""
+        """Counts only - the equivalent location payload is unbounded."""
         _create(rest_api)
 
         body = rest_api.get(f'{TYPES_URL}/uses_ports_usage/{PORT_TYPE_ID}').get_json()

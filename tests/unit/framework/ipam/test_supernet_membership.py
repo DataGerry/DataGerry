@@ -29,12 +29,18 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from werkzeug.exceptions import HTTPException, NotFound
+from werkzeug.exceptions import Forbidden, HTTPException, NotFound
 
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import SubnetField, IpamUnassignKey
+from cmdb.models.special_type_model.ipam_constants import (
+    SubnetField,
+    IpamUnassignKey,
+    IpamUnassignLimits,
+)
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.security.acl.acl_constants import AclKey
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.ipam.supernet_membership import (
     assert_supernet_exists,
     clear_supernet_ref,
@@ -42,6 +48,7 @@ from cmdb.framework.ipam.supernet_membership import (
     load_assigned_subnets,
     normalize_subnet_id_list,
     unassign_subnets_from_supernet,
+    verify_subnet_write_access,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -428,3 +435,217 @@ def test_unassign_subnets_from_supernet_aborts_400_when_any_id_is_unassignable()
 
     assert exc_info.value.code == 400
     clear_mock.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            verify_subnet_write_access                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+GROUP_ID: int = 7
+
+
+def _subnet_type_doc(acl: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The SUBNET CmdbType document as the resolver hands it over, optionally carrying an ACL."""
+    doc: dict[str, Any] = {CmdbObjectKey.PUBLIC_ID: SUBNET_TYPE_ID}
+
+    if acl is not None:
+        doc[TypeSchemaKey.ACL.value] = acl
+
+    return doc
+
+
+def _acl(permissions: list[str], activated: bool = True) -> dict[str, Any]:
+    """An ACL granting GROUP_ID exactly `permissions`."""
+    return {
+        AclKey.ACTIVATED.value: activated,
+        AclKey.GROUPS.value: {AclKey.INCLUDES.value: {str(GROUP_ID): permissions}},
+    }
+
+
+def _user() -> MagicMock:
+    """A CmdbUser stand-in - only `group_id` is read by the ACL decision."""
+    user = MagicMock()
+    user.group_id = GROUP_ID
+
+    return user
+
+
+def test_verify_subnet_write_access_without_a_user_asks_nothing() -> None:
+    """
+    An internal caller with no request context skips the check
+
+    Not merely "is permitted": no type is read either, because there is no group to decide against.
+    """
+    types_manager = MagicMock()
+
+    with patch(f'{PATH}.resolve_special_type_document') as resolve_mock:
+        verify_subnet_write_access(types_manager, None)
+
+    resolve_mock.assert_not_called()
+
+
+def test_verify_subnet_write_access_permits_when_the_acl_grants_update() -> None:
+    """The ordinary case: the caller's group holds UPDATE on the SUBNET type."""
+    types_manager = MagicMock()
+    doc = _subnet_type_doc(_acl([AccessControlPermission.UPDATE.value]))
+
+    with patch(f'{PATH}.resolve_special_type_document', return_value=doc):
+        verify_subnet_write_access(types_manager, _user())
+
+
+def test_verify_subnet_write_access_aborts_403_when_the_acl_denies_update() -> None:
+    """
+    The finding this closes
+
+    READ alone is not enough - the detach is a write, so the question asked must be UPDATE.
+    """
+    types_manager = MagicMock()
+    doc = _subnet_type_doc(_acl([AccessControlPermission.READ.value]))
+
+    with patch(f'{PATH}.resolve_special_type_document', return_value=doc), \
+         pytest.raises(HTTPException) as exc_info:
+        verify_subnet_write_access(types_manager, _user())
+
+    assert exc_info.value.code == 403
+
+
+def test_verify_subnet_write_access_permits_when_the_acl_is_deactivated() -> None:
+    """Access control is opt-in: a stored but switched-off ACL permits everything."""
+    types_manager = MagicMock()
+    doc = _subnet_type_doc(_acl([], activated=False))
+
+    with patch(f'{PATH}.resolve_special_type_document', return_value=doc):
+        verify_subnet_write_access(types_manager, _user())
+
+
+def test_verify_subnet_write_access_permits_a_type_without_an_acl() -> None:
+    """Most installations activate an ACL on few types or none."""
+    types_manager = MagicMock()
+
+    with patch(f'{PATH}.resolve_special_type_document', return_value=_subnet_type_doc()):
+        verify_subnet_write_access(types_manager, _user())
+
+
+def test_verify_subnet_write_access_permits_when_no_subnet_type_exists() -> None:
+    """
+    A virgin install has nothing to check against
+
+    The downstream membership query returns nothing in that case, so the request fails on its own
+    terms (400, ids not assignable) rather than being reported as a permission problem.
+    """
+    types_manager = MagicMock()
+
+    with patch(f'{PATH}.resolve_special_type_document', return_value=None):
+        verify_subnet_write_access(types_manager, _user())
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    the orchestrator's ACL check and batch cap                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_unassign_checks_access_before_touching_the_membership_query() -> None:
+    """
+    Order matters: a refused caller must not learn which ids are assigned
+
+    The ACL check also has to run before `clear_supernet_ref`, which is the whole point.
+    """
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+    user = _user()
+
+    with patch(f'{PATH}.assert_supernet_exists'), \
+         patch(f'{PATH}.verify_subnet_write_access', side_effect=Forbidden('denied')) as verify_mock, \
+         patch(f'{PATH}.load_assigned_subnets') as load_mock, \
+         patch(f'{PATH}.clear_supernet_ref') as clear_mock, \
+         pytest.raises(HTTPException) as exc_info:
+        unassign_subnets_from_supernet(
+            objects_manager, types_manager, SUPERNET_OBJECT_ID, [SUBNET_OBJECT_ID_A], request_user=user,
+        )
+
+    assert exc_info.value.code == 403
+    verify_mock.assert_called_once_with(types_manager, user)
+    load_mock.assert_not_called()
+    clear_mock.assert_not_called()
+
+
+def test_unassign_forwards_the_request_user_to_the_access_check() -> None:
+    """A permitted caller still reaches the write, and the user is the one that was passed in."""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+    user = _user()
+    assigned_docs = [_make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID)]
+
+    with patch(f'{PATH}.assert_supernet_exists'), \
+         patch(f'{PATH}.verify_subnet_write_access') as verify_mock, \
+         patch(f'{PATH}.load_assigned_subnets', return_value=assigned_docs), \
+         patch(f'{PATH}.clear_supernet_ref') as clear_mock:
+        unassign_subnets_from_supernet(
+            objects_manager, types_manager, SUPERNET_OBJECT_ID, [SUBNET_OBJECT_ID_A], request_user=user,
+        )
+
+    verify_mock.assert_called_once_with(types_manager, user)
+    clear_mock.assert_called_once()
+
+
+def test_unassign_accepts_a_request_exactly_at_the_cap() -> None:
+    """The bound is inclusive - a full page of selected rows is a legal request."""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+    ids = list(range(1, IpamUnassignLimits.MAX_SUBNET_IDS + 1))
+    assigned_docs = [_make_cmdb_object(subnet_id, SUBNET_TYPE_ID) for subnet_id in ids]
+
+    with patch(f'{PATH}.assert_supernet_exists'), \
+         patch(f'{PATH}.verify_subnet_write_access'), \
+         patch(f'{PATH}.load_assigned_subnets', return_value=assigned_docs), \
+         patch(f'{PATH}.clear_supernet_ref') as clear_mock:
+        result = unassign_subnets_from_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID, ids)
+
+    assert result[IpamUnassignKey.UNASSIGNED_COUNT] == IpamUnassignLimits.MAX_SUBNET_IDS
+    clear_mock.assert_called_once()
+
+
+def test_unassign_aborts_400_one_id_over_the_cap_before_any_db_call() -> None:
+    """
+    The cap is checked on the coerced list, before anything is read
+
+    A request that is refused for its size must not have cost a type read, a membership query or a
+    write first.
+    """
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+    ids = list(range(1, IpamUnassignLimits.MAX_SUBNET_IDS + 2))
+
+    with patch(f'{PATH}.assert_supernet_exists') as assert_mock, \
+         patch(f'{PATH}.verify_subnet_write_access') as verify_mock, \
+         patch(f'{PATH}.load_assigned_subnets') as load_mock, \
+         patch(f'{PATH}.clear_supernet_ref') as clear_mock, \
+         pytest.raises(HTTPException) as exc_info:
+        unassign_subnets_from_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID, ids)
+
+    assert exc_info.value.code == 400
+    assert_mock.assert_not_called()
+    verify_mock.assert_not_called()
+    load_mock.assert_not_called()
+    clear_mock.assert_not_called()
+
+
+def test_the_cap_counts_deduplicated_ids() -> None:
+    """
+    Duplicates are collapsed first, so they cannot push a legal request over the bound
+
+    The write and the `$in` are sized by the deduplicated list, which is what the cap exists to
+    bound - counting the raw payload instead would refuse requests that cost nothing extra.
+    """
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+    ids = list(range(1, IpamUnassignLimits.MAX_SUBNET_IDS + 1)) * 2
+    assigned_docs = [
+        _make_cmdb_object(subnet_id, SUBNET_TYPE_ID)
+        for subnet_id in range(1, IpamUnassignLimits.MAX_SUBNET_IDS + 1)
+    ]
+
+    with patch(f'{PATH}.assert_supernet_exists'), \
+         patch(f'{PATH}.verify_subnet_write_access'), \
+         patch(f'{PATH}.load_assigned_subnets', return_value=assigned_docs), \
+         patch(f'{PATH}.clear_supernet_ref'):
+        result = unassign_subnets_from_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID, ids)
+
+    assert result[IpamUnassignKey.UNASSIGNED_COUNT] == IpamUnassignLimits.MAX_SUBNET_IDS

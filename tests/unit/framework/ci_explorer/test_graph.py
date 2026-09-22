@@ -739,7 +739,7 @@ class TestTheLocationBranchFollowsTheRequestedDirection:
         mock_children.assert_not_called()
 
 
-# --------------------------------------------- OBJECT ACL (backlog #146) -------------------------------------------- #
+# ----------------------------------------- OBJECT ACL ----------------------------------------- #
 
 DENIED_TYPE_ID: int = 77
 GROUP_ID: int = 2
@@ -757,10 +757,11 @@ def _locked_type_doc(public_id: int = DENIED_TYPE_ID) -> dict[str, Any]:
 
 class TestTheObjectAclFiltersEverySource:
     """
-    Backlog #146: until 2026-09-15 the graph consulted no ACL at all
+    Every source consults the object ACL
 
-    A user who could open the CI Explorer learned the label, type and neighbourhood of objects they
-    could not read anywhere else in the product. Each source is pinned separately because each one
+    Without it, a user who can open the CI Explorer learns the label, type and neighbourhood of
+    objects they cannot read anywhere else in the product. Each source is pinned separately because
+    each one
     grafts its neighbours through a different branch.
     """
 
@@ -1029,7 +1030,7 @@ class TestThePortConnectionSource:
         assert response['children_nodes'] == []
 
     def test_a_denied_connected_ci_is_omitted(self) -> None:
-        """Backlog #146 reaches the newest source too - it was the one that sharpened the question."""
+        """The newest source is filtered like every other one."""
         managers = _managers(types=[_type_doc(), _locked_type_doc()])
 
         with patch(f'{MODULE_PATH}.load_connection_neighbourhood',

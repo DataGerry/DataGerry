@@ -28,9 +28,8 @@ other's; the flowchart route strips it (see `oc_connection_log_helper`). That re
 of logic in the file - everything else forwards.
 
 The blueprint is license-gated as part of the `AUTOMATIONS` feature (see `init_rest_api`) but carries
-no per-route ACL right, unlike the sibling connection and connector routes; that gap is
-discussion-backlog #115, which lists this file by name and records that the rights it would need do
-not exist yet.
+no per-route ACL right, unlike the sibling connection and connector routes - the rights it would need
+do not exist yet.
 
 **No frontend calls these.** The Automations view's log menu and viewer read
 `open_celium/schedulers/logs` (a scheduler route); this file is API-only surface, which is also why a
@@ -39,12 +38,13 @@ defect in its cloud-only branch could go unnoticed.
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, current_app
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcConnectionLogManager
 
+from cmdb.open_celium import is_hosted_cloud
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
@@ -154,7 +154,7 @@ def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
 
         flowcharts: Any = oc_connection_log_manager.get_flowcharts(target_id)
 
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             flowcharts = unmap_flowchart_connector_names(flowcharts)
 
         return DefaultResponse(flowcharts).make_response()

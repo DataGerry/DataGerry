@@ -22,11 +22,12 @@ by every CmdbType that references it by name in ``global_template_ids``; a *pred
 ``cmdb.framework.section_templates``
 """
 from .cmdb_section_template import CmdbSectionTemplate
-from .section_template_constants import SectionTemplateKey, SectionTemplateRight
+from .section_template_constants import SectionTemplateKey, SectionTemplateRight, SectionTemplateUsageKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'CmdbSectionTemplate',
     'SectionTemplateKey',
     'SectionTemplateRight',
+    'SectionTemplateUsageKey',
 ]

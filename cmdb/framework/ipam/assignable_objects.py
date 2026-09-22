@@ -27,6 +27,8 @@ existing assignments and returns every assignable candidate in the tenant
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
@@ -217,6 +219,7 @@ def build_assignable_objects_page(
     page: int,
     page_size: int,
     search: str,
+    request_user: CmdbUser | None = None,
 ) -> dict[str, Any]:
     """
     Builds the paginated assignable-objects payload for the subnet IP-Übersicht picker
@@ -263,9 +266,13 @@ def build_assignable_objects_page(
             IpamOverviewKey.ROWS: [],
         }
 
+    # The picker offers objects the caller may actually open, so it is ACL-scoped like every other
+    # presentation read
     object_docs: list[dict[str, Any]] = objects_manager.find_objects(
         {CmdbObjectKey.TYPE_ID: {'$in': capable_type_ids}},
         as_dict=True,
+        user=request_user,
+        permission=AccessControlPermission.READ,
     )
     needle: str | None = active_search(search)
 

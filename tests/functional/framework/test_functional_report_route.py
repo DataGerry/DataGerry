@@ -543,7 +543,7 @@ class TestDeleteReport:
     def test_delete_without_a_trailing_slash_is_not_redirected(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The URL the frontend calls matches the route directly - no 308 round-trip (backlog #108).
+        """The URL the frontend calls matches the route directly - no 308 round-trip.
 
         The DELETE route used to be the only report route registered WITH a trailing slash, so the
         slash-less URL the Angular service calls fell through to it as a redirect.
@@ -668,7 +668,7 @@ def fixture_no_report_rights_user(database_manager: MongoDatabaseManager, databa
 
 
 class TestReportRouteRights:
-    """Every /reports route enforces its ReportRight (backlog #109).
+    """Every /reports route enforces its ReportRight.
 
     The seeded 'user' group holds base.framework.object.* / type.view / ... but no report right, so a
     user in it is authenticated (no 401) yet must be refused with 403 everywhere. The full-access user

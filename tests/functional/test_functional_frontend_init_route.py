@@ -62,11 +62,30 @@ def _break_the_database_manager(rest_api, monkeypatch) -> None:
     """
     Points the app's database manager at one whose status probe raises
 
-    The route reads ``current_app.database_manager`` per request, so the app the test client is bound
-    to is the thing to patch - a plain module attribute would not be consulted.
+    This is the route **itself** failing, not the database being unreachable: since T123 an
+    unreachable database answers `connected: false` with a 200, and only a manager that raises out of
+    `status()` reaches the route's own 500. The route reads ``current_app.database_manager`` per
+    request, so the app the test client is bound to is the thing to patch.
     """
     broken_manager = SimpleNamespace(status=_raise(DatabaseConnectionError('unreachable')))
     monkeypatch.setattr(rest_api.application, 'database_manager', broken_manager)
+
+
+def _disconnect_the_database(rest_api, monkeypatch) -> None:
+    """Points the app's database manager at one reporting an unreachable database, the honest way."""
+    monkeypatch.setattr(rest_api.application, 'database_manager', SimpleNamespace(status=lambda: False))
+
+
+def _make_the_real_probe_fail(rest_api, monkeypatch) -> None:
+    """
+    Breaks the **connector** rather than the manager, so the whole chain runs
+
+    `is_connected` -> `status` -> the route. Patching the manager's `status` proves only what the route
+    does with a False; this proves the connector produces one, which is the half that did not exist
+    before T123.
+    """
+    connector = rest_api.application.database_manager.connector
+    monkeypatch.setattr(type(connector), 'connect', _raise(DatabaseConnectionError('unreachable')))
 
 
 def _raise(exc: Exception):
@@ -137,25 +156,58 @@ class TestConnectionCheckRoute:
         assert body[ConnectionInfoKey.VERSION.value] == __version__
 
     def test_connected_is_true_while_the_database_answers(self, rest_api) -> None:
-        """
-        A reachable database reports connected: true
-
-        It can never report False: MongoConnector.is_connected raises instead of returning False, so
-        the negative answer is the 500 below (discussion-backlog #141).
-        """
+        """A reachable database reports connected: true."""
         response = rest_api.get(CONNECTION_URL)
 
         assert response.get_json()[ConnectionInfoKey.CONNECTED.value] is True
+
+    def test_an_unreachable_database_answers_200_with_connected_false(self, rest_api, monkeypatch) -> None:
+        """
+        The condition this route exists to report is reportable (T123)
+
+        It used to be the 500 below, because `MongoConnector.is_connected` raised instead of returning
+        False - so a monitoring check could not tell "the database is down" from "the API is broken".
+        """
+        _disconnect_the_database(rest_api, monkeypatch)
+
+        response = rest_api.get(CONNECTION_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()[ConnectionInfoKey.CONNECTED.value] is False
+
+    def test_the_whole_probe_chain_answers_false_rather_than_raising(self, rest_api, monkeypatch) -> None:
+        """
+        End to end: a connector that cannot reach the database produces `connected: false`
+
+        The other test patches the manager and proves what the route does with a False. This one
+        breaks the real probe, which is what used to raise all the way out to the 500 (T123).
+        """
+        _make_the_real_probe_fail(rest_api, monkeypatch)
+
+        response = rest_api.get(CONNECTION_URL)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()[ConnectionInfoKey.CONNECTED.value] is False
+
+    def test_an_unreachable_database_still_reports_title_and_version(self, rest_api, monkeypatch) -> None:
+        """The rest of the payload is the API's own state and is still answerable."""
+        _disconnect_the_database(rest_api, monkeypatch)
+
+        body = rest_api.get(CONNECTION_URL).get_json()
+
+        assert body[ConnectionInfoKey.TITLE.value] == __title__
+        assert body[ConnectionInfoKey.VERSION.value] == __version__
 
     def test_head_request_is_accepted(self, rest_api) -> None:
         """The route is registered for HEAD as well as GET."""
         assert rest_api.head(CONNECTION_URL).status_code == HTTPStatus.OK
 
-    def test_unreachable_database_returns_500(self, rest_api, monkeypatch) -> None:
+    def test_a_status_probe_that_raises_is_still_a_500(self, rest_api, monkeypatch) -> None:
         """
-        A failing status probe is the route's negative answer, and it is a 500
+        The catch-all is narrower now, not redundant
 
-        Patches the app's manager, which is what the route reads per request.
+        An unreachable database is `connected: false`; what reaches the 500 is the route failing -
+        a manager that raises out of `status()`, a missing manager, a serialisation failure.
         """
         _break_the_database_manager(rest_api, monkeypatch)
 
@@ -178,10 +230,9 @@ class TestConnectionCheckRoute:
 
     def test_the_failure_is_logged_at_error_level(self, rest_api, monkeypatch, caplog) -> None:
         """
-        The one condition this route exists to report is logged at ERROR, not DEBUG
+        A route failure is logged at ERROR, not DEBUG
 
-        It used to be LOGGER.debug, so a production instance whose database was unreachable answered
-        500 and left no trace at the default log level.
+        It used to be LOGGER.debug, so an instance answering 500 left no trace at the default level.
         """
         _break_the_database_manager(rest_api, monkeypatch)
 

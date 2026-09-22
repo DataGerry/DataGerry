@@ -83,6 +83,20 @@ from cmdb.errors.manager.reports_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def _listing_params(search: str | None = None) -> MagicMock:
+    """
+    A CollectionParameters stand-in whose ``optional`` is a real dict
+
+    The list route reads ``?search=`` out of it, and a MagicMock answers a MagicMock for every key -
+    which reaches `re.escape` and raises. A pager stub has to carry the shape the route reads.
+    """
+    params = MagicMock()
+    params.optional = {'search': search} if search is not None else {}
+    params.filter = None
+
+    return params
+
+
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.report_routes.report_helper'
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.report_routes.report_routes'
 
@@ -227,7 +241,7 @@ def test_every_report_right_names_an_existing_right() -> None:
     """A ReportRight value that matches no declared right would silently deny every user.
 
     ``user_has_right`` resolves the string against the rights tree, so a typo here does not raise -
-    it just never matches, turning the guarded route into a permanent 403 (backlog #109).
+    it just never matches, turning the guarded route into a permanent 403.
     """
     rights_manager = RightsManager()
 
@@ -830,7 +844,7 @@ def test_list_serializes_each_report_via_to_json(flask_app: Flask) -> None:
          patch(f'{ROUTE_PATH}.GetMultiResponse') as response_ctor, \
          flask_app.test_request_context('/'):
         cmdb_report.to_json.side_effect = lambda report: report
-        _unwrap(get_cmdb_reports)(params=MagicMock(), request_user=MagicMock())
+        _unwrap(get_cmdb_reports)(params=_listing_params(), request_user=MagicMock())
 
     assert response_ctor.call_args.args[0] == [SAMPLE_REPORT]
 
@@ -843,7 +857,7 @@ def test_list_iteration_error_maps_to_400(flask_app: Flask) -> None:
     with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
          flask_app.test_request_context('/'):
         with pytest.raises(HTTPException) as exc_info:
-            _unwrap(get_cmdb_reports)(params=MagicMock(), request_user=MagicMock())
+            _unwrap(get_cmdb_reports)(params=_listing_params(), request_user=MagicMock())
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
 
@@ -856,7 +870,7 @@ def test_list_unexpected_error_maps_to_500(flask_app: Flask) -> None:
     with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
          flask_app.test_request_context('/'):
         with pytest.raises(HTTPException) as exc_info:
-            _unwrap(get_cmdb_reports)(params=MagicMock(), request_user=MagicMock())
+            _unwrap(get_cmdb_reports)(params=_listing_params(), request_user=MagicMock())
 
     assert exc_info.value.code == HTTP_SERVER_ERROR
 
@@ -866,10 +880,10 @@ def test_list_passes_an_http_exception_through_unchanged(flask_app: Flask) -> No
     mgr = MagicMock()
 
     with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
-         patch(f'{ROUTE_PATH}.BuilderParameters', side_effect=BadRequest('nope')), \
+         patch(f'{ROUTE_PATH}.build_searchable_builder_params', side_effect=BadRequest('nope')), \
          flask_app.test_request_context('/'):
         with pytest.raises(HTTPException) as exc_info:
-            _unwrap(get_cmdb_reports)(params=MagicMock(), request_user=MagicMock())
+            _unwrap(get_cmdb_reports)(params=_listing_params(), request_user=MagicMock())
 
     assert exc_info.value.code == HTTP_BAD_REQUEST
 

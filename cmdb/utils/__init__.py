@@ -23,7 +23,7 @@ as the shared BaseStrEnum, cast helpers and logging configuration
 Everything listed in `__all__` is imported from the package path (`from cmdb.utils import ...`),
 not from the module inside it - with one exception: a module *inside* this package imports its
 siblings by module path, since going through the package here would be a cyclic import. Three names
-are deliberately left out of `__all__`: `boolify` and `noneify` are `auto_cast`'s individual casters
+are deliberately left out of `__all__`: `boolify` and `numberify` are `auto_cast`'s individual casters
 rather than an API of their own, and `cmdb.utils.logger` is process bootstrap that callers import by
 module path.
 

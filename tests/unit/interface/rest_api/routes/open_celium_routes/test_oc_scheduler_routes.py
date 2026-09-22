@@ -18,7 +18,7 @@ Unit tests for cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_ro
 
 Each handler is unwrapped past its decorator chain and driven inside a BaseCmdbApp
 test_request_context with the managers (OcSchedulerManager, OcConnectionManager,
-DgServicePortalManager, CachedUserManager) patched at the route module path - no external OpenCelium
+DgServicePortalManager, `get_cached_user_manager`) patched at the route module path - no external OpenCelium
 HTTP, no Mongo. The app runs on-premise (cloud_mode/local_mode False), so the cloud title-mapping /
 Service-Portal branches are skipped and the local code paths are exercised. The AUTOMATIONS 403 gate
 is covered by the functional automations-gating suite.
@@ -102,7 +102,7 @@ def fixture_patched_managers(sched_manager: MagicMock, conn_manager: MagicMock) 
     with patch(f'{ROUTE_PATH}.OcSchedulerManager', return_value=sched_manager), \
          patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=conn_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=MagicMock()), \
-         patch(f'{ROUTE_PATH}.CachedUserManager', return_value=MagicMock()):
+         patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=MagicMock()):
         yield
 
 
@@ -497,7 +497,7 @@ def fixture_cloud_managers(sched_manager: MagicMock, conn_manager: MagicMock) ->
     """Patches the managers at the route AND helper module paths; yields the cached + portal mocks.
 
     The cloud access helpers (assert_scheduler_access / get_accessible_scheduler_ids /
-    connection_in_subscription) build their own CachedUserManager / DgServicePortalManager, so those must
+    connection_in_subscription) reach for their own cached-user manager / DgServicePortalManager, so those must
     be patched at the helper module paths too - all returning the same mocks the test configures.
     """
     cached = MagicMock()
@@ -505,11 +505,10 @@ def fixture_cloud_managers(sched_manager: MagicMock, conn_manager: MagicMock) ->
     with patch(f'{ROUTE_PATH}.OcSchedulerManager', return_value=sched_manager), \
          patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=conn_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=dg_sp), \
-         patch(f'{ROUTE_PATH}.CachedUserManager', return_value=cached), \
+         patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=cached), \
          patch(f'{SCHED_HELPER}.DgServicePortalManager', return_value=dg_sp), \
-         patch(f'{SCHED_HELPER}.CachedUserManager', return_value=cached), \
-         patch(f'{CONN_HELPER}.DgServicePortalManager', return_value=dg_sp), \
-         patch(f'{CONN_HELPER}.CachedUserManager', return_value=cached):
+         patch(f'{SCHED_HELPER}.get_cached_user_manager', return_value=cached), \
+         patch(f'{CONN_HELPER}.DgServicePortalManager', return_value=dg_sp):
         yield SimpleNamespace(cached=cached, dg_sp=dg_sp)
 
 

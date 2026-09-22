@@ -62,6 +62,7 @@ from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessment
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import (
     ControlMeasureAssignmentKey,
 )
+from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
 from cmdb.security.acl.helpers import verify_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.results import IterationResult
@@ -87,6 +88,7 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerMdsReferencesError,
     ObjectsManagerSummaryLineError,
 )
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -194,6 +196,8 @@ class ObjectsManager(BaseManager):
         Raises:
             ObjectsManagerInsertError: If an error occured during insertion
             AccessDeniedError: If the CmdbUser does not have the permission for this action
+            DocumentLockTimeoutError: If the write timed out on a lock - transient, retryable
+            DocumentNetworkError: If the database was unreachable - transient, retryable
 
         Returns:
             int: The public_id of the created CmdbObject
@@ -207,6 +211,12 @@ class ObjectsManager(BaseManager):
 
             return self.insert(CmdbObject.to_json(new_object))
         except AccessDeniedError as err:
+            raise err
+        except (DocumentLockTimeoutError, DocumentNetworkError) as err:
+            # Propagated unchanged, the same rule MongoDatabaseManager.insert applies one layer down:
+            # re-wrapping these as an insert error hides the one thing that distinguishes them - they
+            # are transient and the request can simply be retried. The route maps them to 423 / 503
+            # through `handle_db_errors`
             raise err
         except Exception as err:
             LOGGER.error("[insert_object] Exception: %s. Type: %s", err, type(err))
@@ -506,14 +516,80 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetTypeError(err) from err
 
 
+    @staticmethod
+    def apply_acl_to_criteria(
+            criteria: dict[str, Any],
+            user: CmdbUser | None,
+            permission: AccessControlPermission | None) -> dict[str, Any]:
+        """
+        Narrows a find criteria to the CmdbTypes the user's group may access
+
+        An ACL lives on the CmdbType, so the filter is an exclusion of denied `type_id`s (see
+        `cmdb.security.acl.builder`). It is combined with `$and` rather than merged: most callers
+        already filter on `type_id` themselves, and a merge would silently replace their filter with
+        this one.
+
+        Args:
+            criteria (dict[str, Any]): The caller's filter
+            user (CmdbUser | None): The requesting user, or None to read unscoped
+            permission (AccessControlPermission | None): The required permission, or None
+
+        Returns:
+            dict[str, Any]: The criteria, narrowed when scoping applies and unchanged otherwise
+        """
+        if user is None or permission is None:
+            return criteria
+
+        return ObjectsManager.narrow_criteria_by_denied_types(criteria, resolve_denied_type_ids(user, permission))
+
+
+    @staticmethod
+    def narrow_criteria_by_denied_types(
+            criteria: dict[str, Any],
+            denied_type_ids: list[int] | None) -> dict[str, Any]:
+        """
+        Narrows a find criteria to exclude an already-resolved set of denied CmdbTypes
+
+        The half of the ACL that needs no database access, so a caller performing several reads for
+        one request resolves the denied types once (`resolve_denied_type_ids`) and narrows each query
+        with the result, instead of paying that lookup per query
+
+        Args:
+            criteria (dict[str, Any]): The caller's filter
+            denied_type_ids (list[int] | None): public_ids of the denied CmdbTypes, or None/empty
+                when nothing is denied
+
+        Returns:
+            dict[str, Any]: The criteria, narrowed when something is denied and unchanged otherwise
+        """
+        if not denied_type_ids:
+            return criteria
+
+        return {'$and': [criteria, build_denied_types_condition(denied_type_ids)]}
+
+
     def find_objects(
             self,
             criteria: dict[str, Any],
             as_dict: bool = False,
             projection: dict[str, Any] | None = None,
+            user: CmdbUser | None = None,
+            permission: AccessControlPermission | None = None,
         ) -> list[CmdbObject] | list[dict[str, Any]]:
         """
         Get a list of CmdbObjects by a filter
+
+        **The ACL is opt-in here, unlike `get_object` and `iterate_items` where it is a positional
+        part of the read.** Passing `user` and `permission` narrows the result to the types the
+        caller's group may access; omitting them reads unscoped, which is what every caller did
+        before the parameters existed.
+
+        That default is deliberate rather than lazy: some readers MUST be unscoped. The IPAM
+        validators check a candidate against every existing object, not only the visible ones,
+        because the invariant they enforce is global - an ACL-filtered check would report an
+        overlapping CIDR as valid and the write would then accept it (see `workflows/ipam.md`).
+        A reader that presents data to a user should pass both; a reader that enforces an invariant
+        must not.
 
         Args:
             criteria: Filter which should be applied during the search
@@ -521,6 +597,9 @@ class ObjectsManager(BaseManager):
             projection (dict[str, Any] | None): Optional Mongo projection limiting the returned
                 fields. Only valid together with as_dict=True - a partial document cannot be
                 deserialized into a CmdbObject
+            user (CmdbUser | None): The requesting user, when the read should be ACL-scoped
+            permission (AccessControlPermission | None): The permission the user's group must hold;
+                scoping happens only when both this and `user` are given
 
         Raises:
             ObjectsManagerGetError: When the retrieval of CmdbObjects failed, or when a
@@ -531,6 +610,8 @@ class ObjectsManager(BaseManager):
         """
         if projection is not None and not as_dict:
             raise ObjectsManagerGetError("'projection' requires as_dict=True!")
+
+        criteria = self.apply_acl_to_criteria(criteria, user, permission)
 
         try:
             if projection is not None:

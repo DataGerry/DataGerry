@@ -416,7 +416,7 @@ def test_load_all_special_type_objects_pins_the_type_id_criteria() -> None:
     mock_resolve.assert_called_once_with(types_manager, SpecialType.SUBNET)
     objects_manager.find_objects.assert_called_once_with(
         {CmdbObjectKey.TYPE_ID.value: SUBNET_TYPE_ID}, as_dict=True, projection=None,
-    )
+    )  # unscoped: no denied types, so the criteria is unchanged
     assert result == []
 
 
@@ -501,11 +501,12 @@ def test_build_ipam_tree_loads_supernets_then_subnets() -> None:
     with patch(f'{PATH}.load_all_special_type_objects', side_effect=[[], []]) as mock_load:
         tree = build_ipam_tree(objects_manager, types_manager)
 
+    # The trailing [] is the resolved read scope - nothing denied for a user-less (unscoped) call
     assert mock_load.call_args_list[0].args == (
-        objects_manager, types_manager, SpecialType.SUPERNET, TREE_NODE_PROJECTION,
+        objects_manager, types_manager, SpecialType.SUPERNET, TREE_NODE_PROJECTION, [],
     )
     assert mock_load.call_args_list[1].args == (
-        objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION,
+        objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION, [],
     )
     assert tree == {IpamTreeKey.SUPERNETS: [], IpamTreeKey.UNASSIGNED: []}
 
@@ -542,9 +543,9 @@ def test_build_supernet_subnet_tree_validates_then_nests_the_assigned_subnets() 
          patch(f'{PATH}.load_subnets_for_supernet', return_value=[nested, broad]) as mock_load:
         subtree = build_supernet_subnet_tree(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
-    mock_validate.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    mock_validate.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID, [])
     mock_load.assert_called_once_with(
-        objects_manager, types_manager, SUPERNET_OBJECT_ID, TREE_NODE_PROJECTION,
+        objects_manager, types_manager, SUPERNET_OBJECT_ID, TREE_NODE_PROJECTION, [],
     )
 
     roots = subtree[IpamTreeKey.CHILDREN]

@@ -40,7 +40,6 @@ from csv import DictReader, Sniffer, Error
 from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 from werkzeug.datastructures import FileStorage
 
 from cmdb.manager import (
@@ -67,7 +66,7 @@ from cmdb.models.extendable_option_model import OptionType, ExtendableOptionKey
 from cmdb.utils import parse_import_bool
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.importer_routes.importer_constants import ImporterRight
@@ -111,6 +110,7 @@ RESULT_INVALID: str = 'invalid_objects'
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_importer_blueprint.protect(auth=True, right=ImporterRight.ISMS_ADD.value)
+@handle_route_errors("while trying to import ISMS Objects")
 def import_isms_objects(target: str, request_user: CmdbUser) -> Response:
     """
     Import IsmsThreats, IsmsMeasureControls, IsmsVulnerabilities and IsmsRisks
@@ -119,25 +119,19 @@ def import_isms_objects(target: str, request_user: CmdbUser) -> Response:
         target (str): The ISMS object which should be imported (see IsmsImportType)
         request_user (CmdbUser): CmdbUser requesting the import
     """
-    try:
-        if not IsmsImportType.is_valid(target):
-            abort(400, f"'{target}' is not a valid ImportType for ISMS!")
+    if not IsmsImportType.is_valid(target):
+        abort(400, f"'{target}' is not a valid ImportType for ISMS!")
 
-        if REQUEST_FILE not in request.files:
-            LOGGER.error("[import_isms_objects] No import file!")
-            abort(400, "No import file was provided!")
+    if REQUEST_FILE not in request.files:
+        LOGGER.error("[import_isms_objects] No import file!")
+        abort(400, "No import file was provided!")
 
-        csv_file: FileStorage = request.files.get(REQUEST_FILE)
+    csv_file: FileStorage = request.files.get(REQUEST_FILE)
 
-        target_enum = IsmsImportType(target)
-        results = handle_isms_import(csv_file, target_enum, request_user)
+    target_enum = IsmsImportType(target)
+    results = handle_isms_import(csv_file, target_enum, request_user)
 
-        return DefaultResponse(results).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[import_isms_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while trying to import ISMS Objects!")
+    return DefaultResponse(results).make_response()
 
 # -------------------------------------------------- ISMS Importers -------------------------------------------------- #
 

@@ -49,18 +49,21 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.docapi_model.docapi_renderer import DocApiRenderer
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
+from cmdb.framework.exporter.export_filename_helper import build_document_export_filename
 from cmdb.framework.results import IterationResult
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import GetMultiResponse, DefaultResponse
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
     RENDER_OBJECT_RIGHT,
+    RENDERED_DOCUMENT_EXTENSION,
+    RENDERED_DOCUMENT_MIMETYPE,
     DocapiTemplateRight,
 )
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 
 from cmdb.security.license.license_constants import LicenseFeature
 
@@ -74,6 +77,9 @@ from cmdb.errors.manager.docapi_templates_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The DocapiTemplate columns the template list offers a search box over
+DOCAPI_TEMPLATE_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'name', 'label', 'description')
 
 docapi_blueprint = APIBlueprint('docapi', __name__, url_prefix='/docapi')
 
@@ -163,7 +169,7 @@ def get_templates(params: CollectionParameters, request_user: CmdbUser) -> Respo
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, DOCAPI_TEMPLATE_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[DocapiTemplate] = docapi_manager.get_templates(builder_params)
 
@@ -287,6 +293,7 @@ def get_template(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
+@handle_route_errors("when trying to retrieve the Template with name:{name}")
 def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for resolving a DocapiTemplate by its name
@@ -317,14 +324,9 @@ def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
         tpl = docapi_manager.get_template_by_name(name=name)
 
         return DefaultResponse(tpl).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except DocapiTemplatesManagerGetError as err:
         LOGGER.error("[get_template_by_name] %s", err, exc_info=True)
         abort(400, f"Could not retrieve the template with name:{name}!")
-    except Exception as err:
-        LOGGER.error("[get_template_by_name] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, f"An internal server error occured when trying to retrieve the Template with name:{name}!")
 
 
 @docapi_blueprint.route('/template/<int:public_id>/render/<int:object_id>', methods=['GET'])
@@ -340,8 +342,9 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
     from the object's field values - and the licensed DOCUMENT_GENERATOR feature. The object is read
     WITHOUT the object ACL, which is a filed decision rather than an oversight
 
-    Every render answers with the same attachment name, ``output.pdf``; the frontend names the download
-    itself
+    The attachment is named by ``build_document_export_filename`` - the same helper the object and type
+    exports use - so a rendered document carries its template, its object and the time it was taken
+    instead of the one shared ``output.pdf`` every render used to answer with
 
     Args:
         public_id (int): public_id of DocapiTemplate which should be used
@@ -379,11 +382,21 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 
         output = docapi_renderer.render_object_template(request_user)
 
+        # The label is optional on the model, the name is required and unique, so the name stands in for
+        # a template that carries no label
+        filename: str = build_document_export_filename(
+            target_template.get_label() or target_template.get_name(),
+            object_id,
+            RENDERED_DOCUMENT_EXTENSION,
+        )
+
         return Response(
             output,
-            mimetype="application/pdf",
+            mimetype=RENDERED_DOCUMENT_MIMETYPE,
             headers={
-                "Content-Disposition": "attachment; filename=output.pdf"
+                # Quoted like every other export in the repo: the template label reaches this value, and
+                # an unquoted header cannot carry a separator character
+                "Content-Disposition": f'attachment; filename="{filename}"'
             }
         )
     except HTTPException as http_err:

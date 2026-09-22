@@ -17,13 +17,15 @@
 Helper methods for CmdbType API routes
 
 Holds the licence and SpecialType guards, the lookups a route performs before it writes, the
-uses_ports / selectable_as_parent / location-field change guards and the persistence side effects an
-update or a delete owes the rest of the database.
+uses_ports / selectable_as_parent / location-field change guards, the payload normalisations a write
+applies in place (the ACL block, the ports section index, the CI Explorer label field) and the
+persistence side effects an update or a delete owes the rest of the database.
 
-The **reference-section** dependency cluster - who depends on a section, what an edit would break and
-the pre-check payload behind it - lives in `types_reference_section_helper` since 2026-09-11; it is one
-self-contained theme and the module had grown past pylint's 1,500-line cap. Only the type-delete guard
-still reaches across, to ask whether another type references the one being deleted
+The **reference-section** dependency cluster - who depends on a section, what an edit would break
+and the pre-check payload behind it - lives in `types_reference_section_helper`: it is one
+self-contained theme, and keeping it here would push this module past pylint's 1,500-line cap. Only
+the type-delete guard still reaches across, to ask whether another type references the one being
+deleted
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -32,7 +34,7 @@ from flask import abort
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.ports_manager import PortsManager
-from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.query_builder import Builder, BuilderParameters
 from cmdb.manager import (
     TypesManager,
     LocationsManager,
@@ -45,23 +47,31 @@ from cmdb.manager import (
     SectionTemplatesManager,
 )
 
+from cmdb.utils import coerce_whole_number
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, MIN_PORT_SECTION_INDEX
+from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.port_model import PortKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.location_model.location_constants import LocationKey
+from cmdb.framework.ci_explorer.label_field import label_field_error, is_label_field_unset
 from cmdb.framework.ipam.special_type_wiring import (
     handle_special_types,
     cleanup_type_references_from_all_types,
     cleanup_special_type_template_references,
 )
-from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters, CollectionParameters
+from cmdb.interface.rest_api.responses.response_parameters import (
+    BuilderParamKey,
+    CollectionParameters,
+    TypeIterationParameters,
+)
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.report_routes.report_constants import ReportKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
@@ -74,6 +84,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     FIELD_IDENTIFIER_IMMUTABLE_MESSAGE,
+    PORT_SECTION_INDEX_INVALID_MESSAGE,
     MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,
     USES_PORTS_DISABLE_MESSAGE,
@@ -107,8 +118,37 @@ def enforce_special_type_license(request_user: CmdbUser, *special_types: Any) ->
         *special_types (Any): The 'special_type' markers the write touches - the stored one, the
             requested one, or both on an update. None and non-SpecialType values are ignored
     """
+    required_feature: LicenseFeature | None = special_type_license_feature(*special_types)
+
+    if required_feature is not None:
+        abort_if_feature_locked(required_feature, request_user)
+
+
+def special_type_license_feature(*special_types: Any) -> LicenseFeature | None:
+    """
+    Reports which LicenseFeature the given SpecialType markers require, if any
+
+    The single statement of "is this SpecialType licensed, and behind what", so the two entrances to
+    type creation cannot disagree about it. The type routes turn the answer into a 403
+    (enforce_special_type_license above); the assistant turns the same answer into a skipped profile
+    (special_helper.drop_locked_profiles) - one rule, two presentations, which is what the type
+    importer already does with the routes' own blocker functions.
+
+    Every gated member currently maps to LicenseFeature.IPAM. When a second gating feature exists,
+    SpecialType.get_license_gated_types becomes a per-member mapping (its own docstring says so) and
+    this is the one place that has to read it.
+
+    Args:
+        *special_types (Any): The 'special_type' markers to test. None and non-SpecialType values are
+            ignored
+
+    Returns:
+        LicenseFeature | None: The feature required by any of the markers, or None when none is gated
+    """
     if any(SpecialType.is_license_gated(special_type) for special_type in special_types):
-        abort_if_feature_locked(LicenseFeature.IPAM, request_user)
+        return LicenseFeature.IPAM
+
+    return None
 
 
 def enforce_uses_ports_license(request_user: CmdbUser, requested_uses_ports: Any) -> None:
@@ -165,6 +205,101 @@ def enforce_rack_selectable_as_parent(special_type: Any, data: dict[str, Any]) -
                    "otherwise no object could ever be placed in a Rack!")
 
     data[TypeSchemaKey.SELECTABLE_AS_PARENT] = True
+
+
+def normalize_port_section_index(data: dict[str, Any]) -> None:
+    """
+    Validates and completes the 'port_section_index' of a CmdbType payload, in place
+
+    The value is where the frontend draws the (virtual) ports section among the type's own sections:
+    0 puts it first, 1 second, and so on. It is presentation state the frontend owns - the backend
+    only guarantees it is storable and consistent with 'uses_ports':
+
+    * an absent, null or empty value becomes DEFAULT_PORT_SECTION_INDEX. `POST /types/` stores the
+      raw payload (the manager only BSON-round-trips it), so without this a created type would not
+      carry the key at all and only the first edit would add it - the same two-shapes-for-one-meaning
+      problem `normalize_type_acl` solves for the ACL
+    * anything else that is not a whole number of 0 or greater is REFUSED with 400. Lenient coercion
+      belongs to the type import, which has no user to report to; an API client sending -1 or 'left'
+      has a bug worth hearing about
+    * a type that does not use ports is forced back to the default. The index means nothing without
+      the flag, and keeping a stale position would resurface it if the flag were ever set again
+
+    Args:
+        data (dict[str, Any]): The CmdbType payload, modified in place
+
+    Raises:
+        HTTPException: 400 when the payload carries an unusable index
+    """
+    raw_index: Any = data.get(TypeSchemaKey.PORT_SECTION_INDEX.value)
+
+    if raw_index is None or raw_index == '':
+        index: int = DEFAULT_PORT_SECTION_INDEX
+    else:
+        coerced: int | None = coerce_whole_number(raw_index)
+
+        if coerced is None or coerced < MIN_PORT_SECTION_INDEX:
+            abort(400, PORT_SECTION_INDEX_INVALID_MESSAGE.format(value=repr(raw_index)))
+
+        index = coerced
+
+    # The index is only read while the flag is on, so a type without ports always stores the default
+    if not data.get(TypeSchemaKey.USES_PORTS.value):
+        index = DEFAULT_PORT_SECTION_INDEX
+
+    data[TypeSchemaKey.PORT_SECTION_INDEX.value] = index
+
+
+def normalize_ci_explorer_label(data: dict[str, Any], old_type: CmdbType | None = None) -> None:
+    """
+    Validates the CI Explorer label nomination of a CmdbType payload, in place
+
+    ``ci_explorer_label`` is the **name of one of the Type's own fields**, not a string to display:
+    the CI Explorer reads that field off every object of the Type and shows its value on the node
+    (`ci_explorer.nodes.resolve_title`). A nomination that resolves to nothing renders every node of
+    the Type as "Label not selected", which is indistinguishable from never having chosen one - so it
+    is caught at the write instead.
+
+    Three outcomes:
+
+    * **usable, or nothing nominated** - kept. An empty string is normalised to None, the stored form
+      of "no field chosen", so the key has one spelling in the collection
+    * **unusable and newly set** - refused with 400, reporting which names the Type does offer
+    * **unusable but UNCHANGED from the stored Type** - cleared to None instead of refused. That is
+      the field-was-removed case: an update that drops the nominated field would otherwise be
+      refused over a cosmetic key, and the stale nomination has to go anyway. It also repairs a Type
+      whose nomination went stale before this rule existed, on its next save
+
+    Args:
+        data (dict[str, Any]): The CmdbType payload, modified in place
+        old_type (CmdbType | None): The stored Type on an update; None on a create, where there is no
+            previous nomination and every unusable value is therefore a refusal
+
+    Raises:
+        HTTPException: 400 when the payload newly nominates a field the Type does not offer
+    """
+    nominated: Any = data.get(TypeSchemaKey.CI_EXPLORER_LABEL.value)
+
+    if is_label_field_unset(nominated):
+        data[TypeSchemaKey.CI_EXPLORER_LABEL.value] = None
+        return
+
+    error: str | None = label_field_error(data, nominated)
+
+    if not error:
+        return
+
+    # Unchanged from the stored Type: this update did not choose it, it only stopped being resolvable
+    if old_type is not None and nominated == old_type.ci_explorer_label:
+        LOGGER.info(
+            "[normalize_ci_explorer_label] Cleared the stale CI Explorer label field %s of Type ID:%s",
+            repr(nominated), old_type.public_id,
+        )
+        data[TypeSchemaKey.CI_EXPLORER_LABEL.value] = None
+
+        return
+
+    abort(400, error)
 
 
 def get_type_or_404(types_manager: TypesManager, public_id: int) -> dict[str, Any]:
@@ -292,29 +427,127 @@ def special_type_is_unchanged(old_st: str | None, new_st: str | None) -> bool:
     return old_st == new_st
 
 
-def prepare_builder_parameters(type_params: TypeIterationParameters) -> BuilderParameters:
+def build_type_criteria(
+        client_criteria: dict[str, Any] | list[dict[str, Any]],
+        active: bool) -> dict[str, Any] | list[dict[str, Any]]:
+    """
+    Merges the server's ``active`` restriction into the criteria the client sent
+
+    Returns a **new** criteria; the client's own value is never mutated. That matters because the
+    same object is echoed back to the caller in the response's ``parameters.filter`` block as
+    frontend contract - merging in place made the server's injected stage look like something the
+    client had sent.
+
+    A dict criteria is merged key-wise, a list criteria gets one appended ``$match``, and an empty
+    dict stays a dict rather than becoming a two-stage pipeline with an empty ``$match`` in it.
+    A falsy ``active`` restricts nothing and the criteria is handed back unchanged
+
+    Args:
+        client_criteria (dict[str, Any] | list[dict[str, Any]]): The criteria as the client sent it
+        active (bool): The ``active`` flag; only a truthy value restricts the query
+
+    Returns:
+        dict[str, Any] | list[dict[str, Any]]: The criteria to query with
+    """
+    if not active:
+        return client_criteria
+
+    if isinstance(client_criteria, list):
+        return [*client_criteria, Builder.match_({TypeSchemaKey.ACTIVE.value: active})]
+
+    return {**client_criteria, TypeSchemaKey.ACTIVE.value: active}
+
+
+def normalize_type_acl(type_data: dict[str, Any]) -> None:
+    """
+    Writes the complete ``acl`` block onto a CmdbType payload, in place
+
+    **Why the create route needs this and the others do not.** A type update and a type import both
+    hand a `CmdbType` to the manager, so they go through ``CmdbType.from_data`` -> ``to_json`` and
+    always store a full ``{'activated': ..., 'groups': {'includes': {...}}}``; the start assistant
+    writes that literal itself. ``POST /types/`` hands over the **raw payload**, which the manager
+    only BSON-round-trips - so a create without an ``acl`` key stored a document without one, and the
+    first edit silently added it. Two stored shapes for one meaning, decided by whether anyone had
+    edited the type.
+
+    This applies the same normalisation the other three paths get, so a Type's stored ACL no longer
+    depends on the route it arrived through. A partial ``acl`` is completed rather than rejected: the
+    absent half is exactly what the model defaults, and ``activated`` defaults to **False**, which
+    grants - access control is opt-in.
+
+    Note it also **drops unknown keys inside** ``acl``, because the model reads only ``activated`` and
+    ``groups``. That is what an update has always done to the same payload; the type schema declares
+    ``acl`` as ``allow_unknown``, so only a hand-built API payload could have put anything else there
+
+    Args:
+        type_data (dict[str, Any]): The CmdbType payload, modified in place
+    """
+    type_data[TypeSchemaKey.ACL.value] = AccessControlList.to_json(
+        AccessControlList.from_data(type_data.get(TypeSchemaKey.ACL.value) or {})
+    )
+
+
+def build_category_criteria(
+        type_params: TypeIterationParameters,
+        request_user: CmdbUser) -> dict[str, Any] | None:
+    """
+    Builds the category membership restriction a types listing was asked for, if any
+
+    The server-side form of the two ``$lookup`` pipelines a client would otherwise post as
+    ``?filter=``. Both resolve to a set of type public_ids and then filter this collection on it,
+    which is a plain indexed ``$in`` / ``$nin`` instead of a join per request.
+
+    The CategoriesManager is built only when one of the two parameters is actually present, so the
+    ordinary listing - which is almost every request - pays for no extra manager and no extra read
+
+    Args:
+        type_params (TypeIterationParameters): The received Type request parameters
+        request_user (CmdbUser): CmdbUser requesting the listing
+
+    Returns:
+        dict[str, Any] | None: The criteria to add, or None when no category filter was requested
+    """
+    if not type_params.uncategorized and type_params.category is None:
+        return None
+
+    categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES, request_user)
+
+    if type_params.uncategorized:
+        assigned_type_ids: set[int] = categories_manager.get_assigned_type_ids()
+
+        return {TypeSchemaKey.PUBLIC_ID.value: {'$nin': sorted(assigned_type_ids)}}
+
+    category_type_ids: list[int] = categories_manager.get_category_type_ids(type_params.category)
+
+    return {TypeSchemaKey.PUBLIC_ID.value: {'$in': category_type_ids}}
+
+
+def prepare_builder_parameters(
+        type_params: TypeIterationParameters,
+        request_user: CmdbUser) -> BuilderParameters:
     """
     Prepares BuilderParameters for running a db query
 
     Args:
         type_params (TypeIterationParameters): the recieved Type request parameters
+        request_user (CmdbUser): CmdbUser requesting the listing; only used to reach the
+            CategoriesManager when a category filter was asked for
 
     Returns:
         BuilderParameters: The prepared BuilderParameters
     """
-    if type_params.active:
-        if isinstance(type_params.filter, dict):
-            if type_params.filter.keys():
-                type_params.filter.update({TypeSchemaKey.ACTIVE: type_params.active})
-            else:
-                type_params.filter = [
-                    {'$match': {TypeSchemaKey.ACTIVE: type_params.active}},
-                    {'$match': type_params.filter},
-                ]
-        elif isinstance(type_params.filter, list):
-            type_params.filter.append({'$match': {TypeSchemaKey.ACTIVE: type_params.active}})
+    builder_args: dict[str, Any] = CollectionParameters.get_builder_params(type_params)
 
-    return BuilderParameters(**CollectionParameters.get_builder_params(type_params))
+    builder_args[BuilderParamKey.CRITERIA.value] = build_type_criteria(type_params.filter, type_params.active)
+
+    builder_params = BuilderParameters(**builder_args)
+
+    category_criteria: dict[str, Any] | None = build_category_criteria(type_params, request_user)
+
+    if category_criteria:
+        builder_params.add_criteria(category_criteria)
+
+    return builder_params
 
 
 def get_types_user_data(
@@ -463,7 +696,7 @@ def get_objects_using_location_field(
     (an integer > 0) in the location-typed field of the given CmdbType
 
     Returns an empty list if the CmdbType has no location field. The result is unbounded - every
-    matching public_id is returned, which for a large type is a large list (discussion backlog #187)
+    matching public_id is returned, which for a large type is a large list
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -574,8 +807,8 @@ def build_uses_ports_usage_payload(request_user: CmdbUser, target_type: CmdbType
     """
     Builds the "may 'uses_ports' be turned off" pre-check payload
 
-    Counts only, never an id list - the equivalent location payload is unbounded for a large type
-    (discussion backlog #187) and the type builder only needs to know whether the flag may be cleared.
+    Counts only, never an id list - the equivalent location payload is unbounded for a large type,
+    and the type builder only needs to know whether the flag may be cleared.
     `in_use: false` means it may
 
     Args:

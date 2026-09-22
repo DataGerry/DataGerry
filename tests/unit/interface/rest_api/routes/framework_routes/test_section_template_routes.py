@@ -332,16 +332,33 @@ def test_get_manager_error_maps_to_400(flask_app: Flask, mgr: MagicMock, patched
 #                                       get_global_section_template_count                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_count_returns_counts(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-    """The usage counts are wrapped in DefaultResponse"""
+    """The usage payload is wrapped in DefaultResponse verbatim, is_global included"""
     del patched_manager_provider
     mgr.get_section_template.return_value = MagicMock(name='tpl', is_global=True)
-    mgr.get_global_template_usage_count.return_value = {'types': 1, 'objects': 2}
+    mgr.get_global_template_usage_count.return_value = {'types': 1, 'objects': 2, 'is_global': True}
 
     with flask_app.test_request_context('/', method='GET'), \
          patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
         _unwrap(get_global_section_template_count)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
 
-    response_ctor.assert_called_once_with({'types': 1, 'objects': 2})
+    response_ctor.assert_called_once_with({'types': 1, 'objects': 2, 'is_global': True})
+
+
+def test_count_asks_the_manager_with_the_stored_name_and_flag(
+    flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+) -> None:
+    """The count is asked for the STORED template, not for anything the caller supplied"""
+    del patched_manager_provider
+    template = MagicMock(is_global=False)
+    template.name = 'stored-name'
+    mgr.get_section_template.return_value = template
+    mgr.get_global_template_usage_count.return_value = {'types': 0, 'objects': 0, 'is_global': False}
+
+    with flask_app.test_request_context('/', method='GET'), \
+         patch(f'{ROUTE_PATH}.DefaultResponse'):
+        _unwrap(get_global_section_template_count)(public_id=TEMPLATE_PUBLIC_ID, request_user=MagicMock())
+
+    mgr.get_global_template_usage_count.assert_called_once_with('stored-name', False)
 
 
 def test_count_missing_template_maps_to_404(flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:

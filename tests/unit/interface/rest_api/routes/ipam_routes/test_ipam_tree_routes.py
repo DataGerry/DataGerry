@@ -31,7 +31,7 @@ The last section pins the two routes that must agree: `GET /` carries an 'unassi
 drift apart
 """
 from typing import Any, Callable
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from flask import Flask
@@ -87,7 +87,7 @@ def test_get_ipam_tree_forwards_the_managers_to_the_builder(flask_app: Flask) ->
          flask_app.test_request_context('/'):
         bare(request_user=MagicMock())
 
-    mock_build.assert_called_once_with(objects_manager, types_manager)
+    mock_build.assert_called_once_with(objects_manager, types_manager, ANY)
 
 
 def test_get_ipam_tree_converts_unexpected_errors_to_500(flask_app: Flask) -> None:
@@ -117,7 +117,7 @@ def test_get_supernet_subnet_tree_forwards_managers_and_public_id(flask_app: Fla
          flask_app.test_request_context(f'/supernets/{SUPERNET_PUBLIC_ID}'):
         bare(public_id=SUPERNET_PUBLIC_ID, request_user=MagicMock())
 
-    mock_build.assert_called_once_with(objects_manager, types_manager, SUPERNET_PUBLIC_ID)
+    mock_build.assert_called_once_with(objects_manager, types_manager, SUPERNET_PUBLIC_ID, ANY)
 
 
 def test_get_supernet_subnet_tree_passes_http_exceptions_through(flask_app: Flask) -> None:
@@ -147,7 +147,7 @@ def test_get_unassigned_subnets_forwards_the_managers_to_the_builder(flask_app: 
          flask_app.test_request_context('/unassigned'):
         bare(request_user=MagicMock())
 
-    mock_build.assert_called_once_with(objects_manager, types_manager)
+    mock_build.assert_called_once_with(objects_manager, types_manager, ANY)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -208,10 +208,9 @@ def test_an_httpexception_from_a_builder_propagates_untouched(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                     the initial payload and the unassigned route must agree                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
-# `GET /` carries an 'unassigned' block and `GET /unassigned` returns that block alone. They used to be
-# two copies of the same expression; both now call `unassigned_subnet_nodes`, and these tests are what
-# keeps them honest if either is edited (see discussion-backlog #205 for whether the second route
-# survives at all)
+# `GET /` carries an 'unassigned' block and `GET /unassigned` returns that block alone. Both call
+# `unassigned_subnet_nodes` rather than carrying two copies of the same expression, and these tests
+# are what keeps them honest if either is edited
 SUBNET_TYPE_ID: int = 11
 
 
@@ -243,7 +242,7 @@ def test_both_routes_report_the_same_unassigned_block() -> None:
     objects_manager = MagicMock()
     types_manager = MagicMock()
 
-    def _load(_objects, _types, special_type, _projection=None):
+    def _load(_objects, _types, special_type, _projection=None, _denied=None):
         return subnets if special_type == SpecialType.SUBNET else []
 
     with patch(f'{TREE_PATH}.load_all_special_type_objects', side_effect=_load), \
@@ -282,13 +281,13 @@ def test_a_dangling_reference_is_in_no_block() -> None:
 
     A subnet referencing a supernet that does not exist is not 'unassigned' (it has a reference) and
     is not under any supernet (its parent is gone), so it appears nowhere in the tree. Unreachable
-    through the write and delete guards today - discussion-backlog #204.
+    through the write and delete guards today.
     """
     subnets: list[dict[str, Any]] = [_subnet_doc(5, 'orphan', '10.9.0.0/24', parent=4242)]
     objects_manager = MagicMock()
     types_manager = MagicMock()
 
-    def _load(_objects, _types, special_type, _projection=None):
+    def _load(_objects, _types, special_type, _projection=None, _denied=None):
         return subnets if special_type == SpecialType.SUBNET else []
 
     with patch(f'{TREE_PATH}.load_all_special_type_objects', side_effect=_load), \

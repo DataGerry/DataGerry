@@ -34,7 +34,8 @@ from cmdb.manager.query_builder.base_query_builder import BaseQueryBuilder
 from cmdb.manager.query_builder.builder_parameters import BuilderParameters
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
-from cmdb.security.acl.builder import build_denied_types_criteria
+from cmdb.security.acl.builder import build_denied_types_criteria, build_permitted_types_criteria
+from cmdb.security.acl.helpers import has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -49,8 +50,10 @@ TYPE_MATRIX: list[tuple[int, dict[str, Any] | None, bool]] = [
     (96004, {'activated': True, 'groups': {'includes': {str(GROUP_ID): ['CREATE']}}}, False),
     (96005, {'activated': True, 'groups': {'includes': {str(OTHER_GROUP_ID): ['READ']}}}, False),
     (96006, {'activated': True, 'groups': {'includes': {}}}, False),
+    # No 'activated' key at all: NOT activated, so both of these grant - the model's reading, adopted
+    # by the query builder on 2026-09-17 (tier 2 T208). 96008 used to be denied here
     (96007, {'groups': {'includes': {str(GROUP_ID): ['READ']}}}, True),
-    (96008, {'groups': {'includes': {str(OTHER_GROUP_ID): ['READ']}}}, False),
+    (96008, {'groups': {'includes': {str(OTHER_GROUP_ID): ['READ']}}}, True),
     (96009, {'activated': True, 'groups': {'includes': {str(GROUP_ID): []}}}, False),
     (96010, {'activated': True}, False),
 ]
@@ -148,11 +151,27 @@ class TestDeniedTypesResolution:
         """Switching an ACL off restores access without clearing its groups."""
         assert 96002 not in _denied_ids(database_manager, database_name, GROUP_ID)
 
-    def test_an_acl_without_an_activated_key_is_enforced(
+    def test_an_acl_without_an_activated_key_denies_nothing(
         self, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """A stored ACL missing `activated` still denies a group that lacks the permission."""
-        assert 96008 in _denied_ids(database_manager, database_name, GROUP_ID)
+        """
+        A stored ACL carrying no `activated` key is not activated, so it grants
+
+        96008's ACL names only the *other* group, which under an activated ACL would deny - it is
+        granted here purely because the flag is absent. This is the model's reading
+        (`AccessControlList.from_data` defaults it to False) and the query builder adopted it on
+        2026-09-17, so `GET /objects/<id>` and `GET /objects/` stop disagreeing on this document.
+        """
+        denied = _denied_ids(database_manager, database_name, GROUP_ID)
+
+        assert 96008 not in denied
+        assert 96007 not in denied
+
+    def test_an_activated_acl_naming_another_group_is_still_denied(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """The counterpart: with the flag present and on, the same shape denies."""
+        assert 96005 in _denied_ids(database_manager, database_name, GROUP_ID)
 
     def test_another_group_gets_a_different_denied_set(
         self, database_manager: MongoDatabaseManager, database_name: str
@@ -257,3 +276,198 @@ class TestQueryStageOrder:
 
         assert len(page) == page_size
         assert page == readable[:page_size]
+
+
+class TestPermittedTypesCriteria:
+    """The types-listing half of the same rule, run against the seeded ACL shapes."""
+
+    @staticmethod
+    def _permitted_ids(types_collection, group_id: int) -> list[int]:
+        """The seeded type ids the given group may READ, according to the permitted criteria."""
+        criteria = {
+            '$and': [
+                {'public_id': {'$in': ALL_TYPE_IDS}},
+                build_permitted_types_criteria(group_id, AccessControlPermission.READ),
+            ]
+        }
+
+        return sorted(doc['public_id'] for doc in types_collection.find(criteria, {'public_id': 1}))
+
+    def test_permitted_criteria_selects_exactly_the_readable_types(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Every ACL shape lands on the side the matrix says it does."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        assert self._permitted_ids(types, GROUP_ID) == sorted(READABLE_TYPE_IDS)
+
+    def test_permitted_and_denied_criteria_partition_the_collection(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """No seeded type is both permitted and denied, and none is neither."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        denied = sorted(
+            doc['public_id'] for doc in types.find(
+                {'$and': [
+                    {'public_id': {'$in': ALL_TYPE_IDS}},
+                    build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ),
+                ]},
+                {'public_id': 1},
+            )
+        )
+        permitted = self._permitted_ids(types, GROUP_ID)
+
+        assert not set(permitted) & set(denied)
+        assert sorted(permitted + denied) == sorted(ALL_TYPE_IDS)
+
+    def test_permitted_criteria_costs_no_second_query(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """It is one filter on framework.types itself - no id resolution round trip."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        criteria = build_permitted_types_criteria(GROUP_ID, AccessControlPermission.READ)
+
+        explained = types.find(criteria).explain()
+
+        assert explained['ok'] == 1
+
+    def test_a_different_group_sees_a_different_set(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """The rule is per group - the other group's grants are not this group's."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        assert self._permitted_ids(types, GROUP_ID) != self._permitted_ids(types, OTHER_GROUP_ID)
+
+
+class TestPermittedTypesCriteriaOverSeveralPermissions:
+    """
+    Asking for a permission other than READ, against the same seeded ACL shapes
+
+    Until 2026-09-17 the criteria took exactly one permission and every caller passed READ, so the
+    multi-permission form the Angular app has always posted as a client filter had never run
+    server-side. These pin what it answers.
+    """
+
+    @staticmethod
+    def _permitted_ids(types_collection, permission) -> list[int]:
+        """The seeded type ids GROUP_ID may access under the given permission(s)."""
+        criteria = {
+            '$and': [
+                {'public_id': {'$in': ALL_TYPE_IDS}},
+                build_permitted_types_criteria(GROUP_ID, permission),
+            ]
+        }
+
+        return sorted(doc['public_id'] for doc in types_collection.find(criteria, {'public_id': 1}))
+
+    def test_asking_for_more_permissions_narrows_the_set(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """`$all` is a conjunction, so [READ, CREATE] is a subset of READ alone."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        read_only = self._permitted_ids(types, AccessControlPermission.READ)
+        read_and_create = self._permitted_ids(
+            types, [AccessControlPermission.READ, AccessControlPermission.CREATE],
+        )
+
+        assert set(read_and_create) <= set(read_only)
+        assert 96003 in read_and_create
+
+    def test_an_unflagged_acl_is_permitted_whatever_is_asked(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """
+        A missing `activated` key grants, so no permission list can narrow those two away
+
+        96007 and 96008 carry group entries that would matter under an activated ACL; with the flag
+        absent the ACL is off and the entries are never consulted (tier 2 T208).
+        """
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        for permission in [AccessControlPermission.READ,
+                           [AccessControlPermission.READ, AccessControlPermission.CREATE],
+                           AccessControlPermission.DELETE]:
+            permitted = self._permitted_ids(types, permission)
+
+            assert 96007 in permitted
+            assert 96008 in permitted
+
+    def test_a_different_permission_can_admit_a_type_read_denies(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """
+        The consequence of REPLACING READ rather than intersecting with it
+
+        96004 grants the group CREATE and not READ. Asked for READ it is denied; asked for CREATE it
+        is permitted - which is why the listing filter is documented as a query rather than an access
+        boundary (the single-type read applies no ACL at all, tier 2 T212).
+        """
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        read_only = set(self._permitted_ids(types, AccessControlPermission.READ))
+        create_only = set(self._permitted_ids(types, AccessControlPermission.CREATE))
+
+        assert 96004 not in read_only
+        assert 96004 in create_only
+
+    def test_a_type_with_no_acl_is_permitted_whatever_is_asked(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Access control stays opt-in no matter which permission the caller names."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        for permission in AccessControlPermission:
+            assert 96001 in self._permitted_ids(types, permission)
+            assert 96002 in self._permitted_ids(types, permission)
+
+    def test_repeats_do_not_change_the_answer(
+        self, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """`?acl=READ,READ` is the same question asked once."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+
+        once = self._permitted_ids(types, AccessControlPermission.READ)
+        twice = self._permitted_ids(types, [AccessControlPermission.READ, AccessControlPermission.READ])
+
+        assert once == twice
+
+
+class TestTheQueryAgreesWithTheModel:
+    """
+    The two implementations of the rule, asked about the same documents
+
+    An ACL is read two ways in this codebase: `acl/helpers.acl_grants_access` decides for one loaded
+    document (every `get_object` path), and `acl/builder.build_denied_types_criteria` decides for a
+    whole query (every listing). They disagreed on a stored `acl` carrying no `activated` key until
+    2026-09-17, so `GET /objects/<id>` and `GET /objects/` answered differently for the same type -
+    tier 2 T208. This is the guard that keeps them together: it asks both about every seeded shape.
+    """
+
+    @staticmethod
+    def _query_permits(types_collection, type_id: int, permission) -> bool:
+        """Whether the query builder's criteria admits the seeded type."""
+        criteria = {
+            '$and': [
+                {'public_id': type_id},
+                build_permitted_types_criteria(GROUP_ID, permission),
+            ]
+        }
+
+        return types_collection.count_documents(criteria) == 1
+
+    @pytest.mark.parametrize('type_id', ALL_TYPE_IDS)
+    @pytest.mark.parametrize('permission', list(AccessControlPermission))
+    def test_both_implementations_agree_on_every_seeded_shape(
+        self, database_manager: MongoDatabaseManager, database_name: str,
+        type_id: int, permission: AccessControlPermission,
+    ) -> None:
+        """Forty combinations: ten stored ACL shapes against all four permissions."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        document = types.find_one({'public_id': type_id})
+
+        model_grants = has_type_document_access(document, _User(GROUP_ID), permission)
+        query_permits = self._query_permits(types, type_id, permission)
+
+        assert model_grants == query_permits

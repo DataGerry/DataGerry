@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RiskMatrixManager
 
@@ -31,8 +30,9 @@ from cmdb.models.isms_model import IsmsRiskMatrix
 from cmdb.models.isms_model.isms_helper import ensure_risk_matrix_matches_scales
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
@@ -44,7 +44,7 @@ from cmdb.errors.manager.risk_matrix_manager import (
     RiskMatrixManagerGetError,
     RiskMatrixManagerUpdateError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -57,6 +57,7 @@ risk_matrix_blueprint = APIBlueprint('risk_matrices', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_matrix_blueprint.protect(auth=True, right='base.isms.riskMatrix.view')
+@handle_route_errors("while retrieving the RiskMatrix with ID: {public_id}")
 def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the IsmsRiskMatrix
@@ -89,14 +90,9 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
             requested_risk_matrix = ensure_risk_matrix_matches_scales(request_user, requested_risk_matrix)
 
         return GetSingleResponse(requested_risk_matrix, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskMatrixManagerGetError as err:
         LOGGER.error("[get_isms_risk_matrix] RiskMatrixManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the RiskMatrix with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_risk_matrix] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the RiskMatrix with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -104,7 +100,8 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_matrix_blueprint.protect(auth=True, right='base.isms.riskMatrix.edit')
-@risk_matrix_blueprint.validate(IsmsRiskMatrix.SCHEMA)
+@risk_matrix_blueprint.validate(build_write_schema(IsmsRiskMatrix.SCHEMA))
+@handle_route_errors("while updating the RiskMatrix with ID: {public_id}")
 def update_isms_risk_matrix(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskMatrix
@@ -126,17 +123,16 @@ def update_isms_risk_matrix(public_id: int, data: dict[str, Any], request_user: 
         get_item_or_404(risk_matrix_manager, public_id,
                         f"The RiskMatrix with ID:{public_id} was not found!", as_dict=False)
 
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+
+        pin_public_id(data, public_id)
+
         risk_matrix_manager.update_item(public_id, IsmsRiskMatrix.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskMatrixManagerGetError as err:
         LOGGER.error("[update_isms_risk_matrix] RiskMatrixManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the RiskMatrix with ID: {public_id} from the database!")
     except RiskMatrixManagerUpdateError as err:
         LOGGER.error("[update_isms_risk_matrix] RiskMatrixManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the RiskMatrix with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_isms_risk_matrix] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the RiskMatrix with ID: {public_id}!")

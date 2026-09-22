@@ -19,6 +19,7 @@ Implementation of helper methods for API routes
 import os
 import base64
 import functools
+import inspect
 import json
 from logging import Logger, getLogger
 from datetime import datetime, timezone
@@ -67,6 +68,27 @@ LOGGER: Logger = getLogger(__name__)
 DEFAULT_MIME_TYPE = 'application/json'
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def get_cached_user_manager() -> CachedUserManager:
+    """
+    Builds a CachedUserManager for the process-wide cloud user cache
+
+    **Why this is not `ManagerProvider.get_manager`.** Every other manager is resolved there, and this
+    one deliberately is not: the cache does not live in a tenant's database. `CachedUserManager`
+    ignores the database argument entirely - its collection is always `DG_CACHE_DB` - so the tenant
+    name `ManagerProvider` would pass is discarded, and `get_manager` REQUIRES a request_user in cloud
+    mode, which the login path (`validate_with_service_portal`) cannot supply: nobody is authenticated
+    yet. That is why `ManagerType` carries no entry for it
+
+    Called from the login path, the /setup routes and the OpenCelium routes, all of which had this
+    one-liner written out; it is here so that a change of mind about how the cache is reached is one
+    edit rather than eighteen
+
+    Returns:
+        CachedUserManager: A manager bound to this process' database handle and the cache database
+    """
+    return CachedUserManager(current_app.database_manager)
+
 
 def user_has_right(required_right: str, request_user: CmdbUser | None = None) -> bool:
     """
@@ -138,11 +160,20 @@ def user_has_right(required_right: str, request_user: CmdbUser | None = None) ->
 
 def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     """
-    Decorator to catch database-related errors and return proper HTTP responses.
+    Maps the two transient database errors onto statuses that tell a caller to retry
 
     Catches:
         - DocumentNetworkError -> 503 Service Unavailable
         - DocumentLockTimeoutError -> 423 Locked
+
+    **It only sees what escapes the view**, being the outermost decorator. A route ending in
+    `except Exception: abort(500, ...)`, or a manager re-wrapping the raw errors into its own type,
+    makes it inert: neither status is ever emitted and a lock timeout is reported as an internal
+    server error. Both layers therefore re-raise these two unchanged
+
+    So a route decorated with this **must not** swallow them in a blanket `except Exception` of its
+    own; if it does, the decorator silently does nothing and the failure looks like a server fault
+    rather than a retryable one
     """
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -156,6 +187,68 @@ def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
             abort(423, "Database collection currently in use. Please try again!")
 
     return wrapper
+
+
+def handle_route_errors(message: str) -> Callable[..., Any]:
+    """
+    Owns a route's generic error tail: re-raise an HTTPException, map anything else to a 500
+
+    Nearly every route ends in the same two arms - ``except HTTPException: raise`` so an ``abort``
+    raised inside the handler keeps its own status, then ``except Exception`` logging the failure and
+    aborting 500. Written out, that is ~300 copies of six lines whose only per-route content is the
+    message; written here, a route says what it was doing and stops repeating how to fail
+
+    The message is a TEMPLATE formatted with the route's own keyword arguments, so the per-route text
+    survives the move: ``"while retrieving the Subnet with ID: {public_id}"`` reads the handler's
+    ``public_id``. A placeholder the route does not take is left as it is rather than raising - a
+    broken error message must not replace the error
+
+    What it deliberately does NOT do is own the arms in between. A route that maps its manager's
+    errors to 400s keeps those ``except`` clauses: they are the route's rules, not its plumbing
+
+    Args:
+        message (str): What the route was doing, as a template over its keyword arguments
+
+    Returns:
+        Callable[..., Any]: The decorator
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except HTTPException:
+                raise
+            except (DocumentLockTimeoutError, DocumentNetworkError):
+                # A TRANSIENT database failure is not an internal error: `@handle_db_errors` maps it to
+                # 423 / 503 so the caller knows to retry, and it only ever sees what escapes this
+                # wrapper. Claiming it here would make that a flat 500 instead
+                raise
+            except Exception as err:
+                LOGGER.error(
+                    "[%s] Exception: %s. Type: %s", func.__name__, err, type(err).__name__, exc_info=True,
+                )
+
+                try:
+                    # Bound to the signature, so a placeholder is filled whether the caller passed the
+                    # value positionally or by keyword - the shared route bodies do the former
+                    bound = inspect.signature(func).bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    detail: str = message.format(**bound.arguments)
+                except (KeyError, IndexError, TypeError, ValueError):
+                    detail = message
+
+                abort(500, f"An internal server error occured {detail}!")
+
+        # `functools.wraps` copies the name and docstring (the log label reads the former), but the
+        # `__wrapped__` link it also sets is deliberately dropped: the route tests unwrap a handler to
+        # call it without auth, and following the link would unwrap the error tail with it - every
+        # "an unexpected error is a 500" test would then see the raw exception instead
+        del wrapper.__wrapped__
+
+        return wrapper
+
+    return decorator
 
 
 def handle_oc_errors(context: str = "") -> Callable[..., Any]:
@@ -777,7 +870,7 @@ def check_user_in_service_portal(
         if api_key_required and not x_api_key:
             return None
 
-        cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
+        cached_user_manager: CachedUserManager = get_cached_user_manager()
         security_manager = SecurityManager(current_app.database_manager)
 
         user_exists_in_cache = cached_user_manager.cached_user_exists(email)

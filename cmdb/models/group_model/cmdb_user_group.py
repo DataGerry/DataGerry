@@ -20,7 +20,7 @@ from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 
 from cmdb.class_schema.group_model.cmdb_user_group_schema import get_cmdb_user_group_schema
 

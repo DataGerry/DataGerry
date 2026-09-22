@@ -47,8 +47,7 @@ A third thing to know about the surface as a whole: **the CSV export takes none 
 filters**. `GET /overview/<public_id>` narrows its IP table by `search`, `sort`, `status` and a
 `type` id list, while `GET /overview/<public_id>/export` accepts no query parameters at all and
 always writes the whole subnet. The frontend matches that rather than working around it, so the
-Export button beside a filtered table exports more than the table shows - recorded as
-discussion-backlog #202, where the decision is whether the export follows the view or says so.
+Export button beside a filtered table exports more than the table shows.
 
 These routes are transport glue: reading the query string / body, resolving the managers and
 mapping failures onto HTTP. The payloads themselves are built by `cmdb.framework.ipam`
@@ -58,7 +57,6 @@ from typing import Any
 
 from flask import abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
@@ -76,7 +74,7 @@ from cmdb.framework.ipam.subnet_overview import (
 from cmdb.framework.ipam.subnet_options import build_subnet_options_page
 from cmdb.framework.ipam.subnet_unassign import unassign_ips_from_subnet
 from cmdb.framework.ipam.subnet_export import build_subnet_ips_csv
-from cmdb.framework.exporter.export_filename_helper import build_export_filename_timestamp
+from cmdb.framework.exporter.export_filename_helper import build_ipam_export_filename
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_ipam_managers,
     read_json_object_body,
@@ -85,10 +83,11 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_string_param,
 )
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import (
+    IpamRight,
     SUBNET_INVALID_FAMILY_MESSAGE,
     SUBNET_SECTOR_START_REQUIRED_MESSAGE,
 )
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
@@ -103,6 +102,8 @@ ipam_subnet_blueprint = APIBlueprint('ipam_subnet', __name__)
 @ipam_subnet_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_subnet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while loading the subnet options")
 def get_subnet_options(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated subnet-options list for the interface picker
@@ -136,44 +137,38 @@ def get_subnet_options(request_user: CmdbUser) -> Response:
         Response: {'page', 'page_size', 'total', 'search', 'type',
             'rows': [{public_id, name, cidr, type}, ...]}
     """
-    try:
-        page, page_size = read_pagination_params()
-        search: str = read_search_param()
-        # 'type' on THIS route is the address family, not the type-id filter of /overview - see
-        # the module docstring
-        family: str = read_string_param(IpamOverviewKey.TYPE)
+    page, page_size = read_pagination_params()
+    search: str = read_search_param()
+    # 'type' on THIS route is the address family, not the type-id filter of /overview - see
+    # the module docstring
+    family: str = read_string_param(IpamOverviewKey.TYPE)
 
-        if family and not IpAddressFamily.is_valid(family):
-            abort(400, SUBNET_INVALID_FAMILY_MESSAGE.format(
-                family=family,
-                allowed=', '.join(member.value for member in IpAddressFamily),
-            ))
-
-        objects_manager, types_manager = read_ipam_managers(request_user)
-
-        options: dict[str, Any] = build_subnet_options_page(
-            objects_manager,
-            types_manager,
-            page=page,
-            page_size=page_size,
-            search=search,
+    if family and not IpAddressFamily.is_valid(family):
+        abort(400, SUBNET_INVALID_FAMILY_MESSAGE.format(
             family=family,
-        )
+            allowed=', '.join(member.value for member in IpAddressFamily),
+        ))
 
-        return DefaultResponse(options).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_subnet_options] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(500, "An internal server error occured while loading the subnet options!")
+    objects_manager, types_manager = read_ipam_managers(request_user)
+
+    options: dict[str, Any] = build_subnet_options_page(
+        objects_manager,
+        types_manager,
+        request_user=request_user,
+        page=page,
+        page_size=page_size,
+        search=search,
+        family=family,
+    )
+
+    return DefaultResponse(options).make_response()
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_subnet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while building the overview for Subnet with ID: {public_id}")
 def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the subnet IP-overview payload
@@ -224,48 +219,39 @@ def get_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
         Response: {'subnet': {...summary, public_id}, 'ips': {page, page_size, total, rows},
             'type_distribution': [{public_id, label, count, percentage}, ...]}
     """
-    try:
-        page, page_size = read_pagination_params()
-        search: str = read_search_param()
-        sort: str = read_string_param(IpamOverviewKey.SORT)
-        order: str = read_string_param(IpamOverviewKey.ORDER)
-        status: str = read_string_param(IpamOverviewKey.STATUS)
-        # 'type' on THIS route is a comma-separated CmdbType public_id list, not the address family
-        # of the options route - see the module docstring
-        type_filter: str = read_string_param(IpamOverviewKey.TYPE)
+    page, page_size = read_pagination_params()
+    search: str = read_search_param()
+    sort: str = read_string_param(IpamOverviewKey.SORT)
+    order: str = read_string_param(IpamOverviewKey.ORDER)
+    status: str = read_string_param(IpamOverviewKey.STATUS)
+    # 'type' on THIS route is a comma-separated CmdbType public_id list, not the address family
+    # of the options route - see the module docstring
+    type_filter: str = read_string_param(IpamOverviewKey.TYPE)
 
-        objects_manager, types_manager = read_ipam_managers(request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        overview: dict[str, Any] = build_subnet_overview(
-            objects_manager,
-            types_manager,
-            public_id,
-            page=page,
-            page_size=page_size,
-            search=search,
-            sort=sort,
-            order=order,
-            status=status,
-            type_filter=type_filter,
-        )
+    overview: dict[str, Any] = build_subnet_overview(
+        objects_manager,
+        types_manager,
+        public_id,
+        request_user,
+        page=page,
+        page_size=page_size,
+        search=search,
+        sort=sort,
+        order=order,
+        status=status,
+        type_filter=type_filter,
+    )
 
-        return DefaultResponse(overview).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_subnet_overview] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while building the overview for Subnet with ID: {public_id}!",
-        )
+    return DefaultResponse(overview).make_response()
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/sector', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_subnet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while loading the sector IPs for Subnet with ID: {public_id}")
 def get_subnet_sector_ips(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated IP list of a single IP-distribution sector
@@ -294,44 +280,34 @@ def get_subnet_sector_ips(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         Response: {'sector': {ip_start, ip_end}, 'ips': {page, page_size, total, rows}}
     """
-    try:
-        sector_start: str = read_string_param(IpamOverviewKey.SECTOR_START)
+    sector_start: str = read_string_param(IpamOverviewKey.SECTOR_START)
 
-        if not sector_start:
-            abort(400, SUBNET_SECTOR_START_REQUIRED_MESSAGE.format(
-                parameter=IpamOverviewKey.SECTOR_START.value,
-            ))
+    if not sector_start:
+        abort(400, SUBNET_SECTOR_START_REQUIRED_MESSAGE.format(
+            parameter=IpamOverviewKey.SECTOR_START.value,
+        ))
 
-        page, page_size = read_pagination_params()
+    page, page_size = read_pagination_params()
 
-        objects_manager, types_manager = read_ipam_managers(request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        result: dict[str, Any] = build_subnet_sector_ips(
-            objects_manager,
-            types_manager,
-            public_id,
-            sector_start,
-            page=page,
-            page_size=page_size,
-        )
+    result: dict[str, Any] = build_subnet_sector_ips(
+        objects_manager,
+        types_manager,
+        public_id,
+        sector_start,
+        page=page,
+        page_size=page_size,
+    )
 
-        return DefaultResponse(result).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_subnet_sector_ips] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while loading the sector IPs for Subnet with ID: {public_id}!",
-        )
+    return DefaultResponse(result).make_response()
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/invalid', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_subnet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while building the invalid-only overview for Subnet with ID: {public_id}")
 def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the invalid-IPs-only subnet overview payload
@@ -363,39 +339,29 @@ def get_invalid_subnet_overview(public_id: int, request_user: CmdbUser) -> Respo
         Response: same envelope as ``get_subnet_overview`` with ips.rows filtered to invalid
             rows only and ips.total equal to the invalid count after the search filter
     """
-    try:
-        page, page_size = read_pagination_params()
-        search: str = read_search_param()
+    page, page_size = read_pagination_params()
+    search: str = read_search_param()
 
-        objects_manager, types_manager = read_ipam_managers(request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        overview: dict[str, Any] = build_invalid_ips_overview(
-            objects_manager,
-            types_manager,
-            public_id,
-            page=page,
-            page_size=page_size,
-            search=search,
-        )
+    overview: dict[str, Any] = build_invalid_ips_overview(
+        objects_manager,
+        types_manager,
+        public_id,
+        request_user,
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
 
-        return DefaultResponse(overview).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_invalid_subnet_overview] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while building the invalid-only overview"
-            f" for Subnet with ID: {public_id}!",
-        )
+    return DefaultResponse(overview).make_response()
 
 
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/export', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_subnet_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while exporting IPs for Subnet with ID: {public_id}")
 def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route exporting a subnet's IP rows as a CSV (.csv) file
@@ -424,34 +390,22 @@ def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         Response: The .csv file as an attachment download
     """
-    try:
-        objects_manager, types_manager = read_ipam_managers(request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        content: bytes = build_subnet_ips_csv(objects_manager, types_manager, public_id)
+    content: bytes = build_subnet_ips_csv(objects_manager, types_manager, public_id, request_user)
 
-        filename: str = IpamSubnetIpsExport.FILENAME_TEMPLATE.format(
-            public_id=public_id,
-            timestamp=build_export_filename_timestamp(),
-        )
+    filename: str = build_ipam_export_filename(
+        IpamSubnetIpsExport.FILENAME_SUBJECT_TEMPLATE.format(public_id=public_id),
+        IpamExport.FILE_EXTENSION,
+    )
 
-        return Response(
-            content,
-            mimetype=IpamExport.MIMETYPE,
-            # Quoted like every other export in the repo: an unquoted filename is only safe as long
-            # as the template never yields a space or a separator character
-            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
-        )
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[export_subnet_ips] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while exporting IPs for Subnet with ID: {public_id}!",
-        )
+    return Response(
+        content,
+        mimetype=IpamExport.MIMETYPE,
+        # Quoted like every other export in the repo: an unquoted filename is only safe as long
+        # as the template never yields a space or a separator character
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
 
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -459,6 +413,8 @@ def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
 @ipam_subnet_blueprint.route('/overview/<int:public_id>/unassign', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_subnet_blueprint.protect(auth=True, right=IpamRight.EDIT.value)
+@handle_route_errors("while unassigning IPs from Subnet with ID: {public_id}")
 def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that unassigns one or more dg-ipam-interface rows from the subnet
@@ -516,29 +472,17 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
             deduplicated request order, 'mode' echoes the resolved mode and 'unassigned_count' is
             the number of dg-ipam-interface rows affected across all touched owners
     """
-    try:
-        payload: dict[str, Any] = read_json_object_body()
+    payload: dict[str, Any] = read_json_object_body()
 
-        objects_manager, types_manager = read_ipam_managers(request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        result: dict[str, Any] = unassign_ips_from_subnet(
-            objects_manager,
-            types_manager,
-            public_id,
-            payload.get(IpamUnassignKey.IPS),
-            request_user,
-            raw_mode=payload.get(IpamUnassignKey.MODE),
-        )
+    result: dict[str, Any] = unassign_ips_from_subnet(
+        objects_manager,
+        types_manager,
+        public_id,
+        payload.get(IpamUnassignKey.IPS),
+        request_user,
+        raw_mode=payload.get(IpamUnassignKey.MODE),
+    )
 
-        return DefaultResponse(result).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[unassign_ips_route] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(
-            500,
-            f"An internal server error occured while unassigning IPs from Subnet with ID: {public_id}!",
-        )
+    return DefaultResponse(result).make_response()

@@ -24,6 +24,9 @@ Five things live here today:
     can never promise what the creation does differently
   - the bulk creation itself, with the compensating rollback that keeps a failed batch from leaving a
     half-built device behind
+  - the bulk ACTIONS over a selection (§30-35): which fields an edit may set, whether a selection is
+    really this object's, and what a delete would take with it - all validated as a whole, so a bulk
+    action is applied only if every element passes
   - the connection validator: the rules a CmdbPortConnection has to satisfy that neither its document
     schema nor its indexes can express
   - the resolved cable block a connection is READ with: one shape whether the cable lives on the
@@ -42,6 +45,15 @@ from .assignable_cables import (
     build_unassigned_cable_criteria,
     build_unassigned_cable_row,
     build_unassigned_cable_rows,
+)
+from .bulk_actions import (
+    build_bulk_edit_values,
+    build_delete_preview,
+    bulk_edit_value_blockers,
+    coerce_id_selection,
+    collect_ids,
+    connection_selection_blockers,
+    port_selection_blockers,
 )
 from .bulk_create import BulkCreateResult, create_batch, roll_back
 from .cable_usage import CableUsage, cable_usage_blocker, collect_cable_usage
@@ -83,6 +95,8 @@ from .connection_validator import (
     coerce_connection_type,
     endpoint_blockers,
     missing_endpoint_blockers,
+    read_endpoint_ports,
+    same_object_blockers,
     shape_blockers,
     unknown_connection_type_blocker,
 )
@@ -94,6 +108,13 @@ __all__: list[str] = [
     'build_unassigned_cable_row',
     'build_unassigned_cable_rows',
     'BulkCreateResult',
+    'build_bulk_edit_values',
+    'build_delete_preview',
+    'bulk_edit_value_blockers',
+    'coerce_id_selection',
+    'collect_ids',
+    'connection_selection_blockers',
+    'port_selection_blockers',
     'CableUsage',
     'cable_usage_blocker',
     'collect_cable_usage',
@@ -132,6 +153,8 @@ __all__: list[str] = [
     'coerce_connection_type',
     'endpoint_blockers',
     'missing_endpoint_blockers',
+    'read_endpoint_ports',
+    'same_object_blockers',
     'shape_blockers',
     'unknown_connection_type_blocker',
 ]

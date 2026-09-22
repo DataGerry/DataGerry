@@ -14,12 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Object-ACL filtering of GET /ci_explorer/items (backlog #146)
+Object-ACL filtering of GET /ci_explorer/items
 
-Until 2026-09-15 the graph consulted no ACL at all: holding the ciExplorer.view right was enough to
-read the label, type and neighbourhood of any object in the database. These tests drive the real
-route against real documents, which is the only way to prove it - the decision depends on an ACL
-stored on a CmdbType, and a mock-based test would only assert the filter against itself.
+Without the object ACL, holding the ciExplorer.view right would be enough to read the label, type
+and neighbourhood of any object in the database. These tests drive the real route against real
+documents, which is the only way to prove it does not - the decision depends on an ACL stored on a
+CmdbType, and a mock-based test would only assert the filter against itself.
 
 The locked type carries an activated ACL that names no group, so it denies every user including the
 suite's admin: access control fails closed, and no right bypasses it.
@@ -198,7 +198,7 @@ class TestDeniedNeighbours:
     """What a user may not read must not be in the payload."""
 
     def test_a_neighbour_of_a_locked_type_is_omitted(self, rest_api) -> None:
-        """The whole point of #146 - the graph used to hand it over with its label and type."""
+        """Without the filter the graph hands it over with its label and type."""
         response = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_FOCAL}&target_type=CHILD')
 
         assert response.status_code == HTTPStatus.OK

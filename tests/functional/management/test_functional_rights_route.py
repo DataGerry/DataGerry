@@ -28,6 +28,7 @@ from werkzeug.exceptions import NotFound
 from cmdb.manager import RightsManager
 from cmdb.interface.rest_api.routes.user_management_routes import rights_routes
 from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
+from cmdb.models.right_model.levels_enum import Levels
 from cmdb.errors.manager.rights_manager import RightsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -141,6 +142,30 @@ class TestGetLevels:
 
         assert response.status_code == HTTPStatus.OK
         assert len(response.get_json()['result']) > 0
+
+    def test_serves_every_level_with_its_number(self, rest_api) -> None:
+        """
+        The catalogue itself, not just its size
+
+        This assertion is the wire contract: a client renders the names and works with the numbers,
+        so a renamed key or a renumbered level is a breaking change wherever it is consumed.
+        """
+        result = rest_api.get(f'{ROUTE_URL}/levels').get_json()['result']
+
+        assert result == {level.name: int(level) for level in Levels}
+
+    def test_keeps_the_declaration_order(self, rest_api) -> None:
+        """
+        CRITICAL first, descending - a JSON object preserves the order it was built in
+
+        The catalogue is derived from the enum (`Levels.as_name_map`), so the order is the enum's.
+        It used to come from a hand-written dict whose order happened to match; a member inserted
+        between two others now appears where it was declared instead of where someone remembered to
+        type it.
+        """
+        response = rest_api.get(f'{ROUTE_URL}/levels')
+
+        assert list(response.get_json()['result']) == [level.name for level in Levels]
 
 
 def _raise(exc: Exception):

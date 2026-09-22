@@ -31,7 +31,7 @@ from typing import Any
 from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.levels_enum import Levels
-from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The root PREFIX every qualified right name has to start with

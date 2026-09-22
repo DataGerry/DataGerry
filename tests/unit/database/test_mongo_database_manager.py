@@ -338,6 +338,45 @@ class TestInsert:
 
         assert mgr.insert(COLL, DB, {'name': 'x'}) == 42
 
+    def test_a_caller_supplied_id_is_kept_and_raises_the_counter(self, mgr: MongoDatabaseManager) -> None:
+        """
+        An id the caller chose is stored as given, and the counter is raised to match it
+
+        Two paths choose the id themselves (POST /objects/ and the object importer). Without this the
+        counter would stay below the stored id, so the next insert would draw an id that is already
+        taken and burn a retry - and a block of MAX_DUPLICATE_KEY_RETRIES supplied ids would fail the
+        insert outright.
+        """
+        _stub_collection(mgr)
+        mgr.get_next_public_id = MagicMock()
+        mgr.update_public_id_counter = MagicMock()
+
+        assert mgr.insert(COLL, DB, {'public_id': 500, 'name': 'x'}) == 500
+
+        mgr.get_next_public_id.assert_not_called()
+        mgr.update_public_id_counter.assert_called_once_with(COLL, DB, value=500)
+
+    def test_a_drawn_id_does_not_touch_the_counter_twice(self, mgr: MongoDatabaseManager) -> None:
+        """An id drawn from the counter was already reserved by the draw - it is not raised again."""
+        _stub_collection(mgr)
+        mgr.get_next_public_id = MagicMock(return_value=42)
+        mgr.update_public_id_counter = MagicMock()
+
+        assert mgr.insert(COLL, DB, {'name': 'x'}) == 42
+
+        mgr.update_public_id_counter.assert_not_called()
+
+    def test_a_supplied_id_that_collides_falls_back_to_a_drawn_one(self, mgr: MongoDatabaseManager) -> None:
+        """A taken id is dropped on the retry, so the fresh id is drawn and not re-reconciled."""
+        collection = _stub_collection(mgr)
+        collection.insert_one.side_effect = [DuplicateKeyError('dup'), None]
+        mgr.get_next_public_id = MagicMock(return_value=6)
+        mgr.update_public_id_counter = MagicMock()
+
+        assert mgr.insert(COLL, DB, {'public_id': 5, 'name': 'x'}) == 6
+
+        mgr.update_public_id_counter.assert_not_called()
+
     def test_retries_on_duplicate_then_succeeds(self, mgr: MongoDatabaseManager) -> None:
         """A duplicate public_id is retried with a fresh id until the insert succeeds."""
         collection = _stub_collection(mgr)
@@ -747,15 +786,21 @@ class TestUpsertAndMoreWrappers:
 
         assert mgr.status() is True
 
-    def test_upsert_set_bumps_counter_on_insert(self, mgr: MongoDatabaseManager) -> None:
-        """When upsert_set inserts a new document it bumps the public_id counter."""
+    def test_upsert_set_raises_the_counter_to_the_created_id(self, mgr: MongoDatabaseManager) -> None:
+        """
+        An upsert that CREATES a document raises the counter to that id, not by one
+
+        The criteria is the public_id, so the id always comes from the caller. Bumping by one left the
+        counter below the stored id whenever the created id was not exactly counter+1 - creating
+        public_id 500 while the counter sat at 3 moved it to 4.
+        """
         collection = _stub_collection(mgr)
         collection.update_one.return_value = MagicMock(upserted_id='new')
         mgr.update_public_id_counter = MagicMock()
 
-        mgr.upsert_set(COLL, DB, {'public_id': 3})
+        mgr.upsert_set(COLL, DB, {'public_id': 500})
 
-        mgr.update_public_id_counter.assert_called_once()
+        mgr.update_public_id_counter.assert_called_once_with(COLL, DB, value=500)
 
     def test_upsert_set_no_counter_on_update(self, mgr: MongoDatabaseManager) -> None:
         """An in-place update (no upsert) does not touch the counter."""

@@ -211,13 +211,15 @@ def test_start_update_bumps_the_version_last() -> None:
 def test_start_update_wraps_any_failure(failing_step: str) -> None:
     """A failure in any step surfaces as UpdaterException and leaves the version unbumped"""
     updater = _prepared_updater()
+    failure = RuntimeError('boom')
 
     with patch(f'{MODULE_PATH}.SectionTemplatesManager'), \
          patch(f'{MODULE_PATH}.cleanup_claimed_types'), \
          patch(f'{MODULE_PATH}.cleanup_orphaned_types', return_value=0), \
          patch(f'{MODULE_PATH}.delete_template_document', return_value=False), \
-         patch(f'{MODULE_PATH}.{failing_step}', side_effect=RuntimeError('boom')):
-        with pytest.raises(UpdaterException):
+         patch(f'{MODULE_PATH}.{failing_step}', side_effect=failure):
+        with pytest.raises(UpdaterException) as caught:
             updater.start_update()
 
+    assert caught.value.args[0] is failure
     updater.increase_updater_version.assert_not_called()

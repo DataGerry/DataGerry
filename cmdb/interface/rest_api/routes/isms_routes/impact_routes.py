@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ImpactManager, ImpactCategoryManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -32,8 +31,9 @@ from cmdb.models.isms_model.isms_helper import calculate_risk_matrix
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -52,7 +52,7 @@ from cmdb.errors.manager.impact_manager import (
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -79,7 +79,8 @@ def _coerce_calculation_basis(data: dict[str, Any]) -> None:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.add')
-@impact_blueprint.validate(IsmsImpact.SCHEMA)
+@impact_blueprint.validate(build_write_schema(IsmsImpact.SCHEMA))
+@handle_route_errors("while creating the Impact")
 def insert_isms_impact(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsImpact into the database
@@ -118,17 +119,12 @@ def insert_isms_impact(data: dict[str, Any], request_user: CmdbUser) -> Response
         calculate_risk_matrix(request_user)
 
         return InsertSingleResponse(created_impact, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ImpactManagerInsertError as err:
         LOGGER.error("[insert_isms_impact] ImpactManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new Impact in the database!")
     except ImpactManagerGetError as err:
         LOGGER.error("[insert_isms_impact] ImpactManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created Impact from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_isms_impact] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the Impact!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -177,6 +173,7 @@ def get_isms_impacts(params: CollectionParameters, request_user: CmdbUser) -> Re
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.view')
+@handle_route_errors("while retrieving the Impact with ID: {public_id}")
 def get_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsImpact
@@ -195,14 +192,9 @@ def get_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
                                            f"The Impact with ID:{public_id} was not found!")
 
         return GetSingleResponse(requested_impact, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ImpactManagerGetError as err:
         LOGGER.error("[get_isms_impact] ImpactManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Impact with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_impact] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the Impact with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -210,7 +202,8 @@ def get_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.edit')
-@impact_blueprint.validate(IsmsImpact.SCHEMA)
+@impact_blueprint.validate(build_write_schema(IsmsImpact.SCHEMA))
+@handle_route_errors("while updating the Impact with ID: {public_id}")
 def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsImpact
@@ -238,6 +231,10 @@ def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbU
         if basis_changed and impact_manager.impact_calculation_basis_exists(data['calculation_basis']):
             abort(400, "The calculation basis is already used by another Impact!")
 
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document, and
+        # both branches below build the model from this payload
+        pin_public_id(data, public_id)
+
         # If the calculation_basis changed, also update IsmsRiskAssessments
         if basis_changed:
             impact_manager.update_with_follow_up(public_id, data)
@@ -248,17 +245,12 @@ def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbU
         calculate_risk_matrix(request_user)
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ImpactManagerGetError as err:
         LOGGER.error("[update_isms_impact] ImpactManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Impact with ID: {public_id} from the database!")
     except ImpactManagerUpdateError as err:
         LOGGER.error("[update_isms_impact] ImpactManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Impact with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_isms_impact] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the Impact with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -266,6 +258,7 @@ def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbU
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_blueprint.protect(auth=True, right='base.isms.impact.delete')
+@handle_route_errors("while deleting the Impact with ID: {public_id}")
 def delete_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsImpact
@@ -297,14 +290,9 @@ def delete_isms_impact(public_id: int, request_user: CmdbUser) -> Response:
         calculate_risk_matrix(request_user)
 
         return DeleteSingleResponse(to_delete_impact).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ImpactManagerDeleteError as err:
         LOGGER.error("[delete_isms_impact] ImpactManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the Impact with ID:{public_id}!")
     except ImpactManagerGetError as err:
         LOGGER.error("[delete_isms_impact] ImpactManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Impact with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_isms_impact] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the Impact with ID: {public_id}!")

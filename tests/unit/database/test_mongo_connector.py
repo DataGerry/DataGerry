@@ -25,12 +25,11 @@ overwrites that instance's host / port / options / client. An autouse fixture th
 restores `_instance` around every test - without it these tests would break every later DB-touching
 test in the session.
 
-Several tests pin behaviour the audit flagged as wrong and that was deliberately left unchanged: the
-'ssl' option being dropped without carrying its value into 'tls' (discussion-backlog #139), the
-caller's options dict being mutated in place (#140), `is_connected` raising instead of returning False
-(#141) and `disconnect` swallowing a failed close
-(#143). They are regression pins for the CURRENT contract, not endorsements - each names its item so a
-fix knows which test to rewrite.
+Several tests pin behaviour that is known to be wrong and deliberately left unchanged: the 'ssl'
+option being dropped without carrying its value into 'tls', the caller's options dict being mutated
+in place, `is_connected` raising instead of returning False, and `disconnect` swallowing a failed
+close. They are regression pins for the CURRENT contract, not endorsements - each says so, so a fix
+knows which test to rewrite.
 """
 from typing import Any, Iterator
 from unittest.mock import MagicMock, patch
@@ -94,7 +93,7 @@ def test_second_construction_returns_the_same_instance() -> None:
 
 
 def test_a_later_construction_overwrites_host_and_port() -> None:
-    """The cached instance is re-pointed by a later construction (discussion-backlog #145)"""
+    """The cached instance is re-pointed by a later construction"""
     _connector({}, host='first.example.test', port=1111)
     connector = _connector({}, host='second.example.test', port=2222)
 
@@ -102,7 +101,7 @@ def test_a_later_construction_overwrites_host_and_port() -> None:
 
 
 def test_a_later_construction_drops_the_cached_client_without_closing_it() -> None:
-    """__init__ resets the lazy client on the shared instance; the old one is not closed (#144)"""
+    """__init__ resets the lazy client on the shared instance; the old one is not closed"""
     client = MagicMock()
     connector = _with_client(_connector({}), client)
 
@@ -121,7 +120,7 @@ def test_port_is_coerced_to_int() -> None:
 #                                                 TLS / ssl handling                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_ssl_option_is_dropped_without_carrying_its_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#139: an explicit ssl=True over host/port ends up as tls=False, NOT tls=True"""
+    """An explicit ssl=True over host/port ends up as tls=False, NOT tls=True"""
     monkeypatch.delenv(MONGO_CONNECTION_STRING_ENV, raising=False)
 
     options = _connector({MONGO_SSL_OPTION: True}).client_options
@@ -138,7 +137,7 @@ def test_srv_connection_string_enables_tls(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_plain_connection_string_does_not_enable_tls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#139: a plain mongodb:// string gets tls=False injected, overriding what the URI may ask for"""
+    """A plain mongodb:// string gets tls=False injected, overriding what the URI may ask for"""
     monkeypatch.setenv(MONGO_CONNECTION_STRING_ENV, PLAIN_STRING)
 
     assert _connector({}).client_options[MONGO_TLS_OPTION] is False
@@ -153,7 +152,7 @@ def test_a_caller_supplied_tls_option_is_respected(provided: bool, monkeypatch: 
 
 
 def test_the_callers_options_dict_is_mutated_in_place() -> None:
-    """#140: the caller's dict is stored by reference and loses 'ssl' / gains 'tls'"""
+    """The caller's dict is stored by reference and loses 'ssl' / gains 'tls'"""
     options: dict[str, Any] = {'retryReads': True, MONGO_SSL_OPTION: True}
 
     connector = _connector(options)
@@ -270,10 +269,10 @@ def test_connect_raises_when_the_server_is_unreachable() -> None:
 
 def test_connect_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    The retry wrapper fires again since 2026-09-09 (was discussion-backlog #142)
+    The retry wrapper fires on a converted error
 
-    ``connect`` converts a `ConnectionFailure` into a `DatabaseConnectionError`, which the decorator
-    used to ignore - so the four decorators on this class never retried anything. The policy now
+    ``connect`` converts a `ConnectionFailure` into a `DatabaseConnectionError`. A decorator that
+    ignored it would leave the four decorators on this class retrying nothing. The policy
     reads the typed error's cause, and a failed connection attempt is exactly what may be repeated.
     """
     monkeypatch.setattr(retry_module.time, 'sleep', lambda *_args: None)
@@ -310,17 +309,44 @@ def test_disconnect_without_a_client_is_a_no_op() -> None:
     assert (status.get_status(), status.message) == (False, "No active database connection to close.")
 
 
-def test_disconnect_swallows_a_failing_close_and_keeps_the_client() -> None:
-    """#143: a failed close reports the same connected=False and leaves the broken client in place"""
+def test_disconnect_reports_a_failing_close_instead_of_disguising_it() -> None:
+    """
+    T124: a failed close used to answer the same connected=False a successful one does
+
+    Only the message differed, so no caller could tell a close from a failure to close.
+    """
     client = MagicMock()
     client.close.side_effect = RuntimeError('boom')
     connector = _with_client(_connector({}), client)
 
-    status = connector.disconnect()
+    with pytest.raises(DatabaseConnectionError):
+        connector.disconnect()
 
-    assert status.get_status() is False
-    assert status.message == 'Error while disconnecting: boom'
-    assert connector._client is client  # pylint: disable=protected-access
+
+def test_disconnect_drops_the_client_even_when_the_close_failed() -> None:
+    """
+    T124: a client whose close() failed must not be handed to the next caller
+
+    It used to be left in place, so the next `client` access returned the same broken object instead
+    of building a new one - the close had failed AND the connector kept the corpse.
+    """
+    client = MagicMock()
+    client.close.side_effect = RuntimeError('boom')
+    connector = _with_client(_connector({}), client)
+
+    with pytest.raises(DatabaseConnectionError):
+        connector.disconnect()
+
+    assert connector._client is None  # pylint: disable=protected-access
+
+
+def test_disconnect_drops_the_client_after_a_successful_close() -> None:
+    """The ordinary path clears it too, so the property rebuilds one on demand."""
+    connector = _with_client(_connector({}), MagicMock())
+
+    connector.disconnect()
+
+    assert connector._client is None  # pylint: disable=protected-access
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -335,11 +361,45 @@ def test_is_connected_is_true_when_the_server_answers() -> None:
     assert connector.is_connected() is True
 
 
-def test_is_connected_raises_instead_of_returning_false() -> None:
-    """#141: the documented 'False otherwise' never happens - callers have to catch"""
+def test_is_connected_is_false_when_the_server_does_not_answer() -> None:
+    """
+    T123: the method answers the question it is named for, rather than raising
+
+    It used to re-raise, which is why `GET /rest/` - the probe whose whole job is to report
+    connectivity - answered 500 instead of `connected: false` when the database was down.
+    """
     client = MagicMock()
     client.admin.command.side_effect = ConnectionFailure('server down')
     connector = _with_client(_connector({}), client)
 
-    with pytest.raises(DatabaseConnectionError):
-        connector.is_connected()
+    assert connector.is_connected() is False
+
+
+def test_is_connected_is_false_when_the_response_is_not_acknowledged() -> None:
+    """Not only an unreachable server: an unexpected reply is a negative answer, not an error."""
+    client = MagicMock()
+    client.admin.command.return_value = {MONGO_COMMAND_OK_KEY: 0}
+    connector = _with_client(_connector({}), client)
+
+    assert connector.is_connected() is False
+
+
+def test_is_connected_does_not_swallow_the_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The False means "the retries are spent", not "the first attempt failed"
+
+    `connect()` carries @retry_operation and reaching the database is side-effect free, so a transient
+    failure is repeated before it arrives here. This pins that the catch is around the retried call
+    rather than replacing it.
+    """
+    attempts: list[int] = []
+    connector = _connector({})
+
+    def _always_fails(_self=None):
+        attempts.append(1)
+        raise DatabaseConnectionError('down')
+
+    monkeypatch.setattr(type(connector), 'connect', _always_fails)
+
+    assert connector.is_connected() is False
+    assert len(attempts) == 1

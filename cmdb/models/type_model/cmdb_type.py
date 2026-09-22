@@ -35,9 +35,9 @@ the `from_data` / `to_json` round-trip are defined once rather than spelled out 
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
-from dateutil.parser import parse
 
 from cmdb.security.acl.access_control_list import AccessControlList
+from cmdb.utils import coerce_document_dates
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model.type_summary import TypeSummary
 from cmdb.models.type_model.type_external_link import TypeExternalLink
@@ -47,7 +47,7 @@ from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.models.type_model.type_constants import NestedSummaryKey
+from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, NestedSummaryKey
 from cmdb.class_schema.type_model.cmdb_type_schema import get_cmdb_type_schema
 
 from cmdb.errors.models.cmdb_type import (
@@ -73,6 +73,8 @@ class CmdbType(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.types"
+    DATE_FIELDS: tuple[str, ...] = (TypeSchemaKey.CREATION_TIME.value,
+                                    TypeSchemaKey.LAST_EDIT_TIME.value)
     DEFAULT_VERSION = '1.0.0'
     SCHEMA: dict[str, Any] = get_cmdb_type_schema()
 
@@ -95,6 +97,7 @@ class CmdbType(CmdbDAO):
         special_type: str | None = None,
         selectable_as_parent: bool = True,
         uses_ports: bool = False,
+        port_section_index: int = DEFAULT_PORT_SECTION_INDEX,
         global_template_ids: list[str] | None = None,
         fields: list[dict[str, Any]] | None = None,
         version: str | None = None,
@@ -124,6 +127,10 @@ class CmdbType(CmdbDAO):
             selectable_as_parent (bool): Whether this CmdbType can be a parent Location. Defaults to True
             uses_ports (bool): Whether CmdbObjects of this CmdbType may carry physical ports.
                                 Defaults to False, so every existing CmdbType reads as not using ports
+            port_section_index (int): Where among this CmdbType's sections the frontend draws the
+                                        ports section - 0 puts it first, 1 second, and so on. Only
+                                        read while `uses_ports` is true; the write paths force it back
+                                        to DEFAULT_PORT_SECTION_INDEX whenever the flag is off
             global_template_ids (list[str]): Names of the global CmdbSectionTemplates used by this
                                                 CmdbType (the name is also the render_meta section name)
             fields (list): A list of fields associated with the CmdbType
@@ -144,6 +151,7 @@ class CmdbType(CmdbDAO):
             self.version: str = version or CmdbType.DEFAULT_VERSION
             self.selectable_as_parent: bool = selectable_as_parent
             self.uses_ports: bool = uses_ports
+            self.port_section_index: int = port_section_index
             self.global_template_ids: list[str] = global_template_ids or []
             self.active: bool = active
             self.special_type: str | None = special_type
@@ -178,13 +186,13 @@ class CmdbType(CmdbDAO):
             CmdbType: CmdbType with the given data
         """
         try:
-            creation_time: datetime | None = data.get(TypeSchemaKey.CREATION_TIME.value)
-            if isinstance(creation_time, str):
-                creation_time = parse(creation_time, fuzzy=True)
+            # The audit timestamps are coerced strictly: a value that cannot be read is refused
+            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
+            # 'sometime in March' into a date built from today's day number
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            last_edit_time: datetime | None = data.get(TypeSchemaKey.LAST_EDIT_TIME.value)
-            if isinstance(last_edit_time, str):
-                last_edit_time = parse(last_edit_time, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             raw_editor_id: Any | None = data.get(TypeSchemaKey.EDITOR_ID.value)
 
@@ -193,13 +201,15 @@ class CmdbType(CmdbDAO):
                 name=data[TypeSchemaKey.NAME.value],
                 selectable_as_parent=data.get(TypeSchemaKey.SELECTABLE_AS_PARENT.value, True),
                 uses_ports=data.get(TypeSchemaKey.USES_PORTS.value, False),
+                port_section_index=data.get(TypeSchemaKey.PORT_SECTION_INDEX.value,
+                                            DEFAULT_PORT_SECTION_INDEX),
                 global_template_ids=data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value, []),
                 active=data.get(TypeSchemaKey.ACTIVE.value, True),
                 special_type=data.get(TypeSchemaKey.SPECIAL_TYPE.value),
                 author_id=int(data[TypeSchemaKey.AUTHOR_ID.value]),
-                creation_time=creation_time,
+                creation_time=data.get(TypeSchemaKey.CREATION_TIME.value),
                 editor_id=int(raw_editor_id) if raw_editor_id is not None else None,
-                last_edit_time=last_edit_time,
+                last_edit_time=data.get(TypeSchemaKey.LAST_EDIT_TIME.value),
                 label=data.get(TypeSchemaKey.LABEL.value),
                 version=data.get(TypeSchemaKey.VERSION.value),
                 description=data.get(TypeSchemaKey.DESCRIPTION.value),
@@ -233,6 +243,7 @@ class CmdbType(CmdbDAO):
                 TypeSchemaKey.NAME.value: instance.name,
                 TypeSchemaKey.SELECTABLE_AS_PARENT.value: instance.selectable_as_parent,
                 TypeSchemaKey.USES_PORTS.value: instance.uses_ports,
+                TypeSchemaKey.PORT_SECTION_INDEX.value: instance.port_section_index,
                 TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: instance.global_template_ids,
                 TypeSchemaKey.ACTIVE.value: instance.active,
                 TypeSchemaKey.SPECIAL_TYPE.value: instance.special_type,

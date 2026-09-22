@@ -19,7 +19,7 @@ Unit tests for the shared from_data / to_json on cmdb.models.cmdb_dao.CmdbDAO
 Pure tests: no Mongo, no Flask. A model that declares ``KEYS`` plus its two error types inherits both
 methods instead of writing its own copy - the lift that replaced eleven byte-identical
 ``__init__``/``from_data``/``to_json`` triples in the ISMS family, each with its own three untested
-``except`` arms (discussion-backlog #206).
+``except`` arms.
 
 What is pinned here is the contract of that shared pair, exercised against a local model built for the
 purpose rather than against a real one, so the base class is tested on its own terms:

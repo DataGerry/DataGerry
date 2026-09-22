@@ -30,6 +30,7 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.extendable_option_model import OptionType
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.port_interface_link_model import PortInterfaceLinkKey
 from cmdb.models.port_model import PortKey, PortSide
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
@@ -37,8 +38,18 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.port_routes import port_interface_link_helper as link_helper_module
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRequestKey
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
+from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
+    INTERFACE_ROW_KEY,
+    PORT_INTERFACE_LINKS_KEY,
+)
+from cmdb.interface.rest_api.routes.port_routes.port_bulk_helper import (
+    abort_bulk_action,
+    get_selection_or_abort,
+    read_ports_by_id,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import (
     enforce_interface_on_port_object,
+    with_interface_links,
     read_assignable_candidate_objects,
     read_assignable_lookups,
     get_interface_row_or_abort,
@@ -748,3 +759,230 @@ class TestReadAssignableLookups:
         assert (type_labels, summary_lines) == ({CAPABLE_TYPE_ID: 'Switch'},
                                                 {OWNER_OBJECT_ID: 'Switch / edge-01'})
         assert objects_manager.get_summary_lines_lookup.call_args.kwargs['object_docs'] is candidates
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       the interface links of a port read                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+LINK_SECTION_ID: str = 'dg-ipam-interface'
+LINK_ROW_ID: int = 7
+OTHER_ROW_ID: int = 8
+
+
+def _link(port_id: int, row_id: int, interface_object_id: int = OBJECT_ID, **overrides: Any) -> dict[str, Any]:
+    """A stored port <-> interface link document."""
+    link: dict[str, Any] = {
+        PortInterfaceLinkKey.PUBLIC_ID.value: 900 + row_id,
+        PortInterfaceLinkKey.PORT_ID.value: port_id,
+        PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value: interface_object_id,
+        PortInterfaceLinkKey.INTERFACE_SECTION_ID.value: LINK_SECTION_ID,
+        PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value: row_id,
+    }
+    link.update(overrides)
+
+    return link
+
+
+def _owner_with_rows(*row_ids: int) -> dict[str, Any]:
+    """The owner CmdbObject carrying the interface rows the links address."""
+    return {
+        CmdbObjectKey.PUBLIC_ID.value: OBJECT_ID,
+        CmdbObjectKey.MULTI_DATA_SECTIONS.value: [{
+            'section_id': LINK_SECTION_ID,
+            'values': [
+                {'multi_data_id': row_id, 'data': [{'name': 'dg-ipam-interface-ip', 'value': f'10.0.0.{row_id}'}]}
+                for row_id in row_ids
+            ],
+        }],
+    }
+
+
+def _links_manager(links: list[dict[str, Any]]) -> MagicMock:
+    """A PortInterfaceLinksManager stand-in."""
+    manager = MagicMock(name='port_interface_links_manager')
+    manager.get_links_of_ports.return_value = links
+
+    return manager
+
+
+class TestWithInterfaceLinks:
+    """
+    Both port reads answer with each port's interface links attached
+
+    The ports panel shows a port's addresses next to the port, so the alternative is one follow-up
+    request per port - 48 of them for a switch.
+    """
+
+    def test_each_port_gets_its_own_links(self) -> None:
+        """Grouped by port_id, not handed to every port of the page"""
+        links_manager = _links_manager([
+            _link(PORT_ID, LINK_ROW_ID), _link(OTHER_PORT_ID, OTHER_ROW_ID),
+        ])
+        ports = [_port(), _port(**{PortKey.PUBLIC_ID.value: OTHER_PORT_ID})]
+
+        with_interface_links(links_manager, MagicMock(), ports, _owner_with_rows(LINK_ROW_ID, OTHER_ROW_ID))
+
+        assert [link[PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value]
+                for link in ports[0][PORT_INTERFACE_LINKS_KEY]] == [LINK_ROW_ID]
+        assert [link[PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value]
+                for link in ports[1][PORT_INTERFACE_LINKS_KEY]] == [OTHER_ROW_ID]
+
+    def test_a_port_with_several_links_keeps_them_all(self) -> None:
+        """A bond member or a stack of VLAN sub-interfaces is the N:M case the feature exists for"""
+        links_manager = _links_manager([_link(PORT_ID, LINK_ROW_ID), _link(PORT_ID, OTHER_ROW_ID)])
+        ports = [_port()]
+
+        with_interface_links(links_manager, MagicMock(), ports, _owner_with_rows(LINK_ROW_ID, OTHER_ROW_ID))
+
+        assert len(ports[0][PORT_INTERFACE_LINKS_KEY]) == 2
+
+    def test_a_port_without_links_carries_an_empty_list(self) -> None:
+        """
+        Never a missing key
+
+        "Linked to nothing" is the common state, and a client must not have to tell it apart from
+        "the server did not answer that question".
+        """
+        ports = [_port()]
+
+        with_interface_links(_links_manager([]), MagicMock(), ports, _owner_with_rows())
+
+        assert ports[0][PORT_INTERFACE_LINKS_KEY] == []
+
+    def test_the_live_row_is_attached(self) -> None:
+        """The panel shows the addresses, so the row travels with the link"""
+        ports = [_port()]
+
+        with_interface_links(_links_manager([_link(PORT_ID, LINK_ROW_ID)]), MagicMock(), ports,
+                             _owner_with_rows(LINK_ROW_ID))
+
+        row = ports[0][PORT_INTERFACE_LINKS_KEY][0][INTERFACE_ROW_KEY]
+
+        assert row['multi_data_id'] == LINK_ROW_ID
+
+    def test_a_dangling_link_is_listed_without_its_row(self) -> None:
+        """
+        Shown, never hidden
+
+        The interface half of a link is soft: an MDS row id is not durable, so a link whose row is
+        gone is tolerated and reported. Dropping it from the list would hide the only record of what
+        the customer meant.
+        """
+        ports = [_port()]
+
+        with_interface_links(_links_manager([_link(PORT_ID, LINK_ROW_ID)]), MagicMock(), ports,
+                             _owner_with_rows(OTHER_ROW_ID))
+
+        link = ports[0][PORT_INTERFACE_LINKS_KEY][0]
+
+        assert INTERFACE_ROW_KEY not in link
+        assert link[PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value] == LINK_ROW_ID
+
+    def test_the_whole_page_costs_one_query(self) -> None:
+        """One batched `$in` for every port on the page, the same shape the connected flag uses"""
+        links_manager = _links_manager([])
+        ports = [_port(), _port(**{PortKey.PUBLIC_ID.value: OTHER_PORT_ID})]
+
+        with_interface_links(links_manager, MagicMock(), ports, _owner_with_rows())
+
+        links_manager.get_links_of_ports.assert_called_once_with([PORT_ID, OTHER_PORT_ID])
+
+    def test_the_owner_in_hand_costs_no_object_read(self) -> None:
+        """
+        The saving that makes this free
+
+        An interface must live on the port's own object, and the route already read that object for
+        the ACL check - so resolving the rows must not read it again.
+        """
+        objects_manager = MagicMock(name='objects_manager')
+
+        with_interface_links(_links_manager([_link(PORT_ID, LINK_ROW_ID)]), objects_manager, [_port()],
+                             _owner_with_rows(LINK_ROW_ID))
+
+        objects_manager.get_object.assert_not_called()
+
+    def test_without_the_owner_the_object_is_read_once(self) -> None:
+        """The parameter is an optimisation, not a requirement: the helper still resolves without it"""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = _owner_with_rows(LINK_ROW_ID)
+
+        ports = [_port()]
+        with_interface_links(_links_manager([_link(PORT_ID, LINK_ROW_ID), _link(PORT_ID, OTHER_ROW_ID)]),
+                             objects_manager, ports)
+
+        objects_manager.get_object.assert_called_once_with(OBJECT_ID)
+        assert INTERFACE_ROW_KEY in ports[0][PORT_INTERFACE_LINKS_KEY][0]
+
+    def test_an_empty_page_asks_nothing_of_the_links(self) -> None:
+        """An object with no ports is the common case on every object view that does not use them"""
+        links_manager = _links_manager([])
+
+        assert with_interface_links(links_manager, MagicMock(), [], _owner_with_rows()) == []
+        links_manager.get_links_of_ports.assert_called_once_with([])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the bulk ACTION helpers (§30-35)                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBulkActionHelpers:
+    """The request-shaped half of the bulk actions: the ones that abort, and the one read."""
+
+    def test_a_usable_selection_is_read(self, ctx) -> None:
+        """The ordinary case"""
+        del ctx
+
+        assert get_selection_or_abort({'port_ids': [PORT_ID, OTHER_PORT_ID]}, 'port_ids') == [
+            PORT_ID, OTHER_PORT_ID,
+        ]
+
+    @pytest.mark.parametrize('body', [{}, {'port_ids': []}, {'port_ids': 'all'}], ids=str)
+    def test_an_unusable_selection_aborts_400(self, ctx, body: dict[str, Any]) -> None:
+        """A bulk action over nothing, or over something that is not a list of ids, is a client bug"""
+        del ctx
+
+        with pytest.raises(HTTPException) as raised:
+            get_selection_or_abort(body, 'port_ids')
+
+        assert raised.value.code == 400
+
+    def test_no_blockers_is_a_no_op(self, ctx) -> None:
+        """The happy path of every bulk action goes through here"""
+        del ctx
+
+        assert abort_bulk_action([]) is None
+
+    def test_every_blocker_reaches_the_message(self, ctx) -> None:
+        """
+        One refusal, every reason - and it says nothing was changed
+
+        That sentence is the part a caller relies on: a bulk action is validated as a whole, so a
+        refusal means the selection is untouched rather than partially applied.
+        """
+        del ctx
+
+        with pytest.raises(HTTPException) as raised:
+            abort_bulk_action(['first reason', 'second reason'])
+
+        assert raised.value.code == 400
+        assert 'first reason' in raised.value.description
+        assert 'second reason' in raised.value.description
+        assert 'nothing was changed' in raised.value.description
+
+    def test_the_selected_ports_are_read_in_one_query(self) -> None:
+        """One batched `$in` for the whole selection"""
+        manager = MagicMock(name='ports_manager')
+        manager.find.return_value = [_port(), _port(**{PortKey.PUBLIC_ID.value: OTHER_PORT_ID})]
+
+        ports = read_ports_by_id(manager, [PORT_ID, OTHER_PORT_ID])
+
+        assert set(ports) == {PORT_ID, OTHER_PORT_ID}
+        manager.find.assert_called_once_with(
+            criteria={PortKey.PUBLIC_ID.value: {'$in': [PORT_ID, OTHER_PORT_ID]}},
+        )
+
+    def test_an_empty_selection_costs_no_query(self) -> None:
+        """Unreachable from the routes, which refuse an empty selection - but the helper is reusable"""
+        manager = MagicMock(name='ports_manager')
+
+        assert read_ports_by_id(manager, []) == {}
+        manager.find.assert_not_called()

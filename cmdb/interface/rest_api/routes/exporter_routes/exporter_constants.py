@@ -52,6 +52,15 @@ class ExporterRight(BaseStrEnum):
     splitting further. The values mirror ExportObjectRight / ExportTypeRight in the right model - a
     value that does not exist there denies every caller, which is why they are written down once here
     instead of being spelled at each route
+
+    **Who holds them:** nobody by default. The seeded `user` group carries neither, so a default user
+    may read objects and types and may not export them - reading a thing and taking it away as a file
+    are different permissions, and a type export additionally carries every Type's stored `acl`
+    block.
+
+    Note the IPAM overview CSVs and the DocAPI render answer the same question differently - they are
+    guarded by the feature's own view right, on the grounds that whoever may read the view may take it
+    away as a file. That the three export-shaped surfaces disagree is filed, not settled
     """
     OBJECT = 'base.export.object.*'
     TYPE = 'base.export.type.*'

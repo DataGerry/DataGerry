@@ -17,9 +17,9 @@
 Unit tests for cmdb.database.retry
 
 Pure tests: no Mongo. What is pinned here is the **policy**, because the decorator's whole value is
-which failures it repeats and which it does not (discussion-backlog #142: until 2026-09-09 it caught
-only raw pymongo errors, which the decorated methods convert into typed `cmdb.errors.database` errors
-before they can escape - so 34 of the 36 decorators in the layer never retried anything).
+which failures it repeats and which it does not. Catching only raw pymongo errors makes it inert:
+the decorated methods convert those into typed `cmdb.errors.database` errors before they can
+escape.
 
 Three groups:
 
@@ -188,7 +188,7 @@ class TestTheWrapper:
         assert recorder.calls == 1
 
     def test_a_transient_failure_is_retried_until_it_succeeds(self) -> None:
-        """The point of the decorator, and what #142 had made impossible"""
+        """The point of the decorator"""
         recorder = _Recorder(failures=2)
 
         assert recorder.read() == SENTINEL

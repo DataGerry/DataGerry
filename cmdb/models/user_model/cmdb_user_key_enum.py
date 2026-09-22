@@ -38,7 +38,8 @@ class CmdbUserKey(BaseStrEnum):
         USER_NAME: Login name; unique, backed by the collection's only index
         ACTIVE: Whether the CmdbUser may authenticate
         GROUP_ID: public_id of the CmdbUserGroup the CmdbUser belongs to
-        REGISTRATION_TIME: When the CmdbUser was created
+        REGISTRATION_TIME: When the CmdbUser was created. Stored as a BSON date, carried over
+            the wire as {'$date': millis}, held as a datetime on the model
         AUTHENTICATOR: Name of the auth provider that owns this CmdbUser
         DATABASE: Name of the database the CmdbUser belongs to (cloud mode)
         API_LEVEL: The CmdbUser's ApiLevel

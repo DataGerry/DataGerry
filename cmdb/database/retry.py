@@ -17,12 +17,12 @@
 The retry decorator of the database layer
 
 ``@retry_operation`` wraps the I/O methods of ``MongoConnector`` and ``MongoDatabaseManager``. Three
-things decide what it does, and all three were wrong before 2026-09-09:
+things decide what it does, and each is easy to get wrong:
 
 **1. WHICH failure is retried.** The decorated methods convert their exceptions into the typed
 ``cmdb.errors.database`` errors *inside* the method, so a decorator that only caught ``pymongo``
-exceptions saw nothing: 34 of the 36 decorators in the layer were inert (discussion-backlog #142).
-The policy therefore reads the *cause* of the typed error, and it has exactly two rules:
+exceptions would see nothing and be inert. The policy therefore reads the *cause* of the typed
+error, and it has exactly two rules:
 
   * a **server-selection failure** is retried for any operation - the driver found no server, so the
     command never left the process and repeating it cannot repeat a write

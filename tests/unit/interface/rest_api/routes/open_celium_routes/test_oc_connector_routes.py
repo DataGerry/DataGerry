@@ -18,7 +18,7 @@ Unit tests for cmdb.interface.rest_api.routes.open_celium_routes.oc_connector_ro
 
 Each handler is unwrapped past its decorator chain and driven inside a BaseCmdbApp
 test_request_context with the managers (build_connector_manager, DgServicePortalManager,
-CachedUserManager) patched at the route module path - no external OpenCelium HTTP, no Mongo. The app
+`get_cached_user_manager`) patched at the route module path - no external OpenCelium HTTP, no Mongo. The app
 runs on-premise (cloud_mode/local_mode False), so the cloud title-mapping / Service-Portal branches
 are skipped and the local code paths are exercised. The AUTOMATIONS 403 gate is covered by the
 functional automations-gating suite; calling the unwrapped handlers bypasses blueprint dispatch.
@@ -107,7 +107,7 @@ def fixture_patched_managers(oc_manager: MagicMock) -> Any:
     """
     with patch(f'{ROUTE_PATH}.build_connector_manager', return_value=oc_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=MagicMock()), \
-         patch(f'{ROUTE_PATH}.CachedUserManager', return_value=MagicMock()):
+         patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=MagicMock()):
         yield
 
 
@@ -673,16 +673,15 @@ def fixture_cloud_app() -> BaseCmdbApp:
 def fixture_cloud_managers(oc_manager: MagicMock) -> Any:
     """Patches the managers at the route AND helper module paths; yields the cached + portal mocks.
 
-    The connector access helpers build their own CachedUserManager / DgServicePortalManager, so those are
+    The connector access helpers reach for their own cached-user manager / DgServicePortalManager, so those are
     patched at the helper module path too - all returning the same mocks the test configures.
     """
     cached = MagicMock()
     dg_sp = MagicMock()
     with patch(f'{ROUTE_PATH}.build_connector_manager', return_value=oc_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=dg_sp), \
-         patch(f'{ROUTE_PATH}.CachedUserManager', return_value=cached), \
-         patch(f'{CONN_HELPER}.DgServicePortalManager', return_value=dg_sp), \
-         patch(f'{CONN_HELPER}.CachedUserManager', return_value=cached):
+         patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=cached), \
+         patch(f'{CONN_HELPER}.DgServicePortalManager', return_value=dg_sp):
         yield SimpleNamespace(cached=cached, dg_sp=dg_sp)
 
 

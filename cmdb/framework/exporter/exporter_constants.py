@@ -29,10 +29,16 @@ EXPORT_FILENAME_TIMESTAMP_FMT: str = '%Y_%m_%d-%H_%M_%S'
 # e.g. `2026_07_21-13_05_00_objects_router_readable.csv`, `2026_07_21-13_05_00_types_47.json`
 EXPORT_FILENAME_PART_SEPARATOR: str = '_'
 
-# What was exported - the two export kinds name themselves so an object export and a type export taken in
-# the same second are no longer indistinguishable
+# What was exported - the export kinds name themselves so an object export, a type export and a rendered
+# document taken in the same second are no longer indistinguishable
 EXPORT_KIND_OBJECTS: str = 'objects'
 EXPORT_KIND_TYPES: str = 'types'
+EXPORT_KIND_DOCUMENT: str = 'document'
+EXPORT_KIND_IPAM: str = 'ipam'
+
+# Subject of a rendered DocapiTemplate: which template was rendered, and for which CmdbObject. Both are
+# needed - the same template renders for every object, and the same object renders through every template
+EXPORT_SUBJECT_DOCUMENT_TEMPLATE: str = '{template}-{object_id}'
 
 # Subject of an object export when the selection is not one single type: JSON / XML / ZIP may span several
 # types (CSV and XLSX refuse a mixed selection), and a filter can match nothing at all

@@ -32,6 +32,7 @@ tests below are what prove it.
 import pytest
 
 from cmdb.models.group_model import GroupDeleteMode
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses.response_parameters import (
     CollectionParameters,
     GroupDeletionParameters,
@@ -126,7 +127,151 @@ class TestTypeIterationParametersToDict:
         result = TypeIterationParameters.to_dict(params)
         parent = CollectionParameters.to_dict(params)
 
-        assert result == {**parent, ParameterKey.ACTIVE.value: True}
+        assert result == {
+            **parent,
+            ParameterKey.ACTIVE.value: True,
+            ParameterKey.CATEGORY.value: None,
+            ParameterKey.UNCATEGORIZED.value: False,
+            ParameterKey.ACL.value: ['READ'],
+        }
+
+
+class TestTypeIterationParametersCategoryFilters:
+    """`category` and `uncategorized` replace the $lookup pipelines the frontend used to post."""
+
+    def test_defaults_to_no_category_restriction(self) -> None:
+        """An ordinary listing asks for neither, and neither is set."""
+        params = TypeIterationParameters.from_data(QUERY_STRING)
+
+        assert params.category is None
+        assert params.uncategorized is False
+
+    def test_converts_the_category_id_to_an_int(self) -> None:
+        """Flask delivers it as a string; it is a CmdbCategory public_id."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.CATEGORY.value: '12'})
+
+        assert params.category == 12
+
+    def test_an_empty_category_means_no_restriction(self) -> None:
+        """An Angular HttpParams entry whose source was cleared arrives as the empty string."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.CATEGORY.value: ''})
+
+        assert params.category is None
+
+    def test_a_non_numeric_category_is_rejected(self) -> None:
+        """The parse_parameters decorator turns the ValueError into an HTTP 400."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.CATEGORY.value: 'abc'})
+
+    @pytest.mark.parametrize('raw, expected', [('true', True), ('false', False), (True, True)], ids=str)
+    def test_converts_the_uncategorized_flag(self, raw, expected: bool) -> None:
+        """Same string coercion the `active` flag gets."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.UNCATEGORIZED.value: raw})
+
+        assert params.uncategorized is expected
+
+    def test_a_non_boolean_uncategorized_is_rejected(self) -> None:
+        """str_to_bool accepts only the two literals, so anything else is a 400."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.UNCATEGORIZED.value: 'yes'})
+
+    def test_the_two_category_filters_cannot_be_combined(self) -> None:
+        """A type is either in the given category or in none at all - asking both is a contradiction."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{
+                ParameterKey.CATEGORY.value: '12',
+                ParameterKey.UNCATEGORIZED.value: 'true',
+            })
+
+    def test_a_category_with_uncategorized_false_is_allowed(self) -> None:
+        """Only a truthy `uncategorized` contradicts a category id."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{
+            ParameterKey.CATEGORY.value: '12',
+            ParameterKey.UNCATEGORIZED.value: 'false',
+        })
+
+        assert params.category == 12
+
+    def test_the_category_filters_do_not_leak_into_optional(self) -> None:
+        """They are named parameters, so they must not also ride along as optional ones."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{
+            ParameterKey.CATEGORY.value: '12',
+        })
+
+        assert ParameterKey.CATEGORY.value not in params.optional
+        assert ParameterKey.UNCATEGORIZED.value not in params.optional
+
+
+class TestTypeIterationParametersAclFilter:
+    """`acl` names the permissions a listed type must grant, replacing the READ default."""
+
+    def test_defaults_to_read(self) -> None:
+        """An ordinary listing asks the question it always asked."""
+        params = TypeIterationParameters.from_data(QUERY_STRING)
+
+        assert params.acl == [AccessControlPermission.READ]
+
+    def test_converts_a_single_permission(self) -> None:
+        """?acl=CREATE replaces READ rather than adding to it."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.ACL.value: 'CREATE'})
+
+        assert params.acl == [AccessControlPermission.CREATE]
+
+    def test_converts_a_comma_separated_list(self) -> None:
+        """One value, not a repeated key - a repeated key would silently lose all but the first."""
+        params = TypeIterationParameters.from_data(
+            QUERY_STRING, **{ParameterKey.ACL.value: 'READ,CREATE,UPDATE'},
+        )
+
+        assert params.acl == [
+            AccessControlPermission.READ,
+            AccessControlPermission.CREATE,
+            AccessControlPermission.UPDATE,
+        ]
+
+    def test_tolerates_whitespace_around_the_separator(self) -> None:
+        """`?acl=READ, CREATE` is the same request."""
+        params = TypeIterationParameters.from_data(
+            QUERY_STRING, **{ParameterKey.ACL.value: 'READ, CREATE'},
+        )
+
+        assert params.acl == [AccessControlPermission.READ, AccessControlPermission.CREATE]
+
+    @pytest.mark.parametrize('raw', ['', ' ', 'READ,', ',READ'], ids=repr)
+    def test_an_empty_entry_is_rejected(self, raw: str) -> None:
+        """An empty $all matches nothing, so an empty value would hide every ACL-carrying type."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.ACL.value: raw})
+
+    @pytest.mark.parametrize('raw', ['read', 'Read', 'NOPE', 'READ,nope'], ids=repr)
+    def test_an_unknown_permission_is_rejected(self, raw: str) -> None:
+        """Matching is case-sensitive: a stored ACL holds the upper-case value, so 'read' matches nothing."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.ACL.value: raw})
+
+    def test_the_rejection_names_the_valid_permissions(self) -> None:
+        """The 400 has to say what to send instead."""
+        with pytest.raises(ValueError, match='CREATE'):
+            TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.ACL.value: 'nope'})
+
+    def test_an_already_parsed_list_is_taken_as_given(self) -> None:
+        """An internal caller may hand the permissions over parsed rather than as a query string."""
+        params = TypeIterationParameters.from_data(
+            QUERY_STRING, **{ParameterKey.ACL.value: [AccessControlPermission.CREATE]},
+        )
+
+        assert params.acl == [AccessControlPermission.CREATE]
+
+    def test_an_empty_parsed_list_is_rejected_like_an_empty_string(self) -> None:
+        """Empty means the same thing whichever way it arrives: nothing would match."""
+        with pytest.raises(ValueError):
+            TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.ACL.value: []})
+
+    def test_the_acl_filter_does_not_leak_into_optional(self) -> None:
+        """It is a named parameter, so it must not also ride along as an optional one."""
+        params = TypeIterationParameters.from_data(QUERY_STRING, **{ParameterKey.ACL.value: 'CREATE'})
+
+        assert ParameterKey.ACL.value not in params.optional
 
 
 class TestGroupDeletionParameters:

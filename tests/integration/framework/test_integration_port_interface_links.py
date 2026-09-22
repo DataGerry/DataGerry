@@ -36,8 +36,10 @@ import pytest
 from pymongo.errors import DuplicateKeyError
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager import ObjectsManager
 from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.port_model import PortKey
 from cmdb.models.port_interface_link_model import (
     AssignableInterfaceKey,
     AssignableInterfaceSubnetKey,
@@ -54,6 +56,11 @@ from cmdb.framework.port.assignable_interfaces import (
 )
 from cmdb.framework.port.cascade import delete_interface_links_of_ports
 from cmdb.framework.port.interface_links import collect_dangling_links, resolve_link_row
+from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
+    INTERFACE_ROW_KEY,
+    PORT_INTERFACE_LINKS_KEY,
+)
+from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import with_interface_links
 # -------------------------------------------------------------------------------------------------------------------- #
 # Several tests take the 'links' fixture purely for its side effect - it builds the declared indexes
 # and clears the collection - and never touch the handle it yields
@@ -453,3 +460,54 @@ def test_the_subnet_name_comes_from_the_referenced_object(links, host, manager,
     assert subnet_ids == [SUBNET_OBJECT_ID]
     assert rows[0][AssignableInterfaceKey.SUBNET.value][
         AssignableInterfaceSubnetKey.NAME.value] == SUBNET_NAME
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                  THE PORT READS' PROJECTION, AGAINST STORED DOCUMENTS                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+# The unit tests hand the projection its links; what is only observable here is that the grouping holds
+# against the documents Mongo really returns - the port ids come back out of the links collection and
+# have to match the ones on the port documents for a port to find its own links
+def test_the_port_projection_groups_the_stored_links(links, host, manager,
+                                                     database_manager: MongoDatabaseManager,
+                                                     database_name: str) -> None:
+    """Each port carries the links the database holds for it, with the stored row resolved"""
+    manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[0])))
+    manager.insert_item(CmdbPortInterfaceLink.from_data(
+        _link_doc(LINK_IDS[1], port_id=OTHER_PORT_ID, multi_data_id=OTHER_ROW_ID),
+    ))
+
+    ports: list[dict[str, Any]] = [
+        {PortKey.PUBLIC_ID.value: PORT_ID, PortKey.OBJECT_ID.value: HOST_OBJECT_ID},
+        {PortKey.PUBLIC_ID.value: OTHER_PORT_ID, PortKey.OBJECT_ID.value: HOST_OBJECT_ID},
+    ]
+
+    with_interface_links(manager, ObjectsManager(database_manager, database_name), ports,
+                         _stored_host(database_manager, database_name))
+
+    assert [link[PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value]
+            for link in ports[0][PORT_INTERFACE_LINKS_KEY]] == [ROW_ID]
+    assert [link[PortInterfaceLinkKey.INTERFACE_MULTI_DATA_ID.value]
+            for link in ports[1][PORT_INTERFACE_LINKS_KEY]] == [OTHER_ROW_ID]
+    assert ports[0][PORT_INTERFACE_LINKS_KEY][0][INTERFACE_ROW_KEY]['multi_data_id'] == ROW_ID
+
+
+def test_the_port_projection_leaves_a_dangling_link_listed(links, host, manager,
+                                                           database_manager: MongoDatabaseManager,
+                                                           database_name: str) -> None:
+    """A row removed by an ordinary object write leaves the link in the answer, without its row"""
+    manager.insert_item(CmdbPortInterfaceLink.from_data(_link_doc(LINK_IDS[0])))
+    host.update_one(
+        {'public_id': HOST_OBJECT_ID},
+        {'$pull': {'multi_data_sections.$[section].values': {'multi_data_id': ROW_ID}}},
+        array_filters=[{'section.section_id': IpamSection.INTERFACE.value}],
+    )
+
+    ports: list[dict[str, Any]] = [{PortKey.PUBLIC_ID.value: PORT_ID,
+                                    PortKey.OBJECT_ID.value: HOST_OBJECT_ID}]
+
+    with_interface_links(manager, ObjectsManager(database_manager, database_name), ports,
+                         _stored_host(database_manager, database_name))
+
+    assert len(ports[0][PORT_INTERFACE_LINKS_KEY]) == 1
+    assert INTERFACE_ROW_KEY not in ports[0][PORT_INTERFACE_LINKS_KEY][0]

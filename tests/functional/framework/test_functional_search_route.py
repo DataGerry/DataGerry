@@ -18,11 +18,11 @@ Functional coverage for the /search routes
 
 Covers the quick-search counter (result envelope, the empty -> zeroed counts, and the
 ObjectsManagerIterationError -> 400 / unexpected -> 500 mappings) and the search framework
-(GET + POST happy paths, the query/body parse errors -> 400, and - since 2026-09-09 - a failing
-search REPORTED as 400/500 instead of the empty 204 it used to answer, plus the paging contract:
-`limit=0` means every match, a negative limit or skip is refused).
+(GET + POST happy paths, the query/body parse errors -> 400, a failing search REPORTED as 400/500
+rather than as an empty 204, plus the paging contract: `limit=0` means every match, a negative limit
+or skip is refused).
 
-TestGetCarriesTheSamePayloadAsPost and TestRequestParametersAreStrict were added 2026-09-14 with the
+TestGetCarriesTheSamePayloadAsPost and TestRequestParametersAreStrict cover the
 fixes they describe: a GET search carrying an actual parameter list used to answer 500, and a
 non-numeric `?limit=` / an unrecognised `?resolve=` used to be accepted with the default substituted.
 
@@ -55,6 +55,9 @@ from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 
 QUICK_COUNT_URL: str = '/search/quick/count/'
 SEARCH_URL: str = '/search/'
+
+#: Stamped per render, so it differs between two otherwise identical answers
+RENDER_TIME_KEY: str = 'current_render_time'
 
 #: The payload both methods carry - a JSON array of search parameters
 TEXT_PARAM: list[dict[str, str]] = [{'searchText': 'searchable', 'searchForm': SearchFormType.TEXT.value}]
@@ -129,6 +132,28 @@ def _entry_for_seeded_object(body: dict[str, Any]) -> dict[str, Any] | None:
             return entry
 
     return None
+
+
+def _without_render_times(body: dict[str, Any]) -> dict[str, Any]:
+    """
+    A search answer with each hit's render timestamp dropped
+
+    `current_render_time` is stamped per render, so two identical searches differ by milliseconds -
+    the one key that makes two answers unequal without meaning anything.
+    """
+    stripped = dict(body)
+    stripped[SearchResultKey.RESULTS.value] = [
+        {
+            **entry,
+            SearchResultMapKey.RESULT.value: {
+                key: value for key, value in entry[SearchResultMapKey.RESULT.value].items()
+                if key != RENDER_TIME_KEY
+            },
+        }
+        for entry in body[SearchResultKey.RESULTS.value]
+    ]
+
+    return stripped
 
 
 def _raiser(exc: Exception):
@@ -208,9 +233,9 @@ class TestSearchFramework:
         """
         A failing search is a 500, not an empty 204
 
-        Until 2026-09-09 every error inside the search block answered 204 with an empty body, which a
-        client cannot tell apart from "nothing matched" - so a broken pipeline, a Mongo timeout and an
-        unusable page size all looked like a successful empty search.
+        An error inside the search block answering 204 with an empty body cannot be told apart
+        from "nothing matched" - a broken pipeline, a Mongo timeout and an unusable page size would
+        all look like a successful empty search.
         """
         monkeypatch.setattr(SearcherFramework, 'aggregate', _raiser(RuntimeError('boom')))
 
@@ -259,10 +284,10 @@ class TestGetCarriesTheSamePayloadAsPost:
     """
     A GET search carries the SAME parameter array as a POST, in ?query=
 
-    Until 2026-09-14 it did not: the GET branch handed the raw JSON to the pipeline builder without
-    building SearchParam objects, so the builder read `.search_form` off plain strings and the route
-    answered 500. It went unnoticed because every GET test in this file sent `?query={}` - the one
-    payload that happens to work, because an empty parameter list needs no parameters.
+    Handing the raw JSON to the pipeline builder without building SearchParam objects makes the
+    builder read `.search_form` off plain strings and the route answer 500. A GET test sending
+    `?query={}` would not catch it - that is the one payload that works either way, because an empty
+    parameter list needs no parameters.
     """
 
     def test_a_real_parameter_list_is_accepted(self, rest_api) -> None:
@@ -433,13 +458,57 @@ class TestMatchedFields:
 
         assert EMPTY_FIELD not in matched_names
 
+    def test_the_marker_changes_nothing_about_the_answer(self, rest_api) -> None:
+        """
+        A search with the marker answers exactly what the same search without it answers
+
+        Accepting a parameter and IGNORING it are two different claims, and only this one is about
+        the second. The marker is kept as a documented no-op, so the pair of searches has to stay
+        indistinguishable - including the total, which is what a marker quietly turned into a filter
+        would move.
+        """
+        with_marker = json.dumps([
+            {'searchText': NAME_VALUE, 'searchForm': SearchFormType.TEXT.value},
+            {'searchText': 'or', 'searchForm': SearchFormType.DISJUNCTION.value,
+             'searchLabel': 'or', 'disjunction': True},
+        ])
+        without_marker = json.dumps([
+            {'searchText': NAME_VALUE, 'searchForm': SearchFormType.TEXT.value},
+        ])
+
+        answered = rest_api.post(SEARCH_URL, data=with_marker, content_type='application/json').get_json()
+        baseline = rest_api.post(SEARCH_URL, data=without_marker, content_type='application/json').get_json()
+
+        assert _without_render_times(answered) == _without_render_times(baseline)
+        # ...and the seeded object really is in both, so the comparison is not two empty pages
+        assert _entry_for_seeded_object(answered) is not None
+
+    def test_the_marker_contributes_no_highlight(self, rest_api) -> None:
+        """
+        Its own searchText ('or') must not come back as a matched field
+
+        A hit's `matches` are computed by re-running the EXECUTED pipeline's regexes, so a marker
+        that ever reached a stage would start highlighting the letters "or" in every result.
+        """
+        body = json.dumps([
+            {'searchText': NAME_VALUE, 'searchForm': SearchFormType.TEXT.value},
+            {'searchText': 'or', 'searchForm': SearchFormType.DISJUNCTION.value,
+             'searchLabel': 'or', 'disjunction': True},
+        ])
+
+        entry = _entry_for_seeded_object(
+            rest_api.post(SEARCH_URL, data=body, content_type='application/json').get_json()
+        )
+
+        matched_names = [field['name'] for field in entry[SearchResultMapKey.MATCHES.value]]
+        assert matched_names == [NAME_FIELD]
 
 class TestAnUnusableSearchParameterIsRefused:
     """
     A search that cannot read one of its parameters answers 400 instead of searching without it
 
-    Until 2026-09-08 the parameter was logged and skipped, so the request ran with fewer criteria than
-    the caller sent - and a dropped FILTER returns more objects than the filter allows, with a 200.
+    Logging and skipping the parameter instead would run the request with fewer criteria than the
+    caller sent - and a dropped FILTER returns more objects than the filter allows, with a 200.
     """
 
     def test_a_parameter_without_a_form_is_a_400(self, rest_api) -> None:
@@ -501,3 +570,42 @@ class TestAnUnusableSearchParameterIsRefused:
 
         assert rest_api.post(SEARCH_URL, data=body, content_type='application/json').status_code \
             == HTTPStatus.OK
+class TestAnUnusableTextTermIsAnswered:
+    """
+    A search box must not answer 400 because somebody typed a regex metacharacter
+
+    A TEXT term reaches MongoDB as a regular expression, so an unescaped `*` is not a search that
+    finds nothing - it is a query the database refuses. Escaping happens here; the Angular search bar
+    escapes every term it sends as well, and an escaped term always compiles.
+    """
+
+    @pytest.mark.parametrize('term', ['*', '[unclosed', 'a**', '+'], ids=repr)
+    def test_an_unusable_text_term_returns_results_not_400(self, rest_api, term: str) -> None:
+        """It is matched as the literal text it evidently was."""
+        body = json.dumps([{'searchText': term, 'searchForm': 'text'}])
+
+        response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+        assert response.status_code == HTTPStatus.OK
+
+    @pytest.mark.parametrize('term', ['C++', 'Data (EU)'], ids=repr)
+    def test_a_usable_text_term_still_answers(self, rest_api, term: str) -> None:
+        """The terms T187's remaining half is about are valid patterns and were never the 400."""
+        body = json.dumps([{'searchText': term, 'searchForm': 'text'}])
+
+        response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_an_unusable_regex_term_is_still_refused(self, rest_api) -> None:
+        """
+        The REGEX form is not second-guessed
+
+        A caller who asks for a pattern and gives an invalid one is told, rather than quietly served
+        a literal match they did not ask for.
+        """
+        body = json.dumps([{'searchText': '*', 'searchForm': 'regex'}])
+
+        response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST

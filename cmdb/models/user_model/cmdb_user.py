@@ -25,7 +25,6 @@ deciding which of the two it belongs in
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
-from dateutil.parser import parse
 
 from cmdb.class_schema.user_model.cmdb_user_schema import (
     get_cmdb_user_schema,
@@ -35,6 +34,7 @@ from cmdb.class_schema.user_model.cmdb_user_schema import (
     DEFAULT_DATABASE,
     DEFAULT_GROUP,
 )
+from cmdb.utils import coerce_document_dates
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
 
@@ -56,33 +56,47 @@ class CmdbUser(CmdbDAO):
     """
     Implementation of a CmdbUser in DataGerry
 
+    The class is both the domain object and the stored document of `management.users`. Two
+    serialisations exist and they are not interchangeable: `to_json` is the STORAGE form and carries
+    the password digest, `to_public_json` is the same document without it and is the only one a
+    client may see (see the module docstring)
+
+    Two constructor arguments are normalised rather than stored verbatim - a falsy `group_id` or
+    `authenticator` falls back to its default - so a document that omits the field and one that
+    carries None behave the same. `database` deliberately does NOT: an unusable tenant name is
+    refused by `ManagerProvider` rather than replaced here, because silently substituting it would
+    bind a cloud user's managers to the wrong database. `__init__` is KEYWORD-ONLY: the model is
+    written by position nowhere, and `from_data` depends on the argument names being checked
+
     Extends: CmdbDAO
     """
     COLLECTION = 'management.users'
+    DATE_FIELDS: tuple[str, ...] = (CmdbUserKey.REGISTRATION_TIME.value,)
     INDEX_KEYS: list[dict[str, Any]] = [
         {
-            'keys': [('user_name', CmdbDAO.DAO_ASCENDING)],
-            'name': 'user_name',
+            'keys': [(CmdbUserKey.USER_NAME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': CmdbUserKey.USER_NAME.value,
             'unique': True
         }
     ]
 
     # The field defaults are defined once, next to the schema that also declares them - the model and
-    # the validation schema must agree on what an omitted field means
+    # the validation schema must agree on what an omitted field means. Only the defaults `__init__`
+    # applies in its BODY are re-exported here; the ones it applies in its SIGNATURE are read from
+    # the schema module directly, so a default never has two spellings that can drift apart
     DEFAULT_AUTHENTICATOR: str = DEFAULT_AUTHENTICATOR
     DEFAULT_GROUP: int = DEFAULT_GROUP
-    DEFAULT_API_LEVEL: int = DEFAULT_API_LEVEL
-    DEFAULT_CONFIG_ITEMS_LIMIT: int = DEFAULT_CONFIG_ITEMS_LIMIT
-    DEFAULT_DATABASE: str = DEFAULT_DATABASE
 
     # public_id of the bootstrap admin user seeded by conftest / installer; protected from deletion
     ADMIN_PUBLIC_ID: int = 1
 
     SCHEMA: dict[str, Any] = get_cmdb_user_schema()
 
-    # pylint: disable=R0913, R0914, R0917
+    # Keyword-only (see the class docstring), which is what keeps R0917 off this list
+    # pylint: disable=too-many-arguments, too-many-locals
     def __init__(
         self,
+        *,
         public_id: int,
         user_name: str,
         active: bool,
@@ -101,6 +115,10 @@ class CmdbUser(CmdbDAO):
         """
         Initializes a CmdbUser
 
+        All arguments are KEYWORD-ONLY. Nothing in `cmdb/` or `tests/` constructs a CmdbUser by
+        position, and `from_data` relies on the names being checked, so the signature enforces what
+        every caller already does
+
         Args:
             public_id (int): Unique identifier for the CmdbUser
             user_name (str): Username of the CmdbUser
@@ -109,7 +127,8 @@ class CmdbUser(CmdbDAO):
             registration_time (datetime, optional): When the CmdbUser was created. Defaults to now
             password (str, optional): The CmdbUser's password DIGEST (see the module docstring)
             database (str, optional): Name of the database the user belongs to. Defaults to
-                DEFAULT_DATABASE
+                DEFAULT_DATABASE. Stored as given - a falsy value is NOT replaced here; in cloud mode
+                ManagerProvider refuses it rather than let it fall through to another tenant
             api_level (int, optional): API access level of the CmdbUser. Defaults to DEFAULT_API_LEVEL
             config_items_limit (int, optional): Limit of configuration items. Defaults to
                 DEFAULT_CONFIG_ITEMS_LIMIT
@@ -187,10 +206,13 @@ class CmdbUser(CmdbDAO):
             CmdbUser: CmdbUser with the given data
         """
         try:
-            reg_date = data.get(CmdbUserKey.REGISTRATION_TIME.value)
+            # The registration time is coerced strictly: a value that cannot be read is refused
+            # rather than guessed. A fuzzy parse turns a note like 'sometime in March' into a
+            # date built from today's day number
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if reg_date and isinstance(reg_date, str):
-                reg_date = parse(reg_date, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
                 public_id=data[CmdbUserKey.PUBLIC_ID.value],
@@ -200,7 +222,7 @@ class CmdbUser(CmdbDAO):
                 api_level=data.get(CmdbUserKey.API_LEVEL.value, DEFAULT_API_LEVEL),
                 config_items_limit=data.get(CmdbUserKey.CONFIG_ITEMS_LIMIT.value, DEFAULT_CONFIG_ITEMS_LIMIT),
                 group_id=data.get(CmdbUserKey.GROUP_ID.value),
-                registration_time=reg_date,
+                registration_time=data.get(CmdbUserKey.REGISTRATION_TIME.value),
                 authenticator=data.get(CmdbUserKey.AUTHENTICATOR.value),
                 email=data.get(CmdbUserKey.EMAIL.value),
                 password=data.get(CmdbUserKey.PASSWORD.value),
@@ -310,10 +332,10 @@ class CmdbUser(CmdbDAO):
         """
         Checks if the configuration item limit for the user has been reached
 
-        Two behaviours here are deliberate as far as the current callers are concerned, and both are
-        recorded as discussion-backlog #164: a falsy limit - which includes an explicit 0 - is treated
-        as 'unset' and REPLACED with the default, and that replacement is written back onto the
-        instance, so this predicate mutates the CmdbUser it is asked about
+        Two behaviours here are deliberate as far as the current callers are concerned: a falsy limit
+        - which includes an explicit 0 - is treated as 'unset' and REPLACED with the default, and
+        that replacement is written back onto the instance, so this predicate mutates the CmdbUser
+        it is asked about
 
         Args:
             objects_count (int): Amount of current CmdbObjects

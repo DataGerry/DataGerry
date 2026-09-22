@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import LikelihoodManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -32,8 +31,9 @@ from cmdb.models.isms_model.isms_helper import calculate_risk_matrix
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -52,7 +52,7 @@ from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerDeleteError,
     LikelihoodManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -79,7 +79,8 @@ def _coerce_calculation_basis(data: dict[str, Any]) -> None:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.add')
-@likelihood_blueprint.validate(IsmsLikelihood.SCHEMA)
+@likelihood_blueprint.validate(build_write_schema(IsmsLikelihood.SCHEMA))
+@handle_route_errors("while creating the Likelihood")
 def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsLikelihood into the database
@@ -113,17 +114,12 @@ def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Resp
         calculate_risk_matrix(request_user)
 
         return InsertSingleResponse(created_likelihood, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LikelihoodManagerInsertError as err:
         LOGGER.error("[insert_isms_likelihood] LikelihoodManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new Likelihood in the database!")
     except LikelihoodManagerGetError as err:
         LOGGER.error("[insert_isms_likelihood] LikelihoodManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created Likelihood from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_isms_likelihood] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the Likelihood!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -172,6 +168,7 @@ def get_isms_likelihoods(params: CollectionParameters, request_user: CmdbUser) -
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.view')
+@handle_route_errors("while retrieving the Likelihood with ID: {public_id}")
 def get_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsLikelihood
@@ -190,14 +187,9 @@ def get_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
                                                f"The Likelihood with ID:{public_id} was not found!")
 
         return GetSingleResponse(requested_likelihood, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LikelihoodManagerGetError as err:
         LOGGER.error("[get_isms_likelihood] LikelihoodManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Likelihood with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_likelihood] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the Likelihood with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -205,7 +197,8 @@ def get_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.edit')
-@likelihood_blueprint.validate(IsmsLikelihood.SCHEMA)
+@likelihood_blueprint.validate(build_write_schema(IsmsLikelihood.SCHEMA))
+@handle_route_errors("while updating the Likelihood with ID: {public_id}")
 def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsLikelihood
@@ -233,6 +226,10 @@ def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: C
         if basis_changed and likelihood_manager.likelihood_calculation_basis_exists(data['calculation_basis']):
             abort(400, "The calculation basis is already used by another Likelihood!")
 
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document, and
+        # both branches below build the model from this payload
+        pin_public_id(data, public_id)
+
         # If the calculation_basis changed, also update IsmsRiskAssessments
         if basis_changed:
             likelihood_manager.update_with_follow_up(public_id, data)
@@ -243,17 +240,12 @@ def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: C
         calculate_risk_matrix(request_user)
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LikelihoodManagerGetError as err:
         LOGGER.error("[update_isms_likelihood] LikelihoodManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Likelihood with ID: {public_id} from the database!")
     except LikelihoodManagerUpdateError as err:
         LOGGER.error("[update_isms_likelihood] LikelihoodManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Likelihood with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_isms_likelihood] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the Likelihood with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -261,6 +253,7 @@ def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: C
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.delete')
+@handle_route_errors("while deleting the Likelihood with ID: {public_id}")
 def delete_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsLikelihood
@@ -287,14 +280,9 @@ def delete_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
         calculate_risk_matrix(request_user)
 
         return DeleteSingleResponse(to_delete_likelihood).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LikelihoodManagerDeleteError as err:
         LOGGER.error("[delete_isms_likelihood] LikelihoodManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the Likelihood with ID:{public_id}!")
     except LikelihoodManagerGetError as err:
         LOGGER.error("[delete_isms_likelihood] LikelihoodManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Likelihood with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_isms_likelihood] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the Likelihood with ID: {public_id}!")

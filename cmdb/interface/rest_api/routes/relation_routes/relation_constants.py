@@ -14,13 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Shared constants for the CmdbRelation and CmdbObjectRelation REST routes
+Shared constants for the CmdbRelation, CmdbObjectRelation and CmdbObjectRelationLog REST routes
 
-Names the ACL rights guarding the routes, plus the request / response keys that belong to a route
-rather than to the document: the relation-tab pagination parameters and the keys of the relation-tab
-instances body. The document's own keys live with the model (``ObjectRelationKey``,
-``ObjectRelationRole``, ``RelationTabKey`` in ``cmdb.models.object_relation_model``) because the
-managers read the very same keys.
+Names the ACL rights guarding the routes - one enum per entity, the three of them together because
+they are one family: a relation, the object relations that instantiate it, and the audit trail of
+those - plus the request / response keys that belong to a route rather than to the document: the
+relation-tab pagination parameters and the keys of the relation-tab instances body.
+
+The document's own keys live with the model (``ObjectRelationKey``, ``ObjectRelationRole``,
+``RelationTabKey`` in ``cmdb.models.object_relation_model``, ``ObjectRelationLogKey`` in
+``cmdb.models.log_model``) because the managers read the very same keys.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,6 +34,7 @@ __all__: list[str] = [
     'SORT_DIRECTIONS',
     'RelationRight',
     'ObjectRelationRight',
+    'ObjectRelationLogRight',
     'ObjectRelationTabParam',
     'TabInstancesKey',
     'BulkDeleteKey',
@@ -65,6 +69,17 @@ class ObjectRelationRight(BaseStrEnum):
     VIEW = 'base.framework.objectRelation.view'
     EDIT = 'base.framework.objectRelation.edit'
     DELETE = 'base.framework.objectRelation.delete'
+
+
+class ObjectRelationLogRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the CmdbObjectRelationLog REST routes
+
+    Two, not four: the logs are written internally by `ObjectRelationLogsManager` whenever an
+    ObjectRelation changes, so there is no route to add or edit one
+    """
+    VIEW = 'base.framework.objectRelationLog.view'
+    DELETE = 'base.framework.objectRelationLog.delete'
 
 
 class ObjectRelationTabParam(BaseStrEnum):

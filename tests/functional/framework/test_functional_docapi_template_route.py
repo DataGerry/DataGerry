@@ -35,6 +35,7 @@ from http import HTTPStatus
 from typing import Any
 from urllib.parse import quote
 import json
+import re
 
 import pytest
 from werkzeug.exceptions import NotFound
@@ -522,6 +523,22 @@ RENDER_TPL_ID: int = 80013
 RENDER_NAME_FIELD: str = 'dg-name'
 PDF_MAGIC: bytes = b'%PDF'
 
+# A rendered document is named like every other export: `<timestamp>_document_<template>-<object>.pdf`,
+# built by cmdb.framework.exporter.export_filename_helper. Before 2026-09-21 every render of every
+# template answered with the one name `output.pdf`
+RENDERED_FILENAME_PATTERN: str = (
+    r'attachment; filename="\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}_document_render-'
+    + str(RENDER_OBJECT_ID)
+    + r'\.pdf"'
+)
+
+UNLABELLED_TPL_ID: int = 80014
+UNLABELLED_FILENAME_PATTERN: str = (
+    r'attachment; filename="\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}_document_tpl-no-label-'
+    + str(RENDER_OBJECT_ID)
+    + r'\.pdf"'
+)
+
 
 @pytest.fixture(name='renderable')
 def fixture_renderable(database_manager: MongoDatabaseManager, database_name: str):
@@ -579,7 +596,31 @@ class TestRenderHappyPath:
         assert response.status_code == HTTPStatus.OK
         assert response.mimetype == 'application/pdf'
         assert response.get_data().startswith(PDF_MAGIC)
-        assert response.headers['Content-Disposition'] == 'attachment; filename=output.pdf'
+        assert re.fullmatch(RENDERED_FILENAME_PATTERN, response.headers['Content-Disposition'])
+
+    def test_a_template_without_a_label_is_named_by_its_name(
+        self, rest_api, renderable, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The label is optional on the model, so the required unique name stands in for the filename."""
+        del renderable
+        templates = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        templates.delete_many({'public_id': UNLABELLED_TPL_ID})
+        templates.insert_one({
+            'public_id': UNLABELLED_TPL_ID,
+            'name': 'tpl-no-label',
+            'active': True,
+            'author_id': 1,
+            'template_data': '<h1>{{ fields.dg_name }}</h1>',
+            'template_style': '',
+        })
+
+        try:
+            response = rest_api.get(f'{CRUD_URL}/{UNLABELLED_TPL_ID}/render/{RENDER_OBJECT_ID}')
+
+            assert response.status_code == HTTPStatus.OK
+            assert re.fullmatch(UNLABELLED_FILENAME_PATTERN, response.headers['Content-Disposition'])
+        finally:
+            templates.delete_many({'public_id': UNLABELLED_TPL_ID})
 
     def test_render_failure_returns_500(self, rest_api, renderable, monkeypatch) -> None:
         """A failing renderer is a 500 naming both ids, not a leaked traceback."""

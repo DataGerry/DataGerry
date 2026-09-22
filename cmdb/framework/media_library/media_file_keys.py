@@ -29,6 +29,10 @@ from cmdb.utils import BaseStrEnum
 __all__: list[str] = [
     'MediaFileKey',
     'MediaFileMetadataKey',
+    'GRIDFS_FILES_SUFFIX',
+    'MEDIA_FILE_PARENT_PATH',
+    'MEDIA_FILE_FILENAME_PARENT_INDEX_NAME',
+    'LEGACY_MEDIA_FILE_NAME_INDEX_NAME',
 ]
 
 # GridFS keeps a file's chunks in '<collection>.chunks' and its file documents in '<collection>.files'.
@@ -82,3 +86,18 @@ class MediaFileMetadataKey(BaseStrEnum):
     REFERENCE_TYPE = 'reference_type'
     FOLDER = 'folder'
     PERMISSION = 'permission'
+
+
+# The dotted path of the parent folder inside the metadata sub-document. Named here rather than built
+# with the routes' `metadata_field` helper because the unique index is declared in the model layer,
+# which may not import from the interface layer - and both ends have to spell the same path
+MEDIA_FILE_PARENT_PATH: str = f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.PARENT.value}'
+
+# Name of the unique index over (filename, metadata.parent) - the pair a file's identity is, and the
+# same pair the upload/update routes check before falling back to a 'copy_(n)_' rename
+MEDIA_FILE_FILENAME_PARENT_INDEX_NAME: str = 'filename_parent'
+
+# Name of the index this model declared until 2026-09-16: a UNIQUE index over 'name', a key no GridFS
+# document carries. It was never built anywhere (the class was not registered for reconciliation), so
+# it exists only in a database whose collection was somehow created from that declaration
+LEGACY_MEDIA_FILE_NAME_INDEX_NAME: str = 'name'
