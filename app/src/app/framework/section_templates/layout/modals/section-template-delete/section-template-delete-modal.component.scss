@@ -24,6 +24,15 @@
     border: 1px solid rgba(var(--dg-danger-rgb), 0.25);
     background: rgba(var(--dg-danger-rgb), 0.06);
 
+    &--safe {
+        border-color: rgba(var(--dg-brand-rgb), 0.25);
+        background: rgba(var(--dg-brand-rgb), 0.06);
+
+        .delete-callout__icon {
+            color: var(--dg-brand);
+        }
+    }
+
     &__icon {
         flex: 0 0 auto;
         font-size: 1.15rem;
